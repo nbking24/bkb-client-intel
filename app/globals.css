@@ -1,0 +1,37 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  --bg: #1a1a1a;
+  --bg-secondary: #242424;
+  --bg-elevated: #2a2a2a;
+  --bg-input: #2a2a2a;
+  --gold: #CDA274;
+  --gold-dim: rgba(205,162,116,0.15);
+  --text-primary: #e8e0d8;
+  --text-secondary: #b0a898;
+  --text-muted: #8a8078;
+  --border: rgba(205,162,116,0.12);
+  --border-gold: rgba(205,162,116,0.25);
+  --success: #4a9;
+  --error: #c45c4c;
+}
+
+body {
+  margin: 0;
+  background: var(--bg);
+  color: var(--text-primary);
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+  -webkit-font-smoothing: antialiased;
+}
+
+@keyframes fadeIn { from { opacity: 0; transform: translateY(6px); } to { opacity: 1; transform: translateY(0); } }
+@keyframes slideUp { from { opacity: 0; transform: translateY(12px); } to { opacity: 1; transform: translateY(0); } }
+@keyframes pulse { 0%, 100% { opacity: 0.4; } 50% { opacity: 1; } }
+
+.animate-fade-in { animation: fadeIn 0.3s ease-out; }
+.animate-slide-up { animation: slideUp 0.4s ease-out; }
+.thinking-dot { animation: pulse 1.2s ease-in-out infinite; }
+.thinking-dot:nth-child(2) { animation-delay: 0.2s; }
+.thinking-dot:nth-child(3) { animation-delay: 0.4s; }
