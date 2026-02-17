@@ -10,6 +10,12 @@ function headers() {
   };
 }
 
+export async function getContact(contactId: string) {
+  const res = await fetch(GHL_BASE + '/contacts/' + contactId, { headers: headers() });
+  if (!res.ok) throw new Error('GHL get contact failed: ' + res.status);
+  return res.json();
+}
+
 export async function searchContacts(query: string) {
   const url = GHL_BASE + '/contacts/?locationId=' + GHL_LOC() + '&query=' + encodeURIComponent(query) + '&limit=10';
   const res = await fetch(url, { headers: headers() });
@@ -56,7 +62,7 @@ export async function searchConversations(contactId: string) {
   return data.conversations || [];
 }
 
-export async function getConversationMessages(conversationId: string, limit = 20) {
+export async function getConversationMessages(conversationId: string, limit = 40) {
   const url = GHL_BASE + '/conversations/' + conversationId + '/messages?limit=' + limit;
   const res = await fetch(url, { headers: headers() });
   if (!res.ok) throw new Error('GHL get messages failed: ' + res.status);
