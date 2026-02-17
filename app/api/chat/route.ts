@@ -19,6 +19,36 @@ function detectIntent(msg: string) {
   };
 }
 
+// Helper to format any value for display
+function formatValue(val: any): string {
+  if (val === null || val === undefined || val === '') return '';
+  if (typeof val === 'boolean') return val ? 'Yes' : 'No';
+  if (typeof val === 'string') return val;
+  if (typeof val === 'number') return String(val);
+  if (Array.isArray(val)) {
+    if (val.length === 0) return '';
+    return val.map(v => {
+      if (typeof v === 'object' && v !== null) {
+        // Handle custom field objects
+        if (v.value !== undefined && v.value !== null && v.value !== '') {
+          return (v.fieldKey || v.key || v.id || 'field') + ': ' + String(v.value);
+        }
+        return JSON.stringify(v);
+      }
+      return String(v);
+    }).join(', ');
+  }
+  if (typeof val === 'object') return JSON.stringify(val);
+  return String(val);
+}
+
+// Fields to skip when dynamically reading contact profile
+const SKIP_FIELDS = new Set([
+  'id', 'locationId', 'fingerprint', 'firstNameLowerCase', 'lastNameLowerCase',
+  'fullNameLowerCase', 'emailLowerCase', 'contactName', 'companyLowerCase',
+  '__v', 'deleted', 'type',
+]);
+
 async function fetchGHLData(contactId: string): Promise<string> {
   const sections: string[] = [];
 
@@ -31,35 +61,87 @@ async function fetchGHLData(contactId: string): Promise<string> {
       getContactTasks(contactId),
     ]);
 
-    // === CONTACT PROFILE ===
+    // === CONTACT PROFILE (all populated fields) ===
     if (profile.status === 'fulfilled' && profile.value) {
       const c = profile.value.contact || profile.value;
       const profileLines: string[] = [];
-      if (c.firstName || c.lastName) profileLines.push('Name: ' + (c.firstName || '') + ' ' + (c.lastName || ''));
-      if (c.email) profileLines.push('Email: ' + c.email);
-      if (c.phone) profileLines.push('Phone: ' + c.phone);
-      if (c.companyName) profileLines.push('Company: ' + c.companyName);
-      if (c.address1) profileLines.push('Address: ' + [c.address1, c.city, c.state, c.postalCode].filter(Boolean).join(', '));
-      if (c.website) profileLines.push('Website: ' + c.website);
-      if (c.source) profileLines.push('Lead Source: ' + c.source);
-      if (c.dateAdded) profileLines.push('Date Added: ' + new Date(c.dateAdded).toLocaleDateString());
-      if (c.dateOfBirth) profileLines.push('DOB: ' + c.dateOfBirth);
-      if (c.tags && c.tags.length > 0) profileLines.push('Tags: ' + c.tags.join(', '));
-      if (c.customFields && c.customFields.length > 0) {
-        for (const cf of c.customFields) {
-          if (cf.value) profileLines.push((cf.fieldKey || cf.id) + ': ' + cf.value);
+
+      // Priority fields first for readability
+      const priorityFields = [
+        ['firstName', 'First Name'], ['lastName', 'Last Name'],
+        ['email', 'Email'], ['phone', 'Phone'],
+        ['companyName', 'Company'], ['address1', 'Address'],
+        ['city', 'City'], ['state', 'State'], ['postalCode', 'Postal Code'], ['country', 'Country'],
+        ['website', 'Website'], ['source', 'Lead Source'],
+        ['dateAdded', 'Date Added'], ['dateOfBirth', 'Date of Birth'],
+        ['assignedTo', 'Assigned To'], ['dnd', 'Do Not Disturb'],
+        ['lastActivity', 'Last Activity'],
+      ];
+      const usedKeys = new Set();
+      for (const [key, label] of priorityFields) {
+        usedKeys.add(key);
+        const val = formatValue(c[key]);
+        if (val) {
+          // Format dates nicely
+          if (key === 'dateAdded' || key === 'lastActivity') {
+            try { profileLines.push(label + ': ' + new Date(c[key]).toLocaleString()); } catch { profileLines.push(label + ': ' + val); }
+          } else {
+            profileLines.push(label + ': ' + val);
+          }
         }
       }
-      if (c.assignedTo) profileLines.push('Assigned To: ' + c.assignedTo);
-      if (c.dnd) profileLines.push('Do Not Disturb: YES');
+
+      // Tags
+      if (c.tags && Array.isArray(c.tags) && c.tags.length > 0) {
+        profileLines.push('Tags: ' + c.tags.join(', '));
+        usedKeys.add('tags');
+      }
+
+      // Custom fields
+      if (c.customFields && Array.isArray(c.customFields) && c.customFields.length > 0) {
+        for (const cf of c.customFields) {
+          if (cf.value !== undefined && cf.value !== null && cf.value !== '') {
+            profileLines.push((cf.fieldKey || cf.key || cf.id || 'Custom Field') + ': ' + String(cf.value));
+          }
+        }
+        usedKeys.add('customFields');
+      }
+
+      // Additional emails and phones
+      if (c.additionalEmails && c.additionalEmails.length > 0) {
+        profileLines.push('Additional Emails: ' + c.additionalEmails.join(', '));
+        usedKeys.add('additionalEmails');
+      }
+      if (c.additionalPhones && c.additionalPhones.length > 0) {
+        profileLines.push('Additional Phones: ' + c.additionalPhones.map((p: any) => p.phone || p).join(', '));
+        usedKeys.add('additionalPhones');
+      }
+
+      // Opportunities if included
+      if (c.opportunities && Array.isArray(c.opportunities) && c.opportunities.length > 0) {
+        for (const opp of c.opportunities) {
+          profileLines.push('Opportunity: ' + (opp.name || 'Unnamed') + ' | Value: ' + (opp.monetaryValue || 'N/A') + ' | Status: ' + (opp.status || 'N/A'));
+        }
+        usedKeys.add('opportunities');
+      }
+
+      // Catch-all: any other populated fields we haven't explicitly handled
+      for (const key of Object.keys(c)) {
+        if (usedKeys.has(key) || SKIP_FIELDS.has(key)) continue;
+        const val = formatValue(c[key]);
+        if (val && val !== '[]' && val !== '{}') {
+          profileLines.push(key + ': ' + val);
+        }
+      }
+
       if (profileLines.length > 0) sections.push('=== CONTACT PROFILE ===\n' + profileLines.join('\n'));
     }
 
-    // === CRM NOTES (all of them) ===
+    // === CRM NOTES (all notes, full content up to 65000 chars each) ===
     if (notes.status === 'fulfilled' && Array.isArray(notes.value) && notes.value.length > 0) {
       const noteTexts = notes.value.slice(0, 50).map((n: any) => {
         const date = n.dateAdded ? new Date(n.dateAdded).toLocaleDateString() : 'No date';
-        return '[' + date + '] ' + (n.body || '').slice(0, 5000);
+        return '[' + date + '] ' + (n.body || '').slice(0, 65000);
       });
       sections.push('=== CRM NOTES (' + notes.value.length + ' total) ===\n' + noteTexts.join('\n---\n'));
     }
@@ -74,7 +156,7 @@ async function fetchGHLData(contactId: string): Promise<string> {
             for (const m of cmsgs) {
               const mr = m as any;
               const date = mr.dateAdded ? new Date(mr.dateAdded).toLocaleDateString() : '';
-              msgs.push('[' + date + ' ' + (mr.direction || '?') + ' ' + (mr.type || '') + '] ' + (mr.body || '').slice(0, 1000));
+              msgs.push('[' + date + ' ' + (mr.direction || '?') + ' ' + (mr.type || '') + '] ' + (mr.body || '').slice(0, 2000));
             }
           }
         } catch { /* skip */ }
@@ -86,7 +168,9 @@ async function fetchGHLData(contactId: string): Promise<string> {
     if (tasks.status === 'fulfilled' && Array.isArray(tasks.value) && tasks.value.length > 0) {
       const taskTexts = tasks.value.map((t: any) => {
         const due = t.dueDate ? ' (Due: ' + new Date(t.dueDate).toLocaleDateString() + ')' : '';
-        return '- [' + (t.completed ? 'DONE' : 'OPEN') + '] ' + (t.title || t.body || 'No title') + due;
+        const assignee = t.assignedTo ? ' [Assigned: ' + t.assignedTo + ']' : '';
+        const desc = t.description ? ' - ' + t.description.slice(0, 500) : '';
+        return '- [' + (t.completed ? 'DONE' : 'OPEN') + '] ' + (t.title || t.body || 'No title') + due + assignee + desc;
       });
       sections.push('=== TASKS (' + tasks.value.length + ' total) ===\n' + taskTexts.join('\n'));
     }
@@ -217,7 +301,7 @@ export async function POST(req: NextRequest) {
     const message = await anthropic.messages.create({
       model: 'claude-sonnet-4-20250514',
       max_tokens: 4096,
-      system: 'You are the AI assistant for Brett King Builder (BKB), a high-end residential renovation and historic home restoration company in Bucks County, PA. You help the team by answering questions about clients (from GHL CRM data) and projects (from JobTread). Be specific, reference real data, and be concise. Format responses clearly with relevant details. If data is missing or a query returned no results, say so honestly. When summarizing a client, include ALL available information: their profile, every note, all communication history, tasks, and any other data provided.',
+      system: 'You are the AI assistant for Brett King Builder (BKB), a high-end residential renovation and historic home restoration company in Bucks County, PA. You help the team by answering questions about clients (from GHL CRM data) and projects (from JobTread). Be specific, reference real data, and be concise. Format responses clearly with relevant details. When summarizing a client, include ALL available information: their full profile (every field), every note in its entirety, all communication history, tasks, custom fields, tags, opportunities, and any other data provided. Do not skip or truncate any information. If data is missing or a query returned no results, say so honestly.',
       messages: claudeMessages,
     });
 
@@ -229,4 +313,4 @@ export async function POST(req: NextRequest) {
     const errorMsg = err instanceof Error ? err.message : 'Chat failed';
     return NextResponse.json({ error: errorMsg }, { status: 500 });
   }
-  }
+                        }
