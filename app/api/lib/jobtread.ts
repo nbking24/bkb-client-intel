@@ -62,6 +62,33 @@ export async function getVendors() {
   return result.accounts?.nodes || [];
 }
 
+export async function createTask(params: {
+  jobId: string;
+  name: string;
+  description?: string;
+  startDate?: string;
+  endDate?: string;
+}) {
+  const input: Record<string, unknown> = {
+    organizationId: JT_ORG,
+    targetId: params.jobId,
+    targetType: 'Job',
+    name: params.name,
+  };
+  if (params.description) input.description = params.description;
+  if (params.startDate) input.startDate = params.startDate;
+  if (params.endDate) input.endDate = params.endDate;
+
+  const data = await jtQuery({
+    createTask: {
+      $: input,
+      id: true,
+      name: true,
+    },
+  });
+  return data;
+}
+
 export async function testConnection(): Promise<{ success: boolean; message: string }> {
   try {
     const data = await jtQuery({
