@@ -1,33 +1,34 @@
 "use client";
 import { useState, useEffect, useRef, useCallback } from "react";
 
-/* ─── Types ─────────────────────────────────────────────────────────────── */
+/* ——— Types ———————————————————————————————————————————————————————————— */
 interface Contact { id: string; name: string; email?: string; phone?: string; }
-interface ChatMsg { id: string; role: "user" | "assistant"; content: string; ts: number; }
+interface Opportunity { id: string; name: string; status: string; pipelineName: string; stageName: string; monetaryValue: number; jtJobId: string; }
+interface ChatMsg { id: string; role: "user" | "assistant"; content: string; ts: number; agent?: string; }
 interface Tpl { id: string; title: string; prompt: string; icon: string; }
-type Tab = "notes" | "chat";
 type MeetingType = "" | "Client Meeting" | "Internal" | "Trade" | "Other";
+type Tab = "notes" | "chat";
 
 const TEMPLATES: Tpl[] = [
   { id: "overview", title: "Project Overview", icon: "\u{1F4CB}", prompt: "Give me a summary overview of the latest communication with this client \u2014 current TO DO items, what the client is expecting, and pending decisions." },
   { id: "todos", title: "Meeting To-Dos", icon: "\u2705", prompt: "Pull the notes from the most recent meeting and list out all action items and to-do tasks that were mentioned." },
   { id: "jt-jobs", title: "JobTread Status", icon: "\u{1F3D7}\uFE0F", prompt: "Show me all the active jobs in JobTread with their current status." },
-  { id: "team", title: "Team & Tasks", icon: "\u{1F465}", prompt: "List the team members in JobTread and show me any tasks that are currently open." },
+  { id: "create-task", title: "Create Task", icon: "\u{1F4DD}", prompt: "I need to create a new task in JobTread." },
 ];
 
 function uid() { return Math.random().toString(36).slice(2, 10) + Date.now().toString(36); }
 function getToken() { return localStorage.getItem("bkb-token") || ""; }
 
-/* ─── PIN Screen ────────────────────────────────────────────────────────── */
+/* ——— PIN Screen —————————————————————————————————————————————————————— */
 function PinScreen({ onAuth }: { onAuth: () => void }) {
   const [pin, setPin] = useState("");
-  const [err, setErr] = useState("");
   const [busy, setBusy] = useState(false);
+  const [err, setErr] = useState("");
   const submit = async () => {
     if (!pin.trim()) return;
     setBusy(true); setErr("");
     try {
-      const r = await fetch("/api/auth", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ pin: pin.trim() }) });
+      const r = await fetch("/api/auth", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ pin }) });
       if (!r.ok) throw new Error();
       const d = await r.json();
       localStorage.setItem("bkb-token", d.token);
@@ -40,7 +41,7 @@ function PinScreen({ onAuth }: { onAuth: () => void }) {
       <h1 className="text-xl mb-1" style={{ color: "#CDA274", fontFamily: "Georgia, serif" }}>Client Hub</h1>
       <p className="text-sm mb-8" style={{ color: "#8a8078" }}>Enter your PIN to continue</p>
       <div className="w-full max-w-xs space-y-4">
-        <input type="password" inputMode="numeric" value={pin} onChange={e => setPin(e.target.value)} onKeyDown={e => e.key === "Enter" && submit()} placeholder="PIN" autoFocus
+        <input type="password" inputMode="numeric" value={pin} onChange={e => setPin(e.target.value)} onKeyDown={e => e.key === "Enter" && submit()} placeholder="••••" autoFocus maxLength={10}
           className="w-full px-4 py-4 rounded-lg text-center text-2xl tracking-widest outline-none"
           style={{ background: "#242424", border: "1px solid rgba(205,162,116,0.12)", color: "#e8e0d8" }} />
         {err && <p className="text-center text-sm" style={{ color: "#c45c4c" }}>{err}</p>}
@@ -52,13 +53,13 @@ function PinScreen({ onAuth }: { onAuth: () => void }) {
   );
 }
 
-/* ─── Contact Search ────────────────────────────────────────────────────── */
+/* ——— Contact Search ————————————————————————————————————————————————— */
 function ContactSearch({ selected, onSelect }: { selected: Contact | null; onSelect: (c: Contact | null) => void }) {
   const [q, setQ] = useState("");
   const [results, setResults] = useState<Contact[]>([]);
   const [loading, setLoading] = useState(false);
   const [open, setOpen] = useState(false);
-  const timer = useRef<ReturnType<typeof setTimeout>>();
+  const timer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const search = useCallback(async (val: string) => {
     if (val.length < 2) { setResults([]); return; }
@@ -71,7 +72,7 @@ function ContactSearch({ selected, onSelect }: { selected: Contact | null; onSel
     } catch { setResults([]); } finally { setLoading(false); }
   }, []);
 
-  const onChange = (val: string) => { setQ(val); if (timer.current) clearTimeout(timer.current); timer.current = setTimeout(() => search(val), 300); };
+  const debounce = (val: string) => { setQ(val); if (timer.current) clearTimeout(timer.current); timer.current = setTimeout(() => search(val), 300); };
 
   if (selected) {
     const initials = selected.name.split(" ").map(n => n[0]).join("").slice(0, 2);
@@ -89,13 +90,13 @@ function ContactSearch({ selected, onSelect }: { selected: Contact | null; onSel
 
   return (
     <div className="relative">
-      <input type="text" value={q} onChange={e => onChange(e.target.value)} onFocus={() => results.length > 0 && setOpen(true)} placeholder="Search by name..."
+      <input value={q} onChange={e => debounce(e.target.value)} onFocus={() => results.length > 0 && setOpen(true)} onBlur={() => setTimeout(() => setOpen(false), 200)} placeholder="Search contacts..." autoComplete="off"
         className="w-full px-4 py-3 rounded-lg outline-none text-sm" style={{ background: "#242424", border: "1px solid rgba(205,162,116,0.12)", color: "#e8e0d8" }} />
-      {loading && <div className="absolute right-4 top-1/2 -translate-y-1/2"><div className="w-5 h-5 border-2 rounded-full animate-spin" style={{ borderColor: "rgba(205,162,116,0.12)", borderTopColor: "#CDA274" }} /></div>}
+      {loading && <div className="absolute right-3 top-3.5 w-4 h-4 border-2 rounded-full animate-spin" style={{ borderColor: "#CDA274 transparent #CDA274 transparent" }} />}
       {open && results.length > 0 && (
         <div className="absolute z-50 w-full mt-1 rounded-lg overflow-hidden shadow-2xl" style={{ background: "#2a2a2a", border: "1px solid rgba(205,162,116,0.12)" }}>
           {results.map(c => (
-            <button key={c.id} onClick={() => { onSelect(c); setOpen(false); }} className="w-full flex items-center gap-3 px-4 py-3 text-left hover:bg-white/5">
+            <button key={c.id} onClick={() => { onSelect(c); setQ(""); setOpen(false); }} className="w-full flex items-center gap-3 px-4 py-3 hover:brightness-125 text-left" style={{ borderBottom: "1px solid rgba(205,162,116,0.06)" }}>
               <div className="w-8 h-8 rounded-full flex items-center justify-center text-xs font-bold" style={{ background: "#CDA274", color: "#1a1a1a" }}>
                 {c.name.split(" ").map(n => n[0]).join("").slice(0, 2)}
               </div>
@@ -104,14 +105,14 @@ function ContactSearch({ selected, onSelect }: { selected: Contact | null; onSel
           ))}
         </div>
       )}
-      {open && q.length >= 2 && results.length === 0 && !loading && (
+      {!loading && q.length >= 2 && results.length === 0 && open && (
         <div className="absolute z-50 w-full mt-1 rounded-lg p-4 text-center text-sm" style={{ background: "#2a2a2a", border: "1px solid rgba(205,162,116,0.12)", color: "#8a8078" }}>No contacts found</div>
       )}
     </div>
   );
 }
 
-/* ─── Main App ──────────────────────────────────────────────────────────── */
+/* ——— Main App ———————————————————————————————————————————————————————— */
 export default function Home() {
   const [authed, setAuthed] = useState(false);
   const [tab, setTab] = useState<Tab>("chat");
@@ -123,19 +124,44 @@ export default function Home() {
   const [meetingDate, setMeetingDate] = useState("");
   const [transcript, setTranscript] = useState("");
   const [saving, setSaving] = useState(false);
-  const [savedParts, setSavedParts] = useState(0);
   const [saved, setSaved] = useState(false);
+  const [savedParts, setSavedParts] = useState(0);
 
   // Chat
   const [chatContact, setChatContact] = useState<Contact | null>(null);
+  const [chatOpp, setChatOpp] = useState<Opportunity | null>(null);
+  const [opps, setOpps] = useState<Opportunity[]>([]);
+  const [oppsLoading, setOppsLoading] = useState(false);
   const [msgs, setMsgs] = useState<ChatMsg[]>([]);
   const [input, setInput] = useState("");
   const [thinking, setThinking] = useState(false);
   const endRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLTextAreaElement>(null);
 
-  useEffect(() => { if (getToken()) setAuthed(true); }, []);
-  useEffect(() => { endRef.current?.scrollIntoView({ behavior: "smooth" }); }, [msgs, thinking]);
+  const canUpload = contact && meetingType && transcript.trim();
+  const resetNotes = () => { setContact(null); setMeetingType(""); setMeetingDate(""); setTranscript(""); setSaved(false); setSavedParts(0); };
+
+  // Fetch opportunities when chat contact changes
+  useEffect(() => {
+    setChatOpp(null);
+    setOpps([]);
+    if (!chatContact) return;
+    let cancelled = false;
+    (async () => {
+      setOppsLoading(true);
+      try {
+        const r = await fetch("/api/opportunities?contactId=" + chatContact.id, { headers: { Authorization: "Bearer " + getToken() } });
+        if (!r.ok) throw new Error();
+        const d = await r.json();
+        if (!cancelled) {
+          setOpps(d.opportunities || []);
+          // Auto-select if only one
+          if (d.opportunities && d.opportunities.length === 1) setChatOpp(d.opportunities[0]);
+        }
+      } catch { if (!cancelled) setOpps([]); } finally { if (!cancelled) setOppsLoading(false); }
+    })();
+    return () => { cancelled = true; };
+  }, [chatContact]);
 
   const resizeInput = (val: string) => {
     setInput(val);
@@ -149,13 +175,13 @@ export default function Home() {
     try {
       const r = await fetch("/api/notes", { method: "POST", headers: { "Content-Type": "application/json", Authorization: "Bearer " + getToken() },
         body: JSON.stringify({ contactId: contact.id, transcript: transcript.trim(), meetingType, meetingDate: meetingDate || null }) });
-      if (!r.ok) { const d = await r.json().catch(() => ({})); throw new Error(d.error || "Failed to save"); }
+      if (!r.ok) { const e = await r.json().catch(() => ({})); throw new Error(e.error || "Upload failed"); }
       const d = await r.json();
       setSavedParts(d.partsCreated || 1); setSaved(true);
     } catch (e: unknown) { setError(e instanceof Error ? e.message : "Failed"); } finally { setSaving(false); }
   };
 
-  const resetNotes = () => { setContact(null); setMeetingType(""); setMeetingDate(""); setTranscript(""); setSavedParts(0); setSaved(false); setError(""); };
+  useEffect(() => { if (authed) return; if (getToken()) setAuthed(true); }, [authed]);
 
   /* Send chat */
   const sendChat = async (text: string) => {
@@ -166,19 +192,26 @@ export default function Home() {
     try {
       const history = [...msgs, userMsg].map(m => ({ role: m.role, content: m.content }));
       const r = await fetch("/api/chat", { method: "POST", headers: { "Content-Type": "application/json", Authorization: "Bearer " + getToken() },
-        body: JSON.stringify({ messages: history, contactId: chatContact?.id, contactName: chatContact?.name }) });
-      if (!r.ok) { const d = await r.json().catch(() => ({})); throw new Error(d.error || "Chat failed"); }
+        body: JSON.stringify({
+          messages: history,
+          contactId: chatContact?.id,
+          contactName: chatContact?.name,
+          opportunityId: chatOpp?.id,
+          opportunityName: chatOpp?.name,
+          jtJobId: chatOpp?.jtJobId,
+          pipelineStage: chatOpp?.stageName,
+        }) });
+      if (!r.ok) { const e = await r.json().catch(() => ({})); throw new Error(e.error || "Chat failed"); }
       const d = await r.json();
-      setMsgs(p => [...p, { id: uid(), role: "assistant", content: d.reply || "Done.", ts: Date.now() }]);
+      setMsgs(p => [...p, { id: uid(), role: "assistant", content: d.reply, ts: Date.now(), agent: d.agent }]);
     } catch (e: unknown) {
-      setMsgs(p => [...p, { id: uid(), role: "assistant", content: "Error: " + (e instanceof Error ? e.message : "Unknown"), ts: Date.now() }]);
+      setMsgs(p => [...p, { id: uid(), role: "assistant", content: "Sorry, something went wrong. " + (e instanceof Error ? e.message : ""), ts: Date.now() }]);
     } finally { setThinking(false); }
   };
 
-  if (!authed) return <PinScreen onAuth={() => setAuthed(true)} />;
+  useEffect(() => { endRef.current?.scrollIntoView({ behavior: "smooth" }); }, [msgs, thinking]);
 
-  const estParts = Math.ceil(transcript.trim().length / 64000);
-  const canUpload = contact && meetingType && transcript.trim().length > 0;
+  if (!authed) return <PinScreen onAuth={() => setAuthed(true)} />;
 
   return (
     <div className="min-h-screen flex flex-col" style={{ background: "#1a1a1a" }}>
@@ -188,8 +221,8 @@ export default function Home() {
         <div className="max-w-2xl mx-auto flex items-center justify-between">
           <img src="https://www.brettkingbuilder.com/wp-content/uploads/2021/08/logowhite.png" alt="BKB" className="h-8 w-auto" />
           <div className="flex items-center gap-3">
-            {tab === "chat" && msgs.length > 0 && (
-              <button onClick={() => { setMsgs([]); setInput(""); }} className="text-xs px-3 py-1.5 rounded-lg" style={{ color: "#CDA274", background: "rgba(205,162,116,0.1)", border: "1px solid rgba(205,162,116,0.25)" }}>New Chat</button>
+            {chatContact && tab === "chat" && (
+              <span className="text-xs px-2 py-1 rounded" style={{ color: "#8a8078", background: "rgba(205,162,116,0.06)" }}>{chatContact.name.split(" ")[0]}</span>
             )}
             <span className="text-xs" style={{ color: "#CDA274", fontFamily: "Georgia, serif", fontStyle: "italic" }}>Client Hub</span>
           </div>
@@ -213,12 +246,12 @@ export default function Home() {
         <div className="max-w-2xl mx-auto w-full px-4 mt-4">
           <div className="p-3 rounded-lg flex items-center gap-2 text-sm" style={{ background: "rgba(196,92,76,0.1)", border: "1px solid rgba(196,92,76,0.3)", color: "#c45c4c" }}>
             <span className="flex-1">{error}</span>
-            <button onClick={() => setError("")} style={{ color: "#c45c4c" }}>&times;</button>
+            <button onClick={() => setError("")} className="opacity-60 hover:opacity-100">&times;</button>
           </div>
         </div>
       )}
 
-      {/* ═══ NOTES TAB ═══ */}
+      {/* ——— NOTES TAB ——— */}
       {tab === "notes" && (
         <main className="max-w-2xl mx-auto w-full p-4 pb-20 space-y-5 animate-fade-in">
           {!saved ? (
@@ -255,7 +288,7 @@ export default function Home() {
                 {transcript && (
                   <div className="mt-1 flex justify-between text-xs" style={{ color: "#8a8078" }}>
                     <span>{transcript.trim().length.toLocaleString()} chars</span>
-                    {estParts > 1 && <span style={{ color: "#CDA274" }}>Will split into {estParts} notes</span>}
+                    <span>{Math.ceil(transcript.trim().length / 4000)} note{Math.ceil(transcript.trim().length / 4000) > 1 ? "s" : ""}</span>
                   </div>
                 )}
               </section>
@@ -278,7 +311,7 @@ export default function Home() {
         </main>
       )}
 
-      {/* ═══ CHAT TAB ═══ */}
+      {/* ——— CHAT TAB ——— */}
       {tab === "chat" && (
         <div className="flex-1 flex flex-col max-w-2xl mx-auto w-full">
 
@@ -290,9 +323,60 @@ export default function Home() {
             <ContactSearch selected={chatContact} onSelect={setChatContact} />
           </div>
 
+          {/* Opportunity selector */}
+          {chatContact && (
+            <div className="px-4 pb-2 animate-fade-in">
+              <label className="block text-xs uppercase tracking-wider mb-2" style={{ color: "#CDA274" }}>
+                Opportunity <span className="normal-case italic" style={{ color: "#8a8078" }}>(links to JobTread job)</span>
+              </label>
+              {oppsLoading ? (
+                <div className="px-4 py-3 rounded-lg text-sm" style={{ background: "#242424", border: "1px solid rgba(205,162,116,0.12)", color: "#8a8078" }}>
+                  Loading opportunities...
+                </div>
+              ) : opps.length === 0 ? (
+                <div className="px-4 py-3 rounded-lg text-sm" style={{ background: "#242424", border: "1px solid rgba(205,162,116,0.12)", color: "#8a8078" }}>
+                  No opportunities found for this contact
+                </div>
+              ) : (
+                <select
+                  value={chatOpp?.id || ""}
+                  onChange={e => {
+                    const o = opps.find(op => op.id === e.target.value);
+                    setChatOpp(o || null);
+                  }}
+                  className="w-full px-4 py-3 rounded-lg outline-none appearance-none text-sm"
+                  style={{ background: "#242424", border: "1px solid rgba(205,162,116,0.12)", color: chatOpp ? "#e8e0d8" : "#8a8078" }}>
+                  <option value="">Select opportunity...</option>
+                  {opps.map(o => (
+                    <option key={o.id} value={o.id}>
+                      {o.name} — {o.stageName}{o.monetaryValue ? " ($" + Number(o.monetaryValue).toLocaleString() + ")" : ""}
+                    </option>
+                  ))}
+                </select>
+              )}
+              {chatOpp && (
+                <div className="mt-2 flex flex-wrap gap-2">
+                  <span className="text-xs px-2 py-1 rounded" style={{ background: "rgba(205,162,116,0.1)", color: "#CDA274" }}>
+                    {chatOpp.stageName}
+                  </span>
+                  {chatOpp.jtJobId && (
+                    <span className="text-xs px-2 py-1 rounded" style={{ background: "rgba(74,153,153,0.1)", color: "#4a9999" }}>
+                      JT Linked
+                    </span>
+                  )}
+                  {chatOpp.monetaryValue > 0 && (
+                    <span className="text-xs px-2 py-1 rounded" style={{ background: "rgba(205,162,116,0.06)", color: "#8a8078" }}>
+                      ${Number(chatOpp.monetaryValue).toLocaleString()}
+                    </span>
+                  )}
+                </div>
+              )}
+            </div>
+          )}
+
           {/* Messages area */}
           <div className="flex-1 overflow-y-auto px-4 py-4 space-y-4">
-            {msgs.length === 0 && !thinking && (
+            {msgs.length === 0 && (
               <div className="text-center py-8 animate-fade-in">
                 <p className="text-lg mb-1" style={{ color: "#CDA274", fontFamily: "Georgia, serif" }}>How can I help?</p>
                 <p className="text-sm mb-6" style={{ color: "#8a8078" }}>Ask about a client, project, or use a quick prompt below</p>
@@ -312,9 +396,16 @@ export default function Home() {
                 {m.role === "assistant" && (
                   <div className="flex-shrink-0 w-8 h-8 rounded-full flex items-center justify-center text-xs font-bold" style={{ background: "#CDA274", color: "#1a1a1a" }}>BK</div>
                 )}
-                <div className={"max-w-[85%] px-4 py-3 text-sm leading-relaxed whitespace-pre-wrap " + (m.role === "user" ? "rounded-2xl rounded-tr-md ml-auto" : "rounded-2xl rounded-tl-md")}
-                  style={{ background: m.role === "user" ? "#CDA274" : "#242424", color: m.role === "user" ? "#1a1a1a" : "#e8e0d8", border: m.role === "user" ? "none" : "1px solid rgba(205,162,116,0.12)" }}>
-                  {m.content}
+                <div className="max-w-[85%]">
+                  <div className={"px-4 py-3 text-sm leading-relaxed whitespace-pre-wrap " + (m.role === "user" ? "rounded-2xl rounded-tr-md ml-auto" : "rounded-2xl rounded-tl-md")}
+                    style={{ background: m.role === "user" ? "#CDA274" : "#242424", color: m.role === "user" ? "#1a1a1a" : "#e8e0d8", border: m.role === "user" ? "none" : "1px solid rgba(205,162,116,0.12)" }}>
+                    {m.content}
+                  </div>
+                  {m.agent && m.role === "assistant" && (
+                    <p className="text-right mt-1 text-xs italic" style={{ color: "#5a534c" }}>
+                      via {m.agent}
+                    </p>
+                  )}
                 </div>
               </div>
             ))}
