@@ -3,6 +3,9 @@ import { NextRequest, NextResponse } from 'next/server';
 import { validateAuth } from '../lib/auth';
 import { getContactOpportunities, getPipelines } from '../lib/ghl';
 
+// Known GHL custom field ID for "JT Job ID"
+const JT_JOB_ID_FIELD = 'GjwWvbGyh7CQfGmFir5p';
+
 export async function GET(req: NextRequest) {
   if (!validateAuth(req.headers.get('authorization'))) {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
@@ -32,13 +35,22 @@ export async function GET(req: NextRequest) {
 
     const opportunities = raw.map((opp: any) => {
       // Extract jt_job_id from custom fields
+      // GHL search returns: { id: "fieldId", fieldValueString: "value" }
       let jtJobId: string | null = null;
       if (opp.customFields && Array.isArray(opp.customFields)) {
         for (const cf of opp.customFields) {
-          const key = (cf.fieldKey || cf.key || cf.id || '').toLowerCase();
-          if (key.includes('jt_job_id') || key.includes('jt.job') || key.includes('jobtread') || key.includes('job_id')) {
-            if (cf.value && cf.value !== '') {
-              jtJobId = String(cf.value);
+          // Match by known field ID or by fieldKey pattern
+          const fieldId = cf.id || '';
+          const fieldKey = (cf.fieldKey || cf.key || '').toLowerCase();
+          const isJtField = fieldId === JT_JOB_ID_FIELD
+            || fieldKey.includes('jt_job_id')
+            || fieldKey.includes('jobtread');
+
+          if (isJtField) {
+            // GHL search uses fieldValueString; detail endpoint uses value
+            const val = cf.fieldValueString || cf.value || '';
+            if (val !== '') {
+              jtJobId = String(val);
               break;
             }
           }
@@ -54,12 +66,11 @@ export async function GET(req: NextRequest) {
         name: opp.name || 'Unnamed Opportunity',
         status: opp.status || '',
         pipelineId: pipeId,
-        pipelineName: pipelineMap[pipeId] || opp.pipelineName || '',
+        pipelineName: pipelineMap[pipeId] || '',
         stageId: stageId,
-        stageName: stageMap[stageId] || opp.stageName || '',
+        stageName: stageMap[stageId] || '',
         monetaryValue: opp.monetaryValue || 0,
         jtJobId,
-        _debug_customFields: opp.customFields || [],
       };
     });
 
