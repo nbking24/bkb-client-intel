@@ -7,12 +7,10 @@ const JT_KEY = () => process.env.JOBTREAD_API_KEY || '';
 const JT_ORG = '22P5SRwhLaYe';
 
 async function jtQuery(query: Record<string, unknown>): Promise<Record<string, unknown>> {
-  // Pave API: auth via grantKey inside the query body
-  const wrappedQuery = {
-    query: {
-      $: { grantKey: JT_KEY() },
-      ...query,
-    },
+  // Pave API: auth via grantKey inside the body (NO query wrapper)
+  const body = {
+    $: { grantKey: JT_KEY() },
+    ...query,
   };
 
   const res = await fetch(JT_URL, {
@@ -20,7 +18,7 @@ async function jtQuery(query: Record<string, unknown>): Promise<Record<string, u
     headers: {
       'Content-Type': 'application/json',
     },
-    body: JSON.stringify(wrappedQuery),
+    body: JSON.stringify(body),
   });
 
   if (!res.ok) {
@@ -64,14 +62,12 @@ export async function createTask(params: {
     createTask: {
       $: {
         targetId: jobId,
-        targetType: 'Job',
+        targetType: 'job',
         name,
         ...(description ? { description } : {}),
         ...(startDate ? { startDate } : {}),
         ...(endDate ? { endDate } : {}),
       },
-      id: {},
-      name: {},
     },
   });
 
