@@ -1,16 +1,28 @@
-const JT_URL = 'https://api.jobtread.com/graphql';
+// @ts-nocheck
+// JobTread API - uses Pave query language (not GraphQL)
+// Docs: https://app.jobtread.com/docs
+
+const JT_URL = 'https://api.jobtread.com/pave';
 const JT_KEY = () => process.env.JOBTREAD_API_KEY || '';
 const JT_ORG = '22P5SRwhLaYe';
 
 async function jtQuery(query: Record<string, unknown>): Promise<Record<string, unknown>> {
+  // Pave API: auth via grantKey inside the query body
+  const wrappedQuery = {
+    query: {
+      $: { grantKey: JT_KEY() },
+      ...query,
+    },
+  };
+
   const res = await fetch(JT_URL, {
     method: 'POST',
     headers: {
-      Authorization: 'Bearer ' + JT_KEY(),
       'Content-Type': 'application/json',
     },
-    body: JSON.stringify(query),
+    body: JSON.stringify(wrappedQuery),
   });
+
   if (!res.ok) {
     const text = await res.text().catch(() => '');
     throw new Error('JobTread API error ' + res.status + ': ' + text.slice(0, 200));
@@ -21,45 +33,22 @@ async function jtQuery(query: Record<string, unknown>): Promise<Record<string, u
 export async function getActiveJobs(limit = 30) {
   const data = await jtQuery({
     jobs: {
-      $: { first: limit, filter: { organizationId: { $eq: JT_ORG }, closedOn: { $eq: null } } },
-      nodes: { id: true, name: true, number: true, description: true, createdAt: true, status: true },
+      $: {
+        first: limit,
+        where: { closedOn: { eq: null } },
+        orderBy: { createdAt: 'DESC' },
+      },
+      nodes: {
+        id: {},
+        name: {},
+        number: {},
+        status: {},
+        createdAt: {},
+      },
     },
   });
-  const jobs = data as { jobs?: { nodes?: unknown[] } };
-  return jobs.jobs?.nodes || [];
-}
-
-export async function getTeamMembers() {
-  const data = await jtQuery({
-    memberships: {
-      $: { first: 50, filter: { organizationId: { $eq: JT_ORG } } },
-      nodes: { id: true, role: true, user: { id: true, firstName: true, lastName: true, email: true } },
-    },
-  });
-  const result = data as { memberships?: { nodes?: unknown[] } };
-  return result.memberships?.nodes || [];
-}
-
-export async function getCustomers() {
-  const data = await jtQuery({
-    accounts: {
-      $: { first: 50, filter: { organizationId: { $eq: JT_ORG }, type: { $eq: 'customer' } } },
-      nodes: { id: true, name: true, email: true, phone: true },
-    },
-  });
-  const result = data as { accounts?: { nodes?: unknown[] } };
-  return result.accounts?.nodes || [];
-}
-
-export async function getVendors() {
-  const data = await jtQuery({
-    accounts: {
-      $: { first: 50, filter: { organizationId: { $eq: JT_ORG }, type: { $eq: 'vendor' } } },
-      nodes: { id: true, name: true, email: true, phone: true },
-    },
-  });
-  const result = data as { accounts?: { nodes?: unknown[] } };
-  return result.accounts?.nodes || [];
+  const jobs = (data as any)?.jobs?.nodes || [];
+  return jobs;
 }
 
 export async function createTask(params: {
@@ -69,38 +58,26 @@ export async function createTask(params: {
   startDate?: string;
   endDate?: string;
 }) {
-  const input: Record<string, unknown> = {
-    organizationId: JT_ORG,
-    targetId: params.jobId,
-    targetType: 'Job',
-    name: params.name,
-  };
-  if (params.description) input.description = params.description;
-  if (params.startDate) input.startDate = params.startDate;
-  if (params.endDate) input.endDate = params.endDate;
+  const { jobId, name, description, startDate, endDate } = params;
 
   const data = await jtQuery({
     createTask: {
-      $: input,
-      id: true,
-      name: true,
+      $: {
+        targetId: jobId,
+        targetType: 'Job',
+        name,
+        ...(description ? { description } : {}),
+        ...(startDate ? { startDate } : {}),
+        ...(endDate ? { endDate } : {}),
+      },
+      id: {},
+      name: {},
     },
   });
-  return data;
-}
 
-export async function testConnection(): Promise<{ success: boolean; message: string }> {
-  try {
-    const data = await jtQuery({
-      organizations: {
-        $: { filter: { id: { $eq: JT_ORG } } },
-        nodes: { id: true, name: true },
-      },
-    });
-    const orgs = data as { organizations?: { nodes?: Array<{ name?: string }> } };
-    const name = orgs.organizations?.nodes?.[0]?.name || 'Unknown';
-    return { success: true, message: 'Connected to: ' + name };
-  } catch (err) {
-    return { success: false, message: err instanceof Error ? err.message : 'Unknown error' };
+  const created = (data as any)?.createTask;
+  if (!created?.id) {
+    throw new Error('Task creation failed: ' + JSON.stringify(data));
   }
+  return { id: created.id, name: created.name };
 }
