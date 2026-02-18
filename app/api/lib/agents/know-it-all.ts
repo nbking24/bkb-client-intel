@@ -1,7 +1,7 @@
 // @ts-nocheck
 import { AgentModule, AgentContext } from './types';
 import { getContact, getContactNotes, searchConversations, getConversationMessages, getContactTasks, getOpportunity } from '../ghl';
-import { getActiveJobs, getTeamMembers, getCustomers, getVendors } from '../jobtread';
+import { getActiveJobs } from '../jobtread';
 
 function formatValue(val: any): string {
   if (val === null || val === undefined || val === '') return '';
