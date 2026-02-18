@@ -69,3 +69,28 @@ export async function getConversationMessages(conversationId: string, limit = 40
   const data = await res.json();
   return data.messages || [];
 }
+
+// === OPPORTUNITY FUNCTIONS ===
+
+export async function getContactOpportunities(contactId: string) {
+  const url = GHL_BASE + '/opportunities/search?location_id=' + GHL_LOC() + '&contact_id=' + contactId;
+  const res = await fetch(url, { headers: headers() });
+  if (!res.ok) throw new Error('GHL opportunities search failed: ' + res.status);
+  const data = await res.json();
+  return data.opportunities || [];
+}
+
+export async function getOpportunity(opportunityId: string) {
+  const url = GHL_BASE + '/opportunities/' + opportunityId;
+  const res = await fetch(url, { headers: headers() });
+  if (!res.ok) throw new Error('GHL get opportunity failed: ' + res.status);
+  return res.json();
+}
+
+export async function getPipelines() {
+  const url = GHL_BASE + '/opportunities/pipelines?locationId=' + GHL_LOC();
+  const res = await fetch(url, { headers: headers() });
+  if (!res.ok) throw new Error('GHL get pipelines failed: ' + res.status);
+  const data = await res.json();
+  return data.pipelines || [];
+}
