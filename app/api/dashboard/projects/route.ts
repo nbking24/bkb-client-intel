@@ -14,7 +14,7 @@ export async function GET(req: NextRequest) {
       name: job.name,
       number: job.number,
       status: job.status,
-      clientName: job.account?.name || '',
+      clientName: job.clientName || '',
       createdAt: job.createdAt,
       // Placeholder phase data until Supabase is connected
       phases: Array.from({ length: 9 }, (_, i) => ({
