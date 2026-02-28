@@ -1,6 +1,16 @@
 // ============================================================
 // JobTread PAVE API Service Layer
 // Expanded for BKB Operations Platform
+//
+// PAVE API patterns (verified against live API):
+// - Org-level collections are PLURAL: jobs, tasks, documents, memberships, costCodes
+// - Single entity by ID is SINGULAR: job, task, document
+// - Sub-collections on entities are PLURAL: job.tasks, job.documents, job.files
+// - Org-level where: flat array ["field", "op", "value"]
+// - Org-level sortBy: not supported on all collections (omit if errors)
+// - Task assignees: "assignedMemberships" (not "assignees")
+// - Job customer: accessed via location.account (not direct "account")
+// - Can't filter tasks by assignedMemberships at org level — fetch all, filter client-side
 // ============================================================
 
 const JT_URL = 'https://api.jobtread.com/pave';
@@ -27,7 +37,13 @@ async function pave(query: Record<string, unknown>) {
     throw new Error(`JT PAVE error ${res.status}: ${text.slice(0, 300)}`);
   }
 
-  return res.json();
+  const text = await res.text();
+  if (!text) return {};
+  try {
+    return JSON.parse(text);
+  } catch {
+    throw new Error(`JT PAVE error: invalid JSON — ${text.slice(0, 200)}`);
+  }
 }
 
 // -- Org-scoped query helper --
@@ -52,15 +68,15 @@ export interface JTJob {
   status: string;
   createdAt: string;
   closedOn: string | null;
-  account?: { id: string; name: string };
+  clientName?: string;
+  locationName?: string;
 }
 
 export async function getActiveJobs(limit = 50): Promise<JTJob[]> {
   const result = await orgQuery('jobs', {
     $: {
       size: limit,
-      where: [['closedOn', '=', null]],
-      sortBy: [['createdAt', 'DESC']],
+      where: ['closedOn', '=', null],
     },
     nodes: {
       id: {},
@@ -69,10 +85,25 @@ export async function getActiveJobs(limit = 50): Promise<JTJob[]> {
       status: {},
       createdAt: {},
       closedOn: {},
-      account: { id: {}, name: {} },
+      location: {
+        id: {},
+        name: {},
+        account: { id: {}, name: {} },
+      },
     },
   });
-  return result.nodes || [];
+  const jobs = result.nodes || [];
+  // Flatten location.account.name into clientName for convenience
+  return jobs.map((j: any) => ({
+    id: j.id,
+    name: j.name,
+    number: j.number,
+    status: j.status,
+    createdAt: j.createdAt,
+    closedOn: j.closedOn,
+    clientName: j.location?.account?.name || '',
+    locationName: j.location?.name || '',
+  }));
 }
 
 export async function getJob(jobId: string) {
@@ -85,10 +116,21 @@ export async function getJob(jobId: string) {
       status: {},
       createdAt: {},
       closedOn: {},
-      account: { id: {}, name: {} },
+      description: {},
+      location: {
+        id: {},
+        name: {},
+        account: { id: {}, name: {} },
+      },
     },
   });
-  return (data as any)?.job;
+  const job = (data as any)?.job;
+  if (!job) return null;
+  return {
+    ...job,
+    clientName: job.location?.account?.name || '',
+    locationName: job.location?.name || '',
+  };
 }
 
 // ============================================================
@@ -102,8 +144,8 @@ export interface JTTask {
   startDate: string | null;
   endDate: string | null;
   progress: number;
-  job: { id: string; name: string };
-  assignees: { nodes: { id: string; user: { id: string; name: string } }[] };
+  job: { id: string; name: string } | null;
+  assignedMemberships: { nodes: { id: string; user?: { id: string; name: string } }[] };
 }
 
 export async function getTasksForJob(jobId: string): Promise<JTTask[]> {
@@ -119,7 +161,7 @@ export async function getTasksForJob(jobId: string): Promise<JTTask[]> {
           startDate: {},
           endDate: {},
           progress: {},
-          assignees: {
+          assignedMemberships: {
             nodes: {
               id: {},
               user: { id: {}, name: {} },
@@ -133,44 +175,21 @@ export async function getTasksForJob(jobId: string): Promise<JTTask[]> {
   return tasks.map((t: any) => ({ ...t, job: { id: jobId, name: '' } }));
 }
 
-// Get ALL open tasks across all active jobs for a specific membership
+// Get ALL open tasks, then filter client-side for a specific membership
+// (PAVE doesn't support filtering by assignedMemberships at org level)
 export async function getOpenTasksForMember(membershipId: string): Promise<JTTask[]> {
-  // Query org-level tasks assigned to this member that are not complete
-  const result = await orgQuery('tasks', {
-    $: {
-      size: 200,
-      where: [
-        ['progress', '<', 100],
-        ['assignees.id', '=', membershipId],
-      ],
-      sortBy: [['endDate', 'ASC']],
-    },
-    nodes: {
-      id: {},
-      name: {},
-      description: {},
-      startDate: {},
-      endDate: {},
-      progress: {},
-      job: { id: {}, name: {} },
-      assignees: {
-        nodes: {
-          id: {},
-          user: { id: {}, name: {} },
-        },
-      },
-    },
-  });
-  return result.nodes || [];
+  const allTasks = await getAllOpenTasks();
+  return allTasks.filter((t: JTTask) =>
+    t.assignedMemberships?.nodes?.some((m: any) => m.id === membershipId)
+  );
 }
 
-// Get all tasks across all active jobs (for Nathan's team workload view)
+// Get all open tasks across all active jobs (for Nathan's team workload view)
 export async function getAllOpenTasks(): Promise<JTTask[]> {
   const result = await orgQuery('tasks', {
     $: {
-      size: 500,
-      where: [['progress', '<', 100]],
-      sortBy: [['endDate', 'ASC']],
+      size: 200,
+      where: ['progress', '<', 100],
     },
     nodes: {
       id: {},
@@ -180,10 +199,9 @@ export async function getAllOpenTasks(): Promise<JTTask[]> {
       endDate: {},
       progress: {},
       job: { id: {}, name: {} },
-      assignees: {
+      assignedMemberships: {
         nodes: {
           id: {},
-          user: { id: {}, name: {} },
         },
       },
     },
@@ -233,8 +251,6 @@ export interface JTDocument {
   createdAt: string;
   signedAt: string | null;
   job: { id: string; name: string };
-  account: { id: string; name: string };
-  files: { nodes: { id: string; name: string; url: string; type: string; size: number }[] };
 }
 
 export async function getDocumentsForJob(jobId: string): Promise<JTDocument[]> {
@@ -252,10 +268,6 @@ export async function getDocumentsForJob(jobId: string): Promise<JTDocument[]> {
           number: {},
           createdAt: {},
           signedAt: {},
-          account: { id: {}, name: {} },
-          files: {
-            nodes: { id: {}, name: {}, url: {}, type: {}, size: {} },
-          },
         },
       },
     },
@@ -268,8 +280,7 @@ export async function getApprovedDocuments(limit = 100): Promise<JTDocument[]> {
   const result = await orgQuery('documents', {
     $: {
       size: limit,
-      where: [['status', '=', 'approved']],
-      sortBy: [['createdAt', 'DESC']],
+      where: ['status', '=', 'approved'],
     },
     nodes: {
       id: {},
@@ -281,10 +292,6 @@ export async function getApprovedDocuments(limit = 100): Promise<JTDocument[]> {
       createdAt: {},
       signedAt: {},
       job: { id: {}, name: {} },
-      account: { id: {}, name: {} },
-      files: {
-        nodes: { id: {}, name: {}, url: {}, type: {}, size: {} },
-      },
     },
   });
   return result.nodes || [];
@@ -345,7 +352,6 @@ export async function getCostCodes() {
       id: {},
       name: {},
       number: {},
-      category: { id: {}, name: {} },
     },
   });
   return result.nodes || [];
@@ -360,8 +366,7 @@ export async function getBillableDocuments(limit = 100) {
   const result = await orgQuery('documents', {
     $: {
       size: limit,
-      where: [['type', '=', 'vendorBill']],
-      sortBy: [['createdAt', 'DESC']],
+      where: ['type', '=', 'vendorBill'],
     },
     nodes: {
       id: {},
@@ -372,7 +377,6 @@ export async function getBillableDocuments(limit = 100) {
       number: {},
       createdAt: {},
       job: { id: {}, name: {} },
-      account: { id: {}, name: {} },
     },
   });
   return result.nodes || [];
