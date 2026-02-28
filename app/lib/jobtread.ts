@@ -56,7 +56,7 @@ export interface JTJob {
 }
 
 export async function getActiveJobs(limit = 50): Promise<JTJob[]> {
-  const result = await orgQuery('job', {
+  const result = await orgQuery('jobs', {
     $: {
       size: limit,
       where: [['closedOn', '=', null]],
@@ -110,7 +110,7 @@ export async function getTasksForJob(jobId: string): Promise<JTTask[]> {
   const data = await pave({
     job: {
       $: { id: jobId },
-      task: {
+      tasks: {
         $: { size: 200 },
         nodes: {
           id: {},
@@ -129,14 +129,14 @@ export async function getTasksForJob(jobId: string): Promise<JTTask[]> {
       },
     },
   });
-  const tasks = (data as any)?.job?.task?.nodes || [];
+  const tasks = (data as any)?.job?.tasks?.nodes || [];
   return tasks.map((t: any) => ({ ...t, job: { id: jobId, name: '' } }));
 }
 
 // Get ALL open tasks across all active jobs for a specific membership
 export async function getOpenTasksForMember(membershipId: string): Promise<JTTask[]> {
   // Query org-level tasks assigned to this member that are not complete
-  const result = await orgQuery('task', {
+  const result = await orgQuery('tasks', {
     $: {
       size: 200,
       where: [
@@ -166,7 +166,7 @@ export async function getOpenTasksForMember(membershipId: string): Promise<JTTas
 
 // Get all tasks across all active jobs (for Nathan's team workload view)
 export async function getAllOpenTasks(): Promise<JTTask[]> {
-  const result = await orgQuery('task', {
+  const result = await orgQuery('tasks', {
     $: {
       size: 500,
       where: [['progress', '<', 100]],
@@ -241,7 +241,7 @@ export async function getDocumentsForJob(jobId: string): Promise<JTDocument[]> {
   const data = await pave({
     job: {
       $: { id: jobId },
-      document: {
+      documents: {
         $: { size: 100 },
         nodes: {
           id: {},
@@ -260,12 +260,12 @@ export async function getDocumentsForJob(jobId: string): Promise<JTDocument[]> {
       },
     },
   });
-  const docs = (data as any)?.job?.document?.nodes || [];
+  const docs = (data as any)?.job?.documents?.nodes || [];
   return docs.map((d: any) => ({ ...d, job: { id: jobId, name: '' } }));
 }
 
 export async function getApprovedDocuments(limit = 100): Promise<JTDocument[]> {
-  const result = await orgQuery('document', {
+  const result = await orgQuery('documents', {
     $: {
       size: limit,
       where: [['status', '=', 'approved']],
@@ -298,7 +298,7 @@ export async function getFilesForJob(jobId: string) {
   const data = await pave({
     job: {
       $: { id: jobId },
-      file: {
+      files: {
         $: { size: 200 },
         nodes: {
           id: {},
@@ -311,7 +311,7 @@ export async function getFilesForJob(jobId: string) {
       },
     },
   });
-  return (data as any)?.job?.file?.nodes || [];
+  return (data as any)?.job?.files?.nodes || [];
 }
 
 // ============================================================
@@ -324,7 +324,7 @@ export interface JTMember {
 }
 
 export async function getMembers(): Promise<JTMember[]> {
-  const result = await orgQuery('membership', {
+  const result = await orgQuery('memberships', {
     $: { size: 50 },
     nodes: {
       id: {},
@@ -339,7 +339,7 @@ export async function getMembers(): Promise<JTMember[]> {
 // ============================================================
 
 export async function getCostCodes() {
-  const result = await orgQuery('costCode', {
+  const result = await orgQuery('costCodes', {
     $: { size: 200 },
     nodes: {
       id: {},
@@ -357,7 +357,7 @@ export async function getCostCodes() {
 
 export async function getBillableDocuments(limit = 100) {
   // Vendor bills that may need billing action
-  const result = await orgQuery('document', {
+  const result = await orgQuery('documents', {
     $: {
       size: limit,
       where: [['type', '=', 'vendorBill']],
