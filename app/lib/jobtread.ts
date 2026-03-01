@@ -14,8 +14,8 @@
 // - Custom field values: job.customFieldValues { customField { name } value }
 // ============================================================
 
-import { getStatusCategory, type StatusCategoryKey } from './constants';
-import { BKB_STANDARD_TEMPLATE, type PhaseTemplate } from './schedule-templates';
+import { getStatusCategory, STANDARD_PHASES, type StatusCategoryKey } from './constants';
+import { BKB_STANDARD_TEMPLATE, recommendPhaseForTask, type PhaseTemplate } from './schedule-templates';
 
 const JT_URL = 'https://api.jobtread.com/pave';
 const JT_KEY = () => process.env.JOBTREAD_API_KEY || '';
@@ -652,6 +652,167 @@ export async function applyPhaseDefaults(
   }
 
   return { tasksCreated, errors };
+}
+
+// ============================================================
+// SCHEDULE AUDIT — Analyze ALL active jobs for misplaced tasks
+// Fetches all non-group tasks across org, maps to their parent phases,
+// then runs recommendPhaseForTask on each.
+// ============================================================
+
+export interface AuditIssue {
+  taskId: string;
+  taskName: string;
+  taskProgress: number | null;
+  startDate: string | null;
+  endDate: string | null;
+  jobId: string;
+  jobName: string;
+  jobNumber: string;
+  customStatus: string | null;
+  statusCategory: StatusCategoryKey | null;
+  currentPhaseId: string | null;
+  currentPhaseName: string | null;
+  recommendedPhaseNumber: number;
+  recommendedPhaseName: string;
+  confidence: 'high' | 'medium';
+  reason: string;
+  isOrphan: boolean;
+}
+
+export async function getScheduleAudit(): Promise<{
+  issues: AuditIssue[];
+  stats: {
+    totalJobs: number;
+    totalTasks: number;
+    misplacedTasks: number;
+    orphanTasks: number;
+    jobsWithIssues: number;
+  };
+}> {
+  // 1. Get active jobs
+  const jobs = await getActiveJobs(50);
+  const jobMap = new Map(jobs.map((j) => [j.id, j]));
+
+  // 2. Get ALL task groups (phases) across org
+  const groupResult = await orgQuery('tasks', {
+    $: {
+      size: 100,
+      where: ['isGroup', '=', true],
+    },
+    nodes: {
+      id: {},
+      name: {},
+      isGroup: {},
+      progress: {},
+      parentTask: { id: {} },
+      job: { id: {} },
+    },
+  });
+  const allGroups = (groupResult.nodes || []) as any[];
+
+  // Build phase lookup: groupId -> { name, jobId, phaseNumber }
+  const phaseMap = new Map<string, { name: string; jobId: string; phaseNumber: number | null }>();
+  for (const g of allGroups) {
+    if (!g.job?.id || g.parentTask) continue;
+    const lower = g.name.toLowerCase().trim();
+    let phaseNumber: number | null = null;
+    // Match phase name to standard number
+    for (const sp of STANDARD_PHASES) {
+      if (lower === sp.name.toLowerCase() || lower.includes(sp.short.toLowerCase())) {
+        phaseNumber = sp.number;
+        break;
+      }
+    }
+    if (phaseNumber === null) {
+      if (lower.includes('admin')) phaseNumber = 1;
+      else if (lower.includes('conceptual')) phaseNumber = 2;
+      else if (lower.includes('design dev') || lower.includes('selections')) phaseNumber = 3;
+      else if (lower.includes('contract')) phaseNumber = 4;
+      else if (lower.includes('precon') || lower.includes('pre-con')) phaseNumber = 5;
+      else if (lower.includes('production')) phaseNumber = 6;
+      else if (lower.includes('inspection')) phaseNumber = 7;
+      else if (lower.includes('punch')) phaseNumber = 8;
+      else if (lower.includes('completion') || lower.includes('closeout')) phaseNumber = 9;
+    }
+    phaseMap.set(g.id, { name: g.name, jobId: g.job.id, phaseNumber });
+  }
+
+  // 3. Get ALL non-group tasks across org (incomplete only for relevance)
+  const taskResult = await orgQuery('tasks', {
+    $: {
+      size: 100,
+      where: ['isGroup', '=', false],
+    },
+    nodes: {
+      id: {},
+      name: {},
+      progress: {},
+      startDate: {},
+      endDate: {},
+      parentTask: { id: {} },
+      job: { id: {} },
+    },
+  });
+  const allTasks = (taskResult.nodes || []) as any[];
+
+  // 4. Analyze each task
+  const issues: AuditIssue[] = [];
+  let totalTasks = 0;
+
+  for (const task of allTasks) {
+    if (!task.job?.id) continue;
+    const job = jobMap.get(task.job.id);
+    if (!job) continue; // not an active job
+
+    totalTasks++;
+
+    const parentId = task.parentTask?.id;
+    const phase = parentId ? phaseMap.get(parentId) : null;
+    const isOrphan = !parentId || !phase;
+
+    // Get recommendation
+    const rec = recommendPhaseForTask(task.name);
+    if (!rec || rec.confidence === 'low') continue;
+
+    // If it's in the right phase, skip
+    if (!isOrphan && phase && phase.phaseNumber === rec.phaseNumber) continue;
+
+    issues.push({
+      taskId: task.id,
+      taskName: task.name,
+      taskProgress: task.progress,
+      startDate: task.startDate,
+      endDate: task.endDate,
+      jobId: job.id,
+      jobName: job.name,
+      jobNumber: job.number,
+      customStatus: job.customStatus || null,
+      statusCategory: job.statusCategory || null,
+      currentPhaseId: parentId || null,
+      currentPhaseName: phase?.name || null,
+      recommendedPhaseNumber: rec.phaseNumber,
+      recommendedPhaseName: rec.phaseName,
+      confidence: rec.confidence,
+      reason: rec.reason,
+      isOrphan,
+    });
+  }
+
+  // Count unique jobs with issues
+  const jobsWithIssues = new Set(issues.map((i) => i.jobId)).size;
+  const orphanCount = issues.filter((i) => i.isOrphan).length;
+
+  return {
+    issues,
+    stats: {
+      totalJobs: jobs.length,
+      totalTasks,
+      misplacedTasks: issues.length - orphanCount,
+      orphanTasks: orphanCount,
+      jobsWithIssues,
+    },
+  };
 }
 
 // Move a task to a different phase (delete + recreate under new parent)

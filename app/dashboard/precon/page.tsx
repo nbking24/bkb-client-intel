@@ -2,7 +2,7 @@
 
 import { useState, useEffect } from 'react';
 import {
-  Loader2, ChevronRight, ChevronDown, Plus, AlertTriangle, CheckCircle2, Clock, Circle,
+  Loader2, ChevronRight, ChevronDown, Plus, AlertTriangle, CheckCircle2, Clock, Circle, Shield,
 } from 'lucide-react';
 import Link from 'next/link';
 import {
@@ -87,6 +87,9 @@ function ProjectCard({ schedule }: { schedule: JobSchedule }) {
   const totalPhases = schedule.phases.length;
   const progressPct = schedule.totalProgress * 100;
 
+  // Only show phases that are NOT 100% complete
+  const activePhases = schedule.phases.filter((p) => p.progress === null || p.progress < 1);
+
   return (
     <Link href={`/dashboard/precon/${schedule.id}`} className="block">
       <div
@@ -132,18 +135,24 @@ function ProjectCard({ schedule }: { schedule: JobSchedule }) {
         <div className="flex items-center gap-3 mb-3 text-xs" style={{ color: '#8a8078' }}>
           {totalPhases > 0 ? (
             <>
-              <span className="flex items-center gap-1">
-                <CheckCircle2 size={12} style={{ color: '#22c55e' }} />
-                {completedPhases} done
-              </span>
-              <span className="flex items-center gap-1">
-                <Clock size={12} style={{ color: '#eab308' }} />
-                {inProgressPhases} active
-              </span>
-              <span className="flex items-center gap-1">
-                <Circle size={12} style={{ color: '#6b7280' }} />
-                {totalPhases - completedPhases - inProgressPhases} pending
-              </span>
+              {completedPhases > 0 && (
+                <span className="flex items-center gap-1">
+                  <CheckCircle2 size={12} style={{ color: '#22c55e' }} />
+                  {completedPhases} done
+                </span>
+              )}
+              {inProgressPhases > 0 && (
+                <span className="flex items-center gap-1">
+                  <Clock size={12} style={{ color: '#eab308' }} />
+                  {inProgressPhases} active
+                </span>
+              )}
+              {(totalPhases - completedPhases - inProgressPhases) > 0 && (
+                <span className="flex items-center gap-1">
+                  <Circle size={12} style={{ color: '#6b7280' }} />
+                  {totalPhases - completedPhases - inProgressPhases} pending
+                </span>
+              )}
             </>
           ) : (
             <span className="flex items-center gap-1">
@@ -153,20 +162,26 @@ function ProjectCard({ schedule }: { schedule: JobSchedule }) {
           )}
         </div>
 
-        {/* Phase chips */}
-        {schedule.phases.length > 0 && (
+        {/* Phase chips — only show non-completed phases */}
+        {activePhases.length > 0 && (
           <div className="grid grid-cols-2 gap-1.5">
-            {schedule.phases.slice(0, 6).map((phase) => (
+            {activePhases.slice(0, 6).map((phase) => (
               <PhaseChip key={phase.id} phase={phase} />
             ))}
-            {schedule.phases.length > 6 && (
+            {activePhases.length > 6 && (
               <div
                 className="flex items-center justify-center px-3 py-2 rounded-lg text-xs"
                 style={{ background: '#1a1a1a', color: '#8a8078' }}
               >
-                +{schedule.phases.length - 6} more
+                +{activePhases.length - 6} more
               </div>
             )}
+          </div>
+        )}
+        {activePhases.length === 0 && totalPhases > 0 && (
+          <div className="flex items-center gap-1.5 text-xs" style={{ color: '#22c55e' }}>
+            <CheckCircle2 size={12} />
+            All {totalPhases} phases complete
           </div>
         )}
       </div>
@@ -297,6 +312,14 @@ export default function PreConOverview() {
             {totalJobs} active project{totalJobs !== 1 ? 's' : ''} — {jobsWithSchedule} with schedules
           </p>
         </div>
+        <Link
+          href="/dashboard/precon/audit"
+          className="flex items-center gap-2 px-3 py-2 rounded-lg text-xs font-medium hover:opacity-90 transition-opacity shrink-0"
+          style={{ background: 'rgba(239,68,68,0.1)', color: '#fca5a5', border: '1px solid rgba(239,68,68,0.2)' }}
+        >
+          <Shield size={14} />
+          Schedule Audit
+        </Link>
       </div>
 
       {/* Legend */}

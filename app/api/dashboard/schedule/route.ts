@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import {
   getJobSchedule,
   getActiveJobSchedules,
+  getScheduleAudit,
   createPhaseGroup,
   createPhaseTask,
   updateTaskProgress,
@@ -13,11 +14,13 @@ import {
 
 // GET /api/dashboard/schedule?jobId=xxx  → single job schedule (includes orphans)
 // GET /api/dashboard/schedule?overview=true → all active jobs with phases + status categories
+// GET /api/dashboard/schedule?audit=true → universal schedule audit across all active jobs
 export async function GET(req: NextRequest) {
   try {
     const { searchParams } = new URL(req.url);
     const jobId = searchParams.get('jobId');
     const overview = searchParams.get('overview');
+    const audit = searchParams.get('audit');
 
     if (jobId) {
       const schedule = await getJobSchedule(jobId);
@@ -27,12 +30,17 @@ export async function GET(req: NextRequest) {
       return NextResponse.json({ schedule });
     }
 
+    if (audit === 'true') {
+      const result = await getScheduleAudit();
+      return NextResponse.json(result);
+    }
+
     if (overview === 'true') {
       const schedules = await getActiveJobSchedules();
       return NextResponse.json({ schedules });
     }
 
-    return NextResponse.json({ error: 'Provide jobId or overview=true' }, { status: 400 });
+    return NextResponse.json({ error: 'Provide jobId, overview=true, or audit=true' }, { status: 400 });
   } catch (err: any) {
     return NextResponse.json({ error: err.message }, { status: 500 });
   }
