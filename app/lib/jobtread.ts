@@ -287,7 +287,7 @@ export async function getJobSchedule(jobId: string): Promise<JTJobSchedule | nul
   const job = (jobData as any)?.job;
   if (!job) return null;
 
-  // 2. Flat list of ALL tasks for this job (no nested childTasks)
+  // 2. Flat list of ALL tasks for this job — minimal fields to avoid 413
   const taskData = await pave({
     job: {
       $: { id: jobId },
@@ -296,16 +296,11 @@ export async function getJobSchedule(jobId: string): Promise<JTJobSchedule | nul
         nodes: {
           id: {},
           name: {},
-          description: {},
           isGroup: {},
           progress: {},
           startDate: {},
           endDate: {},
-          parentTask: { id: {}, name: {} },
-          taskType: { id: {}, name: {} },
-          assignedMemberships: {
-            nodes: { id: {}, user: { id: {}, name: {} } },
-          },
+          parentTask: { id: {} },
         },
       },
     },
