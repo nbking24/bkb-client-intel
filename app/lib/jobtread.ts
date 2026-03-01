@@ -986,3 +986,123 @@ export async function getBillableDocuments(limit = 100) {
   });
   return result.nodes || [];
 }
+
+// ============================================================
+// GRID VIEW — Pre-construction dashboard data
+// Returns per-phase task counts for each active job
+// ============================================================
+
+export interface GridPhaseData {
+  phaseGroupId: string | null;
+  phaseName: string;
+  completed: number;
+  total: number;
+  inProgress: number;
+  hasOverdue: boolean;
+}
+
+export interface GridJobData {
+  id: string;
+  name: string;
+  number: string;
+  clientName: string;
+  locationName: string;
+  customStatus: string | null;
+  statusCategory: StatusCategoryKey | null;
+  phases: GridPhaseData[];
+  hasSchedule: boolean;
+  totalCompleted: number;
+  totalTasks: number;
+  nextDueDate: string | null;
+  stalledDays: number | null;
+}
+export async function getGridScheduleData(): Promise<GridJobData[]> {
+  const jobs = await getActiveJobs(50);
+
+  // Fetch ALL tasks across org (phases + leaf tasks)
+  const taskResult = await orgQuery('tasks', {
+    $: { size: 200 },
+    nodes: {
+      id: {}, name: {}, isGroup: {}, progress: {},
+      startDate: {}, endDate: {},
+      parentTask: { id: {} },
+      job: { id: {} },
+    },
+  });
+  const allTasks = (taskResult.nodes || []) as any[];
+  const today = new Date().toISOString().split('T')[0];
+
+  return jobs.map((job) => {
+    const jobTasks = allTasks.filter((t: any) => t.job?.id === job.id);
+    const groups = jobTasks.filter((t: any) => t.isGroup && !t.parentTask);
+    const tasks = jobTasks.filter((t: any) => !t.isGroup);
+
+    // Build map: groupId -> child tasks
+    const groupChildren = new Map<string, any[]>();
+    for (const g of groups) groupChildren.set(g.id, []);
+    for (const t of tasks) {
+      if (t.parentTask?.id && groupChildren.has(t.parentTask.id)) {
+        groupChildren.get(t.parentTask.id)!.push(t);
+      }
+    }
+    // Build phase data array
+    const phases: GridPhaseData[] = groups.map((g: any) => {
+      const children = groupChildren.get(g.id) || [];
+      return {
+        phaseGroupId: g.id,
+        phaseName: g.name,
+        completed: children.filter((t: any) => t.progress >= 1).length,
+        total: children.length,
+        inProgress: children.filter((t: any) => t.progress > 0 && t.progress < 1).length,
+        hasOverdue: children.some(
+          (t: any) => t.endDate && t.endDate < today && t.progress < 1
+        ),
+      };
+    });
+
+    const totalTasks = tasks.length;
+    const totalCompleted = tasks.filter((t: any) => t.progress >= 1).length;
+
+    // Next due date = earliest endDate among incomplete tasks
+    const incompleteDated = tasks.filter(
+      (t: any) => t.progress < 1 && t.endDate
+    );
+    const nextDueDate = incompleteDated.length
+      ? incompleteDated.map((t: any) => t.endDate as string).sort()[0]
+      : null;
+    // Stall detection: if no future incomplete tasks, how many days since last activity?
+    let stalledDays: number | null = null;
+    if (!nextDueDate && totalTasks > 0) {
+      const completedDated = tasks.filter(
+        (t: any) => t.progress >= 1 && t.endDate
+      );
+      if (completedDated.length) {
+        const lastEnd = completedDated
+          .map((t: any) => t.endDate as string)
+          .sort()
+          .pop()!;
+        stalledDays = Math.floor(
+          (Date.now() - new Date(lastEnd).getTime()) / 86400000
+        );
+      } else {
+        stalledDays = 999; // No dated tasks at all
+      }
+    }
+
+    return {
+      id: job.id,
+      name: job.name,
+      number: job.number,
+      clientName: job.clientName || '',
+      locationName: job.locationName || '',
+      customStatus: job.customStatus || null,
+      statusCategory: job.statusCategory || null,
+      phases,
+      hasSchedule: jobTasks.length > 0,
+      totalCompleted,
+      totalTasks,
+      nextDueDate,
+      stalledDays,
+    };
+  });
+}
