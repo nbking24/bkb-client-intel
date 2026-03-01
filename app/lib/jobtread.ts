@@ -238,6 +238,190 @@ export async function createTask(params: {
 }
 
 // ============================================================
+// SCHEDULE — Powers the Pre-Construction Tracker
+// Task groups (isGroup: true) = phases, child tasks = work items
+// Group progress auto-calculates from child task completion (0-1 scale)
+// ============================================================
+
+export interface JTScheduleTask {
+  id: string;
+  name: string;
+  description: string | null;
+  isGroup: boolean;
+  progress: number | null;
+  startDate: string | null;
+  endDate: string | null;
+  parentTask: { id: string; name: string } | null;
+  taskType: { id: string; name: string } | null;
+  assignedMemberships: { nodes: { id: string; user?: { id: string; name: string } }[] };
+  childTasks: { nodes: JTScheduleTask[] };
+}
+
+export interface JTJobSchedule {
+  id: string;
+  name: string;
+  number: string;
+  clientName: string;
+  locationName: string;
+  phases: JTScheduleTask[];
+  totalProgress: number;
+}
+
+// Get full schedule tree for a single job
+export async function getJobSchedule(jobId: string): Promise<JTJobSchedule | null> {
+  const data = await pave({
+    job: {
+      $: { id: jobId },
+      id: {},
+      name: {},
+      number: {},
+      location: {
+        name: {},
+        account: { name: {} },
+      },
+      tasks: {
+        $: { size: 100 },
+        nodes: {
+          id: {},
+          name: {},
+          description: {},
+          isGroup: {},
+          progress: {},
+          startDate: {},
+          endDate: {},
+          parentTask: { id: {} },
+          taskType: { id: {}, name: {} },
+          assignedMemberships: {
+            nodes: { id: {}, user: { id: {}, name: {} } },
+          },
+          childTasks: {
+            nodes: {
+              id: {},
+              name: {},
+              description: {},
+              isGroup: {},
+              progress: {},
+              startDate: {},
+              endDate: {},
+              taskType: { id: {}, name: {} },
+              assignedMemberships: {
+                nodes: { id: {}, user: { id: {}, name: {} } },
+              },
+              childTasks: { nodes: { id: {} } },
+            },
+          },
+        },
+      },
+    },
+  });
+
+  const job = (data as any)?.job;
+  if (!job) return null;
+
+  const allTasks: JTScheduleTask[] = job.tasks?.nodes || [];
+  // Top-level groups (phases) = isGroup && no parent
+  const phases = allTasks.filter(
+    (t: JTScheduleTask) => t.isGroup && !t.parentTask
+  );
+  // Calculate overall progress from phase groups
+  const withProgress = phases.filter((p: JTScheduleTask) => p.progress !== null);
+  const totalProgress = withProgress.length
+    ? withProgress.reduce((sum: number, p: JTScheduleTask) => sum + (p.progress || 0), 0) / withProgress.length
+    : 0;
+
+  return {
+    id: job.id,
+    name: job.name,
+    number: job.number || '',
+    clientName: job.location?.account?.name || '',
+    locationName: job.location?.name || '',
+    phases,
+    totalProgress,
+  };
+}
+
+// Get schedule overview for ALL active jobs (pre-con grid view)
+export async function getActiveJobSchedules(): Promise<JTJobSchedule[]> {
+  const jobs = await getActiveJobs(50);
+  // Fetch schedules in parallel for all active jobs
+  const schedules = await Promise.all(
+    jobs.map((j) => getJobSchedule(j.id))
+  );
+  return schedules.filter((s): s is JTJobSchedule => s !== null);
+}
+
+// Create a phase group (task group) on a job
+export async function createPhaseGroup(params: {
+  jobId: string;
+  name: string;
+  description?: string;
+}) {
+  const { jobId, name, description } = params;
+  const data = await pave({
+    createTask: {
+      $: {
+        targetId: jobId,
+        targetType: 'job',
+        name,
+        isGroup: true,
+        ...(description ? { description } : {}),
+      },
+      createdTask: { id: {}, name: {}, isGroup: {} },
+    },
+  });
+  const created = (data as any)?.createTask?.createdTask;
+  if (!created?.id) throw new Error('Phase group creation failed: ' + JSON.stringify(data));
+  return created;
+}
+
+// Create a child task under a phase group
+export async function createPhaseTask(params: {
+  jobId: string;
+  parentGroupId: string;
+  name: string;
+  description?: string;
+  startDate?: string;
+  endDate?: string;
+  assignedMembershipIds?: string[];
+}) {
+  const { jobId, parentGroupId, name, description, startDate, endDate, assignedMembershipIds } = params;
+  const data = await pave({
+    createTask: {
+      $: {
+        targetId: jobId,
+        targetType: 'job',
+        name,
+        parentTaskId: parentGroupId,
+        ...(description ? { description } : {}),
+        ...(startDate ? { startDate } : {}),
+        ...(endDate ? { endDate } : {}),
+        ...(assignedMembershipIds?.length ? { assignedMembershipIds } : {}),
+      },
+      createdTask: { id: {}, name: {}, parentTask: { id: {}, name: {} } },
+    },
+  });
+  const created = (data as any)?.createTask?.createdTask;
+  if (!created?.id) throw new Error('Phase task creation failed: ' + JSON.stringify(data));
+  return created;
+}
+
+// Update task progress (0 = not started, 0.5 = in progress, 1 = complete)
+export async function updateTaskProgress(taskId: string, progress: number) {
+  await pave({
+    updateTask: {
+      $: { id: taskId, progress: Math.min(1, Math.max(0, progress)) },
+    },
+  });
+}
+
+// Delete a task (works for both groups and individual tasks)
+export async function deleteJTTask(taskId: string) {
+  await pave({
+    deleteTask: { $: { id: taskId } },
+  });
+}
+
+// ============================================================
 // DOCUMENTS - For document intelligence
 // ============================================================
 
