@@ -1021,7 +1021,7 @@ export async function getGridScheduleData(): Promise<GridJobData[]> {
 
   // Fetch ALL tasks across org (phases + leaf tasks)
   const taskResult = await orgQuery('tasks', {
-    $: { size: 200 },
+    $: { size: 100 },
     nodes: {
       id: {}, name: {}, isGroup: {}, progress: {},
       startDate: {}, endDate: {},
