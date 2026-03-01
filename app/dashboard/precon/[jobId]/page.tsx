@@ -5,10 +5,11 @@ import { useParams } from 'next/navigation';
 import Link from 'next/link';
 import {
   Loader2, ArrowLeft, ChevronDown, ChevronRight, CheckCircle2, Circle,
-  Clock, Plus, Trash2, X, User, Calendar, AlertTriangle, Zap, Package,
+  Clock, Plus, X, Calendar, AlertTriangle, Zap, Package, Eye, EyeOff,
+  ArrowRightLeft, Shield,
 } from 'lucide-react';
-import { STANDARD_PHASES, type StatusCategoryKey } from '@/app/lib/constants';
-import { BKB_STANDARD_TEMPLATE } from '@/app/lib/schedule-templates';
+import { STANDARD_PHASES, STATUS_ACTIVE_PHASES, type StatusCategoryKey } from '@/app/lib/constants';
+import { BKB_STANDARD_TEMPLATE, recommendPhaseForTask } from '@/app/lib/schedule-templates';
 
 interface ChildTask {
   id: string;
@@ -44,7 +45,7 @@ interface JobSchedule {
 }
 
 // ============================================================
-// Toast notification system (replaces browser alert())
+// Toast notification system
 // ============================================================
 
 interface Toast {
@@ -70,7 +71,7 @@ function ToastContainer({ toasts, onDismiss }: { toasts: Toast[]; onDismiss: (id
       {toasts.map((t) => (
         <div
           key={t.id}
-          className="flex items-start gap-2 p-3 rounded-lg shadow-lg text-sm animate-slideIn"
+          className="flex items-start gap-2 p-3 rounded-lg shadow-lg text-sm"
           style={{
             background: colors[t.type].bg,
             border: `1px solid ${colors[t.type].border}`,
@@ -102,14 +103,13 @@ function progressColor(p: number | null): string {
   return '#eab308';
 }
 
-// Try to match a phase name to a standard phase number (for "Add Defaults" feature)
+// Try to match a phase name to a standard phase number
 function matchPhaseNumber(phaseName: string): number | null {
   const lower = phaseName.toLowerCase().trim();
   for (const sp of STANDARD_PHASES) {
     if (lower === sp.name.toLowerCase()) return sp.number;
     if (lower.includes(sp.short.toLowerCase())) return sp.number;
   }
-  // Fuzzy match common variants
   if (lower.includes('admin')) return 1;
   if (lower.includes('conceptual')) return 2;
   if (lower.includes('design dev') || lower.includes('selections')) return 3;
@@ -122,6 +122,42 @@ function matchPhaseNumber(phaseName: string): number | null {
   return null;
 }
 
+// Audit a task: is it in the right phase?
+interface AuditFlag {
+  taskId: string;
+  taskName: string;
+  currentPhaseId: string;
+  currentPhaseName: string;
+  recommendedPhaseNumber: number;
+  recommendedPhaseName: string;
+  confidence: 'high' | 'medium' | 'low';
+  reason: string;
+}
+
+function auditTaskPlacement(
+  task: ChildTask,
+  currentPhaseId: string,
+  currentPhaseName: string,
+  currentPhaseNumber: number | null,
+): AuditFlag | null {
+  const rec = recommendPhaseForTask(task.name);
+  if (!rec) return null; // no recommendation = we can't say it's wrong
+
+  // If the recommended phase matches the current phase, it's fine
+  if (currentPhaseNumber !== null && rec.phaseNumber === currentPhaseNumber) return null;
+
+  return {
+    taskId: task.id,
+    taskName: task.name,
+    currentPhaseId,
+    currentPhaseName,
+    recommendedPhaseNumber: rec.phaseNumber,
+    recommendedPhaseName: rec.phaseName,
+    confidence: rec.confidence,
+    reason: rec.reason,
+  };
+}
+
 // ============================================================
 // Task Row Component
 // ============================================================
@@ -130,12 +166,19 @@ function TaskRow({
   task,
   jobId,
   onUpdate,
+  auditFlag,
+  phases,
+  addToast,
 }: {
   task: ChildTask;
   jobId: string;
   onUpdate: () => void;
+  auditFlag?: AuditFlag | null;
+  phases: Phase[];
+  addToast: (message: string, type: Toast['type']) => void;
 }) {
   const [toggling, setToggling] = useState(false);
+  const [moving, setMoving] = useState(false);
   const isComplete = task.progress !== null && task.progress >= 1;
 
   async function toggleComplete() {
@@ -158,40 +201,111 @@ function TaskRow({
     }
   }
 
+  async function moveToRecommended() {
+    if (!auditFlag) return;
+    // Find the target phase in the current schedule
+    const targetPhase = phases.find((p) => {
+      const pn = matchPhaseNumber(p.name);
+      return pn === auditFlag.recommendedPhaseNumber;
+    });
+    if (!targetPhase) {
+      addToast(`Phase "${auditFlag.recommendedPhaseName}" not found in this project's schedule. Create it first.`, 'warning');
+      return;
+    }
+
+    setMoving(true);
+    try {
+      const res = await fetch('/api/dashboard/schedule', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          action: 'moveTask',
+          jobId,
+          taskId: task.id,
+          taskName: task.name,
+          newParentGroupId: targetPhase.id,
+          startDate: task.startDate,
+          endDate: task.endDate,
+        }),
+      });
+      const data = await res.json();
+      if (data.ok) {
+        addToast(`Moved "${task.name}" → ${auditFlag.recommendedPhaseName}`, 'success');
+        onUpdate();
+      } else {
+        addToast(`Failed to move task: ${data.error || 'Unknown error'}`, 'error');
+      }
+    } catch (err) {
+      console.error('Failed to move task:', err);
+      addToast('Failed to move task', 'error');
+    } finally {
+      setMoving(false);
+    }
+  }
+
   return (
-    <div
-      className="flex items-center gap-3 px-4 py-2.5 hover:bg-white/[0.02] transition-colors"
-      style={{ borderBottom: '1px solid rgba(205,162,116,0.06)' }}
-    >
-      <button
-        onClick={toggleComplete}
-        disabled={toggling}
-        className="shrink-0"
+    <div>
+      <div
+        className="flex items-center gap-3 px-4 py-2.5 hover:bg-white/[0.02] transition-colors"
+        style={{ borderBottom: '1px solid rgba(205,162,116,0.06)' }}
       >
-        {toggling ? (
-          <Loader2 size={18} className="animate-spin" style={{ color: '#8a8078' }} />
-        ) : isComplete ? (
-          <CheckCircle2 size={18} style={{ color: '#22c55e' }} />
-        ) : (
-          <Circle size={18} style={{ color: '#6b7280' }} />
+        <button
+          onClick={toggleComplete}
+          disabled={toggling}
+          className="shrink-0"
+        >
+          {toggling ? (
+            <Loader2 size={18} className="animate-spin" style={{ color: '#8a8078' }} />
+          ) : isComplete ? (
+            <CheckCircle2 size={18} style={{ color: '#22c55e' }} />
+          ) : (
+            <Circle size={18} style={{ color: '#6b7280' }} />
+          )}
+        </button>
+        <div className="flex-1 min-w-0">
+          <p
+            className="text-sm truncate"
+            style={{
+              color: isComplete ? '#6b7280' : '#e8e0d8',
+              textDecoration: isComplete ? 'line-through' : 'none',
+            }}
+          >
+            {task.name}
+          </p>
+        </div>
+        {task.endDate && (
+          <span className="flex items-center gap-1 text-xs shrink-0" style={{ color: '#8a8078' }}>
+            <Calendar size={12} />
+            {formatDate(task.endDate)}
+          </span>
         )}
-      </button>
-      <div className="flex-1 min-w-0">
-        <p
-          className="text-sm truncate"
+      </div>
+      {/* Audit flag row */}
+      {auditFlag && auditFlag.confidence !== 'low' && (
+        <div
+          className="flex items-center gap-2 px-4 py-1.5 text-xs"
           style={{
-            color: isComplete ? '#6b7280' : '#e8e0d8',
-            textDecoration: isComplete ? 'line-through' : 'none',
+            background: auditFlag.confidence === 'high' ? 'rgba(239,68,68,0.08)' : 'rgba(245,158,11,0.08)',
+            borderBottom: '1px solid rgba(205,162,116,0.06)',
           }}
         >
-          {task.name}
-        </p>
-      </div>
-      {task.endDate && (
-        <span className="flex items-center gap-1 text-xs shrink-0" style={{ color: '#8a8078' }}>
-          <Calendar size={12} />
-          {formatDate(task.endDate)}
-        </span>
+          <ArrowRightLeft size={12} style={{ color: auditFlag.confidence === 'high' ? '#ef4444' : '#f59e0b' }} />
+          <span style={{ color: auditFlag.confidence === 'high' ? '#fca5a5' : '#fcd34d' }}>
+            Recommended: <strong>{auditFlag.recommendedPhaseName}</strong>
+          </span>
+          <span style={{ color: '#8a8078' }}>({auditFlag.reason})</span>
+          <button
+            onClick={moveToRecommended}
+            disabled={moving}
+            className="ml-auto px-2 py-0.5 rounded text-xs font-medium"
+            style={{
+              background: auditFlag.confidence === 'high' ? 'rgba(239,68,68,0.2)' : 'rgba(245,158,11,0.2)',
+              color: auditFlag.confidence === 'high' ? '#fca5a5' : '#fcd34d',
+            }}
+          >
+            {moving ? '...' : 'Move'}
+          </button>
+        </div>
       )}
     </div>
   );
@@ -206,28 +320,51 @@ function PhaseAccordion({
   jobId,
   onUpdate,
   addToast,
+  allPhases,
+  isActivePhase,
 }: {
   phase: Phase;
   jobId: string;
   onUpdate: () => void;
   addToast: (message: string, type: Toast['type']) => void;
+  allPhases: Phase[];
+  isActivePhase: boolean;
 }) {
-  const [expanded, setExpanded] = useState(true);
+  const [expanded, setExpanded] = useState(false);
+  const [showCompleted, setShowCompleted] = useState(false);
   const [adding, setAdding] = useState(false);
   const [newTaskName, setNewTaskName] = useState('');
   const [saving, setSaving] = useState(false);
   const [fillingDefaults, setFillingDefaults] = useState(false);
 
   const tasks = phase.childTasks?.nodes || [];
-  const completedCount = tasks.filter((t) => t.progress !== null && t.progress >= 1).length;
+  const pendingTasks = tasks.filter((t) => t.progress === null || t.progress < 1);
+  const completedTasks = tasks.filter((t) => t.progress !== null && t.progress >= 1);
+  const completedCount = completedTasks.length;
+  const totalCount = tasks.length;
   const progressPct = phase.progress !== null ? Math.round(phase.progress * 100) : 0;
 
-  // Check if this phase matches a standard phase (for "Add Defaults" button)
+  // Auto-expand if this phase has pending tasks and is an active phase
+  useEffect(() => {
+    if (isActivePhase && pendingTasks.length > 0) {
+      setExpanded(true);
+    }
+  }, [isActivePhase, pendingTasks.length]);
+
+  // Phase matching for defaults and audit
   const matchedPhaseNumber = matchPhaseNumber(phase.name);
   const hasDefaults = matchedPhaseNumber
     ? BKB_STANDARD_TEMPLATE.some((p) => p.phaseNumber === matchedPhaseNumber && !p.startsEmpty && p.tasks.length > 0)
     : false;
   const showAddDefaults = tasks.length === 0 && hasDefaults;
+
+  // Audit: check each pending task placement
+  const auditFlags: Map<string, AuditFlag> = new Map();
+  for (const task of tasks) {
+    const flag = auditTaskPlacement(task, phase.id, phase.name, matchedPhaseNumber);
+    if (flag) auditFlags.set(task.id, flag);
+  }
+  const mismatchCount = auditFlags.size;
 
   async function addTask() {
     if (!newTaskName.trim()) return;
@@ -289,10 +426,22 @@ function PhaseAccordion({
     }
   }
 
+  // Determine the phase status indicator
+  const phaseStatus = progressPct >= 100 ? 'complete' : pendingTasks.length > 0 ? 'active' : totalCount === 0 ? 'empty' : 'not_started';
+  const statusDot = {
+    complete: '#22c55e',
+    active: '#eab308',
+    not_started: '#3f3f3f',
+    empty: '#3f3f3f',
+  }[phaseStatus];
+
   return (
     <div
       className="rounded-xl overflow-hidden"
-      style={{ background: '#242424', border: '1px solid rgba(205,162,116,0.12)' }}
+      style={{
+        background: '#242424',
+        border: `1px solid ${isActivePhase && phaseStatus === 'active' ? 'rgba(201,168,76,0.3)' : 'rgba(205,162,116,0.12)'}`,
+      }}
     >
       {/* Phase header */}
       <button
@@ -304,48 +453,108 @@ function PhaseAccordion({
         ) : (
           <ChevronRight size={16} style={{ color: '#8a8078' }} />
         )}
+        <span className="w-2 h-2 rounded-full shrink-0" style={{ background: statusDot }} />
         <div className="flex-1 min-w-0">
           <h3 className="text-sm font-semibold" style={{ color: '#e8e0d8' }}>
             {phase.name}
           </h3>
         </div>
+        {/* Audit mismatch indicator */}
+        {mismatchCount > 0 && (
+          <span
+            className="flex items-center gap-1 text-[10px] px-1.5 py-0.5 rounded-full shrink-0"
+            style={{ background: 'rgba(239,68,68,0.15)', color: '#fca5a5' }}
+          >
+            <ArrowRightLeft size={10} />
+            {mismatchCount}
+          </span>
+        )}
         {/* Progress indicator */}
         <div className="flex items-center gap-2 shrink-0">
-          <span className="text-xs" style={{ color: '#8a8078' }}>
-            {completedCount}/{tasks.length}
-          </span>
-          <div className="w-16 h-1.5 rounded-full" style={{ background: '#1a1a1a' }}>
-            <div
-              className="h-1.5 rounded-full transition-all"
-              style={{
-                width: `${Math.max(progressPct, 4)}%`,
-                background: progressColor(phase.progress),
-              }}
-            />
-          </div>
-          <span
-            className="text-xs font-medium w-8 text-right"
-            style={{ color: progressColor(phase.progress) }}
-          >
-            {progressPct}%
-          </span>
+          {totalCount > 0 ? (
+            <>
+              <span className="text-xs" style={{ color: '#8a8078' }}>
+                {pendingTasks.length} left
+              </span>
+              <div className="w-16 h-1.5 rounded-full" style={{ background: '#1a1a1a' }}>
+                <div
+                  className="h-1.5 rounded-full transition-all"
+                  style={{
+                    width: `${Math.max(progressPct, 4)}%`,
+                    background: progressColor(phase.progress),
+                  }}
+                />
+              </div>
+              <span
+                className="text-xs font-medium w-8 text-right"
+                style={{ color: progressColor(phase.progress) }}
+              >
+                {progressPct}%
+              </span>
+            </>
+          ) : (
+            <span className="text-xs" style={{ color: '#6b7280' }}>empty</span>
+          )}
         </div>
       </button>
 
-      {/* Expanded task list */}
+      {/* Expanded content */}
       {expanded && (
         <div>
-          {tasks.length > 0 ? (
-            tasks.map((task) => (
-              <TaskRow key={task.id} task={task} jobId={jobId} onUpdate={onUpdate} />
+          {/* Pending tasks (always shown) */}
+          {pendingTasks.length > 0 ? (
+            pendingTasks.map((task) => (
+              <TaskRow
+                key={task.id}
+                task={task}
+                jobId={jobId}
+                onUpdate={onUpdate}
+                auditFlag={auditFlags.get(task.id)}
+                phases={allPhases}
+                addToast={addToast}
+              />
             ))
-          ) : (
+          ) : totalCount === 0 ? (
             <div className="px-4 py-3 text-xs" style={{ color: '#6b7280' }}>
               No tasks in this phase yet
             </div>
+          ) : (
+            <div className="px-4 py-3 text-xs flex items-center gap-1.5" style={{ color: '#22c55e' }}>
+              <CheckCircle2 size={12} />
+              All tasks complete
+            </div>
           )}
 
-          {/* Add Default Tasks button (for empty phases that match standard templates) */}
+          {/* Completed tasks toggle */}
+          {completedCount > 0 && (
+            <div style={{ borderTop: '1px solid rgba(205,162,116,0.06)' }}>
+              <button
+                onClick={() => setShowCompleted(!showCompleted)}
+                className="flex items-center gap-1.5 px-4 py-2 text-xs w-full hover:bg-white/[0.02]"
+                style={{ color: '#6b7280' }}
+              >
+                {showCompleted ? <EyeOff size={12} /> : <Eye size={12} />}
+                {showCompleted ? 'Hide' : 'Show'} {completedCount} completed task{completedCount !== 1 ? 's' : ''}
+              </button>
+              {showCompleted && (
+                <div>
+                  {completedTasks.map((task) => (
+                    <TaskRow
+                      key={task.id}
+                      task={task}
+                      jobId={jobId}
+                      onUpdate={onUpdate}
+                      auditFlag={auditFlags.get(task.id)}
+                      phases={allPhases}
+                      addToast={addToast}
+                    />
+                  ))}
+                </div>
+              )}
+            </div>
+          )}
+
+          {/* Add Default Tasks button */}
           {showAddDefaults && (
             <div className="px-4 py-2" style={{ borderTop: '1px solid rgba(205,162,116,0.06)' }}>
               <button
@@ -415,10 +624,14 @@ function OrphanSection({
   orphanTasks,
   jobId,
   onUpdate,
+  phases,
+  addToast,
 }: {
   orphanTasks: ChildTask[];
   jobId: string;
   onUpdate: () => void;
+  phases: Phase[];
+  addToast: (message: string, type: Toast['type']) => void;
 }) {
   const [expanded, setExpanded] = useState(true);
 
@@ -444,18 +657,85 @@ function OrphanSection({
             Unassigned Tasks
           </h3>
           <p className="text-xs" style={{ color: '#8a8078' }}>
-            {orphanTasks.length} task{orphanTasks.length !== 1 ? 's' : ''} not assigned to any phase — drag them into phases in JobTread
+            {orphanTasks.length} task{orphanTasks.length !== 1 ? 's' : ''} not assigned to any phase
           </p>
         </div>
       </button>
 
       {expanded && (
         <div>
-          {orphanTasks.map((task) => (
-            <TaskRow key={task.id} task={task} jobId={jobId} onUpdate={onUpdate} />
-          ))}
+          {orphanTasks.map((task) => {
+            const rec = recommendPhaseForTask(task.name);
+            const auditFlag: AuditFlag | null = rec ? {
+              taskId: task.id,
+              taskName: task.name,
+              currentPhaseId: '',
+              currentPhaseName: 'Unassigned',
+              recommendedPhaseNumber: rec.phaseNumber,
+              recommendedPhaseName: rec.phaseName,
+              confidence: rec.confidence,
+              reason: rec.reason,
+            } : null;
+            return (
+              <TaskRow
+                key={task.id}
+                task={task}
+                jobId={jobId}
+                onUpdate={onUpdate}
+                auditFlag={auditFlag}
+                phases={phases}
+                addToast={addToast}
+              />
+            );
+          })}
         </div>
       )}
+    </div>
+  );
+}
+
+// ============================================================
+// Stage Indicator — shows where the project is in the lifecycle
+// ============================================================
+
+function StageIndicator({ statusCategory, customStatus }: { statusCategory: StatusCategoryKey | null; customStatus: string | null }) {
+  const stages: { key: StatusCategoryKey; label: string; color: string }[] = [
+    { key: 'LEADS', label: 'Lead', color: '#8b5cf6' },
+    { key: 'IN_DESIGN', label: 'Design', color: '#eab308' },
+    { key: 'READY', label: 'Ready', color: '#3b82f6' },
+    { key: 'IN_PRODUCTION', label: 'Production', color: '#22c55e' },
+    { key: 'FINAL_BILLING', label: 'Billing', color: '#f97316' },
+  ];
+
+  const currentIdx = stages.findIndex((s) => s.key === statusCategory);
+
+  return (
+    <div className="flex items-center gap-1">
+      {stages.map((stage, idx) => {
+        const isCurrent = idx === currentIdx;
+        const isPast = currentIdx >= 0 && idx < currentIdx;
+        return (
+          <div key={stage.key} className="flex items-center gap-1">
+            <div
+              className="flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-medium transition-all"
+              style={{
+                background: isCurrent ? `${stage.color}25` : isPast ? `${stage.color}10` : 'rgba(255,255,255,0.03)',
+                color: isCurrent ? stage.color : isPast ? `${stage.color}80` : '#4a4a4a',
+                border: isCurrent ? `1px solid ${stage.color}50` : '1px solid transparent',
+              }}
+            >
+              {isPast && <CheckCircle2 size={10} />}
+              {stage.label}
+            </div>
+            {idx < stages.length - 1 && (
+              <div
+                className="w-4 h-px"
+                style={{ background: isPast ? `${stage.color}40` : 'rgba(255,255,255,0.06)' }}
+              />
+            )}
+          </div>
+        );
+      })}
     </div>
   );
 }
@@ -479,7 +759,6 @@ export default function ProjectScheduleDetail() {
   function addToast(message: string, type: Toast['type'] = 'info') {
     const id = ++toastId;
     setToasts((prev) => [...prev, { id, message, type }]);
-    // Auto-dismiss after 5 seconds
     setTimeout(() => {
       setToasts((prev) => prev.filter((t) => t.id !== id));
     }, 5000);
@@ -562,6 +841,35 @@ export default function ProjectScheduleDetail() {
   const orphanTasks = schedule?.orphanTasks || [];
   const hasSchedule = allPhases.length > 0;
 
+  // Determine which phases are "active" based on status
+  const activePhaseNumbers = schedule?.statusCategory
+    ? STATUS_ACTIVE_PHASES[schedule.statusCategory] || []
+    : [];
+
+  // Count total audit issues across all phases
+  const totalMismatches = allPhases.reduce((count, phase) => {
+    const phaseNum = matchPhaseNumber(phase.name);
+    const tasks = phase.childTasks?.nodes || [];
+    return count + tasks.filter((t) => {
+      const flag = auditTaskPlacement(t, phase.id, phase.name, phaseNum);
+      return flag && flag.confidence !== 'low';
+    }).length;
+  }, 0);
+
+  // Summary stats
+  const totalPending = allPhases.reduce((sum, p) => {
+    const tasks = p.childTasks?.nodes || [];
+    return sum + tasks.filter((t) => t.progress === null || t.progress < 1).length;
+  }, 0);
+  const totalCompleted = allPhases.reduce((sum, p) => {
+    const tasks = p.childTasks?.nodes || [];
+    return sum + tasks.filter((t) => t.progress !== null && t.progress >= 1).length;
+  }, 0);
+  const phasesWithWork = allPhases.filter((p) => {
+    const tasks = p.childTasks?.nodes || [];
+    return tasks.some((t) => t.progress === null || t.progress < 1);
+  }).length;
+
   return (
     <div className="space-y-6">
       <ToastContainer toasts={toasts} onDismiss={dismissToast} />
@@ -594,23 +902,16 @@ export default function ProjectScheduleDetail() {
             >
               {schedule.name}
             </h1>
-            <div className="flex items-center gap-2 mt-1">
-              <p className="text-sm" style={{ color: '#8a8078' }}>
-                {schedule.clientName || schedule.locationName}
-                {schedule.number ? ` \u00B7 #${schedule.number}` : ''}
-              </p>
-              {schedule.customStatus && (
-                <span
-                  className="text-[10px] px-2 py-0.5 rounded-full font-medium"
-                  style={{ background: 'rgba(201,168,76,0.15)', color: '#C9A84C' }}
-                >
-                  {schedule.customStatus}
-                </span>
-              )}
-            </div>
+            <p className="text-sm mt-1" style={{ color: '#8a8078' }}>
+              {schedule.clientName || schedule.locationName}
+              {schedule.number ? ` · #${schedule.number}` : ''}
+            </p>
           </div>
 
-          {/* Overall progress */}
+          {/* Stage indicator */}
+          <StageIndicator statusCategory={schedule.statusCategory} customStatus={schedule.customStatus} />
+
+          {/* Stats bar */}
           <div
             className="p-4 rounded-xl"
             style={{ background: '#242424', border: '1px solid rgba(205,162,116,0.12)' }}
@@ -632,20 +933,53 @@ export default function ProjectScheduleDetail() {
                 }}
               />
             </div>
-            <div className="flex items-center justify-between mt-2">
-              <p className="text-xs" style={{ color: '#8a8078' }}>
-                {allPhases.length} phase{allPhases.length !== 1 ? 's' : ''} in schedule
-              </p>
+            <div className="flex items-center gap-4 mt-3 text-xs" style={{ color: '#8a8078' }}>
+              <span className="flex items-center gap-1">
+                <Clock size={12} style={{ color: '#eab308' }} />
+                {totalPending} pending
+              </span>
+              <span className="flex items-center gap-1">
+                <CheckCircle2 size={12} style={{ color: '#22c55e' }} />
+                {totalCompleted} done
+              </span>
+              <span className="flex items-center gap-1">
+                <Package size={12} style={{ color: '#8a8078' }} />
+                {phasesWithWork} active phase{phasesWithWork !== 1 ? 's' : ''}
+              </span>
               {orphanTasks.length > 0 && (
-                <p className="text-xs flex items-center gap-1" style={{ color: '#f59e0b' }}>
+                <span className="flex items-center gap-1" style={{ color: '#f59e0b' }}>
                   <AlertTriangle size={12} />
-                  {orphanTasks.length} unassigned task{orphanTasks.length !== 1 ? 's' : ''}
-                </p>
+                  {orphanTasks.length} unassigned
+                </span>
+              )}
+              {totalMismatches > 0 && (
+                <span className="flex items-center gap-1" style={{ color: '#ef4444' }}>
+                  <ArrowRightLeft size={12} />
+                  {totalMismatches} misplaced
+                </span>
               )}
             </div>
           </div>
 
-          {/* Apply Standard Schedule button (for projects with no/few phases) */}
+          {/* Schedule audit banner */}
+          {totalMismatches > 0 && (
+            <div
+              className="flex items-center gap-3 px-4 py-3 rounded-xl"
+              style={{ background: 'rgba(239,68,68,0.08)', border: '1px solid rgba(239,68,68,0.2)' }}
+            >
+              <Shield size={18} style={{ color: '#fca5a5' }} />
+              <div className="flex-1">
+                <p className="text-sm font-medium" style={{ color: '#fca5a5' }}>
+                  Schedule Audit: {totalMismatches} task{totalMismatches !== 1 ? 's' : ''} may be in the wrong phase
+                </p>
+                <p className="text-xs mt-0.5" style={{ color: '#8a8078' }}>
+                  Expand each phase to see recommendations and one-click move buttons.
+                </p>
+              </div>
+            </div>
+          )}
+
+          {/* Apply Standard Schedule button (for projects with no phases) */}
           {!hasSchedule && (
             <div
               className="p-4 rounded-xl text-center"
@@ -677,19 +1011,31 @@ export default function ProjectScheduleDetail() {
           )}
 
           {/* Orphan tasks warning section */}
-          <OrphanSection orphanTasks={orphanTasks} jobId={jobId} onUpdate={loadSchedule} />
+          <OrphanSection
+            orphanTasks={orphanTasks}
+            jobId={jobId}
+            onUpdate={loadSchedule}
+            phases={allPhases}
+            addToast={addToast}
+          />
 
           {/* Phase accordions */}
           <div className="space-y-3">
-            {allPhases.map((phase) => (
-              <PhaseAccordion
-                key={phase.id}
-                phase={phase}
-                jobId={jobId}
-                onUpdate={loadSchedule}
-                addToast={addToast}
-              />
-            ))}
+            {allPhases.map((phase) => {
+              const phaseNum = matchPhaseNumber(phase.name);
+              const isActive = phaseNum !== null && activePhaseNumbers.includes(phaseNum);
+              return (
+                <PhaseAccordion
+                  key={phase.id}
+                  phase={phase}
+                  jobId={jobId}
+                  onUpdate={loadSchedule}
+                  addToast={addToast}
+                  allPhases={allPhases}
+                  isActivePhase={isActive}
+                />
+              );
+            })}
           </div>
 
           {/* Add phase */}

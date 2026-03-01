@@ -8,6 +8,7 @@ import {
   deleteJTTask,
   applyStandardTemplate,
   applyPhaseDefaults,
+  moveTaskToPhase,
 } from '@/app/lib/jobtread';
 
 // GET /api/dashboard/schedule?jobId=xxx  → single job schedule (includes orphans)
@@ -98,6 +99,17 @@ export async function POST(req: NextRequest) {
           ok: true,
           ...result,
         });
+      }
+      case 'moveTask': {
+        const result = await moveTaskToPhase({
+          jobId: body.jobId,
+          taskId: body.taskId,
+          taskName: body.taskName,
+          newParentGroupId: body.newParentGroupId,
+          startDate: body.startDate,
+          endDate: body.endDate,
+        });
+        return NextResponse.json({ ok: true, ...result });
       }
       default:
         return NextResponse.json({ error: `Unknown action: ${action}` }, { status: 400 });

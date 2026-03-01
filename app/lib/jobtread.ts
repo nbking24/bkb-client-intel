@@ -654,6 +654,33 @@ export async function applyPhaseDefaults(
   return { tasksCreated, errors };
 }
 
+// Move a task to a different phase (delete + recreate under new parent)
+// PAVE API doesn't support reparenting, so we delete the old task and create a new one.
+export async function moveTaskToPhase(params: {
+  jobId: string;
+  taskId: string;
+  taskName: string;
+  newParentGroupId: string;
+  startDate?: string | null;
+  endDate?: string | null;
+}): Promise<{ newTaskId: string; name: string }> {
+  const { jobId, taskId, taskName, newParentGroupId, startDate, endDate } = params;
+
+  // 1. Delete the old task
+  await deleteJTTask(taskId);
+
+  // 2. Create under the new phase
+  const created = await createPhaseTask({
+    jobId,
+    parentGroupId: newParentGroupId,
+    name: taskName,
+    ...(startDate ? { startDate } : {}),
+    ...(endDate ? { endDate } : {}),
+  });
+
+  return { newTaskId: created.id, name: created.name || taskName };
+}
+
 // ============================================================
 // DOCUMENTS - For document intelligence
 // ============================================================

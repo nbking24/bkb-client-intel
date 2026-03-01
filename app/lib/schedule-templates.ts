@@ -177,3 +177,136 @@ export function getTotalProjectDuration(): number {
     0
   );
 }
+
+// ============================================================
+// Task-to-Phase Matching — Schedule Audit
+// Given a task name, determine which standard phase it belongs to.
+// Uses keyword matching against the standard template task names
+// and common construction terminology.
+// ============================================================
+
+// Build a keyword index from the template at module load
+const PHASE_KEYWORDS: { phaseNumber: number; phaseName: string; keywords: string[] }[] =
+  BKB_STANDARD_TEMPLATE.map((phase) => {
+    // Extract keywords from task names in this phase
+    const taskWords = phase.tasks.flatMap((t) =>
+      t.name.toLowerCase().replace(/[^a-z0-9\s]/g, '').split(/\s+/).filter((w) => w.length > 3)
+    );
+    // Add phase-level keywords
+    const phaseWords = phase.name.toLowerCase().split(/\s+/);
+    const descWords = phase.description.toLowerCase().replace(/[^a-z0-9\s]/g, '').split(/\s+/).filter((w) => w.length > 3);
+    return {
+      phaseNumber: phase.phaseNumber,
+      phaseName: phase.name,
+      keywords: Array.from(new Set([...phaseWords, ...descWords, ...taskWords])),
+    };
+  });
+
+// Additional hard-coded keyword mappings for common construction terms
+const TERM_TO_PHASE: Record<string, number> = {
+  // Phase 1 - Admin
+  billing: 1, invoice: 1, insurance: 1, kickoff: 1, 'file structure': 1, 'project folder': 1,
+  // Phase 2 - Conceptual Design
+  conceptual: 2, 'site visit': 2, consultation: 2, 'budget range': 2, 'concept review': 2,
+  // Phase 3 - Design Development
+  selections: 3, flooring: 3, tile: 3, counters: 3, countertop: 3, fixture: 3, appliance: 3,
+  cabinet: 3, hardware: 3, 'design development': 3, 'dd drawings': 3,
+  // Phase 4 - Contract
+  contract: 4, engineering: 4, 'final plans': 4, estimate: 4, 'scope of work': 4, sow: 4,
+  // Phase 5 - Preconstruction
+  permit: 5, 'pre-con': 5, precon: 5, preconstruction: 5, 'long-lead': 5, subcontractor: 5,
+  // Phase 6 - Production
+  demo: 6, demolition: 6, framing: 6, roofing: 6, plumbing: 6, electrical: 6, hvac: 6,
+  insulation: 6, drywall: 6, trim: 6, paint: 6, 'rough-in': 6, roughin: 6,
+  foundation: 6, siding: 6, stucco: 6, masonry: 6, concrete: 6, grading: 6,
+  excavation: 6, waterproofing: 6, sheathing: 6, flashing: 6, gutter: 6,
+  // Phase 7 - Inspections
+  inspection: 7, 'final inspection': 7, 'building inspection': 7,
+  // Phase 8 - Punch List
+  punch: 8, 'punch list': 8, punchlist: 8, touchup: 8, 'touch-up': 8,
+  // Phase 9 - Project Completion
+  walkthrough: 9, 'walk-through': 9, closeout: 9, 'close-out': 9, warranty: 9,
+  'final payment': 9, 'final billing': 9,
+};
+
+export interface TaskAuditResult {
+  taskId: string;
+  taskName: string;
+  currentPhaseId: string;
+  currentPhaseName: string;
+  recommendedPhaseNumber: number | null;
+  recommendedPhaseName: string | null;
+  confidence: 'high' | 'medium' | 'low';
+  reason: string;
+}
+
+/**
+ * Given a task name, recommend which standard phase it should belong to.
+ * Returns { phaseNumber, phaseName, confidence } or null if no match.
+ */
+export function recommendPhaseForTask(taskName: string): {
+  phaseNumber: number;
+  phaseName: string;
+  confidence: 'high' | 'medium' | 'low';
+  reason: string;
+} | null {
+  const lower = taskName.toLowerCase().trim();
+
+  // 1. Direct term matching (highest confidence)
+  for (const [term, phaseNum] of Object.entries(TERM_TO_PHASE)) {
+    if (lower.includes(term)) {
+      const phase = BKB_STANDARD_TEMPLATE.find((p) => p.phaseNumber === phaseNum);
+      if (phase) {
+        return {
+          phaseNumber: phaseNum,
+          phaseName: phase.name,
+          confidence: 'high',
+          reason: `Matches "${term}" → ${phase.name}`,
+        };
+      }
+    }
+  }
+
+  // 2. Exact or close match to a template task name (high confidence)
+  for (const phase of BKB_STANDARD_TEMPLATE) {
+    for (const task of phase.tasks) {
+      const templateLower = task.name.toLowerCase();
+      if (lower === templateLower || lower.includes(templateLower) || templateLower.includes(lower)) {
+        return {
+          phaseNumber: phase.phaseNumber,
+          phaseName: phase.name,
+          confidence: 'high',
+          reason: `Matches template task "${task.name}"`,
+        };
+      }
+    }
+  }
+
+  // 3. Keyword overlap scoring (medium confidence)
+  let bestScore = 0;
+  let bestPhase: typeof PHASE_KEYWORDS[0] | null = null;
+  const taskWords = lower.replace(/[^a-z0-9\s]/g, '').split(/\s+/).filter((w) => w.length > 3);
+
+  for (const pk of PHASE_KEYWORDS) {
+    let score = 0;
+    for (const word of taskWords) {
+      if (pk.keywords.includes(word)) score++;
+    }
+    if (score > bestScore) {
+      bestScore = score;
+      bestPhase = pk;
+    }
+  }
+
+  if (bestPhase && bestScore >= 2) {
+    return {
+      phaseNumber: bestPhase.phaseNumber,
+      phaseName: bestPhase.phaseName,
+      confidence: 'medium',
+      reason: `Keyword match (${bestScore} words) → ${bestPhase.phaseName}`,
+    };
+  }
+
+  // No confident match
+  return null;
+}
