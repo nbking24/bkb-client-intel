@@ -153,7 +153,7 @@ export async function getTasksForJob(jobId: string): Promise<JTTask[]> {
     job: {
       $: { id: jobId },
       tasks: {
-        $: { size: 200 },
+        $: { size: 100 },
         nodes: {
           id: {},
           name: {},
@@ -188,7 +188,7 @@ export async function getOpenTasksForMember(membershipId: string): Promise<JTTas
 export async function getAllOpenTasks(): Promise<JTTask[]> {
   const result = await orgQuery('tasks', {
     $: {
-      size: 200,
+      size: 100,
       where: ['progress', '<', 100],
     },
     nodes: {
@@ -306,7 +306,7 @@ export async function getFilesForJob(jobId: string) {
     job: {
       $: { id: jobId },
       files: {
-        $: { size: 200 },
+        $: { size: 100 },
         nodes: {
           id: {},
           name: {},
@@ -327,15 +327,15 @@ export async function getFilesForJob(jobId: string) {
 
 export interface JTMember {
   id: string;
-  user: { id: string; name: string; email: string };
+  user: { id: string; name: string };
 }
 
 export async function getMembers(): Promise<JTMember[]> {
   const result = await orgQuery('memberships', {
-    $: { size: 50 },
+    $: { size: 100 },
     nodes: {
       id: {},
-      user: { id: {}, name: {}, email: {} },
+      user: { id: {}, name: {} },
     },
   });
   return result.nodes || [];
@@ -347,7 +347,7 @@ export async function getMembers(): Promise<JTMember[]> {
 
 export async function getCostCodes() {
   const result = await orgQuery('costCodes', {
-    $: { size: 200 },
+    $: { size: 100 },
     nodes: {
       id: {},
       name: {},

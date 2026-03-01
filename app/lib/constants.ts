@@ -51,10 +51,13 @@ export const ROLE_CONFIG = {
   field: { canEditPhases: false, canViewAllTasks: false, canViewBills: false, canViewGrid: false },
 } as const;
 
-// JT Team membership IDs
+// JT Team membership IDs (verified against live PAVE API 2026-02-28)
 export const JT_MEMBERS = {
-  nathan: '22P5SRxZKiP7',
-  brett: '22P5SRxcs7r9',
-  evan: '22P5SRxfGw9y',
-  terri: '22P5fxSXeJXf',
+  nathan: '22P5SRwhLaYf',
+  brett: '22P6GTaPEbkh',
+  evan: '22P5nJ7ncFj4',
+  terri: '22P5SpJkype2',
+  josh: '22P6GTEnhCre',
+  dave_steich: '22P5icFXKZgA',
+  jimmy: '22P5sPMTN8mH',
 } as const;
