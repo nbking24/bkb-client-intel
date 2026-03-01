@@ -421,6 +421,11 @@ export async function createPhaseGroup(params: {
 }
 
 // Create a child task under a phase group
+// Create a child task under a phase group
+// NOTE: PAVE API has a known limitation where tasks imported from templates
+// (created via JT UI template import) cannot accept new children via API.
+// When this happens, we fall back to creating the task at the job level
+// and return a warning flag so the UI can inform the user.
 export async function createPhaseTask(params: {
   jobId: string;
   parentGroupId: string;
@@ -429,26 +434,58 @@ export async function createPhaseTask(params: {
   startDate?: string;
   endDate?: string;
   assignedMembershipIds?: string[];
-}) {
+}): Promise<{ id: string; name: string; parentTask: any; warning?: string }> {
   const { jobId, parentGroupId, name, description, startDate, endDate, assignedMembershipIds } = params;
-  const data = await pave({
-    createTask: {
-      $: {
-        targetId: jobId,
-        targetType: 'job',
-        name,
-        parentTaskId: parentGroupId,
-        ...(description ? { description } : {}),
-        ...(startDate ? { startDate } : {}),
-        ...(endDate ? { endDate } : {}),
-        ...(assignedMembershipIds?.length ? { assignedMembershipIds } : {}),
+  const optionalFields = {
+    ...(description ? { description } : {}),
+    ...(startDate ? { startDate } : {}),
+    ...(endDate ? { endDate } : {}),
+    ...(assignedMembershipIds?.length ? { assignedMembershipIds } : {}),
+  };
+
+  // First try: create as a child of the specified phase
+  try {
+    const data = await pave({
+      createTask: {
+        $: {
+          targetId: jobId,
+          targetType: 'job',
+          name,
+          parentTaskId: parentGroupId,
+          ...optionalFields,
+        },
+        createdTask: { id: {}, name: {}, parentTask: { id: {}, name: {} } },
       },
-      createdTask: { id: {}, name: {}, parentTask: { id: {}, name: {} } },
-    },
-  });
-  const created = (data as any)?.createTask?.createdTask;
-  if (!created?.id) throw new Error('Phase task creation failed: ' + JSON.stringify(data));
-  return created;
+    });
+    const created = (data as any)?.createTask?.createdTask;
+    if (created?.id) return created;
+  } catch (err: any) {
+    // If the error is specifically about the parent task not existing
+    // (PAVE limitation with template-imported phases), fall back
+    if (err.message?.includes('parent task provided does not exist')) {
+      // Fallback: create the task at job level without a parent
+      const fallbackData = await pave({
+        createTask: {
+          $: {
+            targetId: jobId,
+            targetType: 'job',
+            name,
+            ...optionalFields,
+          },
+          createdTask: { id: {}, name: {} },
+        },
+      });
+      const created = (fallbackData as any)?.createTask?.createdTask;
+      if (!created?.id) throw new Error('Phase task creation failed (fallback): ' + JSON.stringify(fallbackData));
+      return {
+        ...created,
+        parentTask: null,
+        warning: 'This phase was imported from a JobTread template. The task was created at the job level instead. You can drag it into the phase in JobTread.',
+      };
+    }
+    throw err; // Re-throw other errors
+  }
+  throw new Error('Phase task creation failed: no task returned');
 }
 
 // Update task progress (0 = not started, 0.5 = in progress, 1 = complete)

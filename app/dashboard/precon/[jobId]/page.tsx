@@ -142,7 +142,7 @@ function PhaseAccordion({
     if (!newTaskName.trim()) return;
     setSaving(true);
     try {
-      await fetch('/api/dashboard/schedule', {
+      const res = await fetch('/api/dashboard/schedule', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -152,6 +152,11 @@ function PhaseAccordion({
           name: newTaskName.trim(),
         }),
       });
+      const data = await res.json();
+      if (data.warning) {
+        // Task was created at job level due to template-imported phase limitation
+        alert(data.warning);
+      }
       setNewTaskName('');
       setAdding(false);
       onUpdate();

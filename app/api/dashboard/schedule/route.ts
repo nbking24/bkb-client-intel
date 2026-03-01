@@ -64,7 +64,10 @@ export async function POST(req: NextRequest) {
           endDate: body.endDate,
           assignedMembershipIds: body.assignedMembershipIds,
         });
-        return NextResponse.json({ task: result });
+        return NextResponse.json({
+          task: result,
+          ...(result.warning ? { warning: result.warning } : {}),
+        });
       }
       case 'updateProgress': {
         await updateTaskProgress(body.taskId, body.progress);
