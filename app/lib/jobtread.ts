@@ -347,7 +347,7 @@ export async function getActiveJobSchedules(): Promise<JTJobSchedule[]> {
   // 1. Get active jobs
   const jobs = await getActiveJobs(50);
 
-  // 2. Get all task groups across org (lightweight — just names, progress, job ref)
+  // 2. Get all task groups across org (lightweight — no childTasks to avoid 413)
   const groupResult = await orgQuery('tasks', {
     $: {
       size: 100,
@@ -363,13 +363,6 @@ export async function getActiveJobSchedules(): Promise<JTJobSchedule[]> {
       endDate: {},
       parentTask: { id: {} },
       job: { id: {}, name: {} },
-      childTasks: {
-        nodes: {
-          id: {},
-          name: {},
-          progress: {},
-        },
-      },
     },
   });
 
