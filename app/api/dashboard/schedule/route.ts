@@ -3,6 +3,7 @@ import {
   getJobSchedule,
   getActiveJobSchedules,
   getScheduleAudit,
+  getGridScheduleData,
   createPhaseGroup,
   createPhaseTask,
   updateTaskProgress,
@@ -14,12 +15,14 @@ import {
 
 // GET /api/dashboard/schedule?jobId=xxx  → single job schedule (includes orphans)
 // GET /api/dashboard/schedule?overview=true → all active jobs with phases + status categories
+// GET /api/dashboard/schedule?grid=true → grid view with per-phase task counts
 // GET /api/dashboard/schedule?audit=true → universal schedule audit across all active jobs
 export async function GET(req: NextRequest) {
   try {
     const { searchParams } = new URL(req.url);
     const jobId = searchParams.get('jobId');
     const overview = searchParams.get('overview');
+    const grid = searchParams.get('grid');
     const audit = searchParams.get('audit');
 
     if (jobId) {
@@ -28,6 +31,11 @@ export async function GET(req: NextRequest) {
         return NextResponse.json({ error: 'Job not found' }, { status: 404 });
       }
       return NextResponse.json({ schedule });
+    }
+
+    if (grid === 'true') {
+      const data = await getGridScheduleData();
+      return NextResponse.json({ data });
     }
 
     if (audit === 'true') {
@@ -40,7 +48,7 @@ export async function GET(req: NextRequest) {
       return NextResponse.json({ schedules });
     }
 
-    return NextResponse.json({ error: 'Provide jobId, overview=true, or audit=true' }, { status: 400 });
+    return NextResponse.json({ error: 'Provide jobId, overview=true, grid=true, or audit=true' }, { status: 400 });
   } catch (err: any) {
     return NextResponse.json({ error: err.message }, { status: 500 });
   }
