@@ -4,12 +4,6 @@ import { useState, useEffect } from 'react';
 import { Loader2, ChevronRight, Plus, AlertTriangle, CheckCircle2, Clock, Circle } from 'lucide-react';
 import Link from 'next/link';
 
-interface PhaseTask {
-  id: string;
-  name: string;
-  progress: number | null;
-}
-
 interface Phase {
   id: string;
   name: string;
@@ -18,7 +12,6 @@ interface Phase {
   description: string | null;
   startDate: string | null;
   endDate: string | null;
-  childTasks: { nodes: PhaseTask[] };
 }
 
 interface JobSchedule {
@@ -44,8 +37,7 @@ function progressIcon(p: number | null) {
 }
 
 function PhaseChip({ phase }: { phase: Phase }) {
-  const completedTasks = phase.childTasks?.nodes?.filter((t) => t.progress !== null && t.progress >= 1).length || 0;
-  const totalTasks = phase.childTasks?.nodes?.length || 0;
+  const pct = phase.progress !== null ? Math.round(phase.progress * 100) : 0;
 
   return (
     <div
@@ -59,14 +51,12 @@ function PhaseChip({ phase }: { phase: Phase }) {
       <span className="truncate max-w-[160px]" style={{ color: '#e8e0d8' }}>
         {phase.name}
       </span>
-      {totalTasks > 0 && (
-        <span
-          className="text-xs px-1.5 py-0.5 rounded-full ml-auto whitespace-nowrap"
-          style={{ background: `${progressColor(phase.progress)}20`, color: progressColor(phase.progress) }}
-        >
-          {completedTasks}/{totalTasks}
-        </span>
-      )}
+      <span
+        className="text-xs px-1.5 py-0.5 rounded-full ml-auto whitespace-nowrap"
+        style={{ background: `${progressColor(phase.progress)}20`, color: progressColor(phase.progress) }}
+      >
+        {pct}%
+      </span>
     </div>
   );
 }
