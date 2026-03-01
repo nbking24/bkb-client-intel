@@ -338,7 +338,7 @@ export async function getJobSchedule(jobId: string): Promise<JTJobSchedule | nul
     job: {
       $: { id: jobId },
       tasks: {
-        $: { size: 200 },
+        $: { size: 100 },
         nodes: {
           id: {},
           name: {},
