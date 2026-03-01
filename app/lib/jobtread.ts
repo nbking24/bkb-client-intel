@@ -269,7 +269,10 @@ export interface JTJobSchedule {
 
 // Get full schedule tree for a single job
 export async function getJobSchedule(jobId: string): Promise<JTJobSchedule | null> {
-  const data = await pave({
+  // Two lightweight queries instead of one deeply-nested query (avoids 413)
+
+  // 1. Job info
+  const jobData = await pave({
     job: {
       $: { id: jobId },
       id: {},
@@ -279,6 +282,15 @@ export async function getJobSchedule(jobId: string): Promise<JTJobSchedule | nul
         name: {},
         account: { name: {} },
       },
+    },
+  });
+  const job = (jobData as any)?.job;
+  if (!job) return null;
+
+  // 2. Flat list of ALL tasks for this job (no nested childTasks)
+  const taskData = await pave({
+    job: {
+      $: { id: jobId },
       tasks: {
         $: { size: 100 },
         nodes: {
@@ -289,41 +301,34 @@ export async function getJobSchedule(jobId: string): Promise<JTJobSchedule | nul
           progress: {},
           startDate: {},
           endDate: {},
-          parentTask: { id: {} },
+          parentTask: { id: {}, name: {} },
           taskType: { id: {}, name: {} },
           assignedMemberships: {
             nodes: { id: {}, user: { id: {}, name: {} } },
-          },
-          childTasks: {
-            nodes: {
-              id: {},
-              name: {},
-              description: {},
-              isGroup: {},
-              progress: {},
-              startDate: {},
-              endDate: {},
-              taskType: { id: {}, name: {} },
-              assignedMemberships: {
-                nodes: { id: {}, user: { id: {}, name: {} } },
-              },
-              childTasks: { nodes: { id: {} } },
-            },
           },
         },
       },
     },
   });
 
-  const job = (data as any)?.job;
-  if (!job) return null;
+  const allTasks = ((taskData as any)?.job?.tasks?.nodes || []) as any[];
 
-  const allTasks: JTScheduleTask[] = job.tasks?.nodes || [];
-  // Top-level groups (phases) = isGroup && no parent
-  const phases = allTasks.filter(
-    (t: JTScheduleTask) => t.isGroup && !t.parentTask
-  );
-  // Calculate overall progress from phase groups
+  // 3. Build hierarchy client-side: group children under their parent
+  const taskMap = new Map<string, any>();
+  for (const t of allTasks) {
+    taskMap.set(t.id, { ...t, childTasks: { nodes: [] } });
+  }
+  for (const t of allTasks) {
+    if (t.parentTask?.id && taskMap.has(t.parentTask.id)) {
+      taskMap.get(t.parentTask.id).childTasks.nodes.push(taskMap.get(t.id));
+    }
+  }
+
+  // 4. Top-level groups (phases) = isGroup && no parent
+  const phases: JTScheduleTask[] = allTasks
+    .filter((t: any) => t.isGroup && !t.parentTask)
+    .map((t: any) => taskMap.get(t.id));
+
   const withProgress = phases.filter((p: JTScheduleTask) => p.progress !== null);
   const totalProgress = withProgress.length
     ? withProgress.reduce((sum: number, p: JTScheduleTask) => sum + (p.progress || 0), 0) / withProgress.length
