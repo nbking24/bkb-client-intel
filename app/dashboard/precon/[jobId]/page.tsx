@@ -11,13 +11,11 @@ import {
 interface ChildTask {
   id: string;
   name: string;
-  description: string | null;
   progress: number | null;
   startDate: string | null;
   endDate: string | null;
   isGroup: boolean;
-  assignedMemberships: { nodes: { id: string; user?: { id: string; name: string } }[] };
-  childTasks: { nodes: { id: string }[] };
+  childTasks: { nodes: ChildTask[] };
 }
 
 interface Phase {
@@ -25,11 +23,8 @@ interface Phase {
   name: string;
   isGroup: boolean;
   progress: number | null;
-  description: string | null;
   startDate: string | null;
   endDate: string | null;
-  taskType: { id: string; name: string } | null;
-  assignedMemberships: { nodes: { id: string; user?: { id: string; name: string } }[] };
   childTasks: { nodes: ChildTask[] };
 }
 
@@ -65,7 +60,6 @@ function TaskRow({
 }) {
   const [toggling, setToggling] = useState(false);
   const isComplete = task.progress !== null && task.progress >= 1;
-  const assignee = task.assignedMemberships?.nodes?.[0]?.user?.name;
 
   async function toggleComplete() {
     setToggling(true);
@@ -115,18 +109,7 @@ function TaskRow({
         >
           {task.name}
         </p>
-        {task.description && (
-          <p className="text-xs truncate mt-0.5" style={{ color: '#6b728080' }}>
-            {task.description}
-          </p>
-        )}
       </div>
-      {assignee && (
-        <span className="flex items-center gap-1 text-xs shrink-0" style={{ color: '#8a8078' }}>
-          <User size={12} />
-          {assignee.split(' ')[0]}
-        </span>
-      )}
       {task.endDate && (
         <span className="flex items-center gap-1 text-xs shrink-0" style={{ color: '#8a8078' }}>
           <Calendar size={12} />
@@ -198,11 +181,6 @@ function PhaseAccordion({
           <h3 className="text-sm font-semibold" style={{ color: '#e8e0d8' }}>
             {phase.name}
           </h3>
-          {phase.description && (
-            <p className="text-xs mt-0.5 truncate" style={{ color: '#8a8078' }}>
-              {phase.description}
-            </p>
-          )}
         </div>
         {/* Progress indicator */}
         <div className="flex items-center gap-2 shrink-0">
