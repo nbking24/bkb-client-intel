@@ -1,0 +1,83 @@
+import { NextRequest, NextResponse } from 'next/server';
+import {
+  getJobSchedule,
+  getActiveJobSchedules,
+  createPhaseGroup,
+  createPhaseTask,
+  updateTaskProgress,
+  deleteJTTask,
+} from '@/app/lib/jobtread';
+
+// GET /api/dashboard/schedule?jobId=xxx  → single job schedule
+// GET /api/dashboard/schedule?overview=true → all active jobs with phases
+export async function GET(req: NextRequest) {
+  try {
+    const { searchParams } = new URL(req.url);
+    const jobId = searchParams.get('jobId');
+    const overview = searchParams.get('overview');
+
+    if (jobId) {
+      const schedule = await getJobSchedule(jobId);
+      if (!schedule) {
+        return NextResponse.json({ error: 'Job not found' }, { status: 404 });
+      }
+      return NextResponse.json({ schedule });
+    }
+
+    if (overview === 'true') {
+      const schedules = await getActiveJobSchedules();
+      return NextResponse.json({ schedules });
+    }
+
+    return NextResponse.json({ error: 'Provide jobId or overview=true' }, { status: 400 });
+  } catch (err: any) {
+    return NextResponse.json({ error: err.message }, { status: 500 });
+  }
+}
+
+// POST /api/dashboard/schedule
+// { action: "createPhase", jobId, name, description? }
+// { action: "createTask", jobId, parentGroupId, name, description?, startDate?, endDate? }
+// { action: "updateProgress", taskId, progress }
+// { action: "deleteTask", taskId }
+export async function POST(req: NextRequest) {
+  try {
+    const body = await req.json();
+    const { action } = body;
+
+    switch (action) {
+      case 'createPhase': {
+        const result = await createPhaseGroup({
+          jobId: body.jobId,
+          name: body.name,
+          description: body.description,
+        });
+        return NextResponse.json({ phase: result });
+      }
+      case 'createTask': {
+        const result = await createPhaseTask({
+          jobId: body.jobId,
+          parentGroupId: body.parentGroupId,
+          name: body.name,
+          description: body.description,
+          startDate: body.startDate,
+          endDate: body.endDate,
+          assignedMembershipIds: body.assignedMembershipIds,
+        });
+        return NextResponse.json({ task: result });
+      }
+      case 'updateProgress': {
+        await updateTaskProgress(body.taskId, body.progress);
+        return NextResponse.json({ ok: true });
+      }
+      case 'deleteTask': {
+        await deleteJTTask(body.taskId);
+        return NextResponse.json({ ok: true });
+      }
+      default:
+        return NextResponse.json({ error: `Unknown action: ${action}` }, { status: 400 });
+    }
+  } catch (err: any) {
+    return NextResponse.json({ error: err.message }, { status: 500 });
+  }
+}
