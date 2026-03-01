@@ -341,13 +341,66 @@ export async function getJobSchedule(jobId: string): Promise<JTJobSchedule | nul
 }
 
 // Get schedule overview for ALL active jobs (pre-con grid view)
+// Uses a lightweight approach: fetches jobs + all org-level task groups in 2 queries
+// instead of N parallel per-job queries (which triggers 413 Request Entity Too Large)
 export async function getActiveJobSchedules(): Promise<JTJobSchedule[]> {
+  // 1. Get active jobs
   const jobs = await getActiveJobs(50);
-  // Fetch schedules in parallel for all active jobs
-  const schedules = await Promise.all(
-    jobs.map((j) => getJobSchedule(j.id))
-  );
-  return schedules.filter((s): s is JTJobSchedule => s !== null);
+
+  // 2. Get all task groups across org (lightweight — just names, progress, job ref)
+  const groupResult = await orgQuery('tasks', {
+    $: {
+      size: 100,
+      where: ['isGroup', '=', true],
+    },
+    nodes: {
+      id: {},
+      name: {},
+      isGroup: {},
+      progress: {},
+      description: {},
+      startDate: {},
+      endDate: {},
+      parentTask: { id: {} },
+      job: { id: {}, name: {} },
+      childTasks: {
+        nodes: {
+          id: {},
+          name: {},
+          progress: {},
+        },
+      },
+    },
+  });
+
+  const allGroups = (groupResult.nodes || []) as any[];
+
+  // 3. Build a map of jobId -> top-level phase groups
+  const jobPhaseMap: Record<string, any[]> = {};
+  for (const group of allGroups) {
+    if (!group.job?.id || group.parentTask) continue; // skip orphans and nested groups
+    if (!jobPhaseMap[group.job.id]) jobPhaseMap[group.job.id] = [];
+    jobPhaseMap[group.job.id].push(group);
+  }
+
+  // 4. Assemble schedules
+  return jobs.map((job) => {
+    const phases = jobPhaseMap[job.id] || [];
+    const withProgress = phases.filter((p: any) => p.progress !== null);
+    const totalProgress = withProgress.length
+      ? withProgress.reduce((sum: number, p: any) => sum + (p.progress || 0), 0) / withProgress.length
+      : 0;
+
+    return {
+      id: job.id,
+      name: job.name,
+      number: job.number || '',
+      clientName: job.clientName || '',
+      locationName: job.locationName || '',
+      phases,
+      totalProgress,
+    };
+  });
 }
 
 // Create a phase group (task group) on a job
