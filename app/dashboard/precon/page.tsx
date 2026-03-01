@@ -1,8 +1,15 @@
 'use client';
 
 import { useState, useEffect } from 'react';
-import { Loader2, ChevronRight, Plus, AlertTriangle, CheckCircle2, Clock, Circle } from 'lucide-react';
+import {
+  Loader2, ChevronRight, ChevronDown, Plus, AlertTriangle, CheckCircle2, Clock, Circle,
+} from 'lucide-react';
 import Link from 'next/link';
+import {
+  STATUS_CATEGORY_ORDER,
+  STATUS_CATEGORY_LABELS,
+  type StatusCategoryKey,
+} from '@/app/lib/constants';
 
 interface Phase {
   id: string;
@@ -20,6 +27,8 @@ interface JobSchedule {
   number: string;
   clientName: string;
   locationName: string;
+  customStatus: string | null;
+  statusCategory: StatusCategoryKey | null;
   phases: Phase[];
   totalProgress: number;
 }
@@ -38,7 +47,6 @@ function progressIcon(p: number | null) {
 
 function PhaseChip({ phase }: { phase: Phase }) {
   const pct = phase.progress !== null ? Math.round(phase.progress * 100) : 0;
-
   return (
     <div
       className="flex items-center gap-2 px-3 py-2 rounded-lg text-sm"
@@ -58,6 +66,18 @@ function PhaseChip({ phase }: { phase: Phase }) {
         {pct}%
       </span>
     </div>
+  );
+}
+
+function StatusBadge({ status }: { status: string | null }) {
+  if (!status) return null;
+  return (
+    <span
+      className="text-[10px] px-2 py-0.5 rounded-full font-medium whitespace-nowrap"
+      style={{ background: 'rgba(201,168,76,0.15)', color: '#C9A84C' }}
+    >
+      {status}
+    </span>
   );
 }
 
@@ -82,9 +102,12 @@ function ProjectCard({ schedule }: { schedule: JobSchedule }) {
             <h3 className="text-base font-semibold truncate" style={{ color: '#e8e0d8' }}>
               {schedule.name}
             </h3>
-            <p className="text-xs truncate" style={{ color: '#8a8078' }}>
-              {schedule.clientName || schedule.locationName}
-            </p>
+            <div className="flex items-center gap-2 mt-0.5">
+              <p className="text-xs truncate" style={{ color: '#8a8078' }}>
+                {schedule.clientName || schedule.locationName}
+              </p>
+              <StatusBadge status={schedule.customStatus} />
+            </div>
           </div>
           <div className="flex items-center gap-2 ml-3 shrink-0">
             <span className="text-xs font-medium" style={{ color: '#C9A84C' }}>
@@ -151,6 +174,68 @@ function ProjectCard({ schedule }: { schedule: JobSchedule }) {
   );
 }
 
+// Collapsible section for a status category
+function StatusSection({
+  categoryKey,
+  label,
+  jobs,
+  defaultExpanded,
+}: {
+  categoryKey: string;
+  label: string;
+  jobs: JobSchedule[];
+  defaultExpanded: boolean;
+}) {
+  const [expanded, setExpanded] = useState(defaultExpanded);
+
+  if (jobs.length === 0) return null;
+
+  // Section accent color based on category
+  const accentColors: Record<string, string> = {
+    IN_PRODUCTION: '#22c55e',
+    IN_DESIGN: '#eab308',
+    READY: '#3b82f6',
+    LEADS: '#8b5cf6',
+    FINAL_BILLING: '#f97316',
+    UNCATEGORIZED: '#6b7280',
+  };
+  const accent = accentColors[categoryKey] || '#8a8078';
+
+  return (
+    <div>
+      <button
+        onClick={() => setExpanded(!expanded)}
+        className="w-full flex items-center gap-3 py-3 px-1 hover:opacity-80 transition-opacity"
+      >
+        {expanded ? (
+          <ChevronDown size={18} style={{ color: accent }} />
+        ) : (
+          <ChevronRight size={18} style={{ color: accent }} />
+        )}
+        <div className="flex items-center gap-3">
+          <span className="w-2 h-2 rounded-full" style={{ background: accent }} />
+          <h2 className="text-sm font-semibold" style={{ color: '#e8e0d8' }}>
+            {label}
+          </h2>
+          <span
+            className="text-xs px-2 py-0.5 rounded-full font-medium"
+            style={{ background: `${accent}20`, color: accent }}
+          >
+            {jobs.length}
+          </span>
+        </div>
+      </button>
+      {expanded && (
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-3 pb-4">
+          {jobs.map((s) => (
+            <ProjectCard key={s.id} schedule={s} />
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
 export default function PreConOverview() {
   const [schedules, setSchedules] = useState<JobSchedule[]>([]);
   const [loading, setLoading] = useState(true);
@@ -172,19 +257,33 @@ export default function PreConOverview() {
     load();
   }, []);
 
-  // Sort: projects with schedules first, then by progress descending
-  const sorted = [...schedules].sort((a, b) => {
-    const aHas = a.phases.length > 0 ? 1 : 0;
-    const bHas = b.phases.length > 0 ? 1 : 0;
-    if (aHas !== bHas) return bHas - aHas;
-    return b.totalProgress - a.totalProgress;
-  });
+  // Group jobs by status category
+  const grouped: Record<string, JobSchedule[]> = {};
+  for (const cat of STATUS_CATEGORY_ORDER) {
+    grouped[cat] = [];
+  }
+  grouped['UNCATEGORIZED'] = [];
 
-  const withSchedule = sorted.filter((s) => s.phases.length > 0);
-  const withoutSchedule = sorted.filter((s) => s.phases.length === 0);
+  for (const s of schedules) {
+    const cat = s.statusCategory || 'UNCATEGORIZED';
+    if (!grouped[cat]) grouped[cat] = [];
+    grouped[cat].push(s);
+  }
+
+  // Sort within each section by progress descending
+  for (const key of Object.keys(grouped)) {
+    grouped[key].sort((a, b) => b.totalProgress - a.totalProgress);
+  }
+
+  // Which sections default to expanded
+  const defaultExpanded = new Set<string>(['IN_PRODUCTION', 'IN_DESIGN', 'READY']);
+
+  // Total counts
+  const totalJobs = schedules.length;
+  const jobsWithSchedule = schedules.filter((s) => s.phases.length > 0).length;
 
   return (
-    <div className="space-y-6">
+    <div className="space-y-4">
       {/* Header */}
       <div className="flex items-start justify-between">
         <div>
@@ -195,7 +294,7 @@ export default function PreConOverview() {
             Pre-Construction Tracker
           </h1>
           <p className="text-sm mt-1" style={{ color: '#8a8078' }}>
-            Schedule-driven project tracking. Click any project to view or manage its full schedule.
+            {totalJobs} active project{totalJobs !== 1 ? 's' : ''} — {jobsWithSchedule} with schedules
           </p>
         </div>
       </div>
@@ -226,54 +325,37 @@ export default function PreConOverview() {
           <p className="text-xs mt-1" style={{ color: '#8a8078' }}>Check that JOBTREAD_API_KEY is set</p>
         </div>
       ) : (
-        <>
-          {/* Projects with schedules */}
-          {withSchedule.length > 0 && (
-            <div>
-              <h2 className="text-sm font-semibold mb-3" style={{ color: '#e8e0d8' }}>
-                Active Schedules ({withSchedule.length})
-              </h2>
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-                {withSchedule.map((s) => (
-                  <ProjectCard key={s.id} schedule={s} />
-                ))}
-              </div>
-            </div>
+        <div className="space-y-2">
+          {/* Status category sections */}
+          {STATUS_CATEGORY_ORDER.map((cat) => (
+            <StatusSection
+              key={cat}
+              categoryKey={cat}
+              label={STATUS_CATEGORY_LABELS[cat]}
+              jobs={grouped[cat]}
+              defaultExpanded={defaultExpanded.has(cat)}
+            />
+          ))}
+
+          {/* Uncategorized (no Status custom field) */}
+          {grouped['UNCATEGORIZED'].length > 0 && (
+            <StatusSection
+              categoryKey="UNCATEGORIZED"
+              label={STATUS_CATEGORY_LABELS['UNCATEGORIZED']}
+              jobs={grouped['UNCATEGORIZED']}
+              defaultExpanded={false}
+            />
           )}
 
-          {/* Projects without schedules */}
-          {withoutSchedule.length > 0 && (
-            <div>
-              <h2 className="text-sm font-semibold mb-3" style={{ color: '#8a8078' }}>
-                Needs Schedule Setup ({withoutSchedule.length})
-              </h2>
-              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">
-                {withoutSchedule.map((s) => (
-                  <Link key={s.id} href={`/dashboard/precon/${s.id}`}>
-                    <div
-                      className="p-4 rounded-xl hover:border-[rgba(205,162,116,0.3)] transition-all"
-                      style={{
-                        background: '#242424',
-                        border: '1px solid rgba(205,162,116,0.08)',
-                      }}
-                    >
-                      <h3 className="text-sm font-medium truncate" style={{ color: '#e8e0d8' }}>
-                        {s.name}
-                      </h3>
-                      <p className="text-xs truncate mt-0.5" style={{ color: '#8a8078' }}>
-                        {s.clientName || s.locationName}
-                      </p>
-                      <div className="flex items-center gap-1.5 mt-3 text-xs" style={{ color: '#f97316' }}>
-                        <Plus size={12} />
-                        Set up schedule
-                      </div>
-                    </div>
-                  </Link>
-                ))}
-              </div>
+          {/* Empty state */}
+          {totalJobs === 0 && (
+            <div className="p-8 rounded-xl text-center" style={{ background: '#242424' }}>
+              <p className="text-sm" style={{ color: '#8a8078' }}>
+                No active projects found. Jobs will appear here once created in JobTread.
+              </p>
             </div>
           )}
-        </>
+        </div>
       )}
     </div>
   );

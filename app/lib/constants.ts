@@ -15,20 +15,94 @@ export const COLORS = {
   borderActive: 'rgba(205,162,116,0.25)',
 } as const;
 
-// Pre-construction phases
-export const PRECON_PHASES = [
-  { number: 1, name: 'Finalize Conceptual Design', short: 'Design' },
-  { number: 2, name: 'Get Conceptual Design Budget Range Approved', short: 'Budget Approval' },
-  { number: 3, name: 'Get Selections from Client', short: 'Selections' },
-  { number: 4, name: 'Finalize Plans', short: 'Plans' },
-  { number: 5, name: 'Finalize Contract Signed', short: 'Contract' },
-  { number: 6, name: 'Submit for Permits', short: 'Permits' },
-  { number: 7, name: 'Order Long-Lead Materials', short: 'Materials' },
-  { number: 8, name: 'Schedule Subs', short: 'Subs' },
-  { number: 9, name: 'Hand Off to Field', short: 'Handoff' },
+// ============================================================
+// Standard 9-Phase Schedule Structure
+// Every BKB project follows this same phase framework.
+// Phases grow with project status — not all phases are active at every stage.
+// ============================================================
+
+export const STANDARD_PHASES = [
+  { number: 1, name: 'Admin Tasks', short: 'Admin', description: 'Internal project setup, billing, insurance, ongoing admin items' },
+  { number: 2, name: 'Conceptual Design', short: 'Concept', description: 'Designer meetings, concept review, budget range estimate' },
+  { number: 3, name: 'Design Development', short: 'DD', description: 'DD drawings, plan review, revisions, selections process' },
+  { number: 4, name: 'Contract', short: 'Contract', description: 'Final plans, engineering, contract preparation and signing' },
+  { number: 5, name: 'Preconstruction', short: 'Precon', description: 'Permits, material orders, sub scheduling, pre-con meeting' },
+  { number: 6, name: 'In Production', short: 'Production', description: 'All build tasks with projected dates' },
+  { number: 7, name: 'Inspections', short: 'Inspections', description: 'Project inspections — added as needed per project type' },
+  { number: 8, name: 'Punch List', short: 'Punch', description: 'Starts empty, populated near project completion' },
+  { number: 9, name: 'Project Completion', short: 'Closeout', description: 'Final walkthrough, final billing, warranties, closeout' },
 ] as const;
 
-// Phase status colors
+// ============================================================
+// JobTread Custom "Status" Field — Dashboard Grouping
+// Jobs are grouped into these categories on the overview dashboard.
+// The status values are the exact strings from the JT custom field.
+// ============================================================
+
+export type StatusCategoryKey = 'IN_PRODUCTION' | 'IN_DESIGN' | 'READY' | 'LEADS' | 'FINAL_BILLING';
+
+export const STATUS_VALUES: Record<StatusCategoryKey, string[]> = {
+  LEADS: [
+    '1. Lead Contacted Us',
+    '2. Appointment Scheduled',
+    '3. Pricing/Agreement Pending',
+    '4. Agreement Sent/Pending',
+  ],
+  IN_DESIGN: [
+    '5. Design Phase',
+  ],
+  READY: [
+    '10. Ready',
+  ],
+  IN_PRODUCTION: [
+    '6. In Production',
+  ],
+  FINAL_BILLING: [
+    '7. Final Billing',
+  ],
+};
+
+// Display order for dashboard sections (most active first)
+export const STATUS_CATEGORY_ORDER: StatusCategoryKey[] = [
+  'IN_PRODUCTION',
+  'IN_DESIGN',
+  'READY',
+  'LEADS',
+  'FINAL_BILLING',
+];
+
+export const STATUS_CATEGORY_LABELS: Record<StatusCategoryKey | 'UNCATEGORIZED', string> = {
+  IN_PRODUCTION: 'In Production',
+  IN_DESIGN: 'In Design',
+  READY: 'Ready to Start',
+  LEADS: 'Leads',
+  FINAL_BILLING: 'Final Billing',
+  UNCATEGORIZED: 'Uncategorized',
+};
+
+// Which phases are relevant at each status stage
+// (all phases exist on the job, but only these are "active" / shown expanded)
+export const STATUS_ACTIVE_PHASES: Record<StatusCategoryKey, number[]> = {
+  LEADS: [1, 2],                          // Admin + Conceptual Design
+  IN_DESIGN: [1, 2, 3],                   // + Design Development
+  READY: [1, 2, 3, 4, 5],                 // + Contract + Preconstruction
+  IN_PRODUCTION: [1, 2, 3, 4, 5, 6, 7, 8, 9], // All phases
+  FINAL_BILLING: [1, 6, 7, 8, 9],         // Production + Closeout phases
+};
+
+// Reverse lookup: given a status string, find its category
+export function getStatusCategory(statusValue: string | null | undefined): StatusCategoryKey | null {
+  if (!statusValue) return null;
+  for (const [category, values] of Object.entries(STATUS_VALUES)) {
+    if (values.includes(statusValue)) return category as StatusCategoryKey;
+  }
+  return null;
+}
+
+// ============================================================
+// Phase status colors (for progress indicators)
+// ============================================================
+
 export const STATUS_COLORS = {
   complete: { bg: '#22c55e', text: '#ffffff', label: 'Complete' },
   in_progress: { bg: '#eab308', text: '#1a1a1a', label: 'In Progress' },

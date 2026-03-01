@@ -11,7 +11,11 @@
 // - Task assignees: "assignedMemberships" (not "assignees")
 // - Job customer: accessed via location.account (not direct "account")
 // - Can't filter tasks by assignedMemberships at org level — fetch all, filter client-side
+// - Custom field values: job.customFieldValues { customField { name } value }
 // ============================================================
+
+import { getStatusCategory, type StatusCategoryKey } from './constants';
+import { BKB_STANDARD_TEMPLATE, type PhaseTemplate } from './schedule-templates';
 
 const JT_URL = 'https://api.jobtread.com/pave';
 const JT_KEY = () => process.env.JOBTREAD_API_KEY || '';
@@ -70,6 +74,8 @@ export interface JTJob {
   closedOn: string | null;
   clientName?: string;
   locationName?: string;
+  customStatus?: string | null;       // JT custom "Status" field value
+  statusCategory?: StatusCategoryKey | null;  // Derived category for dashboard grouping
 }
 
 export async function getActiveJobs(limit = 50): Promise<JTJob[]> {
@@ -90,20 +96,34 @@ export async function getActiveJobs(limit = 50): Promise<JTJob[]> {
         name: {},
         account: { id: {}, name: {} },
       },
+      customFieldValues: {
+        nodes: {
+          value: {},
+          customField: { name: {} },
+        },
+      },
     },
   });
   const jobs = result.nodes || [];
-  // Flatten location.account.name into clientName for convenience
-  return jobs.map((j: any) => ({
-    id: j.id,
-    name: j.name,
-    number: j.number,
-    status: j.status,
-    createdAt: j.createdAt,
-    closedOn: j.closedOn,
-    clientName: j.location?.account?.name || '',
-    locationName: j.location?.name || '',
-  }));
+  return jobs.map((j: any) => {
+    // Extract the custom "Status" field value
+    const statusField = (j.customFieldValues?.nodes || []).find(
+      (cfv: any) => cfv.customField?.name === 'Status'
+    );
+    const customStatus = statusField?.value || null;
+    return {
+      id: j.id,
+      name: j.name,
+      number: j.number,
+      status: j.status,
+      createdAt: j.createdAt,
+      closedOn: j.closedOn,
+      clientName: j.location?.account?.name || '',
+      locationName: j.location?.name || '',
+      customStatus,
+      statusCategory: getStatusCategory(customStatus),
+    };
+  });
 }
 
 export async function getJob(jobId: string) {
@@ -122,14 +142,26 @@ export async function getJob(jobId: string) {
         name: {},
         account: { id: {}, name: {} },
       },
+      customFieldValues: {
+        nodes: {
+          value: {},
+          customField: { name: {} },
+        },
+      },
     },
   });
   const job = (data as any)?.job;
   if (!job) return null;
+  const statusField = (job.customFieldValues?.nodes || []).find(
+    (cfv: any) => cfv.customField?.name === 'Status'
+  );
+  const customStatus = statusField?.value || null;
   return {
     ...job,
     clientName: job.location?.account?.name || '',
     locationName: job.location?.name || '',
+    customStatus,
+    statusCategory: getStatusCategory(customStatus),
   };
 }
 
@@ -263,7 +295,10 @@ export interface JTJobSchedule {
   number: string;
   clientName: string;
   locationName: string;
+  customStatus: string | null;
+  statusCategory: StatusCategoryKey | null;
   phases: JTScheduleTask[];
+  orphanTasks: JTScheduleTask[];   // Tasks with no parent phase — must be visible!
   totalProgress: number;
 }
 
@@ -271,7 +306,7 @@ export interface JTJobSchedule {
 export async function getJobSchedule(jobId: string): Promise<JTJobSchedule | null> {
   // Two lightweight queries instead of one deeply-nested query (avoids 413)
 
-  // 1. Job info
+  // 1. Job info (including custom fields)
   const jobData = await pave({
     job: {
       $: { id: jobId },
@@ -282,17 +317,28 @@ export async function getJobSchedule(jobId: string): Promise<JTJobSchedule | nul
         name: {},
         account: { name: {} },
       },
+      customFieldValues: {
+        nodes: {
+          value: {},
+          customField: { name: {} },
+        },
+      },
     },
   });
   const job = (jobData as any)?.job;
   if (!job) return null;
+
+  const statusField = (job.customFieldValues?.nodes || []).find(
+    (cfv: any) => cfv.customField?.name === 'Status'
+  );
+  const customStatus = statusField?.value || null;
 
   // 2. Flat list of ALL tasks for this job — minimal fields to avoid 413
   const taskData = await pave({
     job: {
       $: { id: jobId },
       tasks: {
-        $: { size: 100 },
+        $: { size: 200 },
         nodes: {
           id: {},
           name: {},
@@ -324,6 +370,21 @@ export async function getJobSchedule(jobId: string): Promise<JTJobSchedule | nul
     .filter((t: any) => t.isGroup && !t.parentTask)
     .map((t: any) => taskMap.get(t.id));
 
+  // 5. ORPHAN DETECTION — tasks that have no parent AND are not groups
+  //    These were silently dropped before. Now we return them explicitly.
+  const phaseIds = new Set(phases.map((p) => p.id));
+  const orphanTasks: JTScheduleTask[] = allTasks
+    .filter((t: any) => {
+      // Not a group, and either:
+      // - has no parentTask at all, OR
+      // - has a parentTask that doesn't exist in our task map (deleted parent)
+      if (t.isGroup) return false;
+      if (!t.parentTask) return true;   // no parent at all — orphan
+      if (!taskMap.has(t.parentTask.id)) return true;  // parent doesn't exist — orphan
+      return false;
+    })
+    .map((t: any) => taskMap.get(t.id));
+
   const withProgress = phases.filter((p: JTScheduleTask) => p.progress !== null);
   const totalProgress = withProgress.length
     ? withProgress.reduce((sum: number, p: JTScheduleTask) => sum + (p.progress || 0), 0) / withProgress.length
@@ -335,7 +396,10 @@ export async function getJobSchedule(jobId: string): Promise<JTJobSchedule | nul
     number: job.number || '',
     clientName: job.location?.account?.name || '',
     locationName: job.location?.name || '',
+    customStatus,
+    statusCategory: getStatusCategory(customStatus),
     phases,
+    orphanTasks,
     totalProgress,
   };
 }
@@ -344,7 +408,7 @@ export async function getJobSchedule(jobId: string): Promise<JTJobSchedule | nul
 // Uses a lightweight approach: fetches jobs + all org-level task groups in 2 queries
 // instead of N parallel per-job queries (which triggers 413 Request Entity Too Large)
 export async function getActiveJobSchedules(): Promise<JTJobSchedule[]> {
-  // 1. Get active jobs
+  // 1. Get active jobs (now includes customStatus)
   const jobs = await getActiveJobs(50);
 
   // 2. Get all task groups across org (lightweight — no childTasks to avoid 413)
@@ -390,11 +454,18 @@ export async function getActiveJobSchedules(): Promise<JTJobSchedule[]> {
       number: job.number || '',
       clientName: job.clientName || '',
       locationName: job.locationName || '',
+      customStatus: job.customStatus || null,
+      statusCategory: job.statusCategory || null,
       phases,
+      orphanTasks: [],  // Overview doesn't load orphans (too expensive)
       totalProgress,
     };
   });
 }
+
+// ============================================================
+// SCHEDULE MUTATIONS
+// ============================================================
 
 // Create a phase group (task group) on a job
 export async function createPhaseGroup(params: {
@@ -420,7 +491,6 @@ export async function createPhaseGroup(params: {
   return created;
 }
 
-// Create a child task under a phase group
 // Create a child task under a phase group
 // NOTE: PAVE API has a known limitation where tasks imported from templates
 // (created via JT UI template import) cannot accept new children via API.
@@ -502,6 +572,86 @@ export async function deleteJTTask(taskId: string) {
   await pave({
     deleteTask: { $: { id: taskId } },
   });
+}
+
+// ============================================================
+// TEMPLATE APPLICATION — Apply standard BKB schedule to a job
+// Creates all 9 phase groups + default tasks with durations
+// ============================================================
+
+export async function applyStandardTemplate(jobId: string): Promise<{
+  phasesCreated: number;
+  tasksCreated: number;
+  errors: string[];
+}> {
+  let phasesCreated = 0;
+  let tasksCreated = 0;
+  const errors: string[] = [];
+
+  for (const phase of BKB_STANDARD_TEMPLATE) {
+    try {
+      // Create the phase group
+      const group = await createPhaseGroup({
+        jobId,
+        name: phase.name,
+        description: phase.description,
+      });
+      phasesCreated++;
+
+      // Create default tasks under this phase (unless startsEmpty)
+      if (!phase.startsEmpty) {
+        for (const task of phase.tasks) {
+          try {
+            // Calculate start/end dates based on duration
+            // For now, just create tasks without dates — Evan will set them
+            await createPhaseTask({
+              jobId,
+              parentGroupId: group.id,
+              name: task.name,
+              description: task.description,
+            });
+            tasksCreated++;
+          } catch (taskErr: any) {
+            errors.push(`Task "${task.name}" in ${phase.name}: ${taskErr.message}`);
+          }
+        }
+      }
+    } catch (phaseErr: any) {
+      errors.push(`Phase "${phase.name}": ${phaseErr.message}`);
+    }
+  }
+
+  return { phasesCreated, tasksCreated, errors };
+}
+
+// Apply default tasks to a single phase
+export async function applyPhaseDefaults(
+  jobId: string,
+  parentGroupId: string,
+  phaseNumber: number
+): Promise<{ tasksCreated: number; errors: string[] }> {
+  const phase = BKB_STANDARD_TEMPLATE.find((p) => p.phaseNumber === phaseNumber);
+  if (!phase) throw new Error(`No template found for phase number ${phaseNumber}`);
+  if (phase.startsEmpty) return { tasksCreated: 0, errors: [] };
+
+  let tasksCreated = 0;
+  const errors: string[] = [];
+
+  for (const task of phase.tasks) {
+    try {
+      await createPhaseTask({
+        jobId,
+        parentGroupId,
+        name: task.name,
+        description: task.description,
+      });
+      tasksCreated++;
+    } catch (err: any) {
+      errors.push(`"${task.name}": ${err.message}`);
+    }
+  }
+
+  return { tasksCreated, errors };
 }
 
 // ============================================================

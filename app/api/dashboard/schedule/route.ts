@@ -6,10 +6,12 @@ import {
   createPhaseTask,
   updateTaskProgress,
   deleteJTTask,
+  applyStandardTemplate,
+  applyPhaseDefaults,
 } from '@/app/lib/jobtread';
 
-// GET /api/dashboard/schedule?jobId=xxx  → single job schedule
-// GET /api/dashboard/schedule?overview=true → all active jobs with phases
+// GET /api/dashboard/schedule?jobId=xxx  → single job schedule (includes orphans)
+// GET /api/dashboard/schedule?overview=true → all active jobs with phases + status categories
 export async function GET(req: NextRequest) {
   try {
     const { searchParams } = new URL(req.url);
@@ -40,6 +42,8 @@ export async function GET(req: NextRequest) {
 // { action: "createTask", jobId, parentGroupId, name, description?, startDate?, endDate? }
 // { action: "updateProgress", taskId, progress }
 // { action: "deleteTask", taskId }
+// { action: "applyTemplate", jobId }  — Apply full BKB standard template
+// { action: "applyPhaseDefaults", jobId, parentGroupId, phaseNumber }  — Fill a single phase
 export async function POST(req: NextRequest) {
   try {
     const body = await req.json();
@@ -76,6 +80,24 @@ export async function POST(req: NextRequest) {
       case 'deleteTask': {
         await deleteJTTask(body.taskId);
         return NextResponse.json({ ok: true });
+      }
+      case 'applyTemplate': {
+        const result = await applyStandardTemplate(body.jobId);
+        return NextResponse.json({
+          ok: true,
+          ...result,
+        });
+      }
+      case 'applyPhaseDefaults': {
+        const result = await applyPhaseDefaults(
+          body.jobId,
+          body.parentGroupId,
+          body.phaseNumber
+        );
+        return NextResponse.json({
+          ok: true,
+          ...result,
+        });
       }
       default:
         return NextResponse.json({ error: `Unknown action: ${action}` }, { status: 400 });
