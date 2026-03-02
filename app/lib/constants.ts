@@ -135,3 +135,27 @@ export const JT_MEMBERS = {
   dave_steich: '22P5icFXKZgA',
   jimmy: '22P5sPMTN8mH',
 } as const;
+
+// ============================================================
+// Design Manager Agent — Configuration
+// ============================================================
+
+// Which JT custom-field Status values the Design Manager Agent monitors
+export const DESIGN_AGENT_STATUSES = ['5. Design Phase', '10. Ready'] as const;
+
+// Agent rules / thresholds
+export const AGENT_RULES = {
+  maxDaysNoContact: 14,         // Alert if no client contact in 14+ days
+  urgentDeadlineDays: 3,        // Flag tasks due within 3 days as urgent
+  warningDeadlineDays: 7,       // Flag tasks due within 7 days as warning
+  stalledDaysThreshold: 10,     // Flag phase as stalled if no progress in 10 days
+} as const;
+
+// Agent project health statuses
+export type ProjectHealthStatus = 'on_track' | 'at_risk' | 'stalled' | 'blocked' | 'complete';
+
+// GHL config
+export const GHL_CONFIG = {
+  locationId: 'H3fSXP5K9fMGf0eJIkXk',
+  pipelineId: '1iqzDqMkl6sxHr8OCeqi',
+} as const;
