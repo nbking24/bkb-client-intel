@@ -77,159 +77,6 @@ function formatDate(dateStr: string | null): string {
   if (!dateStr) return '—';
   try {
     return new Date(dateStr).toLocaleDateString('en-US', {
-      month: 'short', day: 'numeric', year: 'numeric',
-    });
-  } catch { return dateStr; }
-}
-
-function formatTimestamp(dateStr: string): string {
-  try {
-    return new Date(dateStr).toLocaleString('en-US', {
-      month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit',
-    });
-  } catch { return dateStr; }
-}
-
-// ============================================================
-// Summary Cards
-// ============================================================
-
-function SummaryCards({ report }: { report: AgentReport }) {
-  const onTrack = report.projects.filter(p => p.status === 'on_track').length;
-  const atRisk = report.projects.filter(p => p.status === 'at_risk').length;
-  const stalled = report.projects.filter(p => p.status === 'stalled' || p.status === 'blocked').length;
-
-  const cards = [
-    { label: 'Projects', value: report.projectCount, color: '#C9A84C', icon: BarChart3 },
-    { label: 'On Track', value: onTrack, color: '#22c55e', icon: CheckCircle2 },
-    { label: 'At Risk', value: atRisk, color: '#eab308', icon: AlertTriangle },
-    { label: 'Stalled', value: stalled, color: '#f97316', icon: Clock },
-    { label: 'Alerts', value: report.alertCount, color: '#ef4444', icon: Zap },
-  ];
-
-  return (
-    <div className="grid grid-cols-5 gap-3">
-      {cards.map((c) => {
-        const Icon = c.icon;
-        return (
-          <div key={c.label} className="rounded-lg p-3"
-            style={{ background: '#1a1a1a', border: '1px solid rgba(205,162,116,0.1)' }}>
-            <div className="flex items-center gap-2 mb-1">
-              <Icon size={14} style={{ color: c.color }} />
-              <span className="text-xs" style={{ color: '#8a8078' }}>{c.label}</span>
-            </div>
-            <div className="text-2xl font-bold" style={{ color: c.color }}>{c.value}</div>
-          </div>
-        );
-      })}
-    </div>
-  );
-         }
-
-// ============================================================
-// Top Priorities
-// ============================================================
-
-function TopPriorities({ priorities }: { priorities: string[] }) {
-  if (!priorities.length) return null;
-  return (
-    <div className="rounded-lg p-4" style={{ background: '#1a1a1a', border: '1px solid rgba(205,162,116,0.1)' }}>
-      <h3 className="text-sm font-semibold mb-3 flex items-center gap-2" style={{ color: '#C9A84C' }}>
-        <Zap size={14} />
-        Agent Top Priorities
-      </h3>
-      <div className="space-y-2">
-        {priorities.map((p, i) => (
-          <div key={i} className="flex gap-3 text-sm">
-            <span className="flex-shrink-0 w-5 h-5 rounded-full flex items-center justify-center text-xs font-bold"
-              style={{ background: 'rgba(201,168,76,0.2)', color: '#C9A84C' }}>
-              {i + 1}
-            </span>
-            <span style={{ color: '#d4ccc4' }}>{p}</span>
-          </div>
-        ))}
-      </div>
-    </div>
-  );
-                        'use client';
-
-import { useState, useEffect } from 'react';
-import Link from 'next/link';
-import {
-  Loader2,
-  RefreshCw,
-  AlertTriangle,
-  CheckCircle2,
-  Clock,
-  XCircle,
-  MessageSquare,
-  CalendarDays,
-  ChevronDown,
-  ChevronRight,
-  Zap,
-  Users,
-  BarChart3,
-} from 'lucide-react';
-
-// ============================================================
-// Types — matches AgentReport from the API route
-// ============================================================
-
-interface AgentRecommendation {
-  action: string;
-  description: string;
-  priority: 'high' | 'medium' | 'low';
-  actionType: 'createTask' | 'draftMessage' | 'standardizeSchedule' | 'other';
-}
-
-interface AgentProject {
-  jobId: string;
-  jobName: string;
-  jobNumber: string;
-  clientName: string;
-  status: 'on_track' | 'at_risk' | 'stalled' | 'blocked' | 'complete';
-  currentPhase: string | null;
-  nextStep: string;
-  nextStepAssignee: string;
-  lastClientContact: string | null;
-  daysSinceContact: number | null;
-  nextMeeting: string | null;
-  totalProgress: number;
-  alerts: string[];
-  recommendations: AgentRecommendation[];
-}
-
-interface AgentReport {
-  generatedAt: string;
-  summary: string;
-  projectCount: number;
-  alertCount: number;
-  projects: AgentProject[];
-  topPriorities: string[];
-}
-
-// ============================================================
-// Status helpers
-// ============================================================
-
-const STATUS_CONFIG: Record<string, { label: string; color: string; bg: string; icon: any }> = {
-  on_track: { label: 'On Track', color: '#22c55e', bg: 'rgba(34,197,94,0.12)', icon: CheckCircle2 },
-  at_risk: { label: 'At Risk', color: '#eab308', bg: 'rgba(234,179,8,0.12)', icon: AlertTriangle },
-  stalled: { label: 'Stalled', color: '#f97316', bg: 'rgba(249,115,22,0.12)', icon: Clock },
-  blocked: { label: 'Blocked', color: '#ef4444', bg: 'rgba(239,68,68,0.12)', icon: XCircle },
-  complete: { label: 'Complete', color: '#22c55e', bg: 'rgba(34,197,94,0.12)', icon: CheckCircle2 },
-};
-
-const PRIORITY_COLORS: Record<string, { color: string; bg: string }> = {
-  high: { color: '#ef4444', bg: 'rgba(239,68,68,0.12)' },
-  medium: { color: '#eab308', bg: 'rgba(234,179,8,0.12)' },
-  low: { color: '#8a8078', bg: 'rgba(138,128,120,0.12)' },
-};
-
-function formatDate(dateStr: string | null): string {
-  if (!dateStr) return '—';
-  try {
-    return new Date(dateStr).toLocaleDateString('en-US', {
       month: 'short',
       day: 'numeric',
       year: 'numeric',
@@ -320,7 +167,7 @@ function TopPriorities({ priorities }: { priorities: string[] }) {
       </div>
     </div>
   );
-  }
+                                                }
 
 // ============================================================
 // Project Card
@@ -330,7 +177,6 @@ function ProjectCard({ project }: { project: AgentProject }) {
   const [expanded, setExpanded] = useState(false);
   const config = STATUS_CONFIG[project.status] || STATUS_CONFIG.stalled;
   const StatusIcon = config.icon;
-
   const contactDanger = project.daysSinceContact !== null && project.daysSinceContact > 14;
 
   return (
@@ -338,7 +184,6 @@ function ProjectCard({ project }: { project: AgentProject }) {
       className="rounded-lg overflow-hidden"
       style={{ background: '#1a1a1a', border: `1px solid ${config.color}30` }}
     >
-      {/* Card header */}
       <button
         onClick={() => setExpanded(!expanded)}
         className="w-full text-left px-4 py-3 flex items-start gap-3 hover:bg-[#222] transition-colors"
@@ -350,7 +195,6 @@ function ProjectCard({ project }: { project: AgentProject }) {
             <ChevronRight size={16} style={{ color: '#8a8078' }} />
           )}
         </div>
-
         <div className="flex-1 min-w-0">
           <div className="flex items-center gap-2 flex-wrap">
             <Link
@@ -369,53 +213,34 @@ function ProjectCard({ project }: { project: AgentProject }) {
               {config.label}
             </span>
           </div>
-
           <div className="flex items-center gap-4 mt-1 text-xs" style={{ color: '#8a8078' }}>
             <span>#{project.jobNumber} · {project.clientName}</span>
-            {project.currentPhase && (
-              <span>Phase: {project.currentPhase}</span>
-            )}
+            {project.currentPhase && <span>Phase: {project.currentPhase}</span>}
           </div>
-
-          {/* Key metrics row */}
           <div className="flex items-center gap-4 mt-2 text-xs">
-            <span
-              className="flex items-center gap-1"
-              style={{ color: contactDanger ? '#ef4444' : '#8a8078' }}
-            >
+            <span className="flex items-center gap-1" style={{ color: contactDanger ? '#ef4444' : '#8a8078' }}>
               <MessageSquare size={11} />
-              {project.daysSinceContact !== null
-                ? `${project.daysSinceContact}d ago`
-                : 'No record'}
+              {project.daysSinceContact !== null ? `${project.daysSinceContact}d ago` : 'No record'}
             </span>
-
             <span className="flex items-center gap-1" style={{ color: '#8a8078' }}>
               <CalendarDays size={11} />
               {project.nextMeeting || 'None scheduled'}
             </span>
-
             <span className="flex items-center gap-1" style={{ color: '#C9A84C' }}>
               <Users size={11} />
               {project.nextStepAssignee}
             </span>
           </div>
         </div>
-
-        {/* Progress circle */}
         <div className="flex-shrink-0 text-center">
           <div
             className="w-10 h-10 rounded-full flex items-center justify-center text-xs font-bold"
-            style={{
-              border: `2px solid ${config.color}`,
-              color: config.color,
-            }}
+            style={{ border: `2px solid ${config.color}`, color: config.color }}
           >
             {Math.round(project.totalProgress * (project.totalProgress <= 1 ? 100 : 1))}%
           </div>
         </div>
       </button>
-
-      {/* Next Step banner */}
       <div
         className="px-4 py-2 text-sm flex items-start gap-2"
         style={{ background: 'rgba(201,168,76,0.06)', borderTop: '1px solid rgba(205,162,116,0.08)' }}
@@ -425,11 +250,8 @@ function ProjectCard({ project }: { project: AgentProject }) {
         </span>
         <span style={{ color: '#d4ccc4' }}>{project.nextStep}</span>
       </div>
-
-      {/* Expanded content */}
       {expanded && (
         <div className="px-4 py-3 space-y-3" style={{ borderTop: '1px solid rgba(205,162,116,0.08)' }}>
-          {/* Alerts */}
           {project.alerts.length > 0 && (
             <div>
               <h4 className="text-xs font-semibold mb-1.5" style={{ color: '#ef4444' }}>
@@ -445,8 +267,6 @@ function ProjectCard({ project }: { project: AgentProject }) {
               </div>
             </div>
           )}
-
-          {/* Recommendations */}
           {project.recommendations.length > 0 && (
             <div>
               <h4 className="text-xs font-semibold mb-1.5" style={{ color: '#C9A84C' }}>
@@ -491,7 +311,7 @@ function ProjectCard({ project }: { project: AgentProject }) {
       )}
     </div>
   );
-                      }
+                                                                   }
 
 // ============================================================
 // Main Page
@@ -525,8 +345,7 @@ export default function PreConDashboard() {
     setRefreshing(false);
   }
 
-  // Sort: stalled/blocked first, then at_risk, then on_track, then complete
-  const statusOrder = { blocked: 0, stalled: 1, at_risk: 2, on_track: 3, complete: 4 };
+  const statusOrder: Record<string, number> = { blocked: 0, stalled: 1, at_risk: 2, on_track: 3, complete: 4 };
   const sortedProjects = report?.projects
     ? [...report.projects].sort(
         (a, b) => (statusOrder[a.status] ?? 5) - (statusOrder[b.status] ?? 5)
@@ -535,7 +354,6 @@ export default function PreConDashboard() {
 
   return (
     <div className="space-y-4">
-      {/* Header */}
       <div className="flex items-start justify-between flex-wrap gap-3">
         <div>
           <h1
@@ -551,7 +369,6 @@ export default function PreConDashboard() {
             )}
           </p>
         </div>
-
         <button
           onClick={handleRefresh}
           disabled={refreshing}
@@ -567,31 +384,21 @@ export default function PreConDashboard() {
         </button>
       </div>
 
-      {/* Loading */}
       {loading ? (
         <div className="flex flex-col items-center justify-center py-16 gap-3">
           <Loader2 size={28} className="animate-spin" style={{ color: '#C9A84C' }} />
-          <p className="text-sm" style={{ color: '#8a8078' }}>
-            Agent is analyzing your projects...
-          </p>
+          <p className="text-sm" style={{ color: '#8a8078' }}>Agent is analyzing your projects...</p>
         </div>
       ) : error ? (
         <div className="p-6 rounded-xl text-center" style={{ background: '#242424' }}>
           <p className="text-sm" style={{ color: '#ef4444' }}>Agent error: {error}</p>
-          <button
-            onClick={handleRefresh}
-            className="text-xs mt-2 underline"
-            style={{ color: '#C9A84C' }}
-          >
+          <button onClick={handleRefresh} className="text-xs mt-2 underline" style={{ color: '#C9A84C' }}>
             Try again
           </button>
         </div>
       ) : report ? (
         <div className="space-y-4">
-          {/* Summary cards */}
           <SummaryCards report={report} />
-
-          {/* Agent summary */}
           <div
             className="rounded-lg p-4"
             style={{ background: '#1a1a1a', border: '1px solid rgba(205,162,116,0.1)' }}
@@ -600,11 +407,7 @@ export default function PreConDashboard() {
               {report.summary}
             </p>
           </div>
-
-          {/* Top priorities */}
           <TopPriorities priorities={report.topPriorities} />
-
-          {/* Project cards */}
           <div>
             <h2 className="text-sm font-semibold mb-3" style={{ color: '#8a8078' }}>
               Projects ({sortedProjects.length})
@@ -620,3 +423,4 @@ export default function PreConDashboard() {
     </div>
   );
 }
+
