@@ -1,21 +1,31 @@
 // ============================================================
-// Design Manager Agent — API Route
+// Design Manager Agent â API Route
 //
-// GET  → Run agent analysis (gather data + Claude assessment)
-// POST → Execute agent actions (create tasks, draft messages)
+// GET  â Run agent analysis (gather data + Claude assessment)
+// POST â Execute agent actions (create tasks, draft messages,
+//         standardize schedules)
 // ============================================================
 
 import { NextRequest, NextResponse } from 'next/server';
 import {
   buildAgentContext,
+  analyzeProjectSchedule,
+  getClientContactInfo,
   type AgentFullContext,
   type AgentProjectContext,
 } from '@/app/lib/design-agent';
+import {
+  createPhaseGroup,
+  createPhaseTask,
+  createTask,
+  getJobSchedule,
+} from '@/app/lib/jobtread';
 import {
   STANDARD_PHASES,
   AGENT_RULES,
   JT_MEMBERS,
 } from '@/app/lib/constants';
+import { BKB_STANDARD_TEMPLATE } from '@/app/lib/schedule-templates';
 
 // ============================================================
 // Types for Agent Response
@@ -93,7 +103,7 @@ async function callClaude(prompt: string, systemPrompt: string): Promise<string>
 // Build the Agent System Prompt
 // ============================================================
 
-const SYSTEM_PROMPT = `You are the BKB Design Manager Agent — an AI project manager for Brett King Builder's design-phase construction projects.
+const SYSTEM_PROMPT = `You are the BKB Design Manager Agent â an AI project manager for Brett King Builder's design-phase construction projects.
 
 Your role is to evaluate each project, identify risks, and recommend specific next actions to keep projects moving efficiently through the design phase.
 
@@ -105,7 +115,7 @@ BRETT KING BUILDER RULES:
 5. Tasks due within ${AGENT_RULES.urgentDeadlineDays} days are URGENT
 6. Tasks due within ${AGENT_RULES.warningDeadlineDays} days need a WARNING
 7. If a project has overdue tasks AND no recent client contact, it is STALLED
-8. Projects should progress through phases sequentially: Conceptual Design → Design Development → Contract → Preconstruction
+8. Projects should progress through phases sequentially: Conceptual Design â Design Development â Contract â Preconstruction
 
 TEAM MEMBERS:
 - Nathan (Sales/Design Manager) - primary point of contact for clients
@@ -130,7 +140,7 @@ function buildAnalysisPrompt(context: AgentFullContext): string {
     // Build category summary
     const categoryLines = s.categories.map((cat) => {
       const taskList = cat.tasks.map((t) => {
-        let status = t.progress >= 100 ? '✓' : t.isOverdue ? '⚠OVERDUE' : `${t.progress}%`;
+        let status = t.progress >= 100 ? 'â' : t.isOverdue ? 'â OVERDUE' : `${t.progress}%`;
         let due = t.endDate ? ` (due: ${t.endDate})` : '';
         return `      - ${t.name}: ${status}${due}`;
       }).join('\n');
@@ -145,30 +155,26 @@ function buildAnalysisPrompt(context: AgentFullContext): string {
         : 'Contact info unavailable';
 
     return `
---- PROJECT: ${s.jobName} (Job #${s.jobNumber}) ---
-Client: ${s.clientName}
-Custom Status: ${s.customStatus || 'None'}
-Current Phase: ${s.currentPhase || 'No active phase detected'}
-Overall Progress: ${s.totalProgress}%
-Health: ${p.health}
-Existing Alerts: ${p.alerts.length > 0 ? p.alerts.join('; ') : 'None'}
+  ---
+  PROJECT: ${s.jobName} (Job #${s.jobNumber})
+  ---
+  Client: ${s.clientName}
+  Custom Status: ${s.customStatus || 'None'}
+  Current Phase: ${s.currentPhase || 'No active phase detected'}
+  Overall Progress: ${s.totalProgress}%
+  Health: ${p.health}
+  Existing Alerts: ${p.alerts.length > 0 ? p.alerts.join('; ') : 'None'}
+  Client Contact: ${contactInfo}
+  GHL Contact ID: ${c.ghlContactId || 'Not found'}
 
-Client Contact: ${contactInfo}
-GHL Contact ID: ${c.ghlContactId || 'Not found'}
+  Schedule Categories:
+  ${categoryLines}
 
-Schedule Categories:
-${categoryLines}
-
-Missing Standard Categories: ${s.missingCategories.length > 0 ? s.missingCategories.join(', ') : 'None'}
-Orphan Tasks (not in a category): ${s.orphanTaskCount}
-
-Overdue Tasks: ${s.overdueTasks.length > 0
-  ? s.overdueTasks.map(t => `${t.name} (${Math.abs(t.daysUntilDue!)}d overdue)`).join(', ')
-  : 'None'}
-Upcoming Due (within ${AGENT_RULES.warningDeadlineDays}d): ${s.upcomingTasks.length > 0
-  ? s.upcomingTasks.map(t => `${t.name} (${t.daysUntilDue}d)`).join(', ')
-  : 'None'}
-`;
+  Missing Standard Categories: ${s.missingCategories.length > 0 ? s.missingCategories.join(', ') : 'None'}
+  Orphan Tasks (not in a category): ${s.orphanTaskCount}
+  Overdue Tasks: ${s.overdueTasks.length > 0 ? s.overdueTasks.map(t => `${t.name} (${Math.abs(t.daysUntilDue!)}d overdue)`).join(', ') : 'None'}
+  Upcoming Due (within ${AGENT_RULES.warningDeadlineDays}d): ${s.upcomingTasks.length > 0 ? s.upcomingTasks.map(t => `${t.name} (${t.daysUntilDue}d)`).join(', ') : 'None'}
+  `;
   }).join('\n');
 
   return `Analyze the following ${context.projectCount} design-phase projects for Brett King Builder.
@@ -216,7 +222,7 @@ Respond with a JSON object matching this structure exactly:
 }
 
 // ============================================================
-// GET — Run Agent Analysis
+// GET â Run Agent Analysis
 // ============================================================
 
 export async function GET(req: NextRequest) {
@@ -238,10 +244,10 @@ export async function GET(req: NextRequest) {
 
     // Step 2: Check if Claude API key exists
     if (!process.env.ANTHROPIC_API_KEY) {
-      // Return raw context without AI analysis — useful for testing data layer
+      // Return raw context without AI analysis â useful for testing data layer
       return NextResponse.json({
         generatedAt: new Date().toISOString(),
-        summary: 'AI analysis unavailable — ANTHROPIC_API_KEY not configured. Showing raw data.',
+        summary: 'AI analysis unavailable â ANTHROPIC_API_KEY not configured. Showing raw data.',
         projectCount: context.projectCount,
         alertCount: context.alertCount,
         projects: context.projects.map((p) => ({
@@ -329,7 +335,7 @@ export async function GET(req: NextRequest) {
 }
 
 // ============================================================
-// POST — Execute Agent Actions
+// POST â Execute Agent Actions
 // ============================================================
 
 export async function POST(req: NextRequest) {
@@ -342,30 +348,266 @@ export async function POST(req: NextRequest) {
         // Just re-run the GET analysis
         return GET(req);
 
-      case 'createTask': {
-        // Phase 2: Create a task in JobTread
-        // const { jobId, categoryId, name, assignee, startDate, endDate } = body;
-        return NextResponse.json({
-          success: false,
-          message: 'Task creation not yet implemented — coming in Phase 2',
-        });
-      }
-
-      case 'draftMessage': {
-        // Phase 2: Draft a message for review
-        // const { contactId, messageType, context } = body;
-        return NextResponse.json({
-          success: false,
-          message: 'Message drafting not yet implemented — coming in Phase 2',
-        });
-      }
-
+      // ==================================================
+      // ACTION: Standardize Schedule
+      // Adds missing standard phase groups to a project.
+      // Does NOT add default tasks â just the empty phases.
+      // ==================================================
       case 'standardizeSchedule': {
-        // Phase 2: Add missing standard categories to a project
-        // const { jobId } = body;
+        const { jobId } = body;
+        if (!jobId) {
+          return NextResponse.json(
+            { error: 'jobId is required' },
+            { status: 400 }
+          );
+        }
+
+        // Get current schedule to find what's missing
+        const schedule = await getJobSchedule(jobId);
+        if (!schedule) {
+          return NextResponse.json(
+            { error: `Could not load schedule for job ${jobId}` },
+            { status: 404 }
+          );
+        }
+
+        // Find which standard phases are missing
+        const existingNames = schedule.phases.map(
+          (p: any) => p.name.toLowerCase().trim()
+        );
+        const missingPhases = STANDARD_PHASES.filter(
+          (sp) => !existingNames.includes(sp.name.toLowerCase())
+        );
+
+        if (missingPhases.length === 0) {
+          return NextResponse.json({
+            success: true,
+            message: 'All 9 standard phases already exist on this project.',
+            phasesCreated: 0,
+            phases: [],
+          });
+        }
+
+        // Create each missing phase group
+        const created: { name: string; id: string }[] = [];
+        const errors: string[] = [];
+
+        for (const phase of missingPhases) {
+          try {
+            const group = await createPhaseGroup({
+              jobId,
+              name: phase.name,
+              description: phase.description,
+            });
+            created.push({ name: phase.name, id: group.id });
+          } catch (err: any) {
+            errors.push(`${phase.name}: ${err.message}`);
+          }
+        }
+
         return NextResponse.json({
-          success: false,
-          message: 'Schedule standardization not yet implemented — coming in Phase 2',
+          success: errors.length === 0,
+          message: `Created ${created.length} of ${missingPhases.length} missing phases${errors.length > 0 ? ` (${errors.length} errors)` : ''}`,
+          phasesCreated: created.length,
+          phases: created,
+          errors: errors.length > 0 ? errors : undefined,
+          jobId,
+          jobName: schedule.name,
+        });
+      }
+
+      // ==================================================
+      // ACTION: Create Task
+      // Creates a task on a job, optionally under a phase.
+      // ==================================================
+      case 'createTask': {
+        const { jobId, name, description, parentGroupId, assignee, startDate, endDate } = body;
+        if (!jobId || !name) {
+          return NextResponse.json(
+            { error: 'jobId and name are required' },
+            { status: 400 }
+          );
+        }
+
+        // Resolve assignee name to membership ID
+        let assignedMembershipIds: string[] | undefined;
+        if (assignee) {
+          const memberKey = assignee.toLowerCase().trim() as keyof typeof JT_MEMBERS;
+          const memberId = JT_MEMBERS[memberKey];
+          if (memberId) {
+            assignedMembershipIds = [memberId];
+          }
+        }
+
+        try {
+          let result;
+          if (parentGroupId) {
+            // Create under a specific phase
+            result = await createPhaseTask({
+              jobId,
+              parentGroupId,
+              name,
+              description,
+              startDate,
+              endDate,
+              assignedMembershipIds,
+            });
+          } else {
+            // Create at job level
+            result = await createTask({
+              jobId,
+              name,
+              description,
+              startDate,
+              endDate,
+              assignedMembershipIds,
+            });
+          }
+
+          return NextResponse.json({
+            success: true,
+            message: `Task "${name}" created successfully`,
+            task: result,
+            jobId,
+          });
+        } catch (err: any) {
+          return NextResponse.json(
+            { success: false, error: `Task creation failed: ${err.message}` },
+            { status: 500 }
+          );
+        }
+      }
+
+      // ==================================================
+      // ACTION: Draft Message
+      // Uses Claude to draft a client outreach message.
+      // Returns the draft â does NOT auto-send.
+      // ==================================================
+      case 'draftMessage': {
+        const { jobId, jobName, clientName, context: msgContext, messageType } = body;
+        if (!jobName || !clientName) {
+          return NextResponse.json(
+            { error: 'jobName and clientName are required' },
+            { status: 400 }
+          );
+        }
+
+        if (!process.env.ANTHROPIC_API_KEY) {
+          return NextResponse.json(
+            { error: 'ANTHROPIC_API_KEY not configured â cannot draft messages' },
+            { status: 500 }
+          );
+        }
+
+        const type = messageType || 'email';
+        const contextStr = msgContext || 'General project check-in';
+
+        const draftPrompt = `Draft a ${type} from Nathan King at Brett King Builder to the client for the following project.
+
+PROJECT: ${jobName}
+CLIENT: ${clientName}
+CONTEXT: ${contextStr}
+
+GUIDELINES:
+- Professional but warm and personal tone
+- Nathan is the Sales/Design Manager â he's their main point of contact
+- Keep it concise (3-5 sentences for text, 1-2 short paragraphs for email)
+- Reference the specific project by name
+- Include a clear call-to-action (schedule a call, confirm next steps, etc.)
+- Sign off as "Nathan King" with "Brett King Builder"
+- Do NOT be overly formal or corporate â BKB is a family-run builder
+
+Respond with VALID JSON only:
+{
+  "subject": "email subject line (only for email type)",
+  "body": "the message body",
+  "type": "${type}"
+}`;
+
+        const draftSystemPrompt = `You are a writing assistant for Brett King Builder. You draft professional, warm client communications. Always respond with valid JSON only â no markdown, no code fences.`;
+
+        try {
+          const response = await callClaude(draftPrompt, draftSystemPrompt);
+          const cleaned = response
+            .replace(/\`\`\`json\n?/g, '')
+            .replace(/\`\`\`\n?/g, '')
+            .trim();
+          const draft = JSON.parse(cleaned);
+
+          return NextResponse.json({
+            success: true,
+            message: `Draft ${type} created for ${clientName}`,
+            draft: {
+              subject: draft.subject || null,
+              body: draft.body || response,
+              type: draft.type || type,
+            },
+            jobId,
+            jobName,
+            clientName,
+          });
+        } catch (err: any) {
+          return NextResponse.json(
+            { success: false, error: `Draft failed: ${err.message}` },
+            { status: 500 }
+          );
+        }
+      }
+
+      // ==================================================
+      // ACTION: Add Phase Defaults
+      // Adds default template tasks to an existing phase.
+      // ==================================================
+      case 'addPhaseDefaults': {
+        const { jobId, parentGroupId, phaseNumber } = body;
+        if (!jobId || !parentGroupId || !phaseNumber) {
+          return NextResponse.json(
+            { error: 'jobId, parentGroupId, and phaseNumber are required' },
+            { status: 400 }
+          );
+        }
+
+        const phaseTemplate = BKB_STANDARD_TEMPLATE.find(
+          (p) => p.phaseNumber === phaseNumber
+        );
+        if (!phaseTemplate) {
+          return NextResponse.json(
+            { error: `No template for phase number ${phaseNumber}` },
+            { status: 400 }
+          );
+        }
+
+        if (phaseTemplate.startsEmpty) {
+          return NextResponse.json({
+            success: true,
+            message: `${phaseTemplate.name} starts empty by design â no default tasks to add.`,
+            tasksCreated: 0,
+          });
+        }
+
+        const created: string[] = [];
+        const errors: string[] = [];
+
+        for (const task of phaseTemplate.tasks) {
+          try {
+            await createPhaseTask({
+              jobId,
+              parentGroupId,
+              name: task.name,
+              description: task.description,
+            });
+            created.push(task.name);
+          } catch (err: any) {
+            errors.push(`${task.name}: ${err.message}`);
+          }
+        }
+
+        return NextResponse.json({
+          success: errors.length === 0,
+          message: `Created ${created.length} of ${phaseTemplate.tasks.length} tasks in ${phaseTemplate.name}`,
+          tasksCreated: created.length,
+          tasks: created,
+          errors: errors.length > 0 ? errors : undefined,
         });
       }
 
