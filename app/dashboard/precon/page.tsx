@@ -53,6 +53,7 @@ interface AgentReport {
   alertCount: number;
   projects: AgentProject[];
   topPriorities: string[];
+  _fromCache?: boolean;
 }
 
 // ============================================================
@@ -97,7 +98,7 @@ function formatTimestamp(dateStr: string): string {
   } catch {
     return dateStr;
   }
-  }
+}
 
 // ============================================================
 // Summary Cards
@@ -149,8 +150,7 @@ function TopPriorities({ priorities }: { priorities: string[] }) {
   return (
     <div className="rounded-lg p-4" style={{ background: '#1a1a1a', border: '1px solid rgba(205,162,116,0.1)' }}>
       <h3 className="text-sm font-semibold mb-3 flex items-center gap-2" style={{ color: '#C9A84C' }}>
-        <Zap size={14} />
-        Agent Top Priorities
+        <Zap size={14} /> Agent Top Priorities
       </h3>
       <div className="space-y-2">
         {priorities.map((p, i) => (
@@ -167,7 +167,7 @@ function TopPriorities({ priorities }: { priorities: string[] }) {
       </div>
     </div>
   );
-                                                }
+}
 
 // ============================================================
 // Project Card
@@ -209,8 +209,7 @@ function ProjectCard({ project }: { project: AgentProject }) {
               className="text-xs px-2 py-0.5 rounded-full font-medium flex items-center gap-1"
               style={{ background: config.bg, color: config.color }}
             >
-              <StatusIcon size={10} />
-              {config.label}
+              <StatusIcon size={10} /> {config.label}
             </span>
           </div>
           <div className="flex items-center gap-4 mt-1 text-xs" style={{ color: '#8a8078' }}>
@@ -241,15 +240,20 @@ function ProjectCard({ project }: { project: AgentProject }) {
           </div>
         </div>
       </button>
+
       <div
         className="px-4 py-2 text-sm flex items-start gap-2"
-        style={{ background: 'rgba(201,168,76,0.06)', borderTop: '1px solid rgba(205,162,116,0.08)' }}
+        style={{
+          background: 'rgba(201,168,76,0.06)',
+          borderTop: '1px solid rgba(205,162,116,0.08)',
+        }}
       >
         <span className="text-xs font-semibold flex-shrink-0 mt-0.5" style={{ color: '#C9A84C' }}>
           NEXT →
         </span>
         <span style={{ color: '#d4ccc4' }}>{project.nextStep}</span>
       </div>
+
       {expanded && (
         <div className="px-4 py-3 space-y-3" style={{ borderTop: '1px solid rgba(205,162,116,0.08)' }}>
           {project.alerts.length > 0 && (
@@ -279,7 +283,10 @@ function ProjectCard({ project }: { project: AgentProject }) {
                     <div
                       key={i}
                       className="rounded-md p-2.5"
-                      style={{ background: 'rgba(26,26,26,0.8)', border: '1px solid rgba(205,162,116,0.08)' }}
+                      style={{
+                        background: 'rgba(26,26,26,0.8)',
+                        border: '1px solid rgba(205,162,116,0.08)',
+                      }}
                     >
                       <div className="flex items-center gap-2 mb-1">
                         <span
@@ -311,7 +318,7 @@ function ProjectCard({ project }: { project: AgentProject }) {
       )}
     </div>
   );
-                                                                   }
+}
 
 // ============================================================
 // Main Page
@@ -323,7 +330,21 @@ export default function PreConDashboard() {
   const [refreshing, setRefreshing] = useState(false);
   const [error, setError] = useState('');
 
-  async function loadReport() {
+  // Load cached report on mount (instant)
+  async function loadCachedReport() {
+    try {
+      const res = await fetch('/api/agent/design-manager?cached=true');
+      const json = await res.json();
+      if (json.error) throw new Error(json.error);
+      setReport(json);
+      setError('');
+    } catch (err: any) {
+      setError(err.message);
+    }
+  }
+
+  // Run fresh agent analysis (slow — triggers Claude API)
+  async function runFreshAnalysis() {
     try {
       const res = await fetch('/api/agent/design-manager');
       const json = await res.json();
@@ -336,12 +357,12 @@ export default function PreConDashboard() {
   }
 
   useEffect(() => {
-    loadReport().finally(() => setLoading(false));
+    loadCachedReport().finally(() => setLoading(false));
   }, []);
 
   async function handleRefresh() {
     setRefreshing(true);
-    await loadReport();
+    await runFreshAnalysis();
     setRefreshing(false);
   }
 
@@ -365,7 +386,12 @@ export default function PreConDashboard() {
           <p className="text-sm mt-1" style={{ color: '#8a8078' }}>
             AI-powered oversight of all design-phase projects
             {report && (
-              <span> · Last run: {formatTimestamp(report.generatedAt)}</span>
+              <span>
+                {' '}· Last run: {formatTimestamp(report.generatedAt)}
+                {report._fromCache && (
+                  <span style={{ color: '#C9A84C' }}> (cached)</span>
+                )}
+              </span>
             )}
           </p>
         </div>
@@ -387,13 +413,16 @@ export default function PreConDashboard() {
       {loading ? (
         <div className="flex flex-col items-center justify-center py-16 gap-3">
           <Loader2 size={28} className="animate-spin" style={{ color: '#C9A84C' }} />
-          <p className="text-sm" style={{ color: '#8a8078' }}>Agent is analyzing your projects...</p>
+          <p className="text-sm" style={{ color: '#8a8078' }}>Loading dashboard...</p>
         </div>
-      ) : error ? (
+      ) : error && !report ? (
         <div className="p-6 rounded-xl text-center" style={{ background: '#242424' }}>
           <p className="text-sm" style={{ color: '#ef4444' }}>Agent error: {error}</p>
+          <p className="text-xs mt-1" style={{ color: '#8a8078' }}>
+            No cached data available. Click &quot;Run Agent Now&quot; to generate a fresh report.
+          </p>
           <button onClick={handleRefresh} className="text-xs mt-2 underline" style={{ color: '#C9A84C' }}>
-            Try again
+            Run Agent Now
           </button>
         </div>
       ) : report ? (
@@ -420,7 +449,22 @@ export default function PreConDashboard() {
           </div>
         </div>
       ) : null}
+
+      {refreshing && (
+        <div
+          className="fixed bottom-4 right-4 rounded-lg px-4 py-3 flex items-center gap-3 shadow-lg"
+          style={{
+            background: '#1a1a1a',
+            border: '1px solid rgba(201,168,76,0.3)',
+            zIndex: 50,
+          }}
+        >
+          <Loader2 size={16} className="animate-spin" style={{ color: '#C9A84C' }} />
+          <span className="text-sm" style={{ color: '#C9A84C' }}>
+            Agent is analyzing projects... this may take 30-60 seconds
+          </span>
+        </div>
+      )}
     </div>
   );
 }
-
