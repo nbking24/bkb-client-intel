@@ -100,7 +100,7 @@ export interface AgentFullContext {
 // ============================================================
 
 export async function getDesignPhaseProjects(): Promise<JTJob[]> {
-  const allJobs = await getActiveJobs(100);
+  const allJobs = await getActiveJobs(25);
   return allJobs.filter(
     (job) => job.customStatus && DESIGN_AGENT_STATUSES.includes(job.customStatus as any)
   );
