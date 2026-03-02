@@ -1,8 +1,9 @@
 // ============================================================
 // Design Manager Agent — Daily Cron Job
 //
-// Runs Monday–Friday at 6:00 AM EST (11:00 UTC)
-// Calls the agent analysis endpoint and logs results.
+// Runs daily at 1:00 AM EST (06:00 UTC)
+// Calls the agent analysis endpoint which runs a fresh
+// analysis and caches the result in Supabase.
 // Protected by CRON_SECRET to prevent unauthorized execution.
 // ============================================================
 
@@ -24,6 +25,7 @@ export async function GET(req: NextRequest) {
 
   try {
     // Call the agent analysis endpoint internally
+    // This will run a fresh analysis and cache the result in Supabase
     const baseUrl = process.env.VERCEL_URL
       ? `https://${process.env.VERCEL_URL}`
       : 'http://localhost:3000';
@@ -45,7 +47,7 @@ export async function GET(req: NextRequest) {
     const report = await res.json();
 
     // Log summary for Vercel dashboard
-    console.log('Cron: Analysis complete');
+    console.log('Cron: Analysis complete — results cached in Supabase');
     console.log(`  Projects: ${report.projectCount}`);
     console.log(`  Alerts: ${report.alertCount}`);
     console.log(`  Summary: ${report.summary?.slice(0, 200)}`);
@@ -80,6 +82,7 @@ export async function GET(req: NextRequest) {
     return NextResponse.json({
       success: true,
       runAt: new Date().toISOString(),
+      cached: true,
       projectCount: report.projectCount,
       alertCount: report.alertCount,
       summary: report.summary,
@@ -91,4 +94,4 @@ export async function GET(req: NextRequest) {
       { status: 500 }
     );
   }
-      }
+}
