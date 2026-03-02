@@ -1,8 +1,9 @@
 // ============================================================
-// Design Manager Agent â API Route
+// Design Manager Agent — API Route
 //
-// GET  â Run agent analysis (gather data + Claude assessment)
-// POST â Execute agent actions (create tasks, draft messages,
+// GET  → Run agent analysis (gather data + Claude assessment)
+//        ?cached=true → return cached result from Supabase
+// POST → Execute agent actions (create tasks, draft messages,
 //         standardize schedules)
 // ============================================================
 
@@ -26,6 +27,7 @@ import {
   JT_MEMBERS,
 } from '@/app/lib/constants';
 import { BKB_STANDARD_TEMPLATE } from '@/app/lib/schedule-templates';
+import { createServerClient } from '@/app/lib/supabase';
 
 // ============================================================
 // Types for Agent Response
@@ -66,6 +68,47 @@ interface AgentReport {
 }
 
 // ============================================================
+// Supabase Cache Helpers
+// ============================================================
+
+const CACHE_KEY = 'design-manager-report';
+
+async function getCachedReport(): Promise<AgentReport | null> {
+  try {
+    const supabase = createServerClient();
+    const { data, error } = await supabase
+      .from('agent_cache')
+      .select('data, updated_at')
+      .eq('key', CACHE_KEY)
+      .single();
+
+    if (error || !data) return null;
+    return data.data as AgentReport;
+  } catch (err) {
+    console.error('Cache read error:', err);
+    return null;
+  }
+}
+
+async function saveCachedReport(report: AgentReport): Promise<void> {
+  try {
+    const supabase = createServerClient();
+    await supabase
+      .from('agent_cache')
+      .upsert(
+        {
+          key: CACHE_KEY,
+          data: report,
+          updated_at: new Date().toISOString(),
+        },
+        { onConflict: 'key' }
+      );
+  } catch (err) {
+    console.error('Cache write error:', err);
+  }
+}
+
+// ============================================================
 // Claude API Call
 // ============================================================
 
@@ -103,7 +146,7 @@ async function callClaude(prompt: string, systemPrompt: string): Promise<string>
 // Build the Agent System Prompt
 // ============================================================
 
-const SYSTEM_PROMPT = `You are the BKB Design Manager Agent â an AI project manager for Brett King Builder's design-phase construction projects.
+const SYSTEM_PROMPT = `You are the BKB Design Manager Agent — an AI project manager for Brett King Builder's design-phase construction projects.
 
 Your role is to evaluate each project, identify risks, and recommend specific next actions to keep projects moving efficiently through the design phase.
 
@@ -115,7 +158,7 @@ BRETT KING BUILDER RULES:
 5. Tasks due within ${AGENT_RULES.urgentDeadlineDays} days are URGENT
 6. Tasks due within ${AGENT_RULES.warningDeadlineDays} days need a WARNING
 7. If a project has overdue tasks AND no recent client contact, it is STALLED
-8. Projects should progress through phases sequentially: Conceptual Design â Design Development â Contract â Preconstruction
+8. Projects should progress through phases sequentially: Conceptual Design → Design Development → Contract → Preconstruction
 
 TEAM MEMBERS:
 - Nathan (Sales/Design Manager) - primary point of contact for clients
@@ -140,7 +183,7 @@ function buildAnalysisPrompt(context: AgentFullContext): string {
     // Build category summary
     const categoryLines = s.categories.map((cat) => {
       const taskList = cat.tasks.map((t) => {
-        let status = t.progress >= 100 ? 'â' : t.isOverdue ? 'â OVERDUE' : `${t.progress}%`;
+        let status = t.progress >= 100 ? '✓' : t.isOverdue ? '⚠OVERDUE' : `${t.progress}%`;
         let due = t.endDate ? ` (due: ${t.endDate})` : '';
         return `      - ${t.name}: ${status}${due}`;
       }).join('\n');
@@ -222,32 +265,46 @@ Respond with a JSON object matching this structure exactly:
 }
 
 // ============================================================
-// GET â Run Agent Analysis
+// GET — Run Agent Analysis (or return cached)
 // ============================================================
 
 export async function GET(req: NextRequest) {
   try {
+    // Check if caller wants cached result
+    const { searchParams } = new URL(req.url);
+    const wantsCached = searchParams.get('cached') === 'true';
+
+    if (wantsCached) {
+      const cached = await getCachedReport();
+      if (cached) {
+        return NextResponse.json({ ...cached, _fromCache: true });
+      }
+      // No cache available — fall through to fresh analysis
+      console.log('Cache miss — running fresh analysis');
+    }
+
     // Step 1: Gather all data from JT + GHL
     const context = await buildAgentContext();
 
     if (context.projectCount === 0) {
-      return NextResponse.json({
+      const emptyReport: AgentReport = {
         generatedAt: new Date().toISOString(),
         summary: 'No design-phase projects found. All projects may be in other statuses.',
         projectCount: 0,
         alertCount: 0,
         projects: [],
         topPriorities: [],
-        _rawContext: context,
-      });
+      };
+      await saveCachedReport(emptyReport);
+      return NextResponse.json(emptyReport);
     }
 
     // Step 2: Check if Claude API key exists
     if (!process.env.ANTHROPIC_API_KEY) {
-      // Return raw context without AI analysis â useful for testing data layer
-      return NextResponse.json({
+      // Return raw context without AI analysis — useful for testing data layer
+      const rawReport: AgentReport = {
         generatedAt: new Date().toISOString(),
-        summary: 'AI analysis unavailable â ANTHROPIC_API_KEY not configured. Showing raw data.',
+        summary: 'AI analysis unavailable — ANTHROPIC_API_KEY not configured. Showing raw data.',
         projectCount: context.projectCount,
         alertCount: context.alertCount,
         projects: context.projects.map((p) => ({
@@ -267,8 +324,9 @@ export async function GET(req: NextRequest) {
           recommendations: [],
         })),
         topPriorities: ['Configure ANTHROPIC_API_KEY in Vercel to enable AI analysis'],
-        _rawContext: context,
-      });
+      };
+      await saveCachedReport(rawReport);
+      return NextResponse.json(rawReport);
     }
 
     // Step 3: Run Claude analysis
@@ -320,6 +378,9 @@ export async function GET(req: NextRequest) {
       };
     }
 
+    // Step 5: Cache the report in Supabase
+    await saveCachedReport(report);
+
     return NextResponse.json(report);
   } catch (err: any) {
     console.error('Design Manager Agent error:', err);
@@ -335,7 +396,7 @@ export async function GET(req: NextRequest) {
 }
 
 // ============================================================
-// POST â Execute Agent Actions
+// POST — Execute Agent Actions
 // ============================================================
 
 export async function POST(req: NextRequest) {
@@ -351,7 +412,7 @@ export async function POST(req: NextRequest) {
       // ==================================================
       // ACTION: Standardize Schedule
       // Adds missing standard phase groups to a project.
-      // Does NOT add default tasks â just the empty phases.
+      // Does NOT add default tasks — just the empty phases.
       // ==================================================
       case 'standardizeSchedule': {
         const { jobId } = body;
@@ -481,7 +542,7 @@ export async function POST(req: NextRequest) {
       // ==================================================
       // ACTION: Draft Message
       // Uses Claude to draft a client outreach message.
-      // Returns the draft â does NOT auto-send.
+      // Returns the draft — does NOT auto-send.
       // ==================================================
       case 'draftMessage': {
         const { jobId, jobName, clientName, context: msgContext, messageType } = body;
@@ -494,7 +555,7 @@ export async function POST(req: NextRequest) {
 
         if (!process.env.ANTHROPIC_API_KEY) {
           return NextResponse.json(
-            { error: 'ANTHROPIC_API_KEY not configured â cannot draft messages' },
+            { error: 'ANTHROPIC_API_KEY not configured — cannot draft messages' },
             { status: 500 }
           );
         }
@@ -510,12 +571,12 @@ CONTEXT: ${contextStr}
 
 GUIDELINES:
 - Professional but warm and personal tone
-- Nathan is the Sales/Design Manager â he's their main point of contact
+- Nathan is the Sales/Design Manager — he's their main point of contact
 - Keep it concise (3-5 sentences for text, 1-2 short paragraphs for email)
 - Reference the specific project by name
 - Include a clear call-to-action (schedule a call, confirm next steps, etc.)
 - Sign off as "Nathan King" with "Brett King Builder"
-- Do NOT be overly formal or corporate â BKB is a family-run builder
+- Do NOT be overly formal or corporate — BKB is a family-run builder
 
 Respond with VALID JSON only:
 {
@@ -524,7 +585,7 @@ Respond with VALID JSON only:
   "type": "${type}"
 }`;
 
-        const draftSystemPrompt = `You are a writing assistant for Brett King Builder. You draft professional, warm client communications. Always respond with valid JSON only â no markdown, no code fences.`;
+        const draftSystemPrompt = `You are a writing assistant for Brett King Builder. You draft professional, warm client communications. Always respond with valid JSON only — no markdown, no code fences.`;
 
         try {
           const response = await callClaude(draftPrompt, draftSystemPrompt);
@@ -580,7 +641,7 @@ Respond with VALID JSON only:
         if (phaseTemplate.startsEmpty) {
           return NextResponse.json({
             success: true,
-            message: `${phaseTemplate.name} starts empty by design â no default tasks to add.`,
+            message: `${phaseTemplate.name} starts empty by design — no default tasks to add.`,
             tasksCreated: 0,
           });
         }
