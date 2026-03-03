@@ -29,6 +29,9 @@ import {
 import { BKB_STANDARD_TEMPLATE } from '@/app/lib/schedule-templates';
 import { createServerClient } from '@/app/lib/supabase';
 
+export const runtime = 'nodejs';
+export const maxDuration = 60; // Allow up to 60s for full agent analysis
+
 // ============================================================
 // Types for Agent Response
 // ============================================================
