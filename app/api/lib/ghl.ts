@@ -74,6 +74,22 @@ export async function getConversationMessages(conversationId: string, limit = 40
   return [];
 }
 
+// Get a single message by its ID (includes body for SMS, may include body for email)
+export async function getMessageById(messageId: string) {
+  const url = GHL_BASE + '/conversations/messages/' + messageId;
+  const res = await fetch(url, { headers: headers() });
+  if (!res.ok) throw new Error('GHL get message by id failed: ' + res.status);
+  return res.json();
+}
+
+// Get email content by email message ID (from meta.email.messageIds)
+export async function getEmailById(emailId: string) {
+  const url = GHL_BASE + '/conversations/messages/email/' + emailId;
+  const res = await fetch(url, { headers: headers() });
+  if (!res.ok) throw new Error('GHL get email by id failed: ' + res.status);
+  return res.json();
+}
+
 // === OPPORTUNITY FUNCTIONS ===
 
 export async function getContactOpportunities(contactId: string) {
