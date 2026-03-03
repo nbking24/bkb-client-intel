@@ -41,6 +41,7 @@ export interface ProjectScheduleSummary {
   orphanTaskCount: number;
   overdueTasks: TaskSummary[];
   upcomingTasks: TaskSummary[];
+  undatedTasks: TaskSummary[];  // NEW: tasks with no start or end date
   currentPhase: string | null;
   totalProgress: number;
 }
@@ -96,6 +97,40 @@ export interface AgentFullContext {
 }
 
 // ============================================================
+// Date Helpers
+// ============================================================
+
+/**
+ * Get today's date as a plain YYYY-MM-DD string in US Eastern time.
+ * This avoids timezone drift when the server is UTC and JT stores
+ * date-only strings (e.g. "2026-03-03").
+ */
+function getTodayDateString(): string {
+  const now = new Date();
+  // Use US Eastern (BKB is in Ohio area)
+  const eastern = new Intl.DateTimeFormat('en-CA', {
+    timeZone: 'America/New_York',
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+  }).format(now);
+  return eastern; // "YYYY-MM-DD"
+}
+
+/**
+ * Calculate the difference in calendar days between two date strings.
+ * Positive = future, negative = past/overdue.
+ * Both dates should be YYYY-MM-DD or ISO strings (only date part used).
+ */
+function daysBetweenDates(todayStr: string, targetDateStr: string): number {
+  // Parse as date-only (noon UTC) to avoid DST issues
+  const today = new Date(todayStr + 'T12:00:00Z');
+  const target = new Date(targetDateStr.slice(0, 10) + 'T12:00:00Z');
+  const diffMs = target.getTime() - today.getTime();
+  return Math.round(diffMs / (1000 * 60 * 60 * 24));
+}
+
+// ============================================================
 // 1. Get Design-Phase Projects from JobTread
 // ============================================================
 
@@ -114,8 +149,7 @@ export async function analyzeProjectSchedule(jobId: string): Promise<ProjectSche
   const schedule = await getJobSchedule(jobId);
   if (!schedule) return null;
 
-  const now = new Date();
-  const standardNames = STANDARD_PHASES.map((p) => p.name.toLowerCase());
+  const todayStr = getTodayDateString();
 
   // Map phases to category summaries
   const categories: CategorySummary[] = schedule.phases.map((phase) => {
@@ -123,9 +157,10 @@ export async function analyzeProjectSchedule(jobId: string): Promise<ProjectSche
       (sp) => sp.name.toLowerCase() === phase.name.toLowerCase()
     );
     const tasks: TaskSummary[] = (phase.childTasks?.nodes || []).map((t: any) => {
-      const endDate = t.endDate ? new Date(t.endDate) : null;
-      const daysUntilDue = endDate
-        ? Math.ceil((endDate.getTime() - now.getTime()) / (1000 * 60 * 60 * 24))
+      // Use date-only comparison to fix timezone-related false overdue reports
+      const hasEndDate = !!t.endDate;
+      const daysUntilDue = hasEndDate
+        ? daysBetweenDates(todayStr, t.endDate)
         : null;
 
       return {
@@ -169,8 +204,9 @@ export async function analyzeProjectSchedule(jobId: string): Promise<ProjectSche
     }
   }
 
-  // Collect overdue and upcoming tasks
+  // Collect overdue, upcoming, and undated tasks
   const allTasks = categories.flatMap((c) => c.tasks);
+
   const overdueTasks = allTasks
     .filter((t) => t.isOverdue)
     .sort((a, b) => (a.daysUntilDue ?? 0) - (b.daysUntilDue ?? 0));
@@ -186,6 +222,11 @@ export async function analyzeProjectSchedule(jobId: string): Promise<ProjectSche
     )
     .sort((a, b) => (a.daysUntilDue ?? 99) - (b.daysUntilDue ?? 99));
 
+  // NEW: Find incomplete tasks with no end date (and no start date)
+  const undatedTasks = allTasks.filter(
+    (t) => t.progress < 100 && !t.endDate && !t.startDate
+  );
+
   return {
     jobId: schedule.id,
     jobName: schedule.name,
@@ -197,6 +238,7 @@ export async function analyzeProjectSchedule(jobId: string): Promise<ProjectSche
     orphanTaskCount: schedule.orphanTasks?.length || 0,
     overdueTasks,
     upcomingTasks,
+    undatedTasks,
     currentPhase,
     totalProgress: schedule.totalProgress || 0,
   };
@@ -305,6 +347,15 @@ function assessProjectHealth(
     if (health === 'on_track') health = 'at_risk';
   }
 
+  // NEW: Check for undated tasks (tasks without any dates assigned)
+  if (schedule.undatedTasks.length > 0) {
+    const count = schedule.undatedTasks.length;
+    const examples = schedule.undatedTasks.slice(0, 3).map(t => t.name).join(', ');
+    alerts.push(
+      `${count} task${count > 1 ? 's' : ''} without assigned dates — may be missed work (${examples}${count > 3 ? '...' : ''})`
+    );
+  }
+
   // Check for no client contact
   if (contact.noContactAlert) {
     const days = contact.daysSinceContact;
@@ -373,6 +424,7 @@ export async function buildAgentContext(): Promise<AgentFullContext> {
             orphanTaskCount: 0,
             overdueTasks: [],
             upcomingTasks: [],
+            undatedTasks: [],
             currentPhase: null,
             totalProgress: 0,
           },
