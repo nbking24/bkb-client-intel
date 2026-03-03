@@ -8,6 +8,18 @@
  */
 import { createClient, SupabaseClient } from '@supabase/supabase-js';
 
+/** Convert GHL timestamp (epoch ms or ISO string) to ISO string for Postgres timestamptz */
+function toTimestamp(val: any): string | null {
+  if (val == null) return null;
+  if (typeof val === 'number') return new Date(val).toISOString();
+  if (typeof val === 'string') {
+    // If it's all digits, treat as epoch ms
+    if (/^\d{10,13}$/.test(val)) return new Date(Number(val)).toISOString();
+    return val; // already ISO string
+  }
+  return null;
+}
+
 const SUPABASE_URL = process.env.NEXT_PUBLIC_SUPABASE_URL || process.env.SUPABASE_URL || '';
 const SUPABASE_SERVICE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY || '';
 
@@ -87,7 +99,7 @@ export async function upsertConversation(conv: any) {
     id: conv.id,
     contact_id: conv.contactId || null,
     type: conv.type || null,
-    last_message_at: conv.lastMessageDate || conv.dateUpdated || null,
+    last_message_at: toTimestamp(conv.lastMessageDate || conv.dateUpdated) || null,
     last_message_body: conv.lastMessageBody || null,
     unread_count: conv.unreadCount || 0,
     raw_data: conv,
@@ -108,7 +120,7 @@ export async function upsertMessage(msg: any, contactId: string) {
     subject: msg.meta?.email?.subject || null,
     body: msg.body || msg.text || msg.message || null,
     body_html: msg.html || null,
-    date_added: msg.dateAdded || null,
+    date_added: toTimestamp(msg.dateAdded) || null,
     meta: msg.meta || null,
     synced_at: new Date().toISOString(),
   };
