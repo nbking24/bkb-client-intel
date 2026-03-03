@@ -123,7 +123,7 @@ function ScheduleSetupContent() {
   // Step 0: Job + Scope
   const [jobs, setJobs] = useState<{ id: string; name: string; number: string; customStatus: string | null }[]>([]);
   const [selectedJobId, setSelectedJobId] = useState(preselectedJobId);
-  const [selectedScope, setSelectedScope] = useState('');
+  const [selectedScopes, setSelectedScopes] = useState<string[]>([]);
 
   // Step 1: Survey
   const [questions, setQuestions] = useState<SurveyQuestion[]>([]);
@@ -163,15 +163,21 @@ function ScheduleSetupContent() {
   }, []);
 
   // Step 0 -> Step 1: Load survey questions
+  function toggleScope(key: string) {
+    setSelectedScopes((prev) =>
+      prev.includes(key) ? prev.filter((s) => s !== key) : [...prev, key]
+    );
+  }
+
   async function handleScopeNext() {
-    if (!selectedJobId || !selectedScope) return;
+    if (!selectedJobId || selectedScopes.length === 0) return;
     setLoading(true);
     setError('');
     try {
       const res = await fetch('/api/dashboard/schedule-setup', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ action: 'survey', scope: selectedScope }),
+        body: JSON.stringify({ action: 'survey', scopes: selectedScopes }),
       });
       const json = await res.json();
       if (json.error) throw new Error(json.error);
@@ -196,7 +202,7 @@ function ScheduleSetupContent() {
         body: JSON.stringify({
           action: 'preview',
           jobId: selectedJobId,
-          scope: selectedScope,
+          scopes: selectedScopes,
           surveyAnswers: answers,
         }),
       });
@@ -223,7 +229,7 @@ function ScheduleSetupContent() {
         body: JSON.stringify({
           action: 'apply',
           jobId: selectedJobId,
-          scope: selectedScope,
+          scopes: selectedScopes,
           surveyAnswers: answers,
           plan: preview.plan,
         }),
@@ -319,33 +325,44 @@ function ScheduleSetupContent() {
             className="rounded-lg p-4"
             style={{ background: '#1a1a1a', border: '1px solid rgba(205,162,116,0.1)' }}
           >
-            <label className="block text-sm font-semibold mb-3" style={{ color: '#e8e0d8' }}>
+            <label className="block text-sm font-semibold mb-1" style={{ color: '#e8e0d8' }}>
               Project Scope
             </label>
+            <p className="text-xs mb-3" style={{ color: '#8a8078' }}>
+              Select all that apply — e.g. Addition + Kitchen + Bathroom
+            </p>
             <div className="grid grid-cols-2 gap-2">
-              {SCOPES.map((s) => (
-                <button
-                  key={s.key}
-                  onClick={() => setSelectedScope(s.key)}
-                  className="text-left rounded-lg px-3 py-2.5 transition-colors"
-                  style={{
-                    background: selectedScope === s.key ? 'rgba(201,168,76,0.15)' : '#0d0d0d',
-                    border: `1px solid ${selectedScope === s.key ? '#C9A84C' : 'rgba(205,162,116,0.1)'}`,
-                  }}
-                >
-                  <div className="text-sm font-medium" style={{ color: selectedScope === s.key ? '#C9A84C' : '#e8e0d8' }}>
-                    {s.label}
-                  </div>
-                  <div className="text-xs mt-0.5" style={{ color: '#8a8078' }}>{s.desc}</div>
-                </button>
-              ))}
+              {SCOPES.map((s) => {
+                const isSelected = selectedScopes.includes(s.key);
+                return (
+                  <button
+                    key={s.key}
+                    onClick={() => toggleScope(s.key)}
+                    className="text-left rounded-lg px-3 py-2.5 transition-colors relative"
+                    style={{
+                      background: isSelected ? 'rgba(201,168,76,0.15)' : '#0d0d0d',
+                      border: `1px solid ${isSelected ? '#C9A84C' : 'rgba(205,162,116,0.1)'}`,
+                    }}
+                  >
+                    {isSelected && (
+                      <div className="absolute top-2 right-2">
+                        <Check size={14} style={{ color: '#C9A84C' }} />
+                      </div>
+                    )}
+                    <div className="text-sm font-medium" style={{ color: isSelected ? '#C9A84C' : '#e8e0d8' }}>
+                      {s.label}
+                    </div>
+                    <div className="text-xs mt-0.5" style={{ color: '#8a8078' }}>{s.desc}</div>
+                  </button>
+                );
+              })}
             </div>
           </div>
 
           <div className="flex justify-end">
             <button
               onClick={handleScopeNext}
-              disabled={!selectedJobId || !selectedScope || loading}
+              disabled={!selectedJobId || selectedScopes.length === 0 || loading}
               className="flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-medium disabled:opacity-40"
               style={{ background: '#C9A84C', color: '#0d0d0d' }}
             >
@@ -650,7 +667,7 @@ function ScheduleSetupContent() {
               onClick={() => {
                 setStep(0);
                 setSelectedJobId('');
-                setSelectedScope('');
+                setSelectedScopes([]);
                 setPreview(null);
                 setApplyResults(null);
               }}
