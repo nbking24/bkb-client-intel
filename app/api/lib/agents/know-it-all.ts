@@ -118,24 +118,44 @@ async function fetchGHLContext(ctx: AgentContext): Promise<string> {
         return '[' + date + '] ' + (n.body || '').slice(0, 65000);
       });
       sections.push('=== CRM NOTES (' + notes.value.length + ' total) ===\n' + noteTexts.join('\n---\n'));
+    } else if (notes.status === 'rejected') {
+      const errMsg = notes.reason instanceof Error ? notes.reason.message : 'Unknown error';
+      sections.push('=== NOTES ERROR ===\nFailed to fetch notes: ' + errMsg);
+      console.error('Notes fetch failed:', notes.reason);
     }
 
     // CONVERSATIONS & MESSAGES
     if (convos.status === 'fulfilled' && Array.isArray(convos.value)) {
-      const msgs: string[] = [];
-      for (const conv of convos.value.slice(0, 10)) {
-        try {
-          const cmsgs = await getConversationMessages((conv as any).id, 40);
-          if (Array.isArray(cmsgs)) {
-            for (const m of cmsgs) {
-              const mr = m as any;
-              const date = mr.dateAdded ? new Date(mr.dateAdded).toLocaleDateString() : '';
-              msgs.push('[' + date + ' ' + (mr.direction || '?') + ' ' + (mr.type || '') + '] ' + (mr.body || '').slice(0, 2000));
+      if (convos.value.length === 0) {
+        sections.push('=== MESSAGES ===\nNo conversations found for this contact.');
+      } else {
+        const msgs: string[] = [];
+        let msgFetchErrors = 0;
+        for (const conv of convos.value.slice(0, 10)) {
+          try {
+            const cmsgs = await getConversationMessages((conv as any).id, 40);
+            if (Array.isArray(cmsgs)) {
+              for (const m of cmsgs) {
+                const mr = m as any;
+                const date = mr.dateAdded ? new Date(mr.dateAdded).toLocaleDateString() : '';
+                msgs.push('[' + date + ' ' + (mr.direction || '?') + ' ' + (mr.type || '') + '] ' + (mr.body || '').slice(0, 2000));
+              }
             }
+          } catch (msgErr) {
+            msgFetchErrors++;
+            console.error('Failed to fetch messages for conversation ' + (conv as any).id + ':', msgErr);
           }
-        } catch { /* skip */ }
+        }
+        if (msgs.length > 0) {
+          sections.push('=== MESSAGES (' + msgs.length + ' total) ===\n' + msgs.join('\n'));
+        } else if (msgFetchErrors > 0) {
+          sections.push('=== MESSAGES ERROR ===\nFound ' + convos.value.length + ' conversation(s) but failed to fetch messages from ' + msgFetchErrors + ' of them. The GHL API key may not have conversations/message.readonly scope enabled.');
+        }
       }
-      if (msgs.length > 0) sections.push('=== MESSAGES (' + msgs.length + ' total) ===\n' + msgs.join('\n'));
+    } else if (convos.status === 'rejected') {
+      const errMsg = convos.reason instanceof Error ? convos.reason.message : 'Unknown error';
+      sections.push('=== CONVERSATIONS ERROR ===\nFailed to fetch conversations: ' + errMsg + '\nThe GHL API key may need conversations.readonly scope enabled in the Private Integration settings.');
+      console.error('Conversations fetch failed:', convos.reason);
     }
 
     // TASKS
