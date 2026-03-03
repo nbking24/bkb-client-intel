@@ -20,6 +20,8 @@ import {
   Wrench,
   EyeOff,
   Check,
+  Search,
+  X,
 } from 'lucide-react';
 
 // ============================================================
@@ -381,6 +383,7 @@ export default function PreConDashboard() {
   const [inDesignOpen, setInDesignOpen] = useState(true);
   const [readyOpen, setReadyOpen] = useState(true);
   const [toast, setToast] = useState<string | null>(null);
+  const [searchQuery, setSearchQuery] = useState('');
 
   // Load cached report on mount (instant)
   async function loadCachedReport() {
@@ -508,9 +511,25 @@ export default function PreConDashboard() {
     }
   }
 
-  // Group projects by category (In-Design vs Ready), already A-Z sorted from API
-  const inDesignProjects = report?.projects?.filter(p => p.category !== 'Ready') || [];
-  const readyProjects = report?.projects?.filter(p => p.category === 'Ready') || [];
+  // Filter projects by search query (matches job name, job number, or client name)
+  const normalizedQuery = searchQuery.trim().toLowerCase();
+
+  function matchesSearch(project: AgentProject): boolean {
+    if (!normalizedQuery) return true;
+    return (
+      project.jobName.toLowerCase().includes(normalizedQuery) ||
+      project.jobNumber.toLowerCase().includes(normalizedQuery) ||
+      project.clientName.toLowerCase().includes(normalizedQuery)
+    );
+  }
+
+  // Group projects by category (In-Design vs Ready), filtered by search
+  const allInDesign = report?.projects?.filter(p => p.category !== 'Ready') || [];
+  const allReady = report?.projects?.filter(p => p.category === 'Ready') || [];
+  const inDesignProjects = allInDesign.filter(matchesSearch);
+  const readyProjects = allReady.filter(matchesSearch);
+  const totalMatches = inDesignProjects.length + readyProjects.length;
+  const totalProjects = allInDesign.length + allReady.length;
 
   return (
     <div className="space-y-4">
@@ -599,6 +618,51 @@ export default function PreConDashboard() {
 
           <TopPriorities priorities={report.topPriorities} />
 
+          {/* ── Search Box ── */}
+          <div className="relative">
+            <Search
+              size={15}
+              className="absolute left-3 top-1/2 -translate-y-1/2 pointer-events-none"
+              style={{ color: '#8a8078' }}
+            />
+            <input
+              type="text"
+              value={searchQuery}
+              onChange={(e) => setSearchQuery(e.target.value)}
+              placeholder="Search projects by name, number, or client..."
+              className="w-full rounded-lg pl-9 pr-9 py-2.5 text-sm outline-none placeholder:text-[#5a5550]"
+              style={{
+                background: '#1a1a1a',
+                border: '1px solid rgba(205,162,116,0.15)',
+                color: '#e8e0d8',
+              }}
+              onFocus={(e) => {
+                e.currentTarget.style.borderColor = 'rgba(201,168,76,0.4)';
+              }}
+              onBlur={(e) => {
+                e.currentTarget.style.borderColor = 'rgba(205,162,116,0.15)';
+              }}
+            />
+            {searchQuery && (
+              <button
+                onClick={() => setSearchQuery('')}
+                className="absolute right-3 top-1/2 -translate-y-1/2 hover:opacity-80"
+                style={{ color: '#8a8078' }}
+                title="Clear search"
+              >
+                <X size={14} />
+              </button>
+            )}
+          </div>
+          {normalizedQuery && (
+            <p className="text-xs" style={{ color: '#8a8078' }}>
+              Showing {totalMatches} of {totalProjects} project{totalProjects !== 1 ? 's' : ''}
+              {totalMatches === 0 && (
+                <span style={{ color: '#ef4444' }}> — no matches found</span>
+              )}
+            </p>
+          )}
+
           <div className="space-y-6">
             {/* In-Design Projects */}
             <div>
@@ -622,7 +686,9 @@ export default function PreConDashboard() {
                     />
                   ))}
                   {inDesignProjects.length === 0 && (
-                    <p className="text-xs py-2" style={{ color: '#8a8078' }}>No projects in design phase</p>
+                    <p className="text-xs py-2" style={{ color: '#8a8078' }}>
+                      {normalizedQuery ? 'No matching projects in design phase' : 'No projects in design phase'}
+                    </p>
                   )}
                 </div>
               )}
@@ -650,7 +716,9 @@ export default function PreConDashboard() {
                     />
                   ))}
                   {readyProjects.length === 0 && (
-                    <p className="text-xs py-2" style={{ color: '#8a8078' }}>No projects ready</p>
+                    <p className="text-xs py-2" style={{ color: '#8a8078' }}>
+                      {normalizedQuery ? 'No matching projects ready' : 'No projects ready'}
+                    </p>
                   )}
                 </div>
               )}
