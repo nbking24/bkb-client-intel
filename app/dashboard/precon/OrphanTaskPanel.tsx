@@ -69,7 +69,7 @@ export default function OrphanTaskPanel() {
       if (!res.ok) throw new Error('Failed to run audit');
       const data = await res.json();
       setAudit(data);
-      const jobsWithIssues = new Set(
+      const jobsWithIssues = new Set<string>(
         (data.jobs || [])
           .filter((j: AuditJob) => j.orphans.length > 0 || j.misplaced.length > 0)
           .map((j: AuditJob) => j.jobId)
@@ -467,4 +467,3 @@ export default function OrphanTaskPanel() {
       )}
     </div>
   );
-}
