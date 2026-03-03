@@ -1,0 +1,301 @@
+// @ts-nocheck
+/**
+ * Supabase Client for BKB Client Intel Hub
+ *
+ * Uses service_role key for server-side operations (bypasses RLS).
+ * This module provides typed helpers for upserting cached GHL/JT data
+ * and querying the Supabase tables from the know-it-all agent.
+ */
+import { createClient, SupabaseClient } from '@supabase/supabase-js';
+
+const SUPABASE_URL = process.env.NEXT_PUBLIC_SUPABASE_URL || process.env.SUPABASE_URL || '';
+const SUPABASE_SERVICE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY || '';
+
+let _client: SupabaseClient | null = null;
+
+export function getSupabase(): SupabaseClient {
+  if (!_client) {
+    if (!SUPABASE_URL || !SUPABASE_SERVICE_KEY) {
+      throw new Error('Missing SUPABASE_URL or SUPABASE_SERVICE_ROLE_KEY env vars');
+    }
+    _client = createClient(SUPABASE_URL, SUPABASE_SERVICE_KEY, {
+      auth: { persistSession: false, autoRefreshToken: false },
+    });
+  }
+  return _client;
+}
+
+// ââ UPSERT HELPERS ââââââââââââââââââââââââââââââââââââââââââ
+
+export async function upsertContact(contact: any) {
+  const c = contact.contact || contact;
+  const row = {
+    id: c.id,
+    first_name: c.firstName || null,
+    last_name: c.lastName || null,
+    email: c.email || null,
+    phone: c.phone || null,
+    company_name: c.companyName || null,
+    address: c.address1 || null,
+    city: c.city || null,
+    state: c.state || null,
+    postal_code: c.postalCode || null,
+    country: c.country || null,
+    website: c.website || null,
+    source: c.source || null,
+    tags: c.tags || [],
+    assigned_to: c.assignedTo || null,
+    dnd: c.dnd || false,
+    date_added: c.dateAdded || null,
+    last_activity: c.lastActivity || null,
+    custom_fields: Array.isArray(c.customFields)
+      ? Object.fromEntries(c.customFields.filter((cf: any) => cf.value != null && cf.value !== '').map((cf: any) => [cf.fieldKey || cf.key || cf.id, cf.value]))
+      : c.customFields || {},
+    raw_data: c,
+    synced_at: new Date().toISOString(),
+  };
+  const { error } = await getSupabase().from('contacts').upsert(row, { onConflict: 'id' });
+  if (error) throw new Error('Upsert contact failed: ' + error.message);
+  return row;
+}
+
+export async function upsertOpportunity(opp: any) {
+  const o = opp.opportunity || opp;
+  const row = {
+    id: o.id,
+    contact_id: o.contactId || o.contact_id || null,
+    name: o.name || null,
+    status: o.status || null,
+    pipeline_id: o.pipelineId || null,
+    pipeline_stage_id: o.pipelineStageId || null,
+    pipeline_stage: o.pipelineStageName || o.stageName || null,
+    monetary_value: o.monetaryValue || null,
+    assigned_to: o.assignedTo || null,
+    custom_fields: Array.isArray(o.customFields)
+      ? Object.fromEntries(o.customFields.filter((cf: any) => cf.value != null && cf.value !== '').map((cf: any) => [cf.fieldKey || cf.key || cf.id, cf.value]))
+      : o.customFields || {},
+    raw_data: o,
+    synced_at: new Date().toISOString(),
+  };
+  const { error } = await getSupabase().from('opportunities').upsert(row, { onConflict: 'id' });
+  if (error) throw new Error('Upsert opportunity failed: ' + error.message);
+  return row;
+}
+
+export async function upsertConversation(conv: any) {
+  const row = {
+    id: conv.id,
+    contact_id: conv.contactId || null,
+    type: conv.type || null,
+    last_message_at: conv.lastMessageDate || conv.dateUpdated || null,
+    last_message_body: conv.lastMessageBody || null,
+    unread_count: conv.unreadCount || 0,
+    raw_data: conv,
+    synced_at: new Date().toISOString(),
+  };
+  const { error } = await getSupabase().from('conversations').upsert(row, { onConflict: 'id' });
+  if (error) throw new Error('Upsert conversation failed: ' + error.message);
+  return row;
+}
+
+export async function upsertMessage(msg: any, contactId: string) {
+  const row = {
+    id: msg.id,
+    conversation_id: msg.conversationId || null,
+    contact_id: contactId,
+    direction: msg.direction || null,
+    message_type: msg.messageType || msg.type || null,
+    subject: msg.meta?.email?.subject || null,
+    body: msg.body || msg.text || msg.message || null,
+    body_html: msg.html || null,
+    date_added: msg.dateAdded || null,
+    meta: msg.meta || null,
+    synced_at: new Date().toISOString(),
+  };
+  const { error } = await getSupabase().from('messages').upsert(row, { onConflict: 'id' });
+  if (error) throw new Error('Upsert message failed: ' + error.message);
+  return row;
+}
+
+export async function upsertNote(note: any, contactId: string) {
+  const row = {
+    id: note.id,
+    contact_id: contactId,
+    body: note.body || null,
+    date_added: note.dateAdded || null,
+    created_by: note.createdBy || null,
+    synced_at: new Date().toISOString(),
+  };
+  const { error } = await getSupabase().from('notes').upsert(row, { onConflict: 'id' });
+  if (error) throw new Error('Upsert note failed: ' + error.message);
+  return row;
+}
+
+export async function upsertTask(task: any, contactId: string) {
+  const row = {
+    id: task.id,
+    contact_id: contactId,
+    title: task.title || task.body || null,
+    description: task.description || null,
+    due_date: task.dueDate || null,
+    completed: task.completed || false,
+    assigned_to: task.assignedTo || null,
+    synced_at: new Date().toISOString(),
+  };
+  const { error } = await getSupabase().from('tasks').upsert(row, { onConflict: 'id' });
+  if (error) throw new Error('Upsert task failed: ' + error.message);
+  return row;
+}
+
+export async function upsertJTJob(job: any, contactId?: string) {
+  const row = {
+    id: job.id,
+    number: job.number || null,
+    name: job.name || null,
+    status: job.status || null,
+    description: job.description || null,
+    contact_id: contactId || null,
+    raw_data: job,
+    synced_at: new Date().toISOString(),
+  };
+  const { error } = await getSupabase().from('jt_jobs').upsert(row, { onConflict: 'id' });
+  if (error) throw new Error('Upsert JT job failed: ' + error.message);
+  return row;
+}
+
+// ââ SYNC LOG ââââââââââââââââââââââââââââââââââââââââââââââââ
+
+export async function createSyncLog(entityType: string, contactId?: string) {
+  const { data, error } = await getSupabase()
+    .from('sync_log')
+    .insert({ entity_type: entityType, contact_id: contactId || null, status: 'started' })
+    .select('id')
+    .single();
+  if (error) throw new Error('Create sync log failed: ' + error.message);
+  return data.id;
+}
+
+export async function completeSyncLog(logId: string, recordsSynced: number, errorMessage?: string) {
+  const { error } = await getSupabase()
+    .from('sync_log')
+    .update({
+      status: errorMessage ? 'failed' : 'completed',
+      records_synced: recordsSynced,
+      error_message: errorMessage || null,
+      completed_at: new Date().toISOString(),
+    })
+    .eq('id', logId);
+  if (error) console.error('Failed to update sync log:', error.message);
+}
+
+// ââ QUERY HELPERS (for know-it-all agent) âââââââââââââââââââ
+
+export async function getContactFromDB(contactId: string) {
+  const { data, error } = await getSupabase()
+    .from('contacts')
+    .select('*')
+    .eq('id', contactId)
+    .single();
+  if (error) return null;
+  return data;
+}
+
+export async function getContactNotesFromDB(contactId: string, limit = 50) {
+  const { data, error } = await getSupabase()
+    .from('notes')
+    .select('*')
+    .eq('contact_id', contactId)
+    .order('date_added', { ascending: false })
+    .limit(limit);
+  if (error) return [];
+  return data || [];
+}
+
+export async function getContactMessagesFromDB(contactId: string, limit = 100) {
+  const { data, error } = await getSupabase()
+    .from('messages')
+    .select('*')
+    .eq('contact_id', contactId)
+    .order('date_added', { ascending: false })
+    .limit(limit);
+  if (error) return [];
+  return data || [];
+}
+
+export async function getContactTasksFromDB(contactId: string) {
+  const { data, error } = await getSupabase()
+    .from('tasks')
+    .select('*')
+    .eq('contact_id', contactId)
+    .order('due_date', { ascending: true });
+  if (error) return [];
+  return data || [];
+}
+
+export async function getContactOpportunitiesFromDB(contactId: string) {
+  const { data, error } = await getSupabase()
+    .from('opportunities')
+    .select('*')
+    .eq('contact_id', contactId)
+    .order('created_at', { ascending: false });
+  if (error) return [];
+  return data || [];
+}
+
+export async function getOpportunityFromDB(opportunityId: string) {
+  const { data, error } = await getSupabase()
+    .from('opportunities')
+    .select('*')
+    .eq('id', opportunityId)
+    .single();
+  if (error) return null;
+  return data;
+}
+
+export async function getJTJobsFromDB(limit = 50) {
+  const { data, error } = await getSupabase()
+    .from('jt_jobs')
+    .select('*')
+    .order('created_at', { ascending: false })
+    .limit(limit);
+  if (error) return [];
+  return data || [];
+}
+
+export async function searchMessagesFullText(contactId: string, searchQuery: string, limit = 20) {
+  const { data, error } = await getSupabase()
+    .from('messages')
+    .select('*')
+    .eq('contact_id', contactId)
+    .textSearch('body', searchQuery, { type: 'websearch' })
+    .order('date_added', { ascending: false })
+    .limit(limit);
+  if (error) return [];
+  return data || [];
+}
+
+export async function searchNotesFullText(contactId: string, searchQuery: string, limit = 20) {
+  const { data, error } = await getSupabase()
+    .from('notes')
+    .select('*')
+    .eq('contact_id', contactId)
+    .textSearch('body', searchQuery, { type: 'websearch' })
+    .order('date_added', { ascending: false })
+    .limit(limit);
+  if (error) return [];
+  return data || [];
+}
+
+export async function getLastSyncTime(entityType: string, contactId?: string) {
+  let query = getSupabase()
+    .from('sync_log')
+    .select('completed_at')
+    .eq('entity_type', entityType)
+    .eq('status', 'completed')
+    .order('completed_at', { ascending: false })
+    .limit(1);
+  if (contactId) query = query.eq('contact_id', contactId);
+  const { data } = await query;
+  return data?.[0]?.completed_at || null;
+}
+
