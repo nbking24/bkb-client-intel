@@ -99,7 +99,11 @@ export async function getConversationMessages(conversationId: string, limit = 40
   const data = await ghlFetch(
     `/conversations/${conversationId}/messages?limit=${limit}`
   );
-  return data.messages || [];
+  // GHL nests messages: { messages: { lastMessageId, nextPage, messages: [...] } }
+  const msgs = data.messages;
+  if (msgs && Array.isArray(msgs.messages)) return msgs.messages;
+  if (Array.isArray(msgs)) return msgs;
+  return [];
 }
 
 // ============================================================
