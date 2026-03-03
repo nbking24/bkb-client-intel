@@ -171,12 +171,12 @@ export async function analyzeProjectSchedule(jobId: string): Promise<ProjectSche
         endDate: t.endDate,
         assignee: null, // Will be enriched if needed
         daysUntilDue,
-        isOverdue: daysUntilDue !== null && daysUntilDue < 0 && (t.progress ?? 0) < 100,
+        isOverdue: daysUntilDue !== null && daysUntilDue < 0 && (t.progress ?? 0) < 1,
         categoryName: phase.name,
       };
     });
 
-    const completedCount = tasks.filter((t) => t.progress >= 100).length;
+    const completedCount = tasks.filter((t) => t.progress >= 1).length;
 
     return {
       id: phase.id,
@@ -198,7 +198,7 @@ export async function analyzeProjectSchedule(jobId: string): Promise<ProjectSche
   // Identify current active phase (first non-complete category with tasks)
   let currentPhase: string | null = null;
   for (const cat of categories) {
-    if (cat.taskCount > 0 && cat.progress < 100) {
+    if (cat.taskCount > 0 && cat.progress < 1) {
       currentPhase = cat.name;
       break;
     }
@@ -218,13 +218,13 @@ export async function analyzeProjectSchedule(jobId: string): Promise<ProjectSche
         t.daysUntilDue !== null &&
         t.daysUntilDue >= 0 &&
         t.daysUntilDue <= AGENT_RULES.warningDeadlineDays &&
-        t.progress < 100
+        t.progress < 1
     )
     .sort((a, b) => (a.daysUntilDue ?? 99) - (b.daysUntilDue ?? 99));
 
   // NEW: Find incomplete tasks with no end date (and no start date)
   const undatedTasks = allTasks.filter(
-    (t) => t.progress < 100 && !t.endDate && !t.startDate
+    (t) => t.progress < 1 && !t.endDate && !t.startDate
   );
 
   return {
@@ -375,13 +375,13 @@ function assessProjectHealth(
   }
 
   // Check if no current phase identified (possible stall)
-  if (!schedule.currentPhase && schedule.totalProgress < 100) {
+  if (!schedule.currentPhase && schedule.totalProgress < 1) {
     alerts.push('No active phase detected — schedule may be stalled or needs tasks');
     health = 'stalled';
   }
 
   // If everything is at 100%, it's complete
-  if (schedule.totalProgress >= 100) {
+  if (schedule.totalProgress >= 1) {
     health = 'complete';
   }
 
