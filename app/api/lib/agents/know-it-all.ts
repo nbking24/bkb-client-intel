@@ -1,6 +1,6 @@
 // @ts-nocheck
 import { AgentModule, AgentContext } from './types';
-import { getContact, getContactNotes, searchConversations, getConversationMessages, getContactTasks, getOpportunity } from '../ghl';
+import { getContact, getContactNotes, searchConversations, getConversationMessages, getContactTasks, getOpportunity, getMessageById, getEmailById } from '../ghl';
 import { getActiveJobs } from '../jobtread';
 
 function formatValue(val: any): string {
@@ -132,21 +132,8 @@ async function fetchGHLContext(ctx: AgentContext): Promise<string> {
         const msgs: string[] = [];
         let msgFetchErrors = 0;
 
-        // Build a map of conversation-level data (lastMessageBody, etc.)
-        const convoMap: Record<string, any> = {};
-        for (const conv of convos.value) {
-          const c = conv as any;
-          convoMap[c.id] = c;
-        }
-
         for (const conv of convos.value.slice(0, 10)) {
           const convData = conv as any;
-          // Add conversation-level summary if available
-          if (convData.lastMessageBody) {
-            const lastDate = convData.lastMessageDate ? new Date(convData.lastMessageDate).toLocaleDateString() : '';
-            const lastType = convData.lastMessageType || convData.type || '';
-            msgs.push('[CONV SUMMARY ' + lastDate + ' ' + lastType + '] Last message: ' + (convData.lastMessageBody || '').slice(0, 2000));
-          }
           try {
             const cmsgs = await getConversationMessages(convData.id, 40);
             if (Array.isArray(cmsgs)) {
@@ -159,10 +146,64 @@ async function fetchGHLContext(ctx: AgentContext): Promise<string> {
                 const msgType = mr.messageType || mr.type || '';
                 const subject = mr.meta?.email?.subject ? ' Subject: ' + mr.meta.email.subject : '';
 
-                // Extract body from multiple possible locations
-                const body = mr.body || mr.text || mr.message || mr.altText || '';
+                // Try to get body from the message itself first
+                let body = mr.body || mr.text || mr.message || '';
 
-                msgs.push('[' + date + ' ' + direction + ' ' + msgType + subject + '] ' + (body ? body.slice(0, 2000) : '(no body text)'));
+                // If no body and this is an email, try fetching the full message or email content
+                if (!body && mr.messageType === 'TYPE_EMAIL') {
+                  // Strategy 1: Try getMessageById which may return body for the message
+                  try {
+                    const fullMsg = await getMessageById(mr.id);
+                    const msgData = fullMsg.message || fullMsg;
+                    body = msgData.body || msgData.text || msgData.html || '';
+                    // Strip HTML tags for readability if we got HTML content
+                    if (body && (msgData.contentType === 'text/html' || body.startsWith('<'))) {
+                      body = body.replace(/<style[^>]*>[\s\S]*?<\/style>/gi, '')
+                                 .replace(/<[^>]+>/g, ' ')
+                                 .replace(/&nbsp;/g, ' ')
+                                 .replace(/&amp;/g, '&')
+                                 .replace(/&lt;/g, '<')
+                                 .replace(/&gt;/g, '>')
+                                 .replace(/&quot;/g, '"')
+                                 .replace(/&#39;/g, "'")
+                                 .replace(/\s+/g, ' ')
+                                 .trim();
+                    }
+                  } catch (e) {
+                    // Strategy 1 failed, try Strategy 2
+                  }
+
+                  // Strategy 2: If still no body, try getEmailById with the first email messageId
+                  if (!body && mr.meta?.email?.messageIds?.length > 0) {
+                    try {
+                      const emailData = await getEmailById(mr.meta.email.messageIds[0]);
+                      const email = emailData.email || emailData;
+                      body = email.body || email.text || email.html || email.textBody || email.htmlBody || '';
+                      // Strip HTML tags
+                      if (body && body.startsWith('<')) {
+                        body = body.replace(/<style[^>]*>[\s\S]*?<\/style>/gi, '')
+                                   .replace(/<[^>]+>/g, ' ')
+                                   .replace(/&nbsp;/g, ' ')
+                                   .replace(/&amp;/g, '&')
+                                   .replace(/&lt;/g, '<')
+                                   .replace(/&gt;/g, '>')
+                                   .replace(/&quot;/g, '"')
+                                   .replace(/&#39;/g, "'")
+                                   .replace(/\s+/g, ' ')
+                                   .trim();
+                      }
+                    } catch (e2) {
+                      // Both strategies failed — body stays empty
+                    }
+                  }
+                }
+
+                // Fallback: use conversation-level lastMessageBody for the most recent message
+                if (!body && mr.id === cmsgs[0]?.id && convData.lastMessageBody) {
+                  body = convData.lastMessageBody;
+                }
+
+                msgs.push('[' + date + ' ' + direction + ' ' + msgType + subject + '] ' + (body ? body.slice(0, 3000) : '(email body not accessible via API)'));
               }
             }
           } catch (msgErr) {
@@ -300,4 +341,3 @@ const knowItAll: AgentModule = {
 };
 
 export default knowItAll;
-
