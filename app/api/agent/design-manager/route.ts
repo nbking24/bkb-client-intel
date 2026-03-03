@@ -4,7 +4,7 @@
 // GET  → Run agent analysis (gather data + Claude assessment)
 //        ?cached=true → return cached result from Supabase
 // POST → Execute agent actions (create tasks, draft messages,
-//         standardize schedules)
+//         standardize schedules, dismiss/complete recommendations)
 // ============================================================
 
 import { NextRequest, NextResponse } from 'next/server';
@@ -113,6 +113,126 @@ async function saveCachedReport(report: AgentReport): Promise<void> {
 }
 
 // ============================================================
+// Recommendation Dismissal Helpers
+// ============================================================
+
+interface DismissalRecord {
+  job_id: string;
+  rec_action: string;
+  rec_action_type: string;
+  dismissal_type: 'ignored' | 'completed';
+}
+
+async function getDismissals(): Promise<DismissalRecord[]> {
+  try {
+    const supabase = createServerClient();
+    const { data, error } = await supabase
+      .from('agent_dismissals')
+      .select('job_id, rec_action, rec_action_type, dismissal_type');
+
+    if (error) {
+      console.error('Dismissals read error:', error);
+      return [];
+    }
+    return (data || []) as DismissalRecord[];
+  } catch (err) {
+    console.error('Dismissals read error:', err);
+    return [];
+  }
+}
+
+function buildDismissalSet(dismissals: DismissalRecord[]): Set<string> {
+  return new Set(
+    dismissals.map((d) => `${d.job_id}|${d.rec_action}|${d.rec_action_type}`)
+  );
+}
+
+function isRecDismissed(
+  dismissalSet: Set<string>,
+  jobId: string,
+  rec: AgentRecommendation
+): boolean {
+  return dismissalSet.has(`${jobId}|${rec.action}|${rec.actionType}`);
+}
+
+function filterDismissedRecs(
+  report: AgentReport,
+  dismissals: DismissalRecord[]
+): AgentReport {
+  if (dismissals.length === 0) return report;
+  const dismissalSet = buildDismissalSet(dismissals);
+  return {
+    ...report,
+    projects: report.projects.map((project) => ({
+      ...project,
+      recommendations: project.recommendations.filter(
+        (rec) => !isRecDismissed(dismissalSet, project.jobId, rec)
+      ),
+    })),
+  };
+}
+
+async function saveDismissal(params: {
+  jobId: string;
+  recAction: string;
+  recActionType: string;
+  recDescription: string;
+  dismissalType: 'ignored' | 'completed';
+}): Promise<{ success: boolean; error?: string }> {
+  try {
+    const supabase = createServerClient();
+    const { error } = await supabase
+      .from('agent_dismissals')
+      .upsert(
+        {
+          job_id: params.jobId,
+          rec_action: params.recAction,
+          rec_action_type: params.recActionType,
+          rec_description: params.recDescription,
+          dismissal_type: params.dismissalType,
+          dismissed_at: new Date().toISOString(),
+          dismissed_by: 'nathan',
+        },
+        { onConflict: 'job_id,rec_action,rec_action_type' }
+      );
+
+    if (error) {
+      console.error('Dismissal save error:', error);
+      return { success: false, error: error.message };
+    }
+    return { success: true };
+  } catch (err: any) {
+    console.error('Dismissal save error:', err);
+    return { success: false, error: err.message };
+  }
+}
+
+async function removeDismissal(params: {
+  jobId: string;
+  recAction: string;
+  recActionType: string;
+}): Promise<{ success: boolean; error?: string }> {
+  try {
+    const supabase = createServerClient();
+    const { error } = await supabase
+      .from('agent_dismissals')
+      .delete()
+      .eq('job_id', params.jobId)
+      .eq('rec_action', params.recAction)
+      .eq('rec_action_type', params.recActionType);
+
+    if (error) {
+      console.error('Dismissal remove error:', error);
+      return { success: false, error: error.message };
+    }
+    return { success: true };
+  } catch (err: any) {
+    console.error('Dismissal remove error:', err);
+    return { success: false, error: err.message };
+  }
+}
+
+// ============================================================
 // Claude API Call
 // ============================================================
 
@@ -123,7 +243,7 @@ async function callClaude(prompt: string, systemPrompt: string): Promise<string>
   }
 
   const MAX_RETRIES = 3;
-  const INITIAL_DELAY = 5000; // 15s for rate limit cooldown
+  const INITIAL_DELAY = 5000;
 
   for (let attempt = 0; attempt < MAX_RETRIES; attempt++) {
     const res = await fetch('https://api.anthropic.com/v1/messages', {
@@ -184,6 +304,7 @@ BRETT KING BUILDER RULES:
 6. Tasks due within ${AGENT_RULES.warningDeadlineDays} days need a WARNING
 7. If a project has overdue tasks AND no recent client contact, it is STALLED
 8. Projects should progress through phases sequentially: Conceptual Design → Design Development → Contract → Preconstruction
+9. Every incomplete task MUST have a start and end date assigned. Tasks without dates are invisible to deadline tracking and may represent missed work. Flag these as needing dates.
 
 TEAM MEMBERS:
 - Nathan (Sales/Design Manager) - primary point of contact for clients
@@ -205,12 +326,10 @@ function buildAnalysisPrompt(context: AgentFullContext): string {
     const s = p.schedule;
     const c = p.clientContact;
 
-    // Compact category summary (no per-task listing to save tokens)
     const categoryLines = s.categories.map((cat) => {
       return `  ${cat.name}: ${cat.progress}% (${cat.completedCount}/${cat.taskCount} done)`;
     }).join('\n');
 
-    // Client contact info
     const contactInfo = c.daysSinceContact !== null
       ? `Last: ${c.daysSinceContact}d ago via ${c.lastContactType || 'unknown'}`
       : c.noContactAlert ? 'NO CONTACT RECORD' : 'unavailable';
@@ -224,6 +343,7 @@ Categories:\n${categoryLines}
 Missing: ${s.missingCategories.length > 0 ? s.missingCategories.join(', ') : 'None'}
 Overdue: ${s.overdueTasks.length > 0 ? s.overdueTasks.map(t => `${t.name} (${Math.abs(t.daysUntilDue!)}d)`).join(', ') : 'None'}
 Upcoming: ${s.upcomingTasks.length > 0 ? s.upcomingTasks.map(t => `${t.name} (${t.daysUntilDue}d)`).join(', ') : 'None'}
+No Dates: ${s.undatedTasks && s.undatedTasks.length > 0 ? s.undatedTasks.map(t => `${t.name} [${t.categoryName}]`).join(', ') : 'None'}
 `;
   }).join('\n');
 
@@ -264,16 +384,17 @@ Respond with VALID JSON only (no markdown fences):
 
 export async function GET(req: NextRequest) {
   try {
-    // Check if caller wants cached result
     const { searchParams } = new URL(req.url);
     const wantsCached = searchParams.get('cached') === 'true';
 
     if (wantsCached) {
       const cached = await getCachedReport();
       if (cached) {
-        return NextResponse.json({ ...cached, _fromCache: true });
+        // Filter out dismissed recommendations before returning
+        const dismissals = await getDismissals();
+        const filtered = filterDismissedRecs(cached, dismissals);
+        return NextResponse.json({ ...filtered, _fromCache: true });
       }
-      // No cache available — fall through to fresh analysis
       console.log('Cache miss — running fresh analysis');
     }
 
@@ -295,7 +416,6 @@ export async function GET(req: NextRequest) {
 
     // Step 2: Check if Claude API key exists
     if (!process.env.ANTHROPIC_API_KEY) {
-      // Return raw context without AI analysis — useful for testing data layer
       const rawReport: AgentReport = {
         generatedAt: new Date().toISOString(),
         summary: 'AI analysis unavailable. Showing raw data.',
@@ -331,20 +451,17 @@ export async function GET(req: NextRequest) {
     // Step 4: Parse Claude's JSON response
     let report: AgentReport;
     try {
-      // Claude sometimes wraps JSON in code fences despite instructions
       const cleaned = claudeResponse
         .replace(/\`\`\`json\n?/g, '')
         .replace(/\`\`\`\n?/g, '')
         .trim();
       const parsed = JSON.parse(cleaned);
 
-      // Build customStatus lookup from context
       const statusMap = new Map<string, string | null>();
       for (const p of context.projects) {
         statusMap.set(p.schedule.jobId, p.schedule.customStatus);
       }
 
-      // Enrich projects with category and sort A-Z by jobName
       const enrichedProjects = (parsed.projects || []).map((p: any) => ({
         ...p,
         category: getProjectCategory(statusMap.get(p.jobId) || null),
@@ -389,10 +506,14 @@ export async function GET(req: NextRequest) {
       };
     }
 
-    // Step 5: Cache the report in Supabase
+    // Step 5: Cache the FULL report (before filtering dismissals)
     await saveCachedReport(report);
 
-    return NextResponse.json(report);
+    // Step 6: Filter dismissed recs before returning to client
+    const dismissals = await getDismissals();
+    const filtered = filterDismissedRecs(report, dismissals);
+
+    return NextResponse.json(filtered);
   } catch (err: any) {
     console.error('Design Manager Agent error:', err);
     return NextResponse.json(
@@ -417,13 +538,96 @@ export async function POST(req: NextRequest) {
 
     switch (action) {
       case 'refresh':
-        // Just re-run the GET analysis
         return GET(req);
 
       // ==================================================
+      // ACTION: Dismiss Recommendation (Ignore)
+      // ==================================================
+      case 'dismissRecommendation': {
+        const { jobId, recAction, recActionType, recDescription } = body;
+        if (!jobId || !recAction || !recActionType) {
+          return NextResponse.json(
+            { error: 'jobId, recAction, and recActionType are required' },
+            { status: 400 }
+          );
+        }
+
+        const result = await saveDismissal({
+          jobId,
+          recAction,
+          recActionType,
+          recDescription: recDescription || '',
+          dismissalType: 'ignored',
+        });
+
+        return NextResponse.json({
+          success: result.success,
+          message: result.success
+            ? `Recommendation "${recAction}" ignored for this project`
+            : `Failed to dismiss: ${result.error}`,
+          dismissalType: 'ignored',
+          jobId,
+          recAction,
+        });
+      }
+
+      // ==================================================
+      // ACTION: Complete Recommendation (Done)
+      // ==================================================
+      case 'completeRecommendation': {
+        const { jobId, recAction, recActionType, recDescription } = body;
+        if (!jobId || !recAction || !recActionType) {
+          return NextResponse.json(
+            { error: 'jobId, recAction, and recActionType are required' },
+            { status: 400 }
+          );
+        }
+
+        const result = await saveDismissal({
+          jobId,
+          recAction,
+          recActionType,
+          recDescription: recDescription || '',
+          dismissalType: 'completed',
+        });
+
+        return NextResponse.json({
+          success: result.success,
+          message: result.success
+            ? `Recommendation "${recAction}" marked as done`
+            : `Failed to complete: ${result.error}`,
+          dismissalType: 'completed',
+          jobId,
+          recAction,
+        });
+      }
+
+      // ==================================================
+      // ACTION: Undo Dismissal
+      // ==================================================
+      case 'undoDismissal': {
+        const { jobId, recAction, recActionType } = body;
+        if (!jobId || !recAction || !recActionType) {
+          return NextResponse.json(
+            { error: 'jobId, recAction, and recActionType are required' },
+            { status: 400 }
+          );
+        }
+
+        const result = await removeDismissal({ jobId, recAction, recActionType });
+
+        return NextResponse.json({
+          success: result.success,
+          message: result.success
+            ? `Dismissal undone for "${recAction}"`
+            : `Failed to undo: ${result.error}`,
+          jobId,
+          recAction,
+        });
+      }
+
+      // ==================================================
       // ACTION: Standardize Schedule
-      // Adds missing standard phase groups to a project.
-      // Does NOT add default tasks — just the empty phases.
       // ==================================================
       case 'standardizeSchedule': {
         const { jobId } = body;
@@ -434,7 +638,6 @@ export async function POST(req: NextRequest) {
           );
         }
 
-        // Get current schedule to find what's missing
         const schedule = await getJobSchedule(jobId);
         if (!schedule) {
           return NextResponse.json(
@@ -443,7 +646,6 @@ export async function POST(req: NextRequest) {
           );
         }
 
-        // Find which standard phases are missing
         const existingNames = schedule.phases.map(
           (p: any) => p.name.toLowerCase().trim()
         );
@@ -460,7 +662,6 @@ export async function POST(req: NextRequest) {
           });
         }
 
-        // Create each missing phase group
         const created: { name: string; id: string }[] = [];
         const errors: string[] = [];
 
@@ -490,7 +691,6 @@ export async function POST(req: NextRequest) {
 
       // ==================================================
       // ACTION: Create Task
-      // Creates a task on a job, optionally under a phase.
       // ==================================================
       case 'createTask': {
         const { jobId, name, description, parentGroupId, assignee, startDate, endDate } = body;
@@ -501,7 +701,6 @@ export async function POST(req: NextRequest) {
           );
         }
 
-        // Resolve assignee name to membership ID
         let assignedMembershipIds: string[] | undefined;
         if (assignee) {
           const memberKey = assignee.toLowerCase().trim() as keyof typeof JT_MEMBERS;
@@ -514,7 +713,6 @@ export async function POST(req: NextRequest) {
         try {
           let result;
           if (parentGroupId) {
-            // Create under a specific phase
             result = await createPhaseTask({
               jobId,
               parentGroupId,
@@ -525,7 +723,6 @@ export async function POST(req: NextRequest) {
               assignedMembershipIds,
             });
           } else {
-            // Create at job level
             result = await createTask({
               jobId,
               name,
@@ -552,8 +749,6 @@ export async function POST(req: NextRequest) {
 
       // ==================================================
       // ACTION: Draft Message
-      // Uses Claude to draft a client outreach message.
-      // Returns the draft — does NOT auto-send.
       // ==================================================
       case 'draftMessage': {
         const { jobId, jobName, clientName, context: msgContext, messageType } = body;
@@ -628,7 +823,6 @@ Respond with VALID JSON only:
 
       // ==================================================
       // ACTION: Add Phase Defaults
-      // Adds default template tasks to an existing phase.
       // ==================================================
       case 'addPhaseDefaults': {
         const { jobId, parentGroupId, phaseNumber } = body;
