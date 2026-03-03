@@ -16,12 +16,12 @@ import {
   Zap,
   Users,
   BarChart3,
+  Wrench,
 } from 'lucide-react';
 
 // ============================================================
 // Types — matches AgentReport from the API route
 // ============================================================
-
 interface AgentRecommendation {
   action: string;
   description: string;
@@ -60,7 +60,6 @@ interface AgentReport {
 // ============================================================
 // Status helpers
 // ============================================================
-
 const STATUS_CONFIG: Record<string, { label: string; color: string; bg: string; icon: any }> = {
   on_track: { label: 'On Track', color: '#22c55e', bg: 'rgba(34,197,94,0.12)', icon: CheckCircle2 },
   at_risk: { label: 'At Risk', color: '#eab308', bg: 'rgba(234,179,8,0.12)', icon: AlertTriangle },
@@ -104,7 +103,6 @@ function formatTimestamp(dateStr: string): string {
 // ============================================================
 // Summary Cards
 // ============================================================
-
 function SummaryCards({ report }: { report: AgentReport }) {
   const onTrack = report.projects.filter(p => p.status === 'on_track').length;
   const atRisk = report.projects.filter(p => p.status === 'at_risk').length;
@@ -145,13 +143,16 @@ function SummaryCards({ report }: { report: AgentReport }) {
 // ============================================================
 // Top Priorities
 // ============================================================
-
 function TopPriorities({ priorities }: { priorities: string[] }) {
   if (!priorities.length) return null;
   return (
-    <div className="rounded-lg p-4" style={{ background: '#1a1a1a', border: '1px solid rgba(205,162,116,0.1)' }}>
+    <div
+      className="rounded-lg p-4"
+      style={{ background: '#1a1a1a', border: '1px solid rgba(205,162,116,0.1)' }}
+    >
       <h3 className="text-sm font-semibold mb-3 flex items-center gap-2" style={{ color: '#C9A84C' }}>
-        <Zap size={14} /> Agent Top Priorities
+        <Zap size={14} />
+        Agent Top Priorities
       </h3>
       <div className="space-y-2">
         {priorities.map((p, i) => (
@@ -173,7 +174,6 @@ function TopPriorities({ priorities }: { priorities: string[] }) {
 // ============================================================
 // Project Card
 // ============================================================
-
 function ProjectCard({ project }: { project: AgentProject }) {
   const [expanded, setExpanded] = useState(false);
   const config = STATUS_CONFIG[project.status] || STATUS_CONFIG.stalled;
@@ -196,6 +196,7 @@ function ProjectCard({ project }: { project: AgentProject }) {
             <ChevronRight size={16} style={{ color: '#8a8078' }} />
           )}
         </div>
+
         <div className="flex-1 min-w-0">
           <div className="flex items-center gap-2 flex-wrap">
             <Link
@@ -210,7 +211,8 @@ function ProjectCard({ project }: { project: AgentProject }) {
               className="text-xs px-2 py-0.5 rounded-full font-medium flex items-center gap-1"
               style={{ background: config.bg, color: config.color }}
             >
-              <StatusIcon size={10} /> {config.label}
+              <StatusIcon size={10} />
+              {config.label}
             </span>
           </div>
           <div className="flex items-center gap-4 mt-1 text-xs" style={{ color: '#8a8078' }}>
@@ -232,6 +234,7 @@ function ProjectCard({ project }: { project: AgentProject }) {
             </span>
           </div>
         </div>
+
         <div className="flex-shrink-0 text-center">
           <div
             className="w-10 h-10 rounded-full flex items-center justify-center text-xs font-bold"
@@ -324,7 +327,6 @@ function ProjectCard({ project }: { project: AgentProject }) {
 // ============================================================
 // Main Page
 // ============================================================
-
 export default function PreConDashboard() {
   const [report, setReport] = useState<AgentReport | null>(null);
   const [loading, setLoading] = useState(true);
@@ -395,19 +397,34 @@ export default function PreConDashboard() {
             )}
           </p>
         </div>
-        <button
-          onClick={handleRefresh}
-          disabled={refreshing}
-          className="flex items-center gap-2 px-3 py-2 rounded-lg text-xs font-medium hover:opacity-90 transition-opacity shrink-0 disabled:opacity-50"
-          style={{
-            background: 'rgba(201,168,76,0.15)',
-            color: '#C9A84C',
-            border: '1px solid rgba(201,168,76,0.3)',
-          }}
-        >
-          <RefreshCw size={14} className={refreshing ? 'animate-spin' : ''} />
-          {refreshing ? 'Running Agent...' : 'Run Agent Now'}
-        </button>
+
+        <div className="flex items-center gap-2 shrink-0">
+          <Link
+            href="/dashboard/precon/setup"
+            className="flex items-center gap-2 px-3 py-2 rounded-lg text-xs font-medium hover:opacity-90 transition-opacity"
+            style={{
+              background: 'rgba(201,168,76,0.08)',
+              color: '#C9A84C',
+              border: '1px solid rgba(201,168,76,0.2)',
+            }}
+          >
+            <Wrench size={14} />
+            Standardize Schedule
+          </Link>
+          <button
+            onClick={handleRefresh}
+            disabled={refreshing}
+            className="flex items-center gap-2 px-3 py-2 rounded-lg text-xs font-medium hover:opacity-90 transition-opacity disabled:opacity-50"
+            style={{
+              background: 'rgba(201,168,76,0.15)',
+              color: '#C9A84C',
+              border: '1px solid rgba(201,168,76,0.3)',
+            }}
+          >
+            <RefreshCw size={14} className={refreshing ? 'animate-spin' : ''} />
+            {refreshing ? 'Running Agent...' : 'Run Agent Now'}
+          </button>
+        </div>
       </div>
 
       {loading ? (
@@ -421,13 +438,18 @@ export default function PreConDashboard() {
           <p className="text-xs mt-1" style={{ color: '#8a8078' }}>
             No cached data available. Click &quot;Run Agent Now&quot; to generate a fresh report.
           </p>
-          <button onClick={handleRefresh} className="text-xs mt-2 underline" style={{ color: '#C9A84C' }}>
+          <button
+            onClick={handleRefresh}
+            className="text-xs mt-2 underline"
+            style={{ color: '#C9A84C' }}
+          >
             Run Agent Now
           </button>
         </div>
       ) : report ? (
         <div className="space-y-4">
           <SummaryCards report={report} />
+
           <div
             className="rounded-lg p-4"
             style={{ background: '#1a1a1a', border: '1px solid rgba(205,162,116,0.1)' }}
@@ -436,7 +458,9 @@ export default function PreConDashboard() {
               {report.summary}
             </p>
           </div>
+
           <TopPriorities priorities={report.topPriorities} />
+
           <div className="space-y-6">
             {/* In-Design Projects */}
             <div>
