@@ -5,12 +5,13 @@ import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 import {
   LayoutDashboard, FolderKanban, Bell, MessageSquare,
-  FileText, Menu, X, ChevronRight
+  FileText, Menu, X, ChevronRight, ClipboardEdit
 } from 'lucide-react';
 
 const NAV_ITEMS = [
   { href: '/dashboard', label: 'Overview', icon: LayoutDashboard },
   { href: '/dashboard/precon', label: 'Pre-Construction', icon: FolderKanban },
+  { href: '/dashboard/spec-writer', label: 'Spec Writer', icon: ClipboardEdit },
   { href: '/dashboard/documents', label: 'Documents', icon: FileText },
   { href: '/dashboard/ask', label: 'Ask Agent', icon: MessageSquare },
 ];
