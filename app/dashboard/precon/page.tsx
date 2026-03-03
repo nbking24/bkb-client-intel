@@ -2,6 +2,7 @@
 
 import { useState, useEffect } from 'react';
 import Link from 'next/link';
+import OrphanTaskPanel from './OrphanTaskPanel';
 import {
   Loader2,
   RefreshCw,
@@ -427,6 +428,7 @@ export default function PreConDashboard() {
         </div>
       </div>
 
+          <OrphanTaskPanel />
       {loading ? (
         <div className="flex flex-col items-center justify-center py-16 gap-3">
           <Loader2 size={28} className="animate-spin" style={{ color: '#C9A84C' }} />
