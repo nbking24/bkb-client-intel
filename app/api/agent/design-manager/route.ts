@@ -30,7 +30,7 @@ import { BKB_STANDARD_TEMPLATE } from '@/app/lib/schedule-templates';
 import { createServerClient } from '@/app/lib/supabase';
 
 export const runtime = 'nodejs';
-export const maxDuration = 60; // Allow up to 60s for full agent analysis
+export const maxDuration = 300; // Allow up to 5 min for full agent analysis (Vercel Pro)
 
 // ============================================================
 // Types for Agent Response
@@ -122,7 +122,7 @@ async function callClaude(prompt: string, systemPrompt: string): Promise<string>
   }
 
   const MAX_RETRIES = 3;
-  const INITIAL_DELAY = 15000; // 15s for rate limit cooldown
+  const INITIAL_DELAY = 5000; // 15s for rate limit cooldown
 
   for (let attempt = 0; attempt < MAX_RETRIES; attempt++) {
     const res = await fetch('https://api.anthropic.com/v1/messages', {
