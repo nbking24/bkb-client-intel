@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, Suspense } from 'react';
 import { useSearchParams, useRouter } from 'next/navigation';
 import Link from 'next/link';
 import {
@@ -86,7 +86,7 @@ function StepIndicator({ current, steps }: { current: number; steps: string[] })
               style={{
                 background: done ? '#C9A84C' : active ? 'rgba(201,168,76,0.2)' : '#1a1a1a',
                 color: done ? '#0d0d0d' : active ? '#C9A84C' : '#8a8078',
-                border: `1px solid ${done || active ? '#C9A84C' : 'rgba(205,162,116,0.15)'}`,
+                border: `1px solid ${done || active ? '#C9A84C' : 'rgba(205,162,116,0.15)'}`;
               }}
             >
               {done ? <Check size={12} /> : i + 1}
@@ -111,6 +111,14 @@ function StepIndicator({ current, steps }: { current: number; steps: string[] })
 // Main Setup Wizard Page
 // ============================================================
 export default function ScheduleSetupPage() {
+  return (
+    <Suspense fallback={<div className="flex items-center justify-center py-20"><Loader2 size={24} className="animate-spin" style={{ color: '#C9A84C' }} /></div>}>
+      <ScheduleSetupContent />
+    </Suspense>
+  );
+}
+
+function ScheduleSetupContent() {
   const searchParams = useSearchParams();
   const router = useRouter();
   const preselectedJobId = searchParams.get('jobId') || '';
@@ -370,7 +378,7 @@ export default function ScheduleSetupPage() {
             </h3>
             <p className="text-xs mb-4" style={{ color: '#8a8078' }}>
               Answer these questions to customize the schedule template for this project.
-              Toggle items that apply — excluded items won&apos;t be added.
+              Toggle items that apply — excluded items won't be added.
             </p>
 
             <div className="space-y-3">
