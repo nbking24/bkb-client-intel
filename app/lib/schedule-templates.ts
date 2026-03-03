@@ -25,11 +25,7 @@ export const BKB_STANDARD_TEMPLATE: PhaseTemplate[] = [
     name: 'Admin Tasks',
     description: 'Internal project setup, billing, insurance, ongoing admin items',
     tasks: [
-      { name: 'Create project folder / file structure', defaultDurationDays: 1 },
-      { name: 'Set up billing account', defaultDurationDays: 1 },
-      { name: 'Verify insurance / contracts on file', defaultDurationDays: 2 },
       { name: 'Add project contacts & team assignments', defaultDurationDays: 1 },
-      { name: 'Internal kickoff notes', defaultDurationDays: 1 },
     ],
   },
   {
