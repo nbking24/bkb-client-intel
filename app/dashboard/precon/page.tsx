@@ -18,6 +18,8 @@ import {
   Users,
   BarChart3,
   Wrench,
+  EyeOff,
+  Check,
 } from 'lucide-react';
 
 // ============================================================
@@ -175,7 +177,15 @@ function TopPriorities({ priorities }: { priorities: string[] }) {
 // ============================================================
 // Project Card
 // ============================================================
-function ProjectCard({ project }: { project: AgentProject }) {
+function ProjectCard({
+  project,
+  onDismissRec,
+  onCompleteRec,
+}: {
+  project: AgentProject;
+  onDismissRec: (jobId: string, rec: AgentRecommendation) => void;
+  onCompleteRec: (jobId: string, rec: AgentRecommendation) => void;
+}) {
   const [expanded, setExpanded] = useState(false);
   const config = STATUS_CONFIG[project.status] || STATUS_CONFIG.stalled;
   const StatusIcon = config.icon;
@@ -313,6 +323,41 @@ function ProjectCard({ project }: { project: AgentProject }) {
                       <p className="text-xs" style={{ color: '#8a8078' }}>
                         {rec.description}
                       </p>
+                      {/* Ignore / Done buttons */}
+                      <div className="flex items-center gap-2 mt-2 pt-1.5" style={{ borderTop: '1px solid rgba(205,162,116,0.06)' }}>
+                        <button
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            onCompleteRec(project.jobId, rec);
+                          }}
+                          className="flex items-center gap-1 text-[10px] px-2 py-1 rounded font-medium hover:opacity-80 transition-opacity"
+                          style={{
+                            background: 'rgba(34,197,94,0.1)',
+                            color: '#22c55e',
+                            border: '1px solid rgba(34,197,94,0.2)',
+                          }}
+                          title="Mark as done — agent will remember this was completed"
+                        >
+                          <Check size={10} />
+                          Done
+                        </button>
+                        <button
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            onDismissRec(project.jobId, rec);
+                          }}
+                          className="flex items-center gap-1 text-[10px] px-2 py-1 rounded font-medium hover:opacity-80 transition-opacity"
+                          style={{
+                            background: 'rgba(138,128,120,0.1)',
+                            color: '#8a8078',
+                            border: '1px solid rgba(138,128,120,0.2)',
+                          }}
+                          title="Ignore — hide this recommendation"
+                        >
+                          <EyeOff size={10} />
+                          Ignore
+                        </button>
+                      </div>
                     </div>
                   );
                 })}
@@ -335,6 +380,7 @@ export default function PreConDashboard() {
   const [error, setError] = useState('');
   const [inDesignOpen, setInDesignOpen] = useState(true);
   const [readyOpen, setReadyOpen] = useState(true);
+  const [toast, setToast] = useState<string | null>(null);
 
   // Load cached report on mount (instant)
   async function loadCachedReport() {
@@ -370,6 +416,96 @@ export default function PreConDashboard() {
     setRefreshing(true);
     await runFreshAnalysis();
     setRefreshing(false);
+  }
+
+  // Show a toast message briefly
+  function showToast(msg: string) {
+    setToast(msg);
+    setTimeout(() => setToast(null), 3000);
+  }
+
+  // Dismiss (Ignore) a recommendation
+  async function handleDismissRec(jobId: string, rec: AgentRecommendation) {
+    try {
+      const res = await fetch('/api/agent/design-manager', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          action: 'dismissRecommendation',
+          jobId,
+          recAction: rec.action,
+          recActionType: rec.actionType,
+          recDescription: rec.description,
+        }),
+      });
+      const json = await res.json();
+      if (json.success) {
+        // Remove the recommendation from local state immediately
+        setReport((prev) => {
+          if (!prev) return prev;
+          return {
+            ...prev,
+            projects: prev.projects.map((p) =>
+              p.jobId === jobId
+                ? {
+                    ...p,
+                    recommendations: p.recommendations.filter(
+                      (r) => !(r.action === rec.action && r.actionType === rec.actionType)
+                    ),
+                  }
+                : p
+            ),
+          };
+        });
+        showToast(`Ignored: "${rec.action}"`);
+      } else {
+        showToast(`Failed to ignore: ${json.message || json.error}`);
+      }
+    } catch (err: any) {
+      showToast(`Error: ${err.message}`);
+    }
+  }
+
+  // Complete (Done) a recommendation
+  async function handleCompleteRec(jobId: string, rec: AgentRecommendation) {
+    try {
+      const res = await fetch('/api/agent/design-manager', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          action: 'completeRecommendation',
+          jobId,
+          recAction: rec.action,
+          recActionType: rec.actionType,
+          recDescription: rec.description,
+        }),
+      });
+      const json = await res.json();
+      if (json.success) {
+        // Remove the recommendation from local state immediately
+        setReport((prev) => {
+          if (!prev) return prev;
+          return {
+            ...prev,
+            projects: prev.projects.map((p) =>
+              p.jobId === jobId
+                ? {
+                    ...p,
+                    recommendations: p.recommendations.filter(
+                      (r) => !(r.action === rec.action && r.actionType === rec.actionType)
+                    ),
+                  }
+                : p
+            ),
+          };
+        });
+        showToast(`Completed: "${rec.action}"`);
+      } else {
+        showToast(`Failed to complete: ${json.message || json.error}`);
+      }
+    } catch (err: any) {
+      showToast(`Error: ${err.message}`);
+    }
   }
 
   // Group projects by category (In-Design vs Ready), already A-Z sorted from API
@@ -478,7 +614,12 @@ export default function PreConDashboard() {
               {inDesignOpen && (
                 <div className="space-y-2">
                   {inDesignProjects.map((project) => (
-                    <ProjectCard key={project.jobId} project={project} />
+                    <ProjectCard
+                      key={project.jobId}
+                      project={project}
+                      onDismissRec={handleDismissRec}
+                      onCompleteRec={handleCompleteRec}
+                    />
                   ))}
                   {inDesignProjects.length === 0 && (
                     <p className="text-xs py-2" style={{ color: '#8a8078' }}>No projects in design phase</p>
@@ -501,7 +642,12 @@ export default function PreConDashboard() {
               {readyOpen && (
                 <div className="space-y-2">
                   {readyProjects.map((project) => (
-                    <ProjectCard key={project.jobId} project={project} />
+                    <ProjectCard
+                      key={project.jobId}
+                      project={project}
+                      onDismissRec={handleDismissRec}
+                      onCompleteRec={handleCompleteRec}
+                    />
                   ))}
                   {readyProjects.length === 0 && (
                     <p className="text-xs py-2" style={{ color: '#8a8078' }}>No projects ready</p>
@@ -526,6 +672,21 @@ export default function PreConDashboard() {
           <span className="text-sm" style={{ color: '#C9A84C' }}>
             Agent is analyzing projects... this may take 30-60 seconds
           </span>
+        </div>
+      )}
+
+      {/* Toast notification */}
+      {toast && (
+        <div
+          className="fixed bottom-4 left-1/2 -translate-x-1/2 rounded-lg px-4 py-2.5 shadow-lg flex items-center gap-2 animate-in fade-in slide-in-from-bottom-2"
+          style={{
+            background: '#2a2a2a',
+            border: '1px solid rgba(201,168,76,0.3)',
+            zIndex: 60,
+          }}
+        >
+          <CheckCircle2 size={14} style={{ color: '#22c55e' }} />
+          <span className="text-sm" style={{ color: '#d4ccc4' }}>{toast}</span>
         </div>
       )}
     </div>
