@@ -86,7 +86,7 @@ function StepIndicator({ current, steps }: { current: number; steps: string[] })
               style={{
                 background: done ? '#C9A84C' : active ? 'rgba(201,168,76,0.2)' : '#1a1a1a',
                 color: done ? '#0d0d0d' : active ? '#C9A84C' : '#8a8078',
-                border: `1px solid ${done || active ? '#C9A84C' : 'rgba(205,162,116,0.15)'}`;
+                border: `1px solid ${done || active ? '#C9A84C' : 'rgba(205,162,116,0.15)'}`,
               }}
             >
               {done ? <Check size={12} /> : i + 1}
