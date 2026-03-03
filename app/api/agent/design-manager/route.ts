@@ -141,18 +141,44 @@ async function getDismissals(): Promise<DismissalRecord[]> {
   }
 }
 
-function buildDismissalSet(dismissals: DismissalRecord[]): Set<string> {
-  return new Set(
-    dismissals.map((d) => `${d.job_id}|${d.rec_action}|${d.rec_action_type}`)
-  );
+/** Normalize a recommendation action string for fuzzy matching */
+function normalizeAction(action: string): string {
+  return action.toLowerCase().replace(/[^a-z0-9]/g, '');
 }
 
 function isRecDismissed(
-  dismissalSet: Set<string>,
+  dismissals: DismissalRecord[],
   jobId: string,
   rec: AgentRecommendation
 ): boolean {
-  return dismissalSet.has(`${jobId}|${rec.action}|${rec.actionType}`);
+  const jobDismissals = dismissals.filter((d) => d.job_id === jobId);
+  if (jobDismissals.length === 0) return false;
+
+  // Exact match first: jobId + action + actionType
+  const exactMatch = jobDismissals.some(
+    (d) => d.rec_action === rec.action && d.rec_action_type === rec.actionType
+  );
+  if (exactMatch) return true;
+
+  // Fuzzy match: same actionType + normalized action contains similar words
+  // This handles Claude rewording the action between runs
+  const normalizedRecAction = normalizeAction(rec.action);
+  return jobDismissals.some((d) => {
+    if (d.rec_action_type !== rec.actionType) return false;
+    const normalizedDismissed = normalizeAction(d.rec_action);
+    // Check if normalized strings are similar (one contains the other or >60% overlap)
+    if (normalizedRecAction.includes(normalizedDismissed) || normalizedDismissed.includes(normalizedRecAction)) {
+      return true;
+    }
+    // Also check if the description matches
+    if (d.rec_description) {
+      const normalizedDesc = normalizeAction(d.rec_description);
+      if (normalizedRecAction.includes(normalizedDesc) || normalizedDesc.includes(normalizedRecAction)) {
+        return true;
+      }
+    }
+    return false;
+  });
 }
 
 function filterDismissedRecs(
@@ -160,13 +186,12 @@ function filterDismissedRecs(
   dismissals: DismissalRecord[]
 ): AgentReport {
   if (dismissals.length === 0) return report;
-  const dismissalSet = buildDismissalSet(dismissals);
   return {
     ...report,
     projects: report.projects.map((project) => ({
       ...project,
       recommendations: project.recommendations.filter(
-        (rec) => !isRecDismissed(dismissalSet, project.jobId, rec)
+        (rec) => !isRecDismissed(dismissals, project.jobId, rec)
       ),
     })),
   };
@@ -505,6 +530,19 @@ export async function GET(req: NextRequest) {
         topPriorities: [],
       };
     }
+
+    // Step 4b: Override Claude's alerts with deterministic raw-data alerts
+    // Claude can hallucinate alert data (wrong overdue counts, etc.)
+    // The raw data from assessProjectHealth is always accurate
+    const rawAlertMap = new Map<string, string[]>();
+    for (const p of context.projects) {
+      rawAlertMap.set(p.schedule.jobId, p.alerts);
+    }
+    report.projects = report.projects.map((p) => ({
+      ...p,
+      alerts: rawAlertMap.get(p.jobId) || p.alerts,
+    }));
+    report.alertCount = report.projects.reduce((sum, p) => sum + p.alerts.length, 0);
 
     // Step 5: Cache the FULL report (before filtering dismissals)
     await saveCachedReport(report);
