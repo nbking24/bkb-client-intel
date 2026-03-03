@@ -34,6 +34,7 @@ interface AgentProject {
   jobName: string;
   jobNumber: string;
   clientName: string;
+  category?: 'In-Design' | 'Ready';
   status: 'on_track' | 'at_risk' | 'stalled' | 'blocked' | 'complete';
   currentPhase: string | null;
   nextStep: string;
@@ -366,12 +367,9 @@ export default function PreConDashboard() {
     setRefreshing(false);
   }
 
-  const statusOrder: Record<string, number> = { blocked: 0, stalled: 1, at_risk: 2, on_track: 3, complete: 4 };
-  const sortedProjects = report?.projects
-    ? [...report.projects].sort(
-        (a, b) => (statusOrder[a.status] ?? 5) - (statusOrder[b.status] ?? 5)
-      )
-    : [];
+  // Group projects by category (In-Design vs Ready), already A-Z sorted from API
+  const inDesignProjects = report?.projects?.filter(p => p.category !== 'Ready') || [];
+  const readyProjects = report?.projects?.filter(p => p.category === 'Ready') || [];
 
   return (
     <div className="space-y-4">
@@ -437,14 +435,37 @@ export default function PreConDashboard() {
             </p>
           </div>
           <TopPriorities priorities={report.topPriorities} />
-          <div>
-            <h2 className="text-sm font-semibold mb-3" style={{ color: '#8a8078' }}>
-              Projects ({sortedProjects.length})
-            </h2>
-            <div className="space-y-2">
-              {sortedProjects.map((project) => (
-                <ProjectCard key={project.jobId} project={project} />
-              ))}
+          <div className="space-y-6">
+            {/* In-Design Projects */}
+            <div>
+              <h2 className="text-sm font-semibold mb-3 flex items-center gap-2" style={{ color: '#C9A84C' }}>
+                <Clock size={14} />
+                In-Design ({inDesignProjects.length})
+              </h2>
+              <div className="space-y-2">
+                {inDesignProjects.map((project) => (
+                  <ProjectCard key={project.jobId} project={project} />
+                ))}
+                {inDesignProjects.length === 0 && (
+                  <p className="text-xs py-2" style={{ color: '#8a8078' }}>No projects in design phase</p>
+                )}
+              </div>
+            </div>
+
+            {/* Ready Projects */}
+            <div>
+              <h2 className="text-sm font-semibold mb-3 flex items-center gap-2" style={{ color: '#22c55e' }}>
+                <CheckCircle2 size={14} />
+                Ready ({readyProjects.length})
+              </h2>
+              <div className="space-y-2">
+                {readyProjects.map((project) => (
+                  <ProjectCard key={project.jobId} project={project} />
+                ))}
+                {readyProjects.length === 0 && (
+                  <p className="text-xs py-2" style={{ color: '#8a8078' }}>No projects ready</p>
+                )}
+              </div>
             </div>
           </div>
         </div>
