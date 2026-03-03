@@ -4,10 +4,10 @@
 //
 // PAVE API patterns (verified against live API):
 // - Org-level collections are PLURAL: jobs, tasks, documents, memberships, costCodes
-// - Single entity by ID is SINGULAR: job, task, document
+// - Single entity by ID is SINGULAR: ob, task, document
 // - Sub-collections on entities are PLURAL: job.tasks, job.documents, job.files
 // - Org-level where: flat array ["field", "op", "value"]
-// - Org-level sortBy: not supported on all collections (omit if errors)
+// - Org-level sortBy: not supported on all colections (omit if errors)
 // - Task assignees: "assignedMemberships" (not "assignees")
 // - Job customer: accessed via location.account (not direct "account")
 // - Can't filter tasks by assignedMemberships at org level — fetch all, filter client-side
@@ -78,54 +78,74 @@ export interface JTJob {
   statusCategory?: StatusCategoryKey | null;  // Derived category for dashboard grouping
 }
 
-export async function getActiveJobs(limit = 50): Promise<JTJob[]> {
-  const result = await orgQuery('jobs', {
-    $: {
-      size: limit,
-      where: ['closedOn', '=', null],
-    },
-    nodes: {
-      id: {},
-      name: {},
-      number: {},
-      status: {},
-      createdAt: {},
-      closedOn: {},
-      location: {
+export async function getActiveJobs(totalLimit = 100): Promise<JTJob[]> {
+  // Paginate in batches of 25 to avoid PAVE 413 response size limits
+  const PAGE_SIZE = 25;
+  const allJobs: JTJob[] = [];
+  let offset = 0;
+
+  while (allJobs.length < totalLimit) {
+    const batchSize = Math.min(PAGE_SIZE, totalLimit - allJobs.length);
+    const result = await orgQuery('jobs', {
+      $: {
+        size: batchSize,
+        offset,
+        where: ['closedOn', '=', null],
+      },
+      nodes: {
         id: {},
         name: {},
-        account: { id: {}, name: {} },
-      },
-      customFieldValues: {
-        nodes: {
-          value: {},
-          customField: { name: {} },
+        number: {},
+        status: {},
+        createdAt: {},
+        closedOn: {},
+        location: {
+          id: {},
+          name: {},
+          account: { id: {}, name: {} },
+        },
+        customFieldValues: {
+          nodes: {
+            value: {},
+            customField: { name: {} },
+          },
         },
       },
-    },
-  });
-  const jobs = result.nodes || [];
-  return jobs.map((j: any) => {
-    // Extract the custom "Status" field value
-    const statusField = (j.customFieldValues?.nodes || []).find(
-      (cfv: any) => cfv.customField?.name === 'Status'
-    );
-    const customStatus = statusField?.value || null;
-    return {
-      id: j.id,
-      name: j.name,
-      number: j.number,
-      status: j.status,
-      createdAt: j.createdAt,
-      closedOn: j.closedOn,
-      clientName: j.location?.account?.name || '',
-      locationName: j.location?.name || '',
-      customStatus,
-      statusCategory: getStatusCategory(customStatus),
-    };
-  });
-}
+    });
 
+    const jobs = result.nodes || [];
+    if (jobs.length === 0) break;
+
+    const mapped = jobs.map((j: any) => {
+      // Extract the custom "Status" field value
+      const statusField = (j.customFieldValues?.nodes || []).find(
+        (cfv: any) => cfv.customField?.name === 'Status'
+      );
+      const customStatus = statusField?.value || null;
+      return {
+        id: j.id,
+        name: j.name,
+        number: j.number,
+        status: j.status,
+        createdAt: j.createdAt,
+        closedOn: j.closedOn,
+        clientName: j.location?.account?.name || '',
+        locationName: j.location?.name || '',
+        customStatus,
+        statusCategory: getStatusCategory(customStatus),
+      };
+    });
+
+    allJobs.push(...mapped);
+
+    // If we got fewer results than requested, we've reached the end
+    if (jobs.length < batchSize) break;
+    offset += jobs.length;
+  }
+
+  console.log(`getActiveJobs: fetched ${allJobs.length} jobs in ${Math.ceil(offset / PAGE_SIZE) + 1} pages`);
+  return allJobs;
+}
 export async function getJob(jobId: string) {
   const data = await pave({
     job: {
