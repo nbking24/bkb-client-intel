@@ -290,3 +290,72 @@ export function getIncludedTasksByPhase(
       tasks: phase.tasks.filter((t) => t.included).map(({ included, excludeReason, ...task }) => task),
     }));
 }
+
+// ============================================================
+// 6. Multi-Scope Helpers — union questions/tasks across scopes
+// ============================================================
+
+export function getQuestionsForScopes(scopes: ProjectScope[]): SurveyQuestion[] {
+  const seen = new Set<string>();
+  const result: SurveyQuestion[] = [];
+  for (const scope of scopes) {
+    for (const q of getQuestionsForScope(scope)) {
+      if (!seen.has(q.id)) {
+        seen.add(q.id);
+        result.push(q);
+      }
+    }
+  }
+  return result;
+}
+
+export function getDefaultAnswersForScopes(scopes: ProjectScope[]): SurveyAnswers {
+  const merged: SurveyAnswers = {};
+  for (const scope of scopes) {
+    const defaults = getDefaultAnswers(scope);
+    for (const [key, val] of Object.entries(defaults)) {
+      if (merged[key] === undefined || val === true) {
+        merged[key] = val;
+      }
+    }
+  }
+  return merged;
+}
+
+export function getIncludedTasksByPhaseMulti(
+  scopes: ProjectScope[],
+  answers: SurveyAnswers
+): { phaseNumber: number; name: string; description: string; tasks: TaskTemplate[] }[] {
+  const phaseMap = new Map<number, { name: string; description: string; taskNames: Set<string>; tasks: TaskTemplate[] }>();
+
+  for (const scope of scopes) {
+    const phases = getIncludedTasksByPhase(scope, answers);
+    for (const phase of phases) {
+      if (!phaseMap.has(phase.phaseNumber)) {
+        phaseMap.set(phase.phaseNumber, {
+          name: phase.name,
+          description: phase.description,
+          taskNames: new Set(),
+          tasks: [],
+        });
+      }
+      const entry = phaseMap.get(phase.phaseNumber)!;
+      for (const task of phase.tasks) {
+        const key = task.name.toLowerCase().trim();
+        if (!entry.taskNames.has(key)) {
+          entry.taskNames.add(key);
+          entry.tasks.push(task);
+        }
+      }
+    }
+  }
+
+  return Array.from(phaseMap.entries())
+    .sort(([a], [b]) => a - b)
+    .map(([phaseNumber, data]) => ({
+      phaseNumber,
+      name: data.name,
+      description: data.description,
+      tasks: data.tasks,
+    }));
+}
