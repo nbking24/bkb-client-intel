@@ -120,7 +120,7 @@ export default function OrphanTaskPanel() {
     ? audit.totalOrphans + audit.totalMisplaced - dismissed.size - reassigned.size
     : 0;
 
-  const activeJobs = audit?.jobs.filter(j => {
+  const activeJobs = (audit?.jobs || []).filter(j => {
     const tasks = [...j.orphans, ...j.misplaced];
     const activeTasks = tasks.filter(
       t => !dismissed.has(t.taskId) && !reassigned.has(t.taskId)

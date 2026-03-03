@@ -105,9 +105,9 @@ function formatTimestamp(dateStr: string): string {
 // Summary Cards
 // ============================================================
 function SummaryCards({ report }: { report: AgentReport }) {
-  const onTrack = report.projects.filter(p => p.status === 'on_track').length;
-  const atRisk = report.projects.filter(p => p.status === 'at_risk').length;
-  const stalled = report.projects.filter(p => p.status === 'stalled' || p.status === 'blocked').length;
+  const onTrack = (report.projects || []).filter(p => p.status === 'on_track').length;
+  const atRisk = (report.projects || []).filter(p => p.status === 'at_risk').length;
+  const stalled = (report.projects || []).filter(p => p.status === 'stalled' || p.status === 'blocked').length;
 
   const cards = [
     { label: 'Projects', value: report.projectCount, color: '#C9A84C', icon: BarChart3 },
@@ -145,7 +145,7 @@ function SummaryCards({ report }: { report: AgentReport }) {
 // Top Priorities
 // ============================================================
 function TopPriorities({ priorities }: { priorities: string[] }) {
-  if (!priorities.length) return null;
+  if (!priorities || !priorities.length) return null;
   return (
     <div
       className="rounded-lg p-4"
