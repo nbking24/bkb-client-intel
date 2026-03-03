@@ -41,6 +41,7 @@ interface AgentProjectAssessment {
   jobName: string;
   jobNumber: string;
   clientName: string;
+  category: 'In-Design' | 'Ready';
   status: 'on_track' | 'at_risk' | 'stalled' | 'blocked' | 'complete';
   currentPhase: string | null;
   nextStep: string;
@@ -158,6 +159,13 @@ async function callClaude(prompt: string, systemPrompt: string): Promise<string>
 
   throw new Error('Claude API failed after all retries');
 }
+
+// Helper: map JT custom status to dashboard category
+function getProjectCategory(customStatus: string | null): 'In-Design' | 'Ready' {
+  if (customStatus && customStatus.toLowerCase().includes('ready')) return 'Ready';
+  return 'In-Design';
+}
+
 
 // ============================================================
 // Build the Agent System Prompt
@@ -290,7 +298,7 @@ export async function GET(req: NextRequest) {
       // Return raw context without AI analysis — useful for testing data layer
       const rawReport: AgentReport = {
         generatedAt: new Date().toISOString(),
-        summary: 'AI analysis unavailable — ANTHROPIC_API_KEY not configured. Showing raw data.',
+        summary: 'AI analysis unavailable. Showing raw data.',
         projectCount: context.projectCount,
         alertCount: context.alertCount,
         projects: context.projects.map((p) => ({
@@ -298,6 +306,7 @@ export async function GET(req: NextRequest) {
           jobName: p.schedule.jobName,
           jobNumber: p.schedule.jobNumber,
           clientName: p.schedule.clientName,
+          category: getProjectCategory(p.schedule.customStatus),
           status: p.health,
           currentPhase: p.schedule.currentPhase,
           nextStep: 'AI analysis required for recommendations',
@@ -308,7 +317,7 @@ export async function GET(req: NextRequest) {
           totalProgress: p.schedule.totalProgress,
           alerts: p.alerts,
           recommendations: [],
-        })),
+        })).sort((a, b) => (a.jobName || '').localeCompare(b.jobName || '')),
         topPriorities: ['Configure ANTHROPIC_API_KEY in Vercel to enable AI analysis'],
       };
       await saveCachedReport(rawReport);
@@ -329,12 +338,27 @@ export async function GET(req: NextRequest) {
         .trim();
       const parsed = JSON.parse(cleaned);
 
+      // Build customStatus lookup from context
+      const statusMap = new Map<string, string | null>();
+      for (const p of context.projects) {
+        statusMap.set(p.schedule.jobId, p.schedule.customStatus);
+      }
+
+      // Enrich projects with category and sort A-Z by jobName
+      const enrichedProjects = (parsed.projects || []).map((p: any) => ({
+        ...p,
+        category: getProjectCategory(statusMap.get(p.jobId) || null),
+      }));
+      enrichedProjects.sort((a: any, b: any) =>
+        (a.jobName || '').localeCompare(b.jobName || '')
+      );
+
       report = {
         generatedAt: new Date().toISOString(),
         summary: parsed.summary || 'Analysis complete.',
         projectCount: context.projectCount,
         alertCount: context.alertCount,
-        projects: parsed.projects || [],
+        projects: enrichedProjects,
         topPriorities: parsed.topPriorities || [],
       };
     } catch (parseErr) {
@@ -349,6 +373,7 @@ export async function GET(req: NextRequest) {
           jobName: p.schedule.jobName,
           jobNumber: p.schedule.jobNumber,
           clientName: p.schedule.clientName,
+          category: getProjectCategory(p.schedule.customStatus),
           status: p.health,
           currentPhase: p.schedule.currentPhase,
           nextStep: 'See summary for AI analysis',
@@ -359,7 +384,7 @@ export async function GET(req: NextRequest) {
           totalProgress: p.schedule.totalProgress,
           alerts: p.alerts,
           recommendations: [],
-        })),
+        })).sort((a, b) => (a.jobName || '').localeCompare(b.jobName || '')),
         topPriorities: [],
       };
     }
