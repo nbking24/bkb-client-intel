@@ -326,25 +326,32 @@ function assessProjectHealth(
   const alerts: string[] = [];
   let health: ProjectHealthStatus = 'on_track';
 
-  // Check for overdue tasks
+  // Check for overdue tasks — only trigger at_risk if past the grace period
   if (schedule.overdueTasks.length > 0) {
     const count = schedule.overdueTasks.length;
     const worst = schedule.overdueTasks[0];
     alerts.push(
       `${count} overdue task${count > 1 ? 's' : ''} — worst: "${worst.name}" (${Math.abs(worst.daysUntilDue!)}d overdue)`
     );
-    health = 'at_risk';
+
+    // Only downgrade health if any task is overdue beyond the grace period
+    const significantlyOverdue = schedule.overdueTasks.filter(
+      (t) => t.daysUntilDue !== null && Math.abs(t.daysUntilDue) >= AGENT_RULES.overdueGraceDays
+    );
+    if (significantlyOverdue.length > 0) {
+      health = 'at_risk';
+    }
   }
 
-  // Check for urgent upcoming tasks
+  // Check for urgent upcoming tasks — INFORMATIONAL ONLY, does NOT change health
   const urgentTasks = schedule.upcomingTasks.filter(
     (t) => t.daysUntilDue !== null && t.daysUntilDue <= AGENT_RULES.urgentDeadlineDays
   );
   if (urgentTasks.length > 0) {
     alerts.push(
-      `${urgentTasks.length} task${urgentTasks.length > 1 ? 's' : ''} due within ${AGENT_RULES.urgentDeadlineDays} days`
+      `${urgentTasks.length} task${urgentTasks.length > 1 ? 's' : ''} due within ${AGENT_RULES.urgentDeadlineDays} day${AGENT_RULES.urgentDeadlineDays > 1 ? 's' : ''}`
     );
-    if (health === 'on_track') health = 'at_risk';
+    // NOTE: No longer sets health to at_risk — upcoming deadlines are normal workflow
   }
 
   // NEW: Check for undated tasks (tasks without any dates assigned)
@@ -385,8 +392,11 @@ function assessProjectHealth(
     health = 'complete';
   }
 
-  // Escalate to stalled if both overdue AND no contact
-  if (schedule.overdueTasks.length > 0 && contact.noContactAlert) {
+  // Escalate to stalled if both significantly overdue AND no contact
+  const hasSignificantOverdue = schedule.overdueTasks.some(
+    (t) => t.daysUntilDue !== null && Math.abs(t.daysUntilDue) >= AGENT_RULES.overdueGraceDays
+  );
+  if (hasSignificantOverdue && contact.noContactAlert) {
     health = 'stalled';
   }
 

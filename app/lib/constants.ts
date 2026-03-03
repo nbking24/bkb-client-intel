@@ -145,10 +145,11 @@ export const DESIGN_AGENT_STATUSES = ['5. Design Phase', '10. Ready'] as const;
 
 // Agent rules / thresholds
 export const AGENT_RULES = {
-  maxDaysNoContact: 14,         // Alert if no client contact in 14+ days
-  urgentDeadlineDays: 3,        // Flag tasks due within 3 days as urgent
+  maxDaysNoContact: 21,         // Alert if no client contact in 21+ days
+  urgentDeadlineDays: 1,        // Flag tasks due within 1 day as urgent (informational only — does NOT change health)
   warningDeadlineDays: 7,       // Flag tasks due within 7 days as warning
   stalledDaysThreshold: 10,     // Flag phase as stalled if no progress in 10 days
+  overdueGraceDays: 2,          // Tasks must be 2+ days overdue before triggering at_risk
 } as const;
 
 // Agent project health statuses
