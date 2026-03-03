@@ -108,16 +108,8 @@ function StepIndicator({ current, steps }: { current: number; steps: string[] })
 }
 
 // ============================================================
-// Main Setup Wizard Page
+// Main Setup Wizard Content (inner component)
 // ============================================================
-export default function ScheduleSetupPage() {
-  return (
-    <Suspense fallback={<div className="flex items-center justify-center py-20"><Loader2 size={24} className="animate-spin" style={{ color: '#C9A84C' }} /></div>}>
-      <ScheduleSetupContent />
-    </Suspense>
-  );
-}
-
 function ScheduleSetupContent() {
   const searchParams = useSearchParams();
   const router = useRouter();
@@ -378,7 +370,7 @@ function ScheduleSetupContent() {
             </h3>
             <p className="text-xs mb-4" style={{ color: '#8a8078' }}>
               Answer these questions to customize the schedule template for this project.
-              Toggle items that apply — excluded items won't be added.
+              Toggle items that apply — excluded items won&apos;t be added.
             </p>
 
             <div className="space-y-3">
@@ -684,6 +676,22 @@ function ScheduleSetupContent() {
         </div>
       )}
     </div>
+  );
+}
+
+// ============================================================
+// Default export — wraps content in Suspense for useSearchParams
+// ============================================================
+export default function ScheduleSetupPage() {
+  return (
+    <Suspense fallback={
+      <div className="max-w-3xl mx-auto p-8 text-center">
+        <Loader2 size={24} className="animate-spin mx-auto" style={{ color: '#C9A84C' }} />
+        <p className="text-sm mt-2" style={{ color: '#8a8078' }}>Loading wizard...</p>
+      </div>
+    }>
+      <ScheduleSetupContent />
+    </Suspense>
   );
 }
 
