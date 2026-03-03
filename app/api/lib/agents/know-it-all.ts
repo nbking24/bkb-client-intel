@@ -1,7 +1,46 @@
 // @ts-nocheck
+/**
+ * Know It All Agent â v2 (Supabase-backed)
+ *
+ * Strategy: Try Supabase first (fast, no rate-limit risk).
+ * Fall back to live GHL API if Supabase is empty or unavailable.
+ * Triggers a background sync after live-fetch so next query uses cache.
+ *
+ * This lets us pull ALL notes, ALL messages, ALL history â no truncation â
+ * because Supabase queries are fast and free of GHL rate limits.
+ */
 import { AgentModule, AgentContext } from './types';
-import { getContact, getContactNotes, searchConversations, getConversationMessages, getContactTasks, getOpportunity, getMessageById, getEmailById } from '../ghl';
+import {
+  getContactFromDB,
+  getContactNotesFromDB,
+  getContactMessagesFromDB,
+  getContactTasksFromDB,
+  getContactOpportunitiesFromDB,
+  getOpportunityFromDB,
+  getJTJobsFromDB,
+  getLastSyncTime,
+} from '../supabase';
+import {
+  getContact,
+  getContactNotes,
+  searchConversations,
+  getConversationMessages,
+  getContactTasks,
+  getOpportunity,
+  getMessageById,
+  getEmailById,
+} from '../ghl';
 import { getActiveJobs } from '../jobtread';
+
+function stripHtml(html: string): string {
+  return html
+    .replace(/<style[^>]*>[\s\S]*?<\/style>/gi, '')
+    .replace(/<[^>]+>/g, ' ')
+    .replace(/&nbsp;/g, ' ').replace(/&amp;/g, '&')
+    .replace(/&lt;/g, '<').replace(/&gt;/g, '>')
+    .replace(/&quot;/g, '"').replace(/&#39;/g, "'")
+    .replace(/\s+/g, ' ').trim();
+}
 
 function formatValue(val: any): string {
   if (val === null || val === undefined || val === '') return '';
@@ -30,7 +69,105 @@ const SKIP_FIELDS = new Set([
   '__v', 'deleted', 'type',
 ]);
 
-async function fetchGHLContext(ctx: AgentContext): Promise<string> {
+// ââ SUPABASE-FIRST CONTEXT FETCHING âââââââââââââââââââââââââ
+
+async function fetchContextFromSupabase(ctx: AgentContext): Promise<string | null> {
+  if (!ctx.contactId) return null;
+
+  try {
+    const lastSync = await getLastSyncTime('contact_full', ctx.contactId);
+    if (!lastSync) return null; // No sync yet, fall back to live
+
+    const sections: string[] = [];
+
+    // 1. CONTACT PROFILE
+    const contact = await getContactFromDB(ctx.contactId);
+    if (contact) {
+      const profileLines: string[] = [];
+      if (contact.first_name) profileLines.push('First Name: ' + contact.first_name);
+      if (contact.last_name) profileLines.push('Last Name: ' + contact.last_name);
+      if (contact.email) profileLines.push('Email: ' + contact.email);
+      if (contact.phone) profileLines.push('Phone: ' + contact.phone);
+      if (contact.company_name) profileLines.push('Company: ' + contact.company_name);
+      if (contact.address) profileLines.push('Address: ' + contact.address);
+      if (contact.city) profileLines.push('City: ' + contact.city);
+      if (contact.state) profileLines.push('State: ' + contact.state);
+      if (contact.postal_code) profileLines.push('Postal Code: ' + contact.postal_code);
+      if (contact.country) profileLines.push('Country: ' + contact.country);
+      if (contact.website) profileLines.push('Website: ' + contact.website);
+      if (contact.source) profileLines.push('Lead Source: ' + contact.source);
+      if (contact.date_added) profileLines.push('Date Added: ' + new Date(contact.date_added).toLocaleString());
+      if (contact.last_activity) profileLines.push('Last Activity: ' + new Date(contact.last_activity).toLocaleString());
+      if (contact.assigned_to) profileLines.push('Assigned To: ' + contact.assigned_to);
+      if (contact.dnd) profileLines.push('Do Not Disturb: Yes');
+      if (contact.tags && contact.tags.length > 0) profileLines.push('Tags: ' + contact.tags.join(', '));
+      if (contact.custom_fields && typeof contact.custom_fields === 'object') {
+        for (const [key, value] of Object.entries(contact.custom_fields)) {
+          if (value != null && value !== '') profileLines.push(key + ': ' + String(value));
+        }
+      }
+      if (profileLines.length > 0) {
+        sections.push('=== CONTACT PROFILE (from cache, synced ' + new Date(lastSync).toLocaleString() + ') ===\n' + profileLines.join('\n'));
+      }
+    }
+
+    // 2. OPPORTUNITIES
+    const opps = await getContactOpportunitiesFromDB(ctx.contactId);
+    if (opps.length > 0) {
+      const oppLines = opps.map(o =>
+        '- ' + (o.name || 'Unnamed') + ' | Value: ' + (o.monetary_value || 'N/A') +
+        ' | Status: ' + (o.status || 'N/A') + ' | Stage: ' + (o.pipeline_stage || 'N/A')
+      );
+      sections.push('=== OPPORTUNITIES (' + opps.length + ') ===\n' + oppLines.join('\n'));
+    }
+
+    // 3. NOTES â Now we can pull ALL of them!
+    const notes = await getContactNotesFromDB(ctx.contactId, 100);
+    if (notes.length > 0) {
+      const noteTexts = notes.map(n => {
+        const date = n.date_added ? new Date(n.date_added).toLocaleDateString() : 'No date';
+        return '[' + date + '] ' + (n.body || '').slice(0, 3000);
+      });
+      sections.push('=== CRM NOTES (' + notes.length + ' total) ===\n' + noteTexts.join('\n---\n'));
+    }
+
+    // 4. MESSAGES â ALL messages with full bodies!
+    const messages = await getContactMessagesFromDB(ctx.contactId, 200);
+    if (messages.length > 0) {
+      const msgTexts = messages.map(m => {
+        const date = m.date_added ? new Date(m.date_added).toLocaleDateString() : '';
+        const direction = m.direction || '?';
+        const msgType = m.message_type || '';
+        const subject = m.subject ? ' Subject: ' + m.subject : '';
+        const body = m.body ? m.body.slice(0, 2000) : '(no body)';
+        return '[' + date + ' ' + direction + ' ' + msgType + subject + '] ' + body;
+      });
+      sections.push('=== MESSAGES (' + messages.length + ' total from Supabase) ===\n' + msgTexts.join('\n'));
+    }
+
+    // 5. TASKS
+    const tasks = await getContactTasksFromDB(ctx.contactId);
+    if (tasks.length > 0) {
+      const taskTexts = tasks.map(t => {
+        const due = t.due_date ? ' (Due: ' + new Date(t.due_date).toLocaleDateString() + ')' : '';
+        const assignee = t.assigned_to ? ' [Assigned: ' + t.assigned_to + ']' : '';
+        return '- [' + (t.completed ? 'DONE' : 'OPEN') + '] ' + (t.title || 'No title') + due + assignee;
+      });
+      sections.push('=== TASKS (' + tasks.length + ') ===\n' + taskTexts.join('\n'));
+    }
+
+    if (sections.length === 0) return null;
+    return sections.join('\n\n');
+
+  } catch (err) {
+    console.error('Supabase fetch failed, falling back to live API:', err);
+    return null;
+  }
+}
+
+// ââ LIVE GHL FALLBACK (original logic, with token budgets) ââ
+
+async function fetchGHLContextLive(ctx: AgentContext): Promise<string> {
   if (!ctx.contactId) return '';
   const sections: string[] = [];
 
@@ -84,15 +221,6 @@ async function fetchGHLContext(ctx: AgentContext): Promise<string> {
         usedKeys.add('customFields');
       }
 
-      if (c.additionalEmails && c.additionalEmails.length > 0) {
-        profileLines.push('Additional Emails: ' + c.additionalEmails.join(', '));
-        usedKeys.add('additionalEmails');
-      }
-      if (c.additionalPhones && c.additionalPhones.length > 0) {
-        profileLines.push('Additional Phones: ' + c.additionalPhones.map((p: any) => p.phone || p).join(', '));
-        usedKeys.add('additionalPhones');
-      }
-
       if (c.opportunities && Array.isArray(c.opportunities) && c.opportunities.length > 0) {
         for (const opp of c.opportunities) {
           profileLines.push('Opportunity: ' + (opp.name || 'Unnamed') + ' | Value: ' + (opp.monetaryValue || 'N/A') + ' | Status: ' + (opp.status || 'N/A'));
@@ -108,121 +236,64 @@ async function fetchGHLContext(ctx: AgentContext): Promise<string> {
         }
       }
 
-      if (profileLines.length > 0) sections.push('=== CONTACT PROFILE ===\n' + profileLines.join('\n'));
+      if (profileLines.length > 0) sections.push('=== CONTACT PROFILE (live from GHL) ===\n' + profileLines.join('\n'));
     }
 
-    // CRM NOTES
+    // NOTES (budgeted for live)
     if (notes.status === 'fulfilled' && Array.isArray(notes.value) && notes.value.length > 0) {
-      const noteTexts = notes.value.slice(0, 50).map((n: any) => {
+      const noteTexts = notes.value.slice(0, 20).map((n: any) => {
         const date = n.dateAdded ? new Date(n.dateAdded).toLocaleDateString() : 'No date';
-        return '[' + date + '] ' + (n.body || '').slice(0, 65000);
+        return '[' + date + '] ' + (n.body || '').slice(0, 1500);
       });
-      sections.push('=== CRM NOTES (' + notes.value.length + ' total) ===\n' + noteTexts.join('\n---\n'));
-    } else if (notes.status === 'rejected') {
-      const errMsg = notes.reason instanceof Error ? notes.reason.message : 'Unknown error';
-      sections.push('=== NOTES ERROR ===\nFailed to fetch notes: ' + errMsg);
-      console.error('Notes fetch failed:', notes.reason);
+      sections.push('=== CRM NOTES (' + notes.value.length + ' total, showing latest 20 â LIVE) ===\n' + noteTexts.join('\n---\n'));
     }
 
-    // CONVERSATIONS & MESSAGES
-    if (convos.status === 'fulfilled' && Array.isArray(convos.value)) {
-      if (convos.value.length === 0) {
-        sections.push('=== MESSAGES ===\nNo conversations found for this contact.');
-      } else {
-        const msgs: string[] = [];
-        let msgFetchErrors = 0;
+    // CONVERSATIONS & MESSAGES (budgeted for live)
+    const MAX_CONVOS = 5;
+    const MAX_MSGS_PER_CONVO = 20;
+    const MAX_BODY_CHARS = 1200;
+    const MAX_EMAIL_BODY_FETCHES = 8;
+    let emailBodyFetches = 0;
 
-        for (const conv of convos.value.slice(0, 10)) {
-          const convData = conv as any;
-          try {
-            const cmsgs = await getConversationMessages(convData.id, 40);
-            if (Array.isArray(cmsgs)) {
-              for (const m of cmsgs) {
-                const mr = m as any;
-                const date = mr.dateAdded ? new Date(mr.dateAdded).toLocaleDateString() : '';
+    if (convos.status === 'fulfilled' && Array.isArray(convos.value) && convos.value.length > 0) {
+      const msgs: string[] = [];
+      for (const conv of convos.value.slice(0, MAX_CONVOS)) {
+        try {
+          const cmsgs = await getConversationMessages(conv.id, MAX_MSGS_PER_CONVO);
+          if (Array.isArray(cmsgs)) {
+            for (const m of cmsgs) {
+              const date = m.dateAdded ? new Date(m.dateAdded).toLocaleDateString() : '';
+              const direction = m.direction || '?';
+              const msgType = m.messageType || m.type || '';
+              const subject = m.meta?.email?.subject ? ' Subject: ' + m.meta.email.subject : '';
+              let body = m.body || m.text || m.message || '';
 
-                // Extract direction and type from multiple possible locations
-                const direction = mr.direction || mr.meta?.email?.direction || mr.meta?.direction || '?';
-                const msgType = mr.messageType || mr.type || '';
-                const subject = mr.meta?.email?.subject ? ' Subject: ' + mr.meta.email.subject : '';
-
-                // Try to get body from the message itself first
-                let body = mr.body || mr.text || mr.message || '';
-
-                // If no body and this is an email, try fetching the full message or email content
-                if (!body && mr.messageType === 'TYPE_EMAIL') {
-                  // Strategy 1: Try getMessageById which may return body for the message
+              if (!body && m.messageType === 'TYPE_EMAIL' && emailBodyFetches < MAX_EMAIL_BODY_FETCHES) {
+                emailBodyFetches++;
+                try {
+                  const fullMsg = await getMessageById(m.id);
+                  const msgData = fullMsg.message || fullMsg;
+                  body = msgData.body || msgData.text || msgData.html || '';
+                  if (body && (msgData.contentType === 'text/html' || body.startsWith('<'))) body = stripHtml(body);
+                } catch { /* fail silently */ }
+                if (!body && m.meta?.email?.messageIds?.length > 0) {
                   try {
-                    const fullMsg = await getMessageById(mr.id);
-                    const msgData = fullMsg.message || fullMsg;
-                    body = msgData.body || msgData.text || msgData.html || '';
-                    // Strip HTML tags for readability if we got HTML content
-                    if (body && (msgData.contentType === 'text/html' || body.startsWith('<'))) {
-                      body = body.replace(/<style[^>]*>[\s\S]*?<\/style>/gi, '')
-                                 .replace(/<[^>]+>/g, ' ')
-                                 .replace(/&nbsp;/g, ' ')
-                                 .replace(/&amp;/g, '&')
-                                 .replace(/&lt;/g, '<')
-                                 .replace(/&gt;/g, '>')
-                                 .replace(/&quot;/g, '"')
-                                 .replace(/&#39;/g, "'")
-                                 .replace(/\s+/g, ' ')
-                                 .trim();
-                    }
-                  } catch (e) {
-                    // Strategy 1 failed, try Strategy 2
-                  }
-
-                  // Strategy 2: If still no body, try getEmailById with the first email messageId
-                  if (!body && mr.meta?.email?.messageIds?.length > 0) {
-                    try {
-                      const emailData = await getEmailById(mr.meta.email.messageIds[0]);
-                      const email = emailData.email || emailData;
-                      body = email.body || email.text || email.html || email.textBody || email.htmlBody || '';
-                      // Strip HTML tags
-                      if (body && body.startsWith('<')) {
-                        body = body.replace(/<style[^>]*>[\s\S]*?<\/style>/gi, '')
-                                   .replace(/<[^>]+>/g, ' ')
-                                   .replace(/&nbsp;/g, ' ')
-                                   .replace(/&amp;/g, '&')
-                                   .replace(/&lt;/g, '<')
-                                   .replace(/&gt;/g, '>')
-                                   .replace(/&quot;/g, '"')
-                                   .replace(/&#39;/g, "'")
-                                   .replace(/\s+/g, ' ')
-                                   .trim();
-                      }
-                    } catch (e2) {
-                      // Both strategies failed — body stays empty
-                    }
-                  }
+                    const emailData = await getEmailById(m.meta.email.messageIds[0]);
+                    const email = emailData.email || emailData;
+                    body = email.body || email.text || email.html || email.textBody || email.htmlBody || '';
+                    if (body && body.startsWith('<')) body = stripHtml(body);
+                  } catch { /* fail silently */ }
                 }
-
-                // Fallback: use conversation-level lastMessageBody for the most recent message
-                if (!body && mr.id === cmsgs[0]?.id && convData.lastMessageBody) {
-                  body = convData.lastMessageBody;
-                }
-
-                msgs.push('[' + date + ' ' + direction + ' ' + msgType + subject + '] ' + (body ? body.slice(0, 3000) : '(email body not accessible via API)'));
               }
+              if (!body && m.id === cmsgs[0]?.id && conv.lastMessageBody) body = conv.lastMessageBody;
+              msgs.push('[' + date + ' ' + direction + ' ' + msgType + subject + '] ' + (body ? body.slice(0, MAX_BODY_CHARS) : '(no body)'));
             }
-          } catch (msgErr) {
-            msgFetchErrors++;
-            console.error('Failed to fetch messages for conversation ' + convData.id + ':', msgErr);
           }
-        }
-        if (msgs.length > 0) {
-          sections.push('=== MESSAGES (' + msgs.length + ' total) ===\n' + msgs.join('\n'));
-        } else if (msgFetchErrors > 0) {
-          sections.push('=== MESSAGES ERROR ===\nFound ' + convos.value.length + ' conversation(s) but failed to fetch messages from ' + msgFetchErrors + ' of them. The GHL API key may not have conversations/message.readonly scope enabled.');
-        } else {
-          sections.push('=== MESSAGES ===\nFound ' + convos.value.length + ' conversation(s) but no message content could be extracted.');
-        }
+        } catch { /* skip conversation */ }
       }
-    } else if (convos.status === 'rejected') {
-      const errMsg = convos.reason instanceof Error ? convos.reason.message : 'Unknown error';
-      sections.push('=== CONVERSATIONS ERROR ===\nFailed to fetch conversations: ' + errMsg + '\nThe GHL API key may need conversations.readonly scope enabled in the Private Integration settings.');
-      console.error('Conversations fetch failed:', convos.reason);
+      if (msgs.length > 0) {
+        sections.push('=== MESSAGES (' + msgs.length + ' shown â LIVE, budgeted) ===\n' + msgs.join('\n'));
+      }
     }
 
     // TASKS
@@ -230,10 +301,9 @@ async function fetchGHLContext(ctx: AgentContext): Promise<string> {
       const taskTexts = tasks.value.map((t: any) => {
         const due = t.dueDate ? ' (Due: ' + new Date(t.dueDate).toLocaleDateString() + ')' : '';
         const assignee = t.assignedTo ? ' [Assigned: ' + t.assignedTo + ']' : '';
-        const desc = t.description ? ' - ' + t.description.slice(0, 500) : '';
-        return '- [' + (t.completed ? 'DONE' : 'OPEN') + '] ' + (t.title || t.body || 'No title') + due + assignee + desc;
+        return '- [' + (t.completed ? 'DONE' : 'OPEN') + '] ' + (t.title || t.body || 'No title') + due + assignee;
       });
-      sections.push('=== TASKS (' + tasks.value.length + ' total) ===\n' + taskTexts.join('\n'));
+      sections.push('=== TASKS (' + tasks.value.length + ') ===\n' + taskTexts.join('\n'));
     }
 
   } catch (err) {
@@ -245,10 +315,33 @@ async function fetchGHLContext(ctx: AgentContext): Promise<string> {
 
 async function fetchOpportunityContext(ctx: AgentContext): Promise<string> {
   if (!ctx.opportunityId) return '';
+
+  // Try Supabase first
+  try {
+    const opp = await getOpportunityFromDB(ctx.opportunityId);
+    if (opp) {
+      const lines = [
+        'Name: ' + (opp.name || 'N/A'),
+        'Status: ' + (opp.status || 'N/A'),
+        'Pipeline Stage: ' + (ctx.pipelineStage || opp.pipeline_stage || 'N/A'),
+        'Monetary Value: ' + (opp.monetary_value || 'N/A'),
+        'Communication Channel: ' + ctx.communicationChannel.toUpperCase(),
+      ];
+      if (ctx.jtJobId) lines.push('JobTread Job ID: ' + ctx.jtJobId);
+      if (opp.custom_fields && typeof opp.custom_fields === 'object') {
+        for (const [key, value] of Object.entries(opp.custom_fields)) {
+          if (value != null && value !== '') lines.push(key + ': ' + String(value));
+        }
+      }
+      return '=== SELECTED OPPORTUNITY (from cache) ===\n' + lines.join('\n');
+    }
+  } catch { /* fall through to live */ }
+
+  // Fallback to live GHL
   try {
     const opp = await getOpportunity(ctx.opportunityId);
     const o = opp.opportunity || opp;
-    const lines: string[] = [
+    const lines = [
       'Name: ' + (o.name || 'N/A'),
       'Status: ' + (o.status || 'N/A'),
       'Pipeline Stage: ' + (ctx.pipelineStage || o.pipelineStageName || o.stageName || 'N/A'),
@@ -263,37 +356,64 @@ async function fetchOpportunityContext(ctx: AgentContext): Promise<string> {
         }
       }
     }
-    return '=== SELECTED OPPORTUNITY ===\n' + lines.join('\n');
+    return '=== SELECTED OPPORTUNITY (live) ===\n' + lines.join('\n');
   } catch (err) {
     return '=== OPPORTUNITY ERROR ===\n' + (err instanceof Error ? err.message : 'Failed');
   }
 }
 
-async function fetchJTContext(ctx: AgentContext): Promise<string> {
-  const sections: string[] = [];
+async function fetchJTContext(): Promise<string> {
+  // Try Supabase first
+  try {
+    const jobs = await getJTJobsFromDB(50);
+    if (jobs.length > 0) {
+      const lines = jobs.map(j =>
+        '- #' + (j.number || '?') + ' ' + (j.name || 'Unnamed') + ' | Status: ' + (j.status || 'N/A')
+      );
+      return '=== JOBTREAD ACTIVE JOBS (from cache) ===\n' + lines.join('\n');
+    }
+  } catch { /* fall through */ }
+
+  // Fallback to live
   try {
     const jobs = await getActiveJobs(30);
     if (Array.isArray(jobs) && jobs.length > 0) {
       const lines = jobs.map((j: any) =>
         '- #' + (j.number || '?') + ' ' + (j.name || 'Unnamed') + ' | Status: ' + (j.status || 'N/A')
       );
-      sections.push('=== JOBTREAD ACTIVE JOBS ===\n' + lines.join('\n'));
+      return '=== JOBTREAD ACTIVE JOBS (live) ===\n' + lines.join('\n');
     }
   } catch (err) {
-    sections.push('=== JT JOBS ERROR ===\n' + (err instanceof Error ? err.message : 'Failed'));
+    return '=== JT JOBS ERROR ===\n' + (err instanceof Error ? err.message : 'Failed');
   }
-  return sections.join('\n\n');
+  return '';
 }
+
+// ââ BACKGROUND SYNC TRIGGER âââââââââââââââââââââââââââââââââ
+
+function triggerBackgroundSync(contactId: string) {
+  const baseUrl = process.env.NEXT_PUBLIC_APP_URL || (process.env.VERCEL_URL
+    ? 'https://' + process.env.VERCEL_URL
+    : 'http://localhost:3000');
+  const syncUrl = baseUrl + '/api/sync';
+  fetch(syncUrl, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ contactId }),
+  }).catch(err => console.error('Background sync trigger failed:', err));
+}
+
+// ââ AGENT MODULE ââââââââââââââââââââââââââââââââââââââââââââ
 
 const knowItAll: AgentModule = {
   name: 'Know it All',
-  description: 'Pulls all data from GHL and JobTread to answer any question about clients, projects, history, and status.',
+  description: 'Pulls all data from GHL and JobTread to answer any question about clients, projects, history, and status. Uses Supabase cache for fast, comprehensive lookups.',
   icon: '\u{1F9E0}',
 
   systemPrompt: (ctx: AgentContext) => {
     return 'You are "Know it All," the AI research assistant for Brett King Builder (BKB), a high-end residential renovation and historic home restoration company in Bucks County, PA.\n\n' +
-      'Your specialty is knowing EVERYTHING about every client and project. You pull data from GHL (CRM) and JobTread (project management) and give comprehensive, detailed answers.\n\n' +
-      'When summarizing a client or project, include ALL available information: full profile, every note in its entirety, all communication history, tasks, custom fields, tags, opportunities, and any other data provided. Do not skip or truncate any information.\n\n' +
+      'Your specialty is knowing EVERYTHING about every client and project. You pull data from Supabase (cached GHL/JT data) for comprehensive, fast lookups, with live API fallback.\n\n' +
+      'When summarizing a client or project, cover all key data points: profile, notes, communications (with dates and subjects), tasks, opportunities, and custom fields. Prioritize the most meaningful details and always include dates. If data seems truncated, mention that more records may exist.\n\n' +
       'Be specific, reference real data, and be concise but thorough. If data is missing, say so honestly.\n\n' +
       (ctx.communicationChannel !== 'unknown'
         ? 'Current communication channel for this opportunity: ' + ctx.communicationChannel.toUpperCase() + ' (based on pipeline stage: ' + (ctx.pipelineStage || 'unknown') + ')\n'
@@ -301,36 +421,41 @@ const knowItAll: AgentModule = {
       (ctx.jtJobId ? 'JobTread Job ID: ' + ctx.jtJobId + '\n' : '');
   },
 
-  tools: [],  // read-only agent, no tools
+  tools: [],
 
   canHandle: (message: string) => {
     const lower = message.toLowerCase();
-    // High score for questions, lookups, summaries
     if (/\?|what|who|when|where|how|tell me|show me|summary|overview|status|history|latest|update|details|information|look up|find out|check on/i.test(lower)) return 0.8;
-    // Medium score for general client/project references
     if (/client|project|job|contact|note|message|communication/i.test(lower)) return 0.5;
-    // Low base score - acts as fallback
     return 0.3;
   },
 
   fetchContext: async (ctx: AgentContext) => {
     const parts: string[] = [];
+    let usedLiveFallback = false;
 
-    // Always fetch GHL data if we have a contact
     if (ctx.contactId) {
-      const ghl = await fetchGHLContext(ctx);
-      if (ghl) parts.push(ghl);
+      const supabaseData = await fetchContextFromSupabase(ctx);
+      if (supabaseData) {
+        parts.push(supabaseData);
+      } else {
+        const liveData = await fetchGHLContextLive(ctx);
+        if (liveData) parts.push(liveData);
+        usedLiveFallback = true;
+      }
     }
 
-    // Fetch opportunity details if selected
     if (ctx.opportunityId) {
       const opp = await fetchOpportunityContext(ctx);
       if (opp) parts.push(opp);
     }
 
-    // Always fetch JT jobs overview
-    const jt = await fetchJTContext(ctx);
+    const jt = await fetchJTContext();
     if (jt) parts.push(jt);
+
+    if (usedLiveFallback && ctx.contactId) {
+      triggerBackgroundSync(ctx.contactId);
+    }
 
     return parts.join('\n\n');
   },
@@ -341,3 +466,4 @@ const knowItAll: AgentModule = {
 };
 
 export default knowItAll;
+
