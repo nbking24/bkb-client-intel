@@ -961,7 +961,7 @@ export default function ProjectScheduleDetail() {
 
   async function handleIgnoreAudit(taskId: string, taskName: string) {
     // Optimistic local update
-    setIgnoredTaskIds((prev) => new Set([...prev, taskId]));
+    setIgnoredTaskIds((prev) => { const next = new Set(Array.from(prev)); next.add(taskId); return next; });
     addToast(`Ignored placement flag for "${taskName}"`, 'info');
     try {
       const supabase = createBrowserClient();
@@ -977,7 +977,7 @@ export default function ProjectScheduleDetail() {
       console.error('Failed to save audit dismissal:', err);
       // Revert on failure
       setIgnoredTaskIds((prev) => {
-        const next = new Set(prev);
+        const next = new Set(Array.from(prev));
         next.delete(taskId);
         return next;
       });
