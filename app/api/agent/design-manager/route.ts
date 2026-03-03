@@ -116,33 +116,47 @@ async function saveCachedReport(report: AgentReport): Promise<void> {
 // ============================================================
 
 async function callClaude(prompt: string, systemPrompt: string): Promise<string> {
-  const apiKey = process.env.ANTHROPIC_API_KEY;
-  if (!apiKey) {
+  const apiK = process.env.ANTHROPIC_API_KEY;
+  if (!apiK) {
     throw new Error('ANTHROPIC_API_KEY not configured');
   }
 
-  const res = await fetch('https://api.anthropic.com/v1/messages', {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-      'x-api-key': apiKey,
-      'anthropic-version': '2023-06-01',
-    },
-    body: JSON.stringify({
-      model: 'claude-sonnet-4-20250514',
-      max_tokens: 4096,
-      system: systemPrompt,
-      messages: [{ role: 'user', content: prompt }],
-    }),
-  });
+  const MAX_RETRIES = 3;
+  const INITIAL_DELAY = 15000; // 15s for rate limit cooldown
 
-  if (!res.ok) {
-    const errText = await res.text().catch(() => '');
-    throw new Error(`Claude API ${res.status}: ${errText.slice(0, 300)}`);
+  for (let attempt = 0; attempt < MAX_RETRIES; attempt++) {
+    const res = await fetch('https://api.anthropic.com/v1/messages', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'x-api-key': apiK,
+        'anthropic-version': '2023-06-01',
+      },
+      body: JSON.stringify({
+        model: 'claude-sonnet-4-20250514',
+        max_tokens: 16384,
+        system: systemPrompt,
+        messages: [{ role: 'user', content: prompt }],
+      }),
+    });
+
+    if (res.status === 429 && attempt < MAX_RETRIES - 1) {
+      const delay = INITIAL_DELAY * Math.pow(2, attempt);
+      console.log(`Claude API 429 rate limit — retrying in ${delay / 1000}s (attempt ${attempt + 1}/${MAX_RETRIES})`);
+      await new Promise((r) => setTimeout(r, delay));
+      continue;
+    }
+
+    if (!res.ok) {
+      const errText = await res.text().catch(() => '');
+      throw new Error(`Claude API ${res.status}: ${errText.slice(0, 300)}`);
+    }
+
+    const data = await res.json();
+    return data.content?.[0]?.text || '';
   }
 
-  const data = await res.json();
-  return data.content?.[0]?.text || '';
+  throw new Error('Claude API failed after all retries');
 }
 
 // ============================================================
@@ -183,86 +197,54 @@ function buildAnalysisPrompt(context: AgentFullContext): string {
     const s = p.schedule;
     const c = p.clientContact;
 
-    // Build category summary
+    // Compact category summary (no per-task listing to save tokens)
     const categoryLines = s.categories.map((cat) => {
-      const taskList = cat.tasks.map((t) => {
-        let status = t.progress >= 100 ? '✓' : t.isOverdue ? '⚠OVERDUE' : `${t.progress}%`;
-        let due = t.endDate ? ` (due: ${t.endDate})` : '';
-        return `      - [${t.id}] ${t.name}: ${status}${due}`;
-      }).join('\n');
-      return `    [Phase ID: ${cat.id}] ${cat.name} [${cat.progress}% complete, ${cat.completedCount}/${cat.taskCount} tasks done]\n${taskList}`;
+      return `  ${cat.name}: ${cat.progress}% (${cat.completedCount}/${cat.taskCount} done)`;
     }).join('\n');
 
     // Client contact info
     const contactInfo = c.daysSinceContact !== null
-      ? `Last contact: ${c.lastContactDate} (${c.daysSinceContact} days ago, via ${c.lastContactType || 'unknown'})`
-      : c.noContactAlert
-        ? 'NO CLIENT CONTACT RECORD FOUND'
-        : 'Contact info unavailable';
+      ? `Last: ${c.daysSinceContact}d ago via ${c.lastContactType || 'unknown'}`
+      : c.noContactAlert ? 'NO CONTACT RECORD' : 'unavailable';
 
     return `
-  ---
-  PROJECT: ${s.jobName} (Job #${s.jobNumber})
-JT Job ID: ${s.jobId}
-  ---
-  Client: ${s.clientName}
-  Custom Status: ${s.customStatus || 'None'}
-  Current Phase: ${s.currentPhase || 'No active phase detected'}
-  Overall Progress: ${s.totalProgress}%
-  Health: ${p.health}
-  Existing Alerts: ${p.alerts.length > 0 ? p.alerts.join('; ') : 'None'}
-  Client Contact: ${contactInfo}
-  GHL Contact ID: ${c.ghlContactId || 'Not found'}
-
-  Schedule Categories:
-  ${categoryLines}
-
-  Missing Standard Categories: ${s.missingCategories.length > 0 ? s.missingCategories.join(', ') : 'None'}
-  Orphan Tasks (not in a category): ${s.orphanTaskCount}
-  Overdue Tasks: ${s.overdueTasks.length > 0 ? s.overdueTasks.map(t => `${t.name} (${Math.abs(t.daysUntilDue!)}d overdue)`).join(', ') : 'None'}
-  Upcoming Due (within ${AGENT_RULES.warningDeadlineDays}d): ${s.upcomingTasks.length > 0 ? s.upcomingTasks.map(t => `${t.name} (${t.daysUntilDue}d)`).join(', ') : 'None'}
-  `;
+--- ${s.jobName} (#${s.jobNumber}) [ID: ${s.jobId}] ---
+Client: ${s.clientName} | Status: ${s.customStatus || 'None'} | Phase: ${s.currentPhase || 'None'} | Progress: ${s.totalProgress}%
+Health: ${p.health} | Contact: ${contactInfo} | GHL: ${c.ghlContactId || 'N/A'}
+Alerts: ${p.alerts.length > 0 ? p.alerts.join('; ') : 'None'}
+Categories:\n${categoryLines}
+Missing: ${s.missingCategories.length > 0 ? s.missingCategories.join(', ') : 'None'}
+Overdue: ${s.overdueTasks.length > 0 ? s.overdueTasks.map(t => `${t.name} (${Math.abs(t.daysUntilDue!)}d)`).join(', ') : 'None'}
+Upcoming: ${s.upcomingTasks.length > 0 ? s.upcomingTasks.map(t => `${t.name} (${t.daysUntilDue}d)`).join(', ') : 'None'}
+`;
   }).join('\n');
 
-  return `Analyze the following ${context.projectCount} design-phase projects for Brett King Builder.
+  return `Analyze ${context.projectCount} design-phase projects for Brett King Builder. Date: ${new Date().toISOString().split('T')[0]}
 
-Today's date: ${new Date().toISOString().split('T')[0]}
+PORTFOLIO: ${context.onTrackCount} on-track, ${context.atRiskCount} at-risk, ${context.stalledCount} stalled, ${context.alertCount} alerts
 
-PORTFOLIO SUMMARY:
-- Total projects: ${context.projectCount}
-- Pre-computed health: ${context.onTrackCount} on-track, ${context.atRiskCount} at-risk, ${context.stalledCount} stalled
-- Total alerts: ${context.alertCount}
-
-PROJECT DATA:
 ${projectSummaries}
 
-Respond with a JSON object matching this structure exactly:
+Respond with VALID JSON only (no markdown fences):
 {
-  "summary": "2-3 sentence overview of the entire portfolio status and top concerns",
+  "summary": "2-3 sentence portfolio overview",
   "topPriorities": ["priority 1", "priority 2", "priority 3"],
   "projects": [
     {
-      "jobId": "the JT Job ID value (exact string from data above)",
-      "jobName": "project name",
-      "jobNumber": "job number",
-      "clientName": "client name",
+      "jobId": "exact JT Job ID",
+      "jobName": "name",
+      "jobNumber": "number",
+      "clientName": "client",
       "status": "on_track|at_risk|stalled|blocked|complete",
-      "currentPhase": "phase name or null",
-      "nextStep": "specific next action that needs to happen",
-      "nextStepAssignee": "who should do it (Nathan, Brett, Evan, etc.)",
-      "lastClientContact": "date string or null",
-      "daysSinceContact": number or null,
-      "nextMeeting": "date or 'none scheduled'",
-      "totalProgress": number,
-      "alerts": ["alert strings"],
-      "recommendations": [
-        {
-          "action": "short action name",
-          "description": "what to do and why",
-          "priority": "high|medium|low",
-          "actionType": "createTask|draftMessage|standardizeSchedule|other"
-        }
-      ]
+      "currentPhase": "phase or null",
+      "nextStep": "specific next action needed",
+      "nextStepAssignee": "Nathan|Brett|Evan|Terri|Josh",
+      "lastClientContact": "date or null",
+      "daysSinceContact": null,
+      "nextMeeting": "date or none scheduled",
+      "totalProgress": 0,
+      "alerts": ["alerts"],
+      "recommendations": [{"action":"name","description":"what and why","priority":"high|medium|low","actionType":"createTask|draftMessage|standardizeSchedule|other"}]
     }
   ]
 }`;
