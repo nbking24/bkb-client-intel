@@ -185,9 +185,9 @@ function buildAnalysisPrompt(context: AgentFullContext): string {
       const taskList = cat.tasks.map((t) => {
         let status = t.progress >= 100 ? '✓' : t.isOverdue ? '⚠OVERDUE' : `${t.progress}%`;
         let due = t.endDate ? ` (due: ${t.endDate})` : '';
-        return `      - ${t.name}: ${status}${due}`;
+        return `      - [${t.id}] ${t.name}: ${status}${due}`;
       }).join('\n');
-      return `    ${cat.name} [${cat.progress}% complete, ${cat.completedCount}/${cat.taskCount} tasks done]\n${taskList}`;
+      return `    [Phase ID: ${cat.id}] ${cat.name} [${cat.progress}% complete, ${cat.completedCount}/${cat.taskCount} tasks done]\n${taskList}`;
     }).join('\n');
 
     // Client contact info
@@ -200,6 +200,7 @@ function buildAnalysisPrompt(context: AgentFullContext): string {
     return `
   ---
   PROJECT: ${s.jobName} (Job #${s.jobNumber})
+JT Job ID: ${s.jobId}
   ---
   Client: ${s.clientName}
   Custom Status: ${s.customStatus || 'None'}
@@ -238,7 +239,7 @@ Respond with a JSON object matching this structure exactly:
   "topPriorities": ["priority 1", "priority 2", "priority 3"],
   "projects": [
     {
-      "jobId": "the job ID",
+      "jobId": "the JT Job ID value (exact string from data above)",
       "jobName": "project name",
       "jobNumber": "job number",
       "clientName": "client name",
