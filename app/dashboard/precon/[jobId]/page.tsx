@@ -10,6 +10,7 @@ import {
 } from 'lucide-react';
 import { STANDARD_PHASES, STATUS_ACTIVE_PHASES, type StatusCategoryKey } from '@/app/lib/constants';
 import { BKB_STANDARD_TEMPLATE, recommendPhaseForTask } from '@/app/lib/schedule-templates';
+import { createBrowserClient } from '@/app/lib/supabase';
 
 interface ChildTask {
   id: string;
@@ -169,6 +170,7 @@ function TaskRow({
   auditFlag,
   phases,
   addToast,
+  onIgnoreAudit,
 }: {
   task: ChildTask;
   jobId: string;
@@ -176,6 +178,7 @@ function TaskRow({
   auditFlag?: AuditFlag | null;
   phases: Phase[];
   addToast: (message: string, type: Toast['type']) => void;
+  onIgnoreAudit?: (taskId: string, taskName: string) => void;
 }) {
   const [toggling, setToggling] = useState(false);
   const [moving, setMoving] = useState(false);
@@ -294,17 +297,28 @@ function TaskRow({
             Recommended: <strong>{auditFlag.recommendedPhaseName}</strong>
           </span>
           <span style={{ color: '#8a8078' }}>({auditFlag.reason})</span>
-          <button
-            onClick={moveToRecommended}
-            disabled={moving}
-            className="ml-auto px-2 py-0.5 rounded text-xs font-medium"
-            style={{
-              background: auditFlag.confidence === 'high' ? 'rgba(239,68,68,0.2)' : 'rgba(245,158,11,0.2)',
-              color: auditFlag.confidence === 'high' ? '#fca5a5' : '#fcd34d',
-            }}
-          >
-            {moving ? '...' : 'Move'}
-          </button>
+          <div className="ml-auto flex items-center gap-1.5">
+            <button
+              onClick={moveToRecommended}
+              disabled={moving}
+              className="px-2 py-0.5 rounded text-xs font-medium"
+              style={{
+                background: auditFlag.confidence === 'high' ? 'rgba(239,68,68,0.2)' : 'rgba(245,158,11,0.2)',
+                color: auditFlag.confidence === 'high' ? '#fca5a5' : '#fcd34d',
+              }}
+            >
+              {moving ? '...' : 'Move'}
+            </button>
+            {onIgnoreAudit && (
+              <button
+                onClick={() => onIgnoreAudit(task.id, task.name)}
+                className="px-2 py-0.5 rounded text-xs font-medium flex items-center gap-1"
+                style={{ background: 'rgba(138,128,120,0.15)', color: '#8a8078' }}
+              >
+                <EyeOff size={10} /> Ignore
+              </button>
+            )}
+          </div>
         </div>
       )}
     </div>
@@ -322,6 +336,8 @@ function PhaseAccordion({
   addToast,
   allPhases,
   isActivePhase,
+  ignoredTaskIds,
+  onIgnoreAudit,
 }: {
   phase: Phase;
   jobId: string;
@@ -329,6 +345,8 @@ function PhaseAccordion({
   addToast: (message: string, type: Toast['type']) => void;
   allPhases: Phase[];
   isActivePhase: boolean;
+  ignoredTaskIds: Set<string>;
+  onIgnoreAudit: (taskId: string, taskName: string) => void;
 }) {
   const [expanded, setExpanded] = useState(false);
   const [showCompleted, setShowCompleted] = useState(false);
@@ -358,9 +376,10 @@ function PhaseAccordion({
     : false;
   const showAddDefaults = tasks.length === 0 && hasDefaults;
 
-  // Audit: check each pending task placement
+  // Audit: check each pending task placement (filter out ignored)
   const auditFlags: Map<string, AuditFlag> = new Map();
   for (const task of tasks) {
+    if (ignoredTaskIds.has(task.id)) continue;
     const flag = auditTaskPlacement(task, phase.id, phase.name, matchedPhaseNumber);
     if (flag) auditFlags.set(task.id, flag);
   }
@@ -512,6 +531,7 @@ function PhaseAccordion({
                 auditFlag={auditFlags.get(task.id)}
                 phases={allPhases}
                 addToast={addToast}
+                onIgnoreAudit={onIgnoreAudit}
               />
             ))
           ) : totalCount === 0 ? (
@@ -547,6 +567,7 @@ function PhaseAccordion({
                       auditFlag={auditFlags.get(task.id)}
                       phases={allPhases}
                       addToast={addToast}
+                      onIgnoreAudit={onIgnoreAudit}
                     />
                   ))}
                 </div>
@@ -626,12 +647,14 @@ function OrphanSection({
   onUpdate,
   phases,
   addToast,
+  onIgnoreAudit,
 }: {
   orphanTasks: ChildTask[];
   jobId: string;
   onUpdate: () => void;
   phases: Phase[];
   addToast: (message: string, type: Toast['type']) => void;
+  onIgnoreAudit: (taskId: string, taskName: string) => void;
 }) {
   const [expanded, setExpanded] = useState(true);
 
@@ -685,6 +708,7 @@ function OrphanSection({
                 auditFlag={auditFlag}
                 phases={phases}
                 addToast={addToast}
+                onIgnoreAudit={onIgnoreAudit}
               />
             );
           })}
@@ -755,6 +779,53 @@ export default function ProjectScheduleDetail() {
   const [savingPhase, setSavingPhase] = useState(false);
   const [applyingTemplate, setApplyingTemplate] = useState(false);
   const [toasts, setToasts] = useState<Toast[]>([]);
+  const [ignoredTaskIds, setIgnoredTaskIds] = useState<Set<string>>(new Set());
+
+  // Load ignored audit dismissals from Supabase
+  useEffect(() => {
+    async function loadDismissals() {
+      try {
+        const supabase = createBrowserClient();
+        const { data } = await supabase
+          .from('agent_dismissals')
+          .select('rec_action')
+          .eq('job_id', jobId)
+          .eq('rec_action_type', 'auditPlacement');
+        if (data && data.length > 0) {
+          setIgnoredTaskIds(new Set(data.map((d: { rec_action: string }) => d.rec_action)));
+        }
+      } catch (err) {
+        console.error('Failed to load audit dismissals:', err);
+      }
+    }
+    loadDismissals();
+  }, [jobId]);
+
+  async function handleIgnoreAudit(taskId: string, taskName: string) {
+    // Optimistic local update
+    setIgnoredTaskIds((prev) => new Set([...prev, taskId]));
+    addToast(`Ignored placement flag for "${taskName}"`, 'info');
+    try {
+      const supabase = createBrowserClient();
+      await supabase.from('agent_dismissals').upsert({
+        job_id: jobId,
+        rec_action: taskId,
+        rec_action_type: 'auditPlacement',
+        rec_description: taskName,
+        dismissal_type: 'ignored',
+        dismissed_by: 'nathan',
+      }, { onConflict: 'job_id,rec_action,rec_action_type' });
+    } catch (err) {
+      console.error('Failed to save audit dismissal:', err);
+      // Revert on failure
+      setIgnoredTaskIds((prev) => {
+        const next = new Set(prev);
+        next.delete(taskId);
+        return next;
+      });
+      addToast('Failed to save dismissal', 'error');
+    }
+  }
 
   function addToast(message: string, type: Toast['type'] = 'info') {
     const id = ++toastId;
@@ -846,11 +917,12 @@ export default function ProjectScheduleDetail() {
     ? STATUS_ACTIVE_PHASES[schedule.statusCategory] || []
     : [];
 
-  // Count total audit issues across all phases
+  // Count total audit issues across all phases (excluding ignored)
   const totalMismatches = allPhases.reduce((count, phase) => {
     const phaseNum = matchPhaseNumber(phase.name);
     const tasks = phase.childTasks?.nodes || [];
     return count + tasks.filter((t) => {
+      if (ignoredTaskIds.has(t.id)) return false;
       const flag = auditTaskPlacement(t, phase.id, phase.name, phaseNum);
       return flag && flag.confidence !== 'low';
     }).length;
@@ -1017,6 +1089,7 @@ export default function ProjectScheduleDetail() {
             onUpdate={loadSchedule}
             phases={allPhases}
             addToast={addToast}
+            onIgnoreAudit={handleIgnoreAudit}
           />
 
           {/* Phase accordions */}
@@ -1033,6 +1106,8 @@ export default function ProjectScheduleDetail() {
                   addToast={addToast}
                   allPhases={allPhases}
                   isActivePhase={isActive}
+                  ignoredTaskIds={ignoredTaskIds}
+                  onIgnoreAudit={handleIgnoreAudit}
                 />
               );
             })}
