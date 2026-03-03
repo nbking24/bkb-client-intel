@@ -79,72 +79,85 @@ export interface JTJob {
 }
 
 export async function getActiveJobs(totalLimit = 100): Promise<JTJob[]> {
-  // Paginate in batches of 25 to avoid PAVE 413 response size limits
-  const PAGE_SIZE = 25;
-  const allJobs: JTJob[] = [];
-  let offset = 0;
-
-  while (allJobs.length < totalLimit) {
-    const batchSize = Math.min(PAGE_SIZE, totalLimit - allJobs.length);
-    const result = await orgQuery('jobs', {
-      $: {
-        size: batchSize,
-        offset,
-        where: ['closedOn', '=', null],
-      },
-      nodes: {
+  // Two-phase approach to avoid PAVE 413 response size errors:
+  // Phase 1: Get basic job data (lightweight, no customFieldValues) with large size
+  // Phase 2: Get custom field values per-job in parallel batches
+  const basicResult = await orgQuery('jobs', {
+    $: {
+      size: Math.min(totalLimit, 100),
+      where: ['closedOn', '=', null],
+    },
+    nodes: {
+      id: {},
+      name: {},
+      number: {},
+      status: {},
+      createdAt: {},
+      closedOn: {},
+      location: {
         id: {},
         name: {},
-        number: {},
-        status: {},
-        createdAt: {},
-        closedOn: {},
-        location: {
-          id: {},
-          name: {},
-          account: { id: {}, name: {} },
-        },
-        customFieldValues: {
-          nodes: {
-            value: {},
-            customField: { name: {} },
-          },
-        },
+        account: { id: {}, name: {} },
       },
-    });
+    },
+  });
 
-    const jobs = result.nodes || [];
-    if (jobs.length === 0) break;
+  const basicJobs = basicResult.nodes || [];
+  if (basicJobs.length === 0) return [];
 
-    const mapped = jobs.map((j: any) => {
-      // Extract the custom "Status" field value
-      const statusField = (j.customFieldValues?.nodes || []).find(
-        (cfv: any) => cfv.customField?.name === 'Status'
-      );
-      const customStatus = statusField?.value || null;
-      return {
-        id: j.id,
-        name: j.name,
-        number: j.number,
-        status: j.status,
-        createdAt: j.createdAt,
-        closedOn: j.closedOn,
-        clientName: j.location?.account?.name || '',
-        locationName: j.location?.name || '',
-        customStatus,
-        statusCategory: getStatusCategory(customStatus),
-      };
-    });
+  // Phase 2: Fetch custom field values for each job in parallel batches
+  const BATCH_SIZE = 10;
+  const customFieldMap = new Map<string, string | null>();
 
-    allJobs.push(...mapped);
-
-    // If we got fewer results than requested, we've reached the end
-    if (jobs.length < batchSize) break;
-    offset += jobs.length;
+  for (let i = 0; i < basicJobs.length; i += BATCH_SIZE) {
+    const batch = basicJobs.slice(i, i + BATCH_SIZE);
+    const results = await Promise.all(
+      batch.map(async (j: any) => {
+        try {
+          const data = await pave({
+            job: {
+              $: { id: j.id },
+              customFieldValues: {
+                nodes: {
+                  value: {},
+                  customField: { name: {} },
+                },
+              },
+            },
+          });
+          const cfvs = (data as any)?.job?.customFieldValues?.nodes || [];
+          const statusField = cfvs.find(
+            (cfv: any) => cfv.customField?.name === 'Status'
+          );
+          return { jobId: j.id, customStatus: statusField?.value || null };
+        } catch {
+          return { jobId: j.id, customStatus: null };
+        }
+      })
+    );
+    for (const r of results) {
+      customFieldMap.set(r.jobId, r.customStatus);
+    }
   }
 
-  console.log(`getActiveJobs: fetched ${allJobs.length} jobs in ${Math.ceil(offset / PAGE_SIZE) + 1} pages`);
-  return allJobs;
+  const mapped = basicJobs.map((j: any) => {
+    const customStatus = customFieldMap.get(j.id) || null;
+    return {
+      id: j.id,
+      name: j.name,
+      number: j.number,
+      status: j.status,
+      createdAt: j.createdAt,
+      closedOn: j.closedOn,
+      clientName: j.location?.account?.name || '',
+      locationName: j.location?.name || '',
+      customStatus,
+      statusCategory: getStatusCategory(customStatus),
+    };
+  });
+
+  console.log(`getActiveJobs: fetched ${mapped.length} jobs (custom fields in ${Math.ceil(basicJobs.length / BATCH_SIZE)} batches)`);
+  return mapped;
 }
 export async function getJob(jobId: string) {
   const data = await pave({
