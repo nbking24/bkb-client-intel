@@ -1,64 +1,76 @@
 // @ts-nocheck
 // JobTread API - uses Pave query language (not GraphQL)
 // Docs: https://app.jobtread.com/docs
+//
+// PAVE API patterns:
+// - Org-level collections (jobs, tasks, memberships) must be queried
+//   under organization: { $: { id: orgId }, collection: {...} }
+// - Single entity by ID uses SINGULAR at root: job, task, document
+// - Mutations (createTask, etc.) go at the root level
 
 const JT_URL = 'https://api.jobtread.com/pave';
 const JT_KEY = () => process.env.JOBTREAD_API_KEY || '';
 const JT_ORG = '22P5SRwhLaYe';
 
 async function jtQuery(query: Record<string, unknown>): Promise<Record<string, unknown>> {
-        // Pave HTTP API requires body wrapped in { query: ... }
+  // Pave HTTP API requires body wrapped in { query: ... }
   const paveQuery = {
-            $: { grantKey: JT_KEY() },
-            ...query,
+    $: { grantKey: JT_KEY() },
+    ...query,
   };
 
   const res = await fetch(JT_URL, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ query: paveQuery }),
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ query: paveQuery }),
   });
 
   if (!res.ok) {
-            const text = await res.text().catch(() => '');
-            throw new Error('JobTread API error ' + res.status + ': ' + text.slice(0, 200));
+    const text = await res.text().catch(() => '');
+    throw new Error('JobTread API error ' + res.status + ': ' + text.slice(0, 200));
   }
-        return res.json();
+  return res.json();
+}
+
+// Org-scoped query helper — wraps collection under organization
+async function orgQuery(collection: string, params: Record<string, unknown>) {
+  const data = await jtQuery({
+    organization: {
+      $: { id: JT_ORG },
+      [collection]: params,
+    },
+  });
+  return (data as any)?.organization?.[collection] || {};
 }
 
 // Fetch all org members (membership ID + user name)
 export async function getMembers(): Promise<{ id: string; name: string }[]> {
-        const data = await jtQuery({
-                  memberships: {
-                              nodes: {
-                                            id: {},
-                                            user: { id: {}, name: {} },
-                              },
-                  },
-        });
-        const nodes = (data as any)?.memberships?.nodes || [];
-        return nodes.map((n: any) => ({ id: n.id, name: n.user?.name || '' }));
+  const result = await orgQuery('memberships', {
+    nodes: {
+      id: {},
+      user: { id: {}, name: {} },
+    },
+  });
+  const nodes = result.nodes || [];
+  return nodes.map((n: any) => ({ id: n.id, name: n.user?.name || '' }));
 }
 
 export async function getActiveJobs(limit = 30) {
-        const data = await jtQuery({
-                  jobs: {
-                              $: {
-                                            first: limit,
-                                            where: { closedOn: { eq: null } },
-                                            orderBy: { createdAt: 'DESC' },
-                              },
-                              nodes: {
-                                            id: {},
-                                            name: {},
-                                            number: {},
-                                            status: {},
-                                            createdAt: {},
-                              },
-                  },
-        });
-        const jobs = (data as any)?.jobs?.nodes || [];
-        return jobs;
+  const result = await orgQuery('jobs', {
+    $: {
+      size: limit,
+      where: ['closedOn', '=', null],
+    },
+    nodes: {
+      id: {},
+      name: {},
+      number: {},
+      status: {},
+      createdAt: {},
+    },
+  });
+  const jobs = result.nodes || [];
+  return jobs;
 }
 
 export async function createTask(params: {
