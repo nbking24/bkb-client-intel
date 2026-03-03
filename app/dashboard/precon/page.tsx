@@ -330,6 +330,8 @@ export default function PreConDashboard() {
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [error, setError] = useState('');
+  const [inDesignOpen, setInDesignOpen] = useState(true);
+  const [readyOpen, setReadyOpen] = useState(true);
 
   // Load cached report on mount (instant)
   async function loadCachedReport() {
@@ -438,34 +440,48 @@ export default function PreConDashboard() {
           <div className="space-y-6">
             {/* In-Design Projects */}
             <div>
-              <h2 className="text-sm font-semibold mb-3 flex items-center gap-2" style={{ color: '#C9A84C' }}>
+              <button
+                onClick={() => setInDesignOpen(!inDesignOpen)}
+                className="w-full text-left text-sm font-semibold mb-3 flex items-center gap-2 hover:opacity-80 transition-opacity"
+                style={{ color: '#C9A84C' }}
+              >
+                {inDesignOpen ? <ChevronDown size={14} /> : <ChevronRight size={14} />}
                 <Clock size={14} />
                 In-Design ({inDesignProjects.length})
-              </h2>
-              <div className="space-y-2">
-                {inDesignProjects.map((project) => (
-                  <ProjectCard key={project.jobId} project={project} />
-                ))}
-                {inDesignProjects.length === 0 && (
-                  <p className="text-xs py-2" style={{ color: '#8a8078' }}>No projects in design phase</p>
-                )}
-              </div>
+              </button>
+              {inDesignOpen && (
+                <div className="space-y-2">
+                  {inDesignProjects.map((project) => (
+                    <ProjectCard key={project.jobId} project={project} />
+                  ))}
+                  {inDesignProjects.length === 0 && (
+                    <p className="text-xs py-2" style={{ color: '#8a8078' }}>No projects in design phase</p>
+                  )}
+                </div>
+              )}
             </div>
 
             {/* Ready Projects */}
             <div>
-              <h2 className="text-sm font-semibold mb-3 flex items-center gap-2" style={{ color: '#22c55e' }}>
+              <button
+                onClick={() => setReadyOpen(!readyOpen)}
+                className="w-full text-left text-sm font-semibold mb-3 flex items-center gap-2 hover:opacity-80 transition-opacity"
+                style={{ color: '#22c55e' }}
+              >
+                {readyOpen ? <ChevronDown size={14} /> : <ChevronRight size={14} />}
                 <CheckCircle2 size={14} />
                 Ready ({readyProjects.length})
-              </h2>
-              <div className="space-y-2">
-                {readyProjects.map((project) => (
-                  <ProjectCard key={project.jobId} project={project} />
-                ))}
-                {readyProjects.length === 0 && (
-                  <p className="text-xs py-2" style={{ color: '#8a8078' }}>No projects ready</p>
-                )}
-              </div>
+              </button>
+              {readyOpen && (
+                <div className="space-y-2">
+                  {readyProjects.map((project) => (
+                    <ProjectCard key={project.jobId} project={project} />
+                  ))}
+                  {readyProjects.length === 0 && (
+                    <p className="text-xs py-2" style={{ color: '#8a8078' }}>No projects ready</p>
+                  )}
+                </div>
+              )}
             </div>
           </div>
         </div>
