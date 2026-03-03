@@ -16,6 +16,9 @@ import {
   getQuestionsForScope,
   getDefaultAnswers,
   getIncludedTasksByPhase,
+  getQuestionsForScopes,
+  getDefaultAnswersForScopes,
+  getIncludedTasksByPhaseMulti,
   type SurveyAnswers,
 } from '@/app/lib/survey-templates';
 import { STANDARD_PHASES } from '@/app/lib/constants';
@@ -48,12 +51,21 @@ export async function POST(req: NextRequest) {
       // SURVEY -- Get questions for a project scope
       // -------------------------------------------------------
       case 'survey': {
-        const scope = body.scope as ProjectScope;
-        if (!scope) {
-          return NextResponse.json({ error: 'scope is required' }, { status: 400 });
+        // Support multi-scope (scopes array) or single scope for backward compat
+        const scopes: ProjectScope[] = body.scopes
+          ? (body.scopes as ProjectScope[])
+          : body.scope
+            ? [body.scope as ProjectScope]
+            : [];
+        if (scopes.length === 0) {
+          return NextResponse.json({ error: 'scope or scopes is required' }, { status: 400 });
         }
-        const questions = getQuestionsForScope(scope);
-        const defaults = getDefaultAnswers(scope);
+        const questions = scopes.length === 1
+          ? getQuestionsForScope(scopes[0])
+          : getQuestionsForScopes(scopes);
+        const defaults = scopes.length === 1
+          ? getDefaultAnswers(scopes[0])
+          : getDefaultAnswersForScopes(scopes);
         return NextResponse.json({ questions, defaults });
       }
 
@@ -61,7 +73,7 @@ export async function POST(req: NextRequest) {
       // PREVIEW -- Analyze existing schedule and plan changes
       // -------------------------------------------------------
       case 'preview': {
-        const { jobId, scope, surveyAnswers } = body;
+        const { jobId, scope, scopes: bodyScopes, surveyAnswers } = body;
         if (!jobId) {
           return NextResponse.json({ error: 'jobId is required' }, { status: 400 });
         }
@@ -72,9 +84,16 @@ export async function POST(req: NextRequest) {
           return NextResponse.json({ error: 'Job not found' }, { status: 404 });
         }
 
-        // 2. Get the template tasks (filtered by scope if provided)
-        const templatePhases = scope && surveyAnswers
-          ? getIncludedTasksByPhase(scope as ProjectScope, surveyAnswers as SurveyAnswers)
+        // 2. Get the template tasks (filtered by scope(s) if provided)
+        const previewScopes: ProjectScope[] = bodyScopes
+          ? (bodyScopes as ProjectScope[])
+          : scope
+            ? [scope as ProjectScope]
+            : [];
+        const templatePhases = previewScopes.length > 0 && surveyAnswers
+          ? previewScopes.length === 1
+            ? getIncludedTasksByPhase(previewScopes[0], surveyAnswers as SurveyAnswers)
+            : getIncludedTasksByPhaseMulti(previewScopes, surveyAnswers as SurveyAnswers)
           : BKB_STANDARD_TEMPLATE.map((p) => ({
               phaseNumber: p.phaseNumber,
               name: p.name,
