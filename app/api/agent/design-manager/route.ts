@@ -120,6 +120,7 @@ interface DismissalRecord {
   job_id: string;
   rec_action: string;
   rec_action_type: string;
+  rec_description: string | null;
   dismissal_type: 'ignored' | 'completed';
 }
 
@@ -128,7 +129,7 @@ async function getDismissals(): Promise<DismissalRecord[]> {
     const supabase = createServerClient();
     const { data, error } = await supabase
       .from('agent_dismissals')
-      .select('job_id, rec_action, rec_action_type, dismissal_type');
+      .select('job_id, rec_action, rec_action_type, rec_description, dismissal_type');
 
     if (error) {
       console.error('Dismissals read error:', error);
