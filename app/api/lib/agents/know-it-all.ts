@@ -131,25 +131,51 @@ async function fetchGHLContext(ctx: AgentContext): Promise<string> {
       } else {
         const msgs: string[] = [];
         let msgFetchErrors = 0;
+
+        // Build a map of conversation-level data (lastMessageBody, etc.)
+        const convoMap: Record<string, any> = {};
+        for (const conv of convos.value) {
+          const c = conv as any;
+          convoMap[c.id] = c;
+        }
+
         for (const conv of convos.value.slice(0, 10)) {
+          const convData = conv as any;
+          // Add conversation-level summary if available
+          if (convData.lastMessageBody) {
+            const lastDate = convData.lastMessageDate ? new Date(convData.lastMessageDate).toLocaleDateString() : '';
+            const lastType = convData.lastMessageType || convData.type || '';
+            msgs.push('[CONV SUMMARY ' + lastDate + ' ' + lastType + '] Last message: ' + (convData.lastMessageBody || '').slice(0, 2000));
+          }
           try {
-            const cmsgs = await getConversationMessages((conv as any).id, 40);
+            const cmsgs = await getConversationMessages(convData.id, 40);
             if (Array.isArray(cmsgs)) {
               for (const m of cmsgs) {
                 const mr = m as any;
                 const date = mr.dateAdded ? new Date(mr.dateAdded).toLocaleDateString() : '';
-                msgs.push('[' + date + ' ' + (mr.direction || '?') + ' ' + (mr.type || '') + '] ' + (mr.body || '').slice(0, 2000));
+
+                // Extract direction and type from multiple possible locations
+                const direction = mr.direction || mr.meta?.email?.direction || mr.meta?.direction || '?';
+                const msgType = mr.messageType || mr.type || '';
+                const subject = mr.meta?.email?.subject ? ' Subject: ' + mr.meta.email.subject : '';
+
+                // Extract body from multiple possible locations
+                const body = mr.body || mr.text || mr.message || mr.altText || '';
+
+                msgs.push('[' + date + ' ' + direction + ' ' + msgType + subject + '] ' + (body ? body.slice(0, 2000) : '(no body text)'));
               }
             }
           } catch (msgErr) {
             msgFetchErrors++;
-            console.error('Failed to fetch messages for conversation ' + (conv as any).id + ':', msgErr);
+            console.error('Failed to fetch messages for conversation ' + convData.id + ':', msgErr);
           }
         }
         if (msgs.length > 0) {
           sections.push('=== MESSAGES (' + msgs.length + ' total) ===\n' + msgs.join('\n'));
         } else if (msgFetchErrors > 0) {
           sections.push('=== MESSAGES ERROR ===\nFound ' + convos.value.length + ' conversation(s) but failed to fetch messages from ' + msgFetchErrors + ' of them. The GHL API key may not have conversations/message.readonly scope enabled.');
+        } else {
+          sections.push('=== MESSAGES ===\nFound ' + convos.value.length + ' conversation(s) but no message content could be extracted.');
         }
       }
     } else if (convos.status === 'rejected') {
