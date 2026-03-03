@@ -765,6 +765,164 @@ function StageIndicator({ statusCategory, customStatus }: { statusCategory: Stat
 }
 
 // ============================================================
+// Mismatch Panel — lists all misplaced tasks with Move/Ignore
+// ============================================================
+
+function MismatchPanel({
+  allPhases,
+  ignoredTaskIds,
+  jobId,
+  onUpdate,
+  addToast,
+  onIgnoreAudit,
+}: {
+  allPhases: Phase[];
+  ignoredTaskIds: Set<string>;
+  jobId: string;
+  onUpdate: () => void;
+  addToast: (message: string, type: Toast['type']) => void;
+  onIgnoreAudit: (taskId: string, taskName: string) => void;
+}) {
+  // Collect all mismatched tasks across all phases
+  const mismatches: { task: ChildTask; flag: AuditFlag; phase: Phase }[] = [];
+  for (const phase of allPhases) {
+    const phaseNum = matchPhaseNumber(phase.name);
+    const tasks = phase.childTasks?.nodes || [];
+    for (const task of tasks) {
+      if (ignoredTaskIds.has(task.id)) continue;
+      const flag = auditTaskPlacement(task, phase.id, phase.name, phaseNum);
+      if (flag && flag.confidence !== 'low') {
+        mismatches.push({ task, flag, phase });
+      }
+    }
+  }
+
+  if (mismatches.length === 0) return null;
+
+  return (
+    <div
+      className="rounded-xl overflow-hidden"
+      style={{ background: 'rgba(239,68,68,0.06)', border: '1px solid rgba(239,68,68,0.2)' }}
+    >
+      <div className="flex items-center gap-3 px-4 py-3">
+        <Shield size={18} style={{ color: '#fca5a5' }} />
+        <p className="text-sm font-medium" style={{ color: '#fca5a5' }}>
+          Schedule Audit: {mismatches.length} task{mismatches.length !== 1 ? 's' : ''} may be in the wrong phase
+        </p>
+      </div>
+      <div style={{ borderTop: '1px solid rgba(239,68,68,0.12)' }}>
+        {mismatches.map(({ task, flag }) => (
+          <MismatchRow
+            key={task.id}
+            task={task}
+            flag={flag}
+            phases={allPhases}
+            jobId={jobId}
+            onUpdate={onUpdate}
+            addToast={addToast}
+            onIgnoreAudit={onIgnoreAudit}
+          />
+        ))}
+      </div>
+    </div>
+  );
+}
+
+function MismatchRow({
+  task,
+  flag,
+  phases,
+  jobId,
+  onUpdate,
+  addToast,
+  onIgnoreAudit,
+}: {
+  task: ChildTask;
+  flag: AuditFlag;
+  phases: Phase[];
+  jobId: string;
+  onUpdate: () => void;
+  addToast: (message: string, type: Toast['type']) => void;
+  onIgnoreAudit: (taskId: string, taskName: string) => void;
+}) {
+  const [moving, setMoving] = useState(false);
+
+  async function moveToRecommended() {
+    const targetPhase = phases.find((p) => {
+      const pn = matchPhaseNumber(p.name);
+      return pn === flag.recommendedPhaseNumber;
+    });
+    if (!targetPhase) {
+      addToast(`Phase "${flag.recommendedPhaseName}" not found. Create it first.`, 'warning');
+      return;
+    }
+    setMoving(true);
+    try {
+      const res = await fetch('/api/dashboard/schedule', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          action: 'moveTask',
+          jobId,
+          taskId: task.id,
+          taskName: task.name,
+          newParentGroupId: targetPhase.id,
+          startDate: task.startDate,
+          endDate: task.endDate,
+        }),
+      });
+      const data = await res.json();
+      if (data.ok) {
+        addToast(`Moved "${task.name}" → ${flag.recommendedPhaseName}`, 'success');
+        onUpdate();
+      } else {
+        addToast(`Failed to move task: ${data.error || 'Unknown error'}`, 'error');
+      }
+    } catch (err) {
+      console.error('Failed to move task:', err);
+      addToast('Failed to move task', 'error');
+    } finally {
+      setMoving(false);
+    }
+  }
+
+  const confColor = flag.confidence === 'high' ? '#fca5a5' : '#fcd34d';
+  const confBg = flag.confidence === 'high' ? 'rgba(239,68,68,0.15)' : 'rgba(245,158,11,0.15)';
+
+  return (
+    <div
+      className="flex items-center gap-3 px-4 py-2.5"
+      style={{ borderBottom: '1px solid rgba(239,68,68,0.08)' }}
+    >
+      <ArrowRightLeft size={13} style={{ color: confColor, flexShrink: 0 }} />
+      <div className="flex-1 min-w-0">
+        <p className="text-sm truncate" style={{ color: '#e8e0d8' }}>{task.name}</p>
+        <p className="text-[11px] mt-0.5" style={{ color: '#8a8078' }}>
+          In <span style={{ color: '#a09088' }}>{flag.currentPhaseName}</span> → should be <span style={{ color: confColor }}>{flag.recommendedPhaseName}</span>
+        </p>
+      </div>
+      <div className="flex items-center gap-1.5 shrink-0">
+        <button
+          onClick={moveToRecommended}
+          disabled={moving}
+          className="px-2.5 py-1 rounded text-xs font-medium"
+          style={{ background: confBg, color: confColor }}
+        >
+          {moving ? '...' : 'Move'}
+        </button>
+        <button
+          onClick={() => onIgnoreAudit(task.id, task.name)}
+          className="px-2.5 py-1 rounded text-xs font-medium flex items-center gap-1"
+          style={{ background: 'rgba(138,128,120,0.15)', color: '#8a8078' }}
+        >
+          <EyeOff size={10} /> Ignore
+        </button>
+      </div>
+    </div>
+  );
+}
+
+// ============================================================
 // Main Page Component
 // ============================================================
 
@@ -928,6 +1086,29 @@ export default function ProjectScheduleDetail() {
     }).length;
   }, 0);
 
+  // Sort phases: Admin Tasks (phase 1) first, then by standard number, complete phases to bottom, unmatched at end
+  const sortedPhases = [...allPhases].sort((a, b) => {
+    const aNum = matchPhaseNumber(a.name);
+    const bNum = matchPhaseNumber(b.name);
+    const aProgress = a.progress !== null ? Math.round(a.progress * 100) : 0;
+    const bProgress = b.progress !== null ? Math.round(b.progress * 100) : 0;
+    const aTasks = a.childTasks?.nodes?.length || 0;
+    const bTasks = b.childTasks?.nodes?.length || 0;
+    const aComplete = aTasks > 0 && aProgress >= 100;
+    const bComplete = bTasks > 0 && bProgress >= 100;
+
+    // 100% complete phases go to the bottom
+    if (aComplete !== bComplete) return aComplete ? 1 : -1;
+
+    // Then sort by standard phase number (Admin Tasks = 1 goes first)
+    if (aNum !== null && bNum !== null) return aNum - bNum;
+    if (aNum !== null) return -1;
+    if (bNum !== null) return 1;
+
+    // Unmatched phases keep original order
+    return 0;
+  });
+
   // Summary stats
   const totalPending = allPhases.reduce((sum, p) => {
     const tasks = p.childTasks?.nodes || [];
@@ -1033,22 +1214,16 @@ export default function ProjectScheduleDetail() {
             </div>
           </div>
 
-          {/* Schedule audit banner */}
+          {/* Schedule audit panel — lists each misplaced task with Move/Ignore */}
           {totalMismatches > 0 && (
-            <div
-              className="flex items-center gap-3 px-4 py-3 rounded-xl"
-              style={{ background: 'rgba(239,68,68,0.08)', border: '1px solid rgba(239,68,68,0.2)' }}
-            >
-              <Shield size={18} style={{ color: '#fca5a5' }} />
-              <div className="flex-1">
-                <p className="text-sm font-medium" style={{ color: '#fca5a5' }}>
-                  Schedule Audit: {totalMismatches} task{totalMismatches !== 1 ? 's' : ''} may be in the wrong phase
-                </p>
-                <p className="text-xs mt-0.5" style={{ color: '#8a8078' }}>
-                  Expand each phase to see recommendations and one-click move buttons.
-                </p>
-              </div>
-            </div>
+            <MismatchPanel
+              allPhases={allPhases}
+              ignoredTaskIds={ignoredTaskIds}
+              jobId={jobId}
+              onUpdate={loadSchedule}
+              addToast={addToast}
+              onIgnoreAudit={handleIgnoreAudit}
+            />
           )}
 
           {/* Apply Standard Schedule button (for projects with no phases) */}
@@ -1092,9 +1267,9 @@ export default function ProjectScheduleDetail() {
             onIgnoreAudit={handleIgnoreAudit}
           />
 
-          {/* Phase accordions */}
+          {/* Phase accordions — sorted: Admin Tasks first, then by standard phase number, 100% complete to bottom */}
           <div className="space-y-3">
-            {allPhases.map((phase) => {
+            {sortedPhases.map((phase) => {
               const phaseNum = matchPhaseNumber(phase.name);
               const isActive = phaseNum !== null && activePhaseNumbers.includes(phaseNum);
               return (
