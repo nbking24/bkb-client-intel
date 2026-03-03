@@ -67,7 +67,11 @@ export async function getConversationMessages(conversationId: string, limit = 40
   const res = await fetch(url, { headers: headers() });
   if (!res.ok) throw new Error('GHL get messages failed: ' + res.status);
   const data = await res.json();
-  return data.messages || [];
+  // GHL nests messages: { messages: { lastMessageId, nextPage, messages: [...] } }
+  const msgs = data.messages;
+  if (msgs && Array.isArray(msgs.messages)) return msgs.messages;
+  if (Array.isArray(msgs)) return msgs;
+  return [];
 }
 
 // === OPPORTUNITY FUNCTIONS ===
