@@ -263,7 +263,7 @@ const knowItAll: AgentModule = {
       '- get_job_daily_logs: Get daily logs for a job (site activity, notes, crew info).\n' +
       '- get_job_comments: Get comments on a job, task, or document.\n' +
       '- get_job_time_entries: Get time entries (labor hours) for a job.\n' +
-      '- get_job_specifications: Get job specifications (description, footer, spec items).\n' +
+      '- get_job_specifications: Get the full specifications for a job — ALL cost items grouped by cost group (scope of work, materials, labor, etc.), project documents, and specifications description/footer. Use the search parameter to filter by keyword.\n' +
       '- get_job_budget: Get cost items (budget line items) for a job.\n' +
       '- get_job_events: Get calendar events for a job.\n' +
       '- get_job_files: Get uploaded files for a job.\n' +
@@ -403,7 +403,7 @@ const knowItAll: AgentModule = {
     },
     {
       name: 'get_job_specifications',
-      description: 'Get specifications for a job — includes the specifications description, footer, and specification line items. Use the search parameter to filter by keyword (e.g. "door", "window", "plumbing") for large jobs.',
+      description: 'Get the full specifications for a job — ALL cost items grouped by cost group (scope of work, materials, labor, etc.), project documents, and description/footer. This returns the same data as the JobTread Specifications page. Use the search parameter to filter by keyword (e.g. "door", "window", "plumbing", "kitchen") for large jobs.',
       input_schema: {
         type: 'object',
         properties: {
@@ -722,26 +722,54 @@ const knowItAll: AgentModule = {
           lines.push('\nSPECIFICATIONS FOOTER:\n' + specs.footer.slice(0, 1000));
         }
 
-        // Filter items by search term if provided
-        let filteredItems = specs.items;
-        if (searchTerm) {
-          filteredItems = specs.items.filter((item: any) => {
-            const searchable = [item.name, item.description, item.costCode?.name, item.costGroup?.name].filter(Boolean).join(' ').toLowerCase();
-            return searchable.includes(searchTerm);
-          });
+        // Show documents (Project Details section)
+        if (specs.documents && specs.documents.length > 0) {
+          const matchingDocs = searchTerm
+            ? specs.documents.filter((d: any) => [d.name, d.type, d.status].filter(Boolean).join(' ').toLowerCase().includes(searchTerm))
+            : specs.documents;
+          if (matchingDocs.length > 0) {
+            lines.push('\nPROJECT DOCUMENTS (' + matchingDocs.length + '):');
+            for (const doc of matchingDocs) {
+              lines.push('- ' + doc.name + ' [' + doc.type + '] — Status: ' + doc.status);
+            }
+          }
         }
 
-        if (filteredItems.length > 0) {
-          lines.push('\nSPECIFICATION ITEMS (' + filteredItems.length + (searchTerm ? ' matching "' + input.search + '"' : '') + ' of ' + specs.items.length + ' total):');
-          for (const item of filteredItems.slice(0, 50)) {
-            const code = item.costCode ? ' (' + item.costCode.number + ' ' + item.costCode.name + ')' : '';
-            const group = item.costGroup ? ' [' + item.costGroup.name + ']' : '';
-            lines.push('- ' + item.name + code + group + (item.description ? ' — ' + item.description.slice(0, 200) : ''));
+        // Show cost items grouped by cost group (matching the Specifications page layout)
+        const groupedItems = specs.groupedItems || {};
+        const groupNames = Object.keys(groupedItems);
+        let totalShown = 0;
+        const maxItems = 80;
+
+        if (groupNames.length > 0) {
+          for (const groupName of groupNames) {
+            let items = groupedItems[groupName];
+            // Filter by search term if provided
+            if (searchTerm) {
+              items = items.filter((item: any) => {
+                const searchable = [item.name, item.description, item.costCode?.name, groupName].filter(Boolean).join(' ').toLowerCase();
+                return searchable.includes(searchTerm);
+              });
+            }
+            if (items.length === 0) continue;
+
+            lines.push('\n--- ' + groupName + ' (' + items.length + ' items) ---');
+            for (const item of items) {
+              if (totalShown >= maxItems) break;
+              const code = item.costCode ? ' (' + item.costCode.number + ')' : '';
+              const desc = item.description ? '\n    ' + item.description.slice(0, 300) : '';
+              lines.push('• ' + item.name + code + desc);
+              totalShown++;
+            }
+            if (totalShown >= maxItems) {
+              lines.push('\n... showing ' + maxItems + ' of ' + specs.items.length + ' total items. Use a more specific search to narrow results.');
+              break;
+            }
           }
-          if (filteredItems.length > 50) lines.push('... and ' + (filteredItems.length - 50) + ' more items. Use a more specific search to narrow results.');
         }
-        if (lines.length === 0) return JSON.stringify({ success: true, message: searchTerm ? 'No specifications found matching "' + input.search + '".' : 'No specifications found for this job.' });
-        return JSON.stringify({ success: true, specifications: lines.join('\n') });
+
+        if (lines.length === 0) return JSON.stringify({ success: true, message: searchTerm ? 'No specifications found matching "' + input.search + '".' : 'No specifications found for this job. The job may not have any cost items or documents yet.' });
+        return JSON.stringify({ success: true, totalItems: specs.items.length, totalGroups: groupNames.length, specifications: lines.join('\n') });
       }
 
       if (name === 'get_job_budget') {
