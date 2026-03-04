@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { getCostGroupsForJob, getJob } from '../../../../lib/jobtread';
+import { getCostItemsForJob, getJob, JTCostItem } from '../../../../lib/jobtread';
 
 interface BudgetCostItem {
   id: string;
@@ -38,90 +38,106 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: 'Job not found' }, { status: 404 });
     }
 
-    // Fetch all cost groups with hierarchy
-    const allGroups = await getCostGroupsForJob(jobId);
+    // Fetch all cost items with full hierarchy (costGroup + parentCostGroup)
+    // This uses the same paginated PAVE query that works for the project-details agent
+    const allItems = await getCostItemsForJob(jobId, 500);
 
-    // Find the "Scope of Work" root group (contains the hammer emoji or exact name match)
-    const scopeOfWorkGroup = allGroups.find(
-      (g) => g.name.includes('Scope of Work') || g.name.includes('\u{1F528}')
-    );
-
-    if (!scopeOfWorkGroup) {
+    if (!allItems || allItems.length === 0) {
       return NextResponse.json(
-        { error: 'Could not find "Scope of Work" cost group in this job\'s budget' },
+        { error: 'No cost items found for this job' },
         { status: 404 }
       );
     }
 
-    // Build hierarchy:
-    // Level 1: "Scope of Work" (root)
-    // Level 2: Sections/Areas (children of Scope of Work) — these have the visibility toggle
-    // Level 3: Cost groups under each section — these are where specs get written (description field)
-    // Level 4: Cost items under each cost group
+    // Build sections from cost items, using their group hierarchy.
+    // Each cost item has:
+    //   costGroup = the group that directly contains it (leaf level, has description)
+    //   costGroup.parentCostGroup = the section/area above it
+    //
+    // This automatically adapts to any depth because we use the cost item's
+    // direct parent group, regardless of how many levels deep it is.
+    // The visibility toggle in JobTread controls which level has items —
+    // we just follow where the items actually are.
 
-    // Find all groups whose parent is "Scope of Work"
-    const sections = allGroups.filter(
-      (g) => g.parentCostGroup?.id === scopeOfWorkGroup.id
-    );
+    // Group items by their direct costGroup
+    const groupMap = new Map<string, {
+      id: string;
+      name: string;
+      description: string;
+      parentId: string;
+      parentName: string;
+      items: JTCostItem[];
+    }>();
 
-    // For each section, find cost groups whose parent is that section
-    const budgetSections: BudgetSection[] = sections.map((section) => {
-      const costGroups = allGroups
-        .filter((g) => g.parentCostGroup?.id === section.id)
-        .map((g) => ({
-          id: g.id,
-          name: g.name,
-          description: g.description || '',
-          costItems: g.costItems.map((ci) => ({
-            id: ci.id,
-            name: ci.name,
-            description: ci.description || '',
-            quantity: ci.quantity,
-            unitCost: ci.unitCost,
-            unitPrice: ci.unitPrice,
-          })),
-        }));
+    for (const item of allItems) {
+      const groupId = item.costGroup?.id || 'ungrouped';
+      const groupName = item.costGroup?.name || 'Ungrouped';
+      const groupDesc = item.costGroup?.description || '';
+      const parentId = item.costGroup?.parentCostGroup?.id || 'general';
+      const parentName = item.costGroup?.parentCostGroup?.name || 'General';
 
-      return {
-        id: section.id,
-        name: section.name,
-        costGroups,
-      };
-    });
-
-    // Also check if there are cost groups directly under Scope of Work
-    // (some budgets may have cost groups directly under the root without intermediate sections)
-    const directGroups = allGroups.filter(
-      (g) =>
-        g.parentCostGroup?.id === scopeOfWorkGroup.id &&
-        !sections.some((s) => s.id === g.id) &&
-        g.costItems.length > 0
-    );
-
-    if (directGroups.length > 0) {
-      budgetSections.unshift({
-        id: scopeOfWorkGroup.id,
-        name: 'General',
-        costGroups: directGroups.map((g) => ({
-          id: g.id,
-          name: g.name,
-          description: g.description || '',
-          costItems: g.costItems.map((ci) => ({
-            id: ci.id,
-            name: ci.name,
-            description: ci.description || '',
-            quantity: ci.quantity,
-            unitCost: ci.unitCost,
-            unitPrice: ci.unitPrice,
-          })),
-        })),
-      });
+      if (!groupMap.has(groupId)) {
+        groupMap.set(groupId, {
+          id: groupId,
+          name: groupName,
+          description: groupDesc,
+          parentId,
+          parentName,
+          items: [],
+        });
+      }
+      groupMap.get(groupId)!.items.push(item);
     }
+
+    // Group the cost groups by their parent (section/area)
+    const sectionMap = new Map<string, {
+      id: string;
+      name: string;
+      groups: Array<{
+        id: string;
+        name: string;
+        description: string;
+        parentId: string;
+        parentName: string;
+        items: JTCostItem[];
+      }>;
+    }>();
+
+    const groupList = Array.from(groupMap.values());
+    for (const group of groupList) {
+      if (!sectionMap.has(group.parentId)) {
+        sectionMap.set(group.parentId, {
+          id: group.parentId,
+          name: group.parentName,
+          groups: [],
+        });
+      }
+      sectionMap.get(group.parentId)!.groups.push(group);
+    }
+
+    // Convert to BudgetSection format
+    const sectionList = Array.from(sectionMap.values());
+    const budgetSections: BudgetSection[] = sectionList.map((section) => ({
+      id: section.id,
+      name: section.name,
+      costGroups: section.groups.map((g) => ({
+        id: g.id,
+        name: g.name,
+        description: g.description,
+        costItems: g.items.map((ci) => ({
+          id: ci.id,
+          name: ci.name,
+          description: ci.description || '',
+          quantity: ci.quantity,
+          unitCost: ci.unitCost,
+          unitPrice: ci.unitPrice,
+        })),
+      })),
+    }));
 
     return NextResponse.json({
       jobId,
       jobName: job.name || '',
-      scopeOfWorkId: scopeOfWorkGroup.id,
       sections: budgetSections,
       totalCostGroups: budgetSections.reduce((sum, s) => sum + s.costGroups.length, 0),
     });
