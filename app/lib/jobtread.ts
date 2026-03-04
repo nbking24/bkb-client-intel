@@ -185,20 +185,15 @@ export async function getTasksForJob(jobId: string): Promise<JTTask[]> {
     job: {
       $: { id: jobId },
       tasks: {
-        $: { size: 100 },
+        $: { size: 50 },
         nodes: {
           id: {},
           name: {},
-          description: {},
           startDate: {},
           endDate: {},
           progress: {},
-          assignedMemberships: {
-            nodes: {
-              id: {},
-              user: { id: {}, name: {} },
-            },
-          },
+          parentTask: { id: {} },
+          isGroup: {},
         },
       },
     },
@@ -333,12 +328,12 @@ export async function getJobSchedule(jobId: string): Promise<JTJobSchedule | nul
   );
   const customStatus = statusField?.value || null;
 
-  // 2. Flat list of ALL tasks for this job — minimal fields to avoid 413
+  // 2. Flat list of tasks for this job — minimal fields to avoid 413
   const taskData = await pave({
     job: {
       $: { id: jobId },
       tasks: {
-        $: { size: 100 },
+        $: { size: 50 },
         nodes: {
           id: {},
           name: {},
