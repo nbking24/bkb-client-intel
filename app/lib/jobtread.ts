@@ -186,27 +186,40 @@ export interface JTTask {
 }
 
 export async function getTasksForJob(jobId: string): Promise<JTTask[]> {
-  // Lightweight query — omit description & assignedMemberships to avoid 413
-  // Size 200 to avoid truncating jobs with many tasks/phases
-  const data = await pave({
-    job: {
-      $: { id: jobId },
-      tasks: {
-        $: { size: 200 },
-        nodes: {
-          id: {},
-          name: {},
-          startDate: {},
-          endDate: {},
-          progress: {},
-          parentTask: { id: {} },
-          isGroup: {},
+  // Paginate to handle jobs with 100+ tasks (PAVE max page size = 100)
+  let allTasks: any[] = [];
+  let nextPage: string | null = null;
+
+  for (let page = 0; page < 5; page++) {  // Max 5 pages = 500 tasks
+    const pageParams: Record<string, unknown> = { size: 100 };
+    if (nextPage) pageParams.page = nextPage;
+
+    const data = await pave({
+      job: {
+        $: { id: jobId },
+        tasks: {
+          $: pageParams,
+          nextPage: {},
+          nodes: {
+            id: {},
+            name: {},
+            startDate: {},
+            endDate: {},
+            progress: {},
+            parentTask: { id: {} },
+            isGroup: {},
+          },
         },
       },
-    },
-  });
-  const tasks = (data as any)?.job?.tasks?.nodes || [];
-  return tasks.map((t: any) => ({ ...t, job: { id: jobId, name: '' } }));
+    });
+    const taskPage = (data as any)?.job?.tasks;
+    const nodes = taskPage?.nodes || [];
+    allTasks = allTasks.concat(nodes);
+    nextPage = taskPage?.nextPage || null;
+    if (!nextPage || nodes.length < 100) break;
+  }
+
+  return allTasks.map((t: any) => ({ ...t, job: { id: jobId, name: '' } }));
 }
 
 // Get ALL open tasks, then filter client-side for a specific membership
@@ -335,27 +348,38 @@ export async function getJobSchedule(jobId: string): Promise<JTJobSchedule | nul
   );
   const customStatus = statusField?.value || null;
 
-  // 2. Flat list of tasks for this job — minimal fields to avoid 413
-  // Size 200 to avoid truncating jobs with many tasks/phases
-  const taskData = await pave({
-    job: {
-      $: { id: jobId },
-      tasks: {
-        $: { size: 200 },
-        nodes: {
-          id: {},
-          name: {},
-          isGroup: {},
-          progress: {},
-          startDate: {},
-          endDate: {},
-          parentTask: { id: {} },
+  // 2. Paginate tasks (PAVE max page size = 100)
+  let allTasks: any[] = [];
+  let nextPage: string | null = null;
+
+  for (let page = 0; page < 5; page++) {
+    const pageParams: Record<string, unknown> = { size: 100 };
+    if (nextPage) pageParams.page = nextPage;
+
+    const taskData = await pave({
+      job: {
+        $: { id: jobId },
+        tasks: {
+          $: pageParams,
+          nextPage: {},
+          nodes: {
+            id: {},
+            name: {},
+            isGroup: {},
+            progress: {},
+            startDate: {},
+            endDate: {},
+            parentTask: { id: {} },
+          },
         },
       },
-    },
-  });
-
-  const allTasks = ((taskData as any)?.job?.tasks?.nodes || []) as any[];
+    });
+    const taskPage = (taskData as any)?.job?.tasks;
+    const nodes = taskPage?.nodes || [];
+    allTasks = allTasks.concat(nodes);
+    nextPage = taskPage?.nextPage || null;
+    if (!nextPage || nodes.length < 100) break;
+  }
 
   // 3. Build hierarchy client-side: group children under their parent
   const taskMap = new Map<string, any>();
@@ -1286,7 +1310,7 @@ export interface JTCostItem {
   costGroup?: { id: string; name: string } | null;
 }
 
-export async function getCostItemsForJob(jobId: string, limit = 200): Promise<JTCostItem[]> {
+export async function getCostItemsForJob(jobId: string, limit = 100): Promise<JTCostItem[]> {
   const data = await pave({
     job: {
       $: { id: jobId },
@@ -1326,7 +1350,7 @@ export async function getSpecificationsForJob(jobId: string): Promise<{
 
   // Get all cost items, then filter client-side for specifications
   // (PAVE boolean where filter may not work as expected)
-  const allCostItems = await getCostItemsForJob(jobId, 200);
+  const allCostItems = await getCostItemsForJob(jobId, 100);
   const specItems = allCostItems.filter((item: any) => item.isSpecification === true);
 
   return {
