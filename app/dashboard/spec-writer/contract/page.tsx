@@ -223,6 +223,7 @@ export default function ContractSpecWriter() {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           categoryName: group.name,
+          categoryDescription: group.description || '',
           sectionName: section.name,
           costItems: group.costItems.map((ci) => ({
             name: ci.name,
@@ -300,6 +301,7 @@ export default function ContractSpecWriter() {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
         categoryName: group.name,
+        categoryDescription: group.description || '',
         sectionName: section.name,
         costGroupName: group.name,
         projectScope,

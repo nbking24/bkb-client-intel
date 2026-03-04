@@ -24,6 +24,7 @@ interface FileInfo {
 
 interface RequestBody {
   categoryName: string;
+  categoryDescription?: string;
   sectionName: string;
   costGroupName: string;
   projectScope: string;
@@ -37,6 +38,7 @@ export async function POST(request: NextRequest) {
     const body: RequestBody = await request.json();
     const {
       categoryName,
+      categoryDescription,
       sectionName,
       costGroupName,
       projectScope,
@@ -60,7 +62,12 @@ export async function POST(request: NextRequest) {
 
     userMessage += `BUDGET SECTION: ${sectionName}\n`;
     userMessage += `COST GROUP: ${costGroupName}\n`;
-    userMessage += `CATEGORY: ${categoryName}\n\n`;
+    userMessage += `CATEGORY: ${categoryName}\n`;
+    if (categoryDescription && categoryDescription.trim()) {
+      userMessage += `\nEXISTING SPECIFICATION NOTES FOR THIS CATEGORY:\n${categoryDescription.trim()}\n`;
+      userMessage += `\nIMPORTANT: The above specification notes contain existing details already defined for this category. Incorporate and preserve ALL of these details in the generated specification. Do not contradict or omit any existing selections or notes.\n`;
+    }
+    userMessage += '\n';
 
     userMessage += `COST ITEMS IN THIS CATEGORY:`;
     if (costItems && costItems.length > 0) {
