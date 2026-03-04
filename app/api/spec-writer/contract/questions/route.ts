@@ -18,6 +18,7 @@ interface CostItemInfo {
 
 interface RequestBody {
   categoryName: string;
+  categoryDescription?: string;
   sectionName: string;
   costItems: CostItemInfo[];
   projectScope: string;
@@ -27,7 +28,7 @@ interface RequestBody {
 export async function POST(request: NextRequest) {
   try {
     const body: RequestBody = await request.json();
-    const { categoryName, sectionName, costItems, projectScope, files } = body;
+    const { categoryName, categoryDescription, sectionName, costItems, projectScope, files } = body;
 
     if (!categoryName || !projectScope) {
       return NextResponse.json(
@@ -41,6 +42,9 @@ export async function POST(request: NextRequest) {
 
     userMessage += `\nBUDGET SECTION: ${sectionName}`;
     userMessage += `\nCATEGORY: ${categoryName}`;
+    if (categoryDescription && categoryDescription.trim()) {
+      userMessage += `\nEXISTING CATEGORY SPECIFICATION NOTES:\n${categoryDescription.trim()}`;
+    }
     userMessage += `\nCOST ITEMS IN THIS CATEGORY:`;
     if (costItems && costItems.length > 0) {
       for (const item of costItems) {
