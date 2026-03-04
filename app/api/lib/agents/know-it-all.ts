@@ -356,8 +356,12 @@ const knowItAll: AgentModule = {
 
   canHandle: (message: string) => {
     const lower = message.toLowerCase();
-    // High score for questions, lookups, summaries
-    if (/\?|what|who|when|where|how|tell me|show me|summary|overview|status|history|latest|update|details|information|look up|find out|check on|list|all jobs|all tasks|open tasks|overdue/i.test(lower)) return 0.8;
+    // If the message contains write-operation verbs targeting tasks, yield to jt-entry
+    if (/(update|change|edit|modify|rename|reschedule|push|move|set|adjust).*(task|date|due|deadline|schedule|phase)/i.test(lower)) return 0.2;
+    if (/(create|add|delete|remove|assign|apply).*(task|phase|template)/i.test(lower)) return 0.2;
+    if (/mark.*(complete|done|finished|progress)/i.test(lower)) return 0.2;
+    // High score for questions, lookups, summaries (removed "update" from keywords)
+    if (/\?|what|who|when|where|how|tell me|show me|summary|overview|status|history|latest|details|information|look up|find out|check on|list|all jobs|all tasks|open tasks|overdue/i.test(lower)) return 0.8;
     // Medium score for general client/project references
     if (/client|project|job|contact|note|message|communication|schedule|document|team/i.test(lower)) return 0.5;
     // Low base score - acts as fallback

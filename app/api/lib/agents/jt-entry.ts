@@ -8,6 +8,7 @@ import {
   getTasksForJob,
   getJobSchedule,
   updateTaskProgress,
+  updateTask,
   deleteJTTask,
   createPhaseGroup,
   createPhaseTask,
@@ -34,13 +35,14 @@ const jtEntry: AgentModule = {
       '3. get_job_tasks — List all tasks for a job.\n' +
       '4. create_jobtread_task — Create a new task on a job. Optionally assign to a team member.\n' +
       '5. update_task_progress — Mark a task as not started (0), in progress (0.5), or complete (1).\n' +
-      '6. delete_task — Delete a task from a job. Always confirm with the user before deleting.\n' +
-      '7. create_phase — Create a new phase (task group) on a job schedule.\n' +
-      '8. create_phase_task — Create a task within a specific phase.\n' +
-      '9. apply_standard_template — Apply the BKB 9-phase standard template to a job. This creates: Admin, Concept, Design Development, Contract, Pre-Construction, Production, Inspections, Punch/Closeout, Project Closeout.\n' +
-      '10. get_job_documents — View documents/contracts for a job.\n' +
-      '11. get_job_files — View uploaded files for a job.\n' +
-      '12. move_task_to_phase — Move a task from one phase to another.\n\n' +
+      '6. update_task — Update a task\'s details: name, start date, end date (due date), description, or progress. Use this to reschedule tasks, change due dates, rename tasks, etc.\n' +
+      '7. delete_task — Delete a task from a job. Always confirm with the user before deleting.\n' +
+      '8. create_phase — Create a new phase (task group) on a job schedule.\n' +
+      '9. create_phase_task — Create a task within a specific phase.\n' +
+      '10. apply_standard_template — Apply the BKB 9-phase standard template to a job. This creates: Admin, Concept, Design Development, Contract, Pre-Construction, Production, Inspections, Punch/Closeout, Project Closeout.\n' +
+      '11. get_job_documents — View documents/contracts for a job.\n' +
+      '12. get_job_files — View uploaded files for a job.\n' +
+      '13. move_task_to_phase — Move a task from one phase to another.\n\n' +
       'CRITICAL — CONFIRMATION BEFORE EXECUTION:\n' +
       '- For ANY write operation (create, update, delete, move, apply template), you MUST first:\n' +
       '  1. Use read-only tools (search_jobs, get_job_schedule, get_job_tasks) to gather the needed info\n' +
@@ -126,6 +128,22 @@ const jtEntry: AgentModule = {
           progress: { type: 'number', description: '0 = not started, 0.5 = in progress, 1 = complete' },
         },
         required: ['taskId', 'progress'],
+      },
+    },
+    {
+      name: 'update_task',
+      description: 'Update a task\'s details — name, start date, end date (due date), description, or progress. Use this when the user wants to change/reschedule a task date, rename a task, or update any task field.',
+      input_schema: {
+        type: 'object',
+        properties: {
+          taskId: { type: 'string', description: 'The task ID to update. Use get_job_tasks or get_job_schedule first to find the ID.' },
+          name: { type: 'string', description: 'New task name (optional)' },
+          startDate: { type: 'string', description: 'New start date in YYYY-MM-DD format (optional)' },
+          endDate: { type: 'string', description: 'New end/due date in YYYY-MM-DD format (optional)' },
+          description: { type: 'string', description: 'New description (optional)' },
+          progress: { type: 'number', description: '0 = not started, 0.5 = in progress, 1 = complete (optional)' },
+        },
+        required: ['taskId'],
       },
     },
     {
@@ -220,16 +238,21 @@ const jtEntry: AgentModule = {
     const lower = message.toLowerCase();
     // Very high for explicit task/JT operations
     if (/create.*task|add.*task|schedule.*task|new.*task|make.*task/i.test(lower)) return 0.95;
-    if (/(create|add|update|edit|delete|remove|schedule|assign|change|modify).*(jobtread|job\s*tread|budget|comment|item|phase)/i.test(lower)) return 0.9;
+    if (/(create|add|update|edit|delete|remove|schedule|assign|change|modify).*(jobtread|job\s*tread|budget|comment|item|phase)/i.test(lower)) return 0.95;
+    // High for task date changes / rescheduling
+    if (/(update|change|move|reschedule|push|set|adjust).*(task|date|due|deadline|end date|start date|schedule)/i.test(lower)) return 0.95;
+    if (/(task|date|due|deadline|end date|start date).*(update|change|move|to|push|set|adjust|friday|monday|tuesday|wednesday|thursday|saturday|sunday|tomorrow|next week)/i.test(lower)) return 0.95;
     // High for progress/completion updates
     if (/mark.*(complete|done|finished|progress)|complete.*task|finish.*task|update.*progress/i.test(lower)) return 0.9;
     // High for template/phase operations
     if (/apply.*template|standard.*template|create.*phase|add.*phase|new.*phase/i.test(lower)) return 0.9;
+    // High for any "update task" or "change task" phrasing
+    if (/(update|change|edit|modify|rename|reschedule).*task/i.test(lower)) return 0.9;
     // Medium for general CRUD verbs
     if (/(create|add|schedule|assign).*(task|item|entry|comment)/i.test(lower)) return 0.7;
     if (/move.*task|delete.*task|remove.*task/i.test(lower)) return 0.85;
     // Lower for general action words
-    if (/create|add|schedule|update|edit|delete|assign|move|apply/i.test(lower)) return 0.4;
+    if (/create|add|schedule|update|edit|delete|assign|move|apply|change|modify|rename|reschedule/i.test(lower)) return 0.5;
     return 0.1;
   },
 
@@ -350,6 +373,22 @@ const jtEntry: AgentModule = {
         const result = await updateTaskProgress(input.taskId, progress);
         const statusLabel = progress >= 1 ? 'Complete' : progress > 0 ? 'In Progress' : 'Not Started';
         return JSON.stringify({ success: true, taskId: input.taskId, progress, statusLabel, result });
+      }
+
+      // ========== UPDATE TASK (general) ==========
+      if (name === 'update_task') {
+        const fields: any = {};
+        if (input.name) fields.name = input.name;
+        if (input.startDate) fields.startDate = input.startDate;
+        if (input.endDate) fields.endDate = input.endDate;
+        if (input.description) fields.description = input.description;
+        if (input.progress !== undefined) fields.progress = input.progress;
+        if (Object.keys(fields).length === 0) {
+          return JSON.stringify({ success: false, error: 'No fields to update. Provide at least one of: name, startDate, endDate, description, progress.' });
+        }
+        const result = await updateTask(input.taskId, fields);
+        const changes = Object.entries(fields).map(([k, v]) => k + ': ' + v).join(', ');
+        return JSON.stringify({ success: true, taskId: input.taskId, changes, result });
       }
 
       // ========== DELETE TASK ==========
