@@ -2,12 +2,13 @@
 'use client';
 
 import { useState, useRef, useEffect } from 'react';
-import { MessageSquare, Send, Loader2, Bot, User, ChevronDown } from 'lucide-react';
+import { MessageSquare, Send, Loader2, Bot, User, ChevronDown, CheckCircle, XCircle } from 'lucide-react';
 
 interface ChatMessage {
   role: 'user' | 'assistant';
   content: string;
   agent?: string;
+  needsConfirmation?: boolean;
 }
 
 interface JobOption {
@@ -26,6 +27,7 @@ export default function AskAgentPage() {
   const [jobsLoading, setJobsLoading] = useState(true);
   const [showJobDropdown, setShowJobDropdown] = useState(false);
   const [jobSearch, setJobSearch] = useState('');
+  const [lastAgent, setLastAgent] = useState<string | null>(null);
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const dropdownRef = useRef<HTMLDivElement>(null);
   const jobSearchRef = useRef<HTMLInputElement>(null);
@@ -79,12 +81,9 @@ export default function AskAgentPage() {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
   }, [messages, loading]);
 
-  const handleSubmit = async (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!query.trim() || loading) return;
-
-    const userMsg = query.trim();
-    setQuery('');
+  // Core send function — used by both the form and the confirm button
+  const sendMessage = async (userMsg: string) => {
+    if (!userMsg.trim() || loading) return;
 
     // If a job is selected, prepend context to the message sent to the API
     let messageForApi = userMsg;
@@ -112,6 +111,7 @@ export default function AskAgentPage() {
         },
         body: JSON.stringify({
           messages: allMessages,
+          lastAgent: lastAgent || undefined,
         }),
       });
 
@@ -121,12 +121,17 @@ export default function AskAgentPage() {
       }
 
       const data = await response.json();
+
+      // Track which agent responded for next-message continuity
+      setLastAgent(data.agent || null);
+
       setMessages(prev => [
         ...prev,
         {
           role: 'assistant',
           content: data.reply || 'No response generated.',
           agent: data.agent,
+          needsConfirmation: data.needsConfirmation || false,
         },
       ]);
     } catch (err) {
@@ -141,6 +146,33 @@ export default function AskAgentPage() {
     } finally {
       setLoading(false);
     }
+  };
+
+  const handleSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!query.trim() || loading) return;
+    const userMsg = query.trim();
+    setQuery('');
+    await sendMessage(userMsg);
+  };
+
+  const handleConfirm = async () => {
+    // Clear the confirmation state on the last message
+    setMessages(prev => prev.map((m, i) =>
+      i === prev.length - 1 ? { ...m, needsConfirmation: false } : m
+    ));
+    await sendMessage('Yes, proceed.');
+  };
+
+  const handleDecline = () => {
+    // Clear the confirmation state and add a decline note
+    setMessages(prev => [
+      ...prev.map((m, i) =>
+        i === prev.length - 1 ? { ...m, needsConfirmation: false } : m
+      ),
+      { role: 'user', content: 'No, cancel that.' },
+      { role: 'assistant', content: 'No problem — action cancelled. Let me know if you need anything else.' },
+    ]);
   };
 
   const handleSuggestion = (suggestion: string) => {
@@ -160,6 +192,12 @@ export default function AskAgentPage() {
       return <div key={i} dangerouslySetInnerHTML={{ __html: formatted }} />;
     });
   };
+
+  // Check if the last message needs confirmation (for showing buttons)
+  const lastMsgNeedsConfirm = messages.length > 0 &&
+    messages[messages.length - 1].role === 'assistant' &&
+    messages[messages.length - 1].needsConfirmation &&
+    !loading;
 
   return (
     <div className="flex flex-col h-[calc(100vh-3.5rem-3rem)]">
@@ -336,41 +374,70 @@ export default function AskAgentPage() {
         )}
 
         {messages.map((msg, i) => (
-          <div
-            key={i}
-            className={`flex ${msg.role === 'user' ? 'justify-end' : 'justify-start'} gap-2`}
-          >
-            {msg.role === 'assistant' && (
-              <div
-                className="w-7 h-7 rounded-full flex items-center justify-center flex-shrink-0 mt-1"
-                style={{ background: 'rgba(201,168,76,0.15)' }}
-              >
-                <Bot size={14} style={{ color: '#C9A84C' }} />
-              </div>
-            )}
-            <div className="flex flex-col max-w-[80%]">
-              {msg.role === 'assistant' && msg.agent && (
-                <span className="text-[10px] mb-1 px-1.5 py-0.5 rounded w-fit" style={{ color: '#C9A84C', background: 'rgba(201,168,76,0.08)' }}>
-                  {msg.agent}
-                </span>
+          <div key={i}>
+            <div className={`flex ${msg.role === 'user' ? 'justify-end' : 'justify-start'} gap-2`}>
+              {msg.role === 'assistant' && (
+                <div
+                  className="w-7 h-7 rounded-full flex items-center justify-center flex-shrink-0 mt-1"
+                  style={{ background: 'rgba(201,168,76,0.15)' }}
+                >
+                  <Bot size={14} style={{ color: '#C9A84C' }} />
+                </div>
               )}
-              <div
-                className="px-4 py-3 rounded-lg text-sm leading-relaxed"
-                style={
-                  msg.role === 'user'
-                    ? { background: '#1B3A5C', color: '#e8e0d8' }
-                    : { background: '#242424', color: '#e8e0d8', border: '1px solid rgba(205,162,116,0.08)' }
-                }
-              >
-                {msg.role === 'assistant' ? formatContent(msg.content) : msg.content}
+              <div className="flex flex-col max-w-[80%]">
+                {msg.role === 'assistant' && msg.agent && (
+                  <span className="text-[10px] mb-1 px-1.5 py-0.5 rounded w-fit" style={{ color: '#C9A84C', background: 'rgba(201,168,76,0.08)' }}>
+                    {msg.agent}
+                  </span>
+                )}
+                <div
+                  className="px-4 py-3 rounded-lg text-sm leading-relaxed"
+                  style={
+                    msg.role === 'user'
+                      ? { background: '#1B3A5C', color: '#e8e0d8' }
+                      : { background: '#242424', color: '#e8e0d8', border: '1px solid rgba(205,162,116,0.08)' }
+                  }
+                >
+                  {msg.role === 'assistant' ? formatContent(msg.content) : msg.content}
+                </div>
               </div>
+              {msg.role === 'user' && (
+                <div
+                  className="w-7 h-7 rounded-full flex items-center justify-center flex-shrink-0 mt-1"
+                  style={{ background: 'rgba(27,58,92,0.3)' }}
+                >
+                  <User size={14} style={{ color: '#e8e0d8' }} />
+                </div>
+              )}
             </div>
-            {msg.role === 'user' && (
-              <div
-                className="w-7 h-7 rounded-full flex items-center justify-center flex-shrink-0 mt-1"
-                style={{ background: 'rgba(27,58,92,0.3)' }}
-              >
-                <User size={14} style={{ color: '#e8e0d8' }} />
+
+            {/* Confirm / Decline buttons — shown after the last message if it needs confirmation */}
+            {msg.needsConfirmation && i === messages.length - 1 && !loading && (
+              <div className="flex gap-2 mt-2 ml-9">
+                <button
+                  onClick={handleConfirm}
+                  className="flex items-center gap-1.5 px-4 py-2 rounded-lg text-sm font-medium transition-all hover:brightness-110"
+                  style={{
+                    background: 'linear-gradient(135deg, #22c55e, #16a34a)',
+                    color: '#fff',
+                    boxShadow: '0 2px 8px rgba(34,197,94,0.3)',
+                  }}
+                >
+                  <CheckCircle size={16} />
+                  Approve
+                </button>
+                <button
+                  onClick={handleDecline}
+                  className="flex items-center gap-1.5 px-4 py-2 rounded-lg text-sm font-medium transition-all hover:brightness-110"
+                  style={{
+                    background: '#3a2a2a',
+                    color: '#f87171',
+                    border: '1px solid rgba(248,113,113,0.2)',
+                  }}
+                >
+                  <XCircle size={16} />
+                  Cancel
+                </button>
               </div>
             )}
           </div>
