@@ -190,7 +190,22 @@ export default function AskAgentPage() {
 
   const formatContent = (content: string) => {
     return content.split('\n').map((line, i) => {
-      const formatted = line.replace(/\*\*(.*?)\*\*/g, '<strong>$1</strong>');
+      // Process markdown: bold, then links
+      let formatted = line.replace(/\*\*(.*?)\*\*/g, '<strong>$1</strong>');
+      // Convert markdown links [text](url) to clickable <a> tags
+      formatted = formatted.replace(
+        /\[([^\]]+)\]\((https?:\/\/[^)]+)\)/g,
+        '<a href="$2" target="_blank" rel="noopener noreferrer" style="color:#C9A84C;text-decoration:underline;word-break:break-all;">$1</a>'
+      );
+      // Convert ## headers to styled headers
+      if (line.trim().startsWith('## ')) {
+        const headerText = formatted.replace(/^[\s]*##\s+/, '');
+        return <div key={i} className="font-bold mt-3 mb-1" style={{ color: '#C9A84C', fontSize: '0.9rem' }} dangerouslySetInnerHTML={{ __html: headerText }} />;
+      }
+      if (line.trim().startsWith('### ')) {
+        const headerText = formatted.replace(/^[\s]*###\s+/, '');
+        return <div key={i} className="font-semibold mt-2 mb-0.5" style={{ color: '#e8e0d8', fontSize: '0.85rem' }} dangerouslySetInnerHTML={{ __html: headerText }} />;
+      }
       if (line.trim().startsWith('- ') || line.trim().startsWith('• ')) {
         return <div key={i} className="ml-3" dangerouslySetInnerHTML={{ __html: '&bull; ' + formatted.replace(/^[\s]*[-•]\s*/, '') }} />;
       }

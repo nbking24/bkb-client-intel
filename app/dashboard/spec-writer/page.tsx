@@ -938,6 +938,23 @@ function SpecWriterContent() {
         </div>
       </div>
 
+      {/* Tab Navigation */}
+      <div className="flex gap-1 rounded-lg p-1" style={{ background: '#111' }}>
+        <div
+          className="flex-1 text-center py-2 px-4 rounded-md text-sm font-medium cursor-default"
+          style={{ background: '#1a1a1a', color: '#C9A84C', border: '1px solid rgba(201,168,76,0.3)' }}
+        >
+          Quick Specs
+        </div>
+        <Link
+          href="/dashboard/spec-writer/contract"
+          className="flex-1 text-center py-2 px-4 rounded-md text-sm font-medium transition-colors hover:bg-[#1a1a1a]"
+          style={{ color: '#8a8078' }}
+        >
+          Contract
+        </Link>
+      </div>
+
       {/* ============================================ */}
       {/* INPUT STEP */}
       {/* ============================================ */}

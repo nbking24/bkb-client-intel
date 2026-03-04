@@ -1508,6 +1508,12 @@ export async function updateJob(jobId: string, fields: {
 // COST ITEMS & SPECIFICATIONS
 // ============================================================
 
+export interface JTCostItemFile {
+  id: string;
+  name: string;
+  url: string;
+}
+
 export interface JTCostItem {
   id: string;
   name: string;
@@ -1517,17 +1523,24 @@ export interface JTCostItem {
   unitPrice: number;
   isSpecification: boolean;
   costCode?: { id: string; name: string; number: string } | null;
-  costGroup?: { id: string; name: string } | null;
+  costGroup?: { id: string; name: string; description?: string; files?: JTCostItemFile[]; parentCostGroup?: { id: string; name: string; description?: string; files?: JTCostItemFile[] } | null } | null;
+  files?: JTCostItemFile[];
+  // Custom fields (Status, Internal Notes, Vendor)
+  status?: string | null;
+  internalNotes?: string | null;
+  vendor?: string | null;
 }
 
-export async function getCostItemsForJob(jobId: string, limit = 100): Promise<JTCostItem[]> {
-  // Paginate through all cost items (jobs can have 100+ items)
+export async function getCostItemsForJob(jobId: string, limit = 500): Promise<JTCostItem[]> {
+  // Paginate through all cost items (jobs can have 200+ items)
+  // Page size 50 to avoid 413 errors when customFieldValues are included
+  const PAGE_SIZE = 50;
   let allItems: any[] = [];
   let nextPage: string | null = null;
-  const maxPages = Math.ceil(limit / 100);
+  const maxPages = Math.ceil(limit / PAGE_SIZE);
 
   for (let page = 0; page < maxPages; page++) {
-    const pageParams: Record<string, unknown> = { size: 100 };
+    const pageParams: Record<string, unknown> = { size: PAGE_SIZE };
     if (nextPage) pageParams.page = nextPage;
 
     const data = await pave({
@@ -1545,7 +1558,9 @@ export async function getCostItemsForJob(jobId: string, limit = 100): Promise<JT
             unitPrice: {},
             isSpecification: {},
             costCode: { id: {}, name: {}, number: {} },
-            costGroup: { id: {}, name: {} },
+            costGroup: { id: {}, name: {}, description: {}, files: { nodes: { id: {}, name: {}, url: {} } }, parentCostGroup: { id: {}, name: {}, description: {}, files: { nodes: { id: {}, name: {}, url: {} } } } },
+            files: { nodes: { id: {}, name: {}, url: {} } },
+            customFieldValues: { nodes: { value: {}, customField: { name: {} } } },
           },
         },
       },
@@ -1553,12 +1568,185 @@ export async function getCostItemsForJob(jobId: string, limit = 100): Promise<JT
 
     const costItemPage = (data as any)?.job?.costItems;
     const nodes = costItemPage?.nodes || [];
-    allItems = allItems.concat(nodes);
+    // Flatten files.nodes and extract custom fields inline
+    const mapped = nodes.map((node: any) => {
+      // Parse custom field values into named fields
+      const cfvs = node.customFieldValues?.nodes || [];
+      let status: string | null = null;
+      let internalNotes: string | null = null;
+      let vendor: string | null = null;
+      for (const cfv of cfvs) {
+        const fieldName = cfv.customField?.name;
+        const val = cfv.value;
+        if (!fieldName || !val) continue;
+        if (fieldName === 'Status') status = val;
+        else if (fieldName === 'Internal Notes') internalNotes = val;
+        else if (fieldName === 'Vendor') vendor = val;
+      }
+      return {
+        ...node,
+        files: node.files?.nodes || [],
+        costGroup: node.costGroup ? {
+          ...node.costGroup,
+          files: node.costGroup.files?.nodes || [],
+          parentCostGroup: node.costGroup.parentCostGroup ? {
+            ...node.costGroup.parentCostGroup,
+            files: node.costGroup.parentCostGroup.files?.nodes || [],
+          } : null,
+        } : null,
+        customFieldValues: undefined, // Remove raw CFV data to reduce size
+        status,
+        internalNotes,
+        vendor,
+      };
+    });
+    allItems = allItems.concat(mapped);
     nextPage = costItemPage?.nextPage || null;
-    if (!nextPage || nodes.length < 100) break;
+    if (!nextPage || nodes.length < PAGE_SIZE) break;
   }
 
   return allItems;
+}
+
+
+// ============================================================
+// COST GROUPS — Hierarchy & Updates (for Contract Spec Writer)
+// ============================================================
+
+export interface JTCostGroupItem {
+  id: string;
+  name: string;
+  description?: string;
+  quantity: number;
+  unitCost: number;
+  unitPrice: number;
+}
+
+export interface JTCostGroup {
+  id: string;
+  name: string;
+  description?: string;
+  parentCostGroup?: { id: string; name: string } | null;
+  costItems: JTCostGroupItem[];
+}
+
+/**
+ * Fetch all cost groups for a job with their hierarchy and child cost items.
+ * Used by the Contract Spec Writer to build the budget tree.
+ *
+ * Note: PAVE API does not support costItems nested under costGroups,
+ * so we fetch groups and items separately, then merge by costGroup.id.
+ */
+export async function getCostGroupsForJob(jobId: string): Promise<JTCostGroup[]> {
+  // 1. Fetch all cost groups (without cost items)
+  let allGroups: JTCostGroup[] = [];
+  let nextPage: string | null = null;
+
+  for (let page = 0; page < 10; page++) {
+    const pageParams: Record<string, unknown> = { size: 100 };
+    if (nextPage) pageParams.page = nextPage;
+
+    const data = await pave({
+      job: {
+        $: { id: jobId },
+        costGroups: {
+          $: pageParams,
+          nextPage: {},
+          nodes: {
+            id: {},
+            name: {},
+            description: {},
+            parentCostGroup: { id: {}, name: {} },
+          },
+        },
+      },
+    });
+
+    const groupPage = (data as any)?.job?.costGroups;
+    const nodes = groupPage?.nodes || [];
+    const mapped: JTCostGroup[] = nodes.map((node: any) => ({
+      id: node.id,
+      name: node.name,
+      description: node.description || '',
+      parentCostGroup: node.parentCostGroup || null,
+      costItems: [],
+    }));
+    allGroups = allGroups.concat(mapped);
+    nextPage = groupPage?.nextPage || null;
+    if (!nextPage || nodes.length < 100) break;
+  }
+
+  // 2. Fetch all cost items at the job level and group by costGroup.id
+  let allItems: any[] = [];
+  nextPage = null;
+
+  for (let page = 0; page < 20; page++) {
+    const pageParams: Record<string, unknown> = { size: 100 };
+    if (nextPage) pageParams.page = nextPage;
+
+    const data = await pave({
+      job: {
+        $: { id: jobId },
+        costItems: {
+          $: pageParams,
+          nextPage: {},
+          nodes: {
+            id: {},
+            name: {},
+            description: {},
+            quantity: {},
+            unitCost: {},
+            unitPrice: {},
+            costGroup: { id: {} },
+          },
+        },
+      },
+    });
+
+    const itemPage = (data as any)?.job?.costItems;
+    const nodes = itemPage?.nodes || [];
+    allItems = allItems.concat(nodes);
+    nextPage = itemPage?.nextPage || null;
+    if (!nextPage || nodes.length < 100) break;
+  }
+
+  // 3. Merge: attach cost items to their parent cost groups
+  const itemsByGroup = new Map<string, JTCostGroupItem[]>();
+  for (const item of allItems) {
+    const groupId = item.costGroup?.id;
+    if (!groupId) continue;
+    if (!itemsByGroup.has(groupId)) itemsByGroup.set(groupId, []);
+    itemsByGroup.get(groupId)!.push({
+      id: item.id,
+      name: item.name,
+      description: item.description || '',
+      quantity: item.quantity || 0,
+      unitCost: item.unitCost || 0,
+      unitPrice: item.unitPrice || 0,
+    });
+  }
+
+  for (const group of allGroups) {
+    group.costItems = itemsByGroup.get(group.id) || [];
+  }
+
+  return allGroups;
+}
+
+/**
+ * Update a cost group's description field (used to write contract specs).
+ */
+export async function updateCostGroup(groupId: string, fields: {
+  description?: string;
+  name?: string;
+}) {
+  const params: any = { id: groupId };
+  if (fields.description !== undefined) params.description = fields.description;
+  if (fields.name !== undefined) params.name = fields.name;
+  await pave({
+    updateCostGroup: { $: params },
+  });
+  return { success: true, groupId, updatedFields: Object.keys(fields) };
 }
 
 export async function getSpecificationsForJob(jobId: string): Promise<{

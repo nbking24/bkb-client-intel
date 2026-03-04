@@ -3,25 +3,22 @@ import { AgentModule, AgentContext } from './types';
 import {
   getJob,
   getActiveJobs,
-  getSpecificationsForJob,
+  getCostItemsForJob,
   getDocumentsForJob,
   getFilesForJob,
+  JTCostItem,
 } from '../../../lib/jobtread';
 
 // ============================================================
 // PROJECT DETAILS AGENT
 // Answers questions about project specifications, scope of work,
-// materials, documents, and project details by fetching the
-// Specifications URL from the job's custom fields.
+// materials, documents, and project details by fetching cost items
+// from the PAVE API with full hierarchy (parentCostGroup = area).
 //
-// HIERARCHY AWARENESS:
-// The JobTread Specifications page organizes items in a hierarchy:
-//   Area/Location (e.g. "Exterior / General", "Covered Barn Roof")
+// HIERARCHY:
+//   Area/Location (parentCostGroup, e.g. "🏠 Exterior / General")
 //     └─ Cost Group (e.g. "07 Siding & Exterior Trim")
 //         └─ Line Items (e.g. "James Hardie Lap Siding 7 1/4")
-//
-// This agent preserves that hierarchy when extracting and
-// presenting specification data to the user.
 // ============================================================
 
 /**
@@ -38,194 +35,217 @@ function getSpecificationsUrl(job: any): string | null {
 }
 
 /**
- * Try to fetch and render the specifications page content.
- * The JobTread Specifications URL is a React SPA, so we attempt
- * server-side rendering with Puppeteer.
- *
- * IMPORTANT: This extracts STRUCTURED content that preserves the
- * area/location hierarchy visible on the page. The page has:
- *  - Area tags (yellow badges like "Exterior / General")
- *  - Cost group sections (like "07 Siding & Exterior Trim")
- *  - Individual line items with descriptions
+ * Build a structured text representation from cost items using parentCostGroup hierarchy.
+ * Groups items by Area (parentCostGroup) → Cost Group → Line Items with file attachments.
  */
-async function fetchSpecificationsPageContent(url: string): Promise<string | null> {
-  try {
-    const chromium = (await import('@sparticuz/chromium')).default;
-    const puppeteer = (await import('puppeteer-core')).default;
-
-    const browser = await puppeteer.launch({
-      args: chromium.args,
-      defaultViewport: chromium.defaultViewport,
-      executablePath: await chromium.executablePath(),
-      headless: chromium.headless,
+function formatCostItemsWithHierarchy(
+  items: JTCostItem[],
+  searchTerm?: string
+): { content: string; attachments: Array<{ fileName: string; downloadUrl: string; context: string }> } {
+  // Optionally filter items by search term
+  let filtered = items;
+  if (searchTerm) {
+    const term = searchTerm.toLowerCase();
+    filtered = items.filter((item) => {
+      const searchable = [
+        item.name,
+        item.description,
+        item.costGroup?.name,
+        item.costGroup?.description,
+        item.costGroup?.parentCostGroup?.name,
+        item.costGroup?.parentCostGroup?.description,
+        item.costCode?.name,
+        item.costCode?.number,
+        item.status,
+        item.internalNotes,
+        item.vendor,
+      ]
+        .filter(Boolean)
+        .join(' ')
+        .toLowerCase();
+      return searchable.includes(term);
     });
 
-    const page = await browser.newPage();
-    await page.goto(url, { waitUntil: 'networkidle2', timeout: 30000 });
-
-    // Wait for SPA to render
-    await new Promise(r => setTimeout(r, 3000));
-
-    // Extract structured content preserving hierarchy
-    const content = await page.evaluate(() => {
-      const lines: string[] = [];
-      let currentArea = 'General';
-      let currentCostGroup = '';
-
-      // The specifications page renders content in a scrollable container.
-      // We traverse all elements looking for:
-      // 1. Area/location tags (colored badges/chips)
-      // 2. Cost group headers (section headings with numbers like "07 Siding")
-      // 3. Item names and descriptions (nested under groups)
-
-      const main = document.querySelector('main') || document.body;
-      const allElements = main.querySelectorAll('*');
-
-      for (const el of allElements) {
-        const tag = el.tagName.toLowerCase();
-        const text = el.textContent?.trim() || '';
-        if (!text) continue;
-
-        // Detect area/location tags — these are typically styled badges/chips
-        // They contain text like "Exterior / General", "Covered Barn Roof", etc.
-        // They often have a colored background and appear as inline elements
-        const style = window.getComputedStyle(el);
-        const bgColor = style.backgroundColor;
-        const isChip = (
-          el.classList.contains('chip') ||
-          el.classList.contains('badge') ||
-          el.classList.contains('tag') ||
-          el.getAttribute('data-tag') !== null ||
-          // Yellow/colored background badges (not white/transparent)
-          (bgColor && bgColor !== 'rgba(0, 0, 0, 0)' && bgColor !== 'transparent' &&
-           bgColor !== 'rgb(255, 255, 255)' &&
-           el.children.length === 0 &&
-           text.length < 60 &&
-           !text.match(/^\d/) &&
-           (text.includes('/') || text.includes('Room') || text.includes('Floor') ||
-            text.includes('Exterior') || text.includes('Interior') ||
-            text.includes('Kitchen') || text.includes('Bath') ||
-            text.includes('Garage') || text.includes('Barn') ||
-            text.includes('Pool') || text.includes('Porch') ||
-            text.includes('Deck') || text.includes('Patio') ||
-            text.includes('Basement') || text.includes('Attic') ||
-            text.includes('Master') || text.includes('Covered') ||
-            text.includes('General')))
-        );
-
-        if (isChip && text.length > 2 && text.length < 60) {
-          currentArea = text;
-          lines.push('');
-          lines.push('═══════════════════════════════════════════');
-          lines.push('📍 AREA: ' + currentArea);
-          lines.push('═══════════════════════════════════════════');
-          continue;
-        }
-
-        // Detect cost group headers (like "02 Sitework & Demolition")
-        // These are typically h2/h3/h4 or bold text starting with a number
-        const isCostGroupHeader = (
-          (tag === 'h2' || tag === 'h3' || tag === 'h4') &&
-          /^\d{2}\s/.test(text)
-        ) || (
-          style.fontWeight === 'bold' || parseInt(style.fontWeight) >= 600
-        ) && /^\d{2}\s/.test(text) && text.length < 80 && el.children.length <= 1;
-
-        if (isCostGroupHeader && text.length > 3 && text.length < 80) {
-          currentCostGroup = text;
-          lines.push('');
-          lines.push('--- ' + currentCostGroup + ' [Area: ' + currentArea + '] ---');
-          continue;
-        }
-      }
-
-      // If structured extraction didn't capture much, fall back to innerText
-      // but add area markers where we can detect them
-      if (lines.filter(l => l.trim()).length < 10) {
-        const rawText = main.innerText || '';
-        return rawText;
-      }
-
-      return lines.join('\n');
-    });
-
-    // If structured extraction was sparse, fall back to enhanced innerText
-    let finalContent = content || '';
-
-    if (!finalContent.includes('AREA:') && !finalContent.includes('═══')) {
-      // Structured extraction didn't work well, use enhanced innerText
-      const rawContent = await page.evaluate(() => {
-        const main = document.querySelector('main') || document.body;
-        return main.innerText || '';
+    // If no direct match, try broader matching on area names
+    if (filtered.length === 0) {
+      filtered = items.filter((item) => {
+        const areaName = (item.costGroup?.parentCostGroup?.name || '').toLowerCase();
+        return areaName.includes(term);
       });
-      finalContent = rawContent;
+    }
+  }
+
+  // Collect all file attachments (from cost items, cost groups, and parent cost groups)
+  const allAttachments: Array<{ fileName: string; downloadUrl: string; context: string }> = [];
+  const seenFileIds = new Set<string>(); // Deduplicate files by ID
+
+  // Helper to collect files without duplicates
+  function collectFile(file: any, context: string) {
+    if (!file?.url) return;
+    const fileKey = file.id || file.url;
+    if (seenFileIds.has(fileKey)) return;
+    seenFileIds.add(fileKey);
+    allAttachments.push({
+      fileName: file.name || 'attachment',
+      downloadUrl: file.url,
+      context,
+    });
+  }
+
+  // Build hierarchy: Area → Cost Group → Items
+  const areaMap = new Map<string, Map<string, JTCostItem[]>>();
+  // Track cost group files separately (keyed by group name to deduplicate)
+  const groupFiles = new Map<string, Array<{ name: string; url: string }>>();
+  // Track parent cost group (area) files
+  const areaFiles = new Map<string, Array<{ name: string; url: string }>>();
+
+  for (const item of filtered) {
+    const areaName = item.costGroup?.parentCostGroup?.name || 'General';
+    const groupName = item.costGroup?.name || 'Ungrouped';
+
+    if (!areaMap.has(areaName)) areaMap.set(areaName, new Map());
+    const groupMap = areaMap.get(areaName)!;
+    if (!groupMap.has(groupName)) groupMap.set(groupName, []);
+    groupMap.get(groupName)!.push(item);
+
+    // Collect cost item files
+    if (item.files && item.files.length > 0) {
+      for (const file of item.files) {
+        collectFile(file, groupName + ' > ' + item.name);
+      }
     }
 
-    await browser.close();
-    return finalContent || null;
-  } catch (err: any) {
-    console.warn('[project-details] Puppeteer fetch failed:', err?.message);
-    return null;
-  }
-}
+    // Collect cost GROUP files (attached to the trade/category level)
+    if (item.costGroup?.files && item.costGroup.files.length > 0) {
+      if (!groupFiles.has(groupName)) groupFiles.set(groupName, []);
+      for (const file of item.costGroup.files) {
+        if (file.url) {
+          const existing = groupFiles.get(groupName)!;
+          if (!existing.some(f => f.url === file.url)) {
+            existing.push(file);
+            collectFile(file, groupName);
+          }
+        }
+      }
+    }
 
-/**
- * Build a text representation of specifications from PAVE API data.
- * This is the fallback when Puppeteer is not available.
- * Preserves hierarchy: Area/Location → Cost Group → Items
- */
-function formatPaveSpecifications(specs: any): string {
+    // Collect parent cost group (AREA) files
+    if (item.costGroup?.parentCostGroup?.files && item.costGroup.parentCostGroup.files.length > 0) {
+      if (!areaFiles.has(areaName)) areaFiles.set(areaName, []);
+      for (const file of item.costGroup.parentCostGroup.files) {
+        if (file.url) {
+          const existing = areaFiles.get(areaName)!;
+          if (!existing.some(f => f.url === file.url)) {
+            existing.push(file);
+            collectFile(file, areaName);
+          }
+        }
+      }
+    }
+  }
+
+  // Format output
   const lines: string[] = [];
+  lines.push('SPECIFICATIONS (' + filtered.length + ' items' + (searchTerm ? ' matching "' + searchTerm + '"' : '') + ')');
+  lines.push('');
 
-  if (specs.description) {
-    lines.push('SPECIFICATIONS DESCRIPTION:');
-    lines.push(specs.description.slice(0, 3000));
+  for (const [areaName, groupMap] of areaMap) {
     lines.push('');
-  }
+    lines.push('═══════════════════════════════════════════');
+    lines.push('📍 AREA: ' + areaName);
+    lines.push('═══════════════════════════════════════════');
 
-  // Documents section
-  if (specs.documents && specs.documents.length > 0) {
-    lines.push('PROJECT DOCUMENTS (' + specs.documents.length + '):');
-    for (const doc of specs.documents) {
-      lines.push('  • ' + doc.name + ' [' + doc.type + '] — ' + doc.status);
+    // Area-level description (from parent cost group)
+    const firstGroupInArea = Array.from(groupMap.values())[0];
+    const areaDesc = firstGroupInArea?.[0]?.costGroup?.parentCostGroup?.description;
+    if (areaDesc) {
+      const desc = areaDesc.length > 800 ? areaDesc.slice(0, 800) + '...' : areaDesc;
+      lines.push('  [Area Note: ' + desc + ']');
+    }
+
+    // Area-level files (from parent cost group)
+    const areaFileList = areaFiles.get(areaName);
+    if (areaFileList && areaFileList.length > 0) {
+      for (const file of areaFileList) {
+        lines.push('  [📎 ' + file.name + '](' + file.url + ')');
+      }
     }
     lines.push('');
-  }
 
-  // Cost items grouped by cost group
-  // NOTE: The PAVE API doesn't directly expose the "area/location" tags
-  // that appear on the Specifications page. The area tags come from
-  // a different data structure in the SPA. So in PAVE fallback mode,
-  // we group by cost group only.
-  const grouped = specs.groupedItems || {};
-  const groupNames = Object.keys(grouped);
+    for (const [groupName, groupItems] of groupMap) {
+      lines.push('--- ' + groupName + ' (' + groupItems.length + ' items) ---');
 
-  if (groupNames.length > 0) {
-    lines.push('SCOPE OF WORK / SPECIFICATIONS (' + specs.items.length + ' total items):');
-    lines.push('');
+      // Cost group description (critical spec notes like "Existing door planned to remain")
+      const groupDesc = groupItems[0]?.costGroup?.description;
+      if (groupDesc) {
+        const desc = groupDesc.length > 800 ? groupDesc.slice(0, 800) + '...' : groupDesc;
+        lines.push('  [Group Specification: ' + desc + ']');
+      }
 
-    for (const groupName of groupNames) {
-      const items = grouped[groupName];
-      lines.push('--- ' + groupName + ' (' + items.length + ' items) ---');
+      // Cost group-level files
+      const gFiles = groupFiles.get(groupName);
+      if (gFiles && gFiles.length > 0) {
+        for (const file of gFiles) {
+          lines.push('  [📎 ' + file.name + '](' + file.url + ')');
+        }
+      }
 
-      for (const item of items) {
+      for (const item of groupItems) {
         const code = item.costCode ? ' (' + item.costCode.number + ')' : '';
         lines.push('  • ' + item.name + code);
         if (item.description) {
-          // Preserve description structure - it may contain area/location info
-          lines.push('    ' + item.description.slice(0, 800));
+          const desc = item.description.length > 600
+            ? item.description.slice(0, 600) + '...'
+            : item.description;
+          lines.push('    ' + desc);
+        }
+        // Custom fields: Status, Vendor, Internal Notes
+        const customParts: string[] = [];
+        if (item.status) customParts.push('Status: ' + item.status);
+        if (item.vendor) customParts.push('Vendor: ' + item.vendor);
+        if (customParts.length > 0) {
+          lines.push('    [' + customParts.join(' | ') + ']');
+        }
+        if (item.internalNotes) {
+          lines.push('    Internal Notes: ' + item.internalNotes);
+        }
+        // Inline cost item file links
+        if (item.files && item.files.length > 0) {
+          for (const file of item.files) {
+            if (file.url) {
+              lines.push('    [📎 ' + file.name + '](' + file.url + ')');
+            }
+          }
         }
       }
       lines.push('');
     }
   }
 
-  if (specs.footer) {
-    lines.push('SPECIFICATIONS FOOTER:');
-    lines.push(specs.footer.slice(0, 2000));
+  if (filtered.length === 0) {
+    lines.push(searchTerm
+      ? 'No specifications found matching "' + searchTerm + '". Try a broader term.'
+      : 'No specification items found for this job.');
   }
 
-  return lines.join('\n');
+  // Add a dedicated RELATED FILES section at the end for high visibility
+  if (allAttachments.length > 0) {
+    lines.push('');
+    lines.push('═══════════════════════════════════════════');
+    lines.push('📄 RELATED FILES & DOCUMENTS (' + allAttachments.length + ' files)');
+    lines.push('═══════════════════════════════════════════');
+    lines.push('IMPORTANT: You MUST include these file links in your response so the user can click to view them.');
+    lines.push('');
+    for (const att of allAttachments) {
+      lines.push('  • [📎 ' + att.fileName + '](' + att.downloadUrl + ')');
+      lines.push('    Context: ' + att.context);
+    }
+  }
+
+  return {
+    content: lines.join('\n'),
+    attachments: allAttachments,
+  };
 }
 
 const projectDetails: AgentModule = {
@@ -242,16 +262,21 @@ const projectDetails: AgentModule = {
       '- Project documents (contracts, change orders, permits, plan sets)\n' +
       '- Scope of work items grouped by AREA/LOCATION and then by COST GROUP (trade category)\n' +
       '- Material specifications and descriptions\n' +
-      '- Cost codes and cost groups\n\n' +
+      '- Cost codes and cost groups\n' +
+      '- File attachments (PDFs, images, drawings) linked to specification items\n\n' +
 
       'CRITICAL HIERARCHY RULES:\n' +
       'The specifications are organized in a hierarchy that you MUST respect in your answers:\n' +
       '  1. AREA / LOCATION (e.g. "Exterior / General", "Covered Barn Roof", "Kitchen", "Master Bath")\n' +
-      '     These define WHERE the work is being done.\n' +
+      '     These define WHERE the work is being done. May include an [Area Note: ...] with area-level details.\n' +
       '  2. COST GROUP (e.g. "07 Siding & Exterior Trim", "09 Drywall & Painting")\n' +
-      '     These define the TRADE CATEGORY.\n' +
+      '     These define the TRADE CATEGORY. May include a [Group Specification: ...] with critical scope notes.\n' +
       '  3. LINE ITEMS (e.g. "James Hardie Lap Siding 7 1/4 Exposure")\n' +
       '     These are the specific materials and work items.\n\n' +
+      'IMPORTANT: [Group Specification: ...] notes contain CRITICAL scope details written by the project manager.\n' +
+      'These notes may override or clarify what the line items suggest. For example, a group called "Swinging Door(s)"\n' +
+      'might have line items for door hardware but a Group Specification saying "Existing door planned to remain."\n' +
+      'ALWAYS read and respect Group Specification notes — they take PRIORITY over assumptions based on line item names.\n\n' +
 
       'When answering questions:\n' +
       '- ALWAYS organize your response by AREA/LOCATION first, then by items within each area.\n' +
@@ -261,15 +286,34 @@ const projectDetails: AgentModule = {
       '  * "Covered Barn Roof" has Board & Batten Siding\n' +
       '  Then your answer should clearly state which siding goes in which area.\n' +
       '- NEVER lump items from different areas together without identifying the area.\n' +
-      '- If the data includes area markers (like "📍 AREA:" or "[Area: ...]"), use those.\n' +
-      '- If the data does NOT have clear area markers, organize by cost group instead.\n\n' +
+      '- If the data includes area markers (like "📍 AREA:" or "[Area: ...]"), use those.\n\n' +
 
-      'FORMATTING RULES:\n' +
-      '- Use clear section headers for each area/location.\n' +
+      'RESPONSE FORMAT:\n' +
+      '- Start with a brief SUMMARY answer (2-3 sentences) for quick reference.\n' +
+      '- Then provide the DETAILED specification data organized by area.\n' +
       '- Include specific details: measurements, quantities, materials, brands, models.\n' +
       '- Quote directly from the specifications when possible.\n' +
-      '- If multiple options exist (like Option 1, Option 2), list each option with its details.\n' +
-      '- Keep responses well-organized but thorough.\n\n' +
+      '- If multiple options exist (like Option 1, Option 2), list each option with its details.\n\n' +
+
+      'ATTACHMENT / FILE LINKS (MANDATORY):\n' +
+      '- You MUST include ALL file links from the tool response in your answer. This is critical.\n' +
+      '- File links appear in the content as [📎 FileName](url) and also in the RELATED FILES section.\n' +
+      '- Format attachment links as: [📎 FileName](downloadUrl)\n' +
+      '- Place relevant attachment links near the specification items they relate to.\n' +
+      '- For example, if discussing windows and there is a window-related PDF, \n' +
+      '  include the link right after the window specifications.\n' +
+      '- After your detailed answer, include a "Related Documents" section listing ALL file links.\n' +
+      '- The user needs to be able to click these links to view PDFs, images, and other documents.\n' +
+      '- NEVER omit file links. They are a critical part of the specification data.\n\n' +
+
+      'CUSTOM FIELDS (Status, Vendor, Internal Notes):\n' +
+      '- Each line item may have custom fields: Status, Vendor, and Internal Notes.\n' +
+      '- Status indicates the ordering/procurement status (e.g. "4. Ordered/Finalized", "1. Needs Review").\n' +
+      '- Vendor indicates who is supplying or installing the item.\n' +
+      '- Internal Notes contain additional BKB team notes about the item.\n' +
+      '- ALWAYS include these custom fields in your response when they are present.\n' +
+      '- If a user asks about ordering status, procurement, or vendors, reference these fields specifically.\n' +
+      '- These appear in the data as [Status: ... | Vendor: ...] and "Internal Notes: ..." lines.\n\n' +
 
       'OTHER INSTRUCTIONS:\n' +
       '- Use the get_project_details tool to fetch specifications for a job.\n' +
@@ -305,9 +349,10 @@ const projectDetails: AgentModule = {
       name: 'get_project_details',
       description:
         'Get the full project specifications for a job. Returns all specification items organized by ' +
-        'AREA/LOCATION and COST GROUP, preserving the hierarchy from the Specifications page. ' +
+        'AREA/LOCATION and COST GROUP, preserving the hierarchy. ' +
         'Areas define WHERE work is done (e.g. "Exterior / General", "Covered Barn Roof"). ' +
         'Cost groups define the TRADE (e.g. "07 Siding"). Line items are the specific specs. ' +
+        'Also returns file attachments (PDFs, images) linked to spec items. ' +
         'Use the search parameter to filter by keyword (e.g. "siding", "door", "window").',
       input_schema: {
         type: 'object',
@@ -365,9 +410,7 @@ const projectDetails: AgentModule = {
       return 0.90;
     if (/(project details|project info|project overview)/i.test(lower))
       return 0.90;
-    // "give me all the details" / "details of the siding" etc.
     if (/(give me.*detail|all.*detail|detail.*of)/i.test(lower)) return 0.92;
-    // "where is it getting installed" / "where does it go"
     if (/(where.*install|where.*go|where.*being|where.*getting)/i.test(lower))
       return 0.93;
 
@@ -470,186 +513,81 @@ const projectDetails: AgentModule = {
 
       if (name === 'get_project_details') {
         const jobId = input.jobId;
-        const searchTerm = (input.search || '').toLowerCase().trim();
+        const searchTerm = (input.search || '').trim();
 
         // Step 1: Get job info and Specifications URL
         const job = await getJob(jobId);
         const specUrl = job ? getSpecificationsUrl(job) : null;
 
-        // Step 2: Try to fetch the actual Specifications page content
-        let pageContent: string | null = null;
-        if (specUrl) {
-          pageContent = await fetchSpecificationsPageContent(specUrl);
-        }
+        // Step 2: Fetch all cost items with hierarchy (parentCostGroup = area) and files
+        const allCostItems = await getCostItemsForJob(jobId, 500);
 
-        if (pageContent) {
-          let content = pageContent;
-
-          // Filter by search term if provided
-          if (searchTerm) {
-            const lines = content.split('\n');
-            const matchingLines: string[] = [];
-            let lastAreaHeader = '';
-            let lastGroupHeader = '';
-
-            for (let i = 0; i < lines.length; i++) {
-              const line = lines[i];
-
-              // Track current area and group headers
-              if (line.includes('AREA:') || line.includes('═══')) {
-                lastAreaHeader = line;
-                continue;
-              }
-              if (line.startsWith('--- ') && line.includes('[Area:')) {
-                lastGroupHeader = line;
-                continue;
-              }
-
-              // Check if this line matches the search term
-              if (line.toLowerCase().includes(searchTerm)) {
-                // Include the area header if we haven't already
-                if (
-                  lastAreaHeader &&
-                  !matchingLines.includes(lastAreaHeader)
-                ) {
-                  matchingLines.push('');
-                  matchingLines.push(lastAreaHeader);
-                }
-                // Include the group header if we haven't already
-                if (
-                  lastGroupHeader &&
-                  !matchingLines.includes(lastGroupHeader)
-                ) {
-                  matchingLines.push(lastGroupHeader);
-                }
-
-                // Include context lines (2 before, 5 after for description)
-                const start = Math.max(0, i - 2);
-                const end = Math.min(lines.length, i + 6);
-                for (let j = start; j < end; j++) {
-                  if (!matchingLines.includes(lines[j])) {
-                    matchingLines.push(lines[j]);
-                  }
-                }
-              }
-            }
-
-            if (matchingLines.length > 0) {
-              content = matchingLines.join('\n');
-            } else {
-              // Broader search - check if ANY line matches
-              const broadMatch = lines.filter(l =>
-                l.toLowerCase().includes(searchTerm)
-              );
-              if (broadMatch.length > 0) {
-                content = broadMatch.join('\n');
-              } else {
-                content =
-                  'No content found matching "' +
-                  input.search +
-                  '" in the specifications.\n' +
-                  'Try a broader search term or check the Specifications URL directly.';
-              }
+        // CRITICAL: Only include items where isSpecification=true.
+        // The public Specifications URL page only shows specification items.
+        // Non-specification items (budget line items, internal costs, etc.) must be excluded
+        // to match what the client sees on the Specifications page.
+        //
+        // SECONDARY FILTER: Exclude items still in early selection stages.
+        // Status "1. Needs Review" or "2. Internal Selection Needed" = not yet approved/selected.
+        // Items with no Status field, or Status at stage 3+ (e.g. "3. Selection Made",
+        // "4. Ordered/Finalized") are considered approved and included.
+        const UNAPPROVED_STATUSES = ['1.', '2.'];
+        const costItems = allCostItems.filter((item: any) => {
+          if (item.isSpecification !== true) return false;
+          // If item has a Status starting with 1. or 2., it's not yet approved — exclude
+          if (item.status) {
+            const statusTrimmed = item.status.trim();
+            if (UNAPPROVED_STATUSES.some((prefix: string) => statusTrimmed.startsWith(prefix))) {
+              return false;
             }
           }
+          return true;
+        });
 
-          // Truncate to fit in context
-          if (content.length > 15000) {
-            content =
-              content.slice(0, 15000) +
-              '\n\n... [Content truncated. ' +
-              (pageContent.length - 15000) +
-              ' more characters available. Use a search term to narrow results.]';
-          }
-
+        if (!costItems || costItems.length === 0) {
           return JSON.stringify({
-            success: true,
-            source: 'specifications_page',
+            success: false,
             specificationsUrl: specUrl,
-            hierarchyNote:
-              'Content is organized by AREA/LOCATION → COST GROUP → LINE ITEMS. ' +
-              'Look for "📍 AREA:" markers or "[Area: ...]" tags to identify which area each item belongs to.',
-            content: content,
+            message:
+              'No specification items found for this job.' +
+              (specUrl ? ' You can view the specifications page directly at: ' + specUrl : ''),
           });
         }
 
-        // Step 3: Fallback to PAVE API data
-        const specs = await getSpecificationsForJob(jobId);
-        const paveContent = formatPaveSpecifications(specs);
+        // Step 3: Build formatted hierarchy with area grouping and file links
+        const { content, attachments } = formatCostItemsWithHierarchy(costItems, searchTerm || undefined);
 
-        if (searchTerm) {
-          const lines = paveContent.split('\n');
-          const matchingLines: string[] = [];
-          let lastGroupHeader = '';
-
-          for (let i = 0; i < lines.length; i++) {
-            const line = lines[i];
-            if (line.startsWith('--- ')) {
-              lastGroupHeader = line;
-              continue;
-            }
-            if (line.toLowerCase().includes(searchTerm)) {
-              if (
-                lastGroupHeader &&
-                !matchingLines.includes(lastGroupHeader)
-              ) {
-                matchingLines.push('');
-                matchingLines.push(lastGroupHeader);
-              }
-              const start = Math.max(0, i - 1);
-              const end = Math.min(lines.length, i + 3);
-              for (let j = start; j < end; j++) {
-                if (!matchingLines.includes(lines[j])) {
-                  matchingLines.push(lines[j]);
-                }
-              }
-            }
-          }
-
-          if (matchingLines.length === 0) {
-            return JSON.stringify({
-              success: true,
-              source: 'pave_api',
-              specificationsUrl: specUrl,
-              message:
-                'No specifications found matching "' +
-                input.search +
-                '".' +
-                (specUrl
-                  ? ' You can check the full specifications at: ' + specUrl
-                  : ''),
-            });
-          }
-
-          return JSON.stringify({
-            success: true,
-            source: 'pave_api',
-            specificationsUrl: specUrl,
-            totalItems: specs.items.length,
-            hierarchyNote:
-              'PAVE API data is organized by COST GROUP. Area/location data may not be fully available in this view. ' +
-              'Check the Specifications URL for complete area assignments.',
-            content: matchingLines.join('\n'),
-          });
-        }
-
-        let content = paveContent;
-        if (content.length > 15000) {
-          content =
-            content.slice(0, 15000) +
-            '\n\n... [Content truncated. Use a search term to narrow results.]';
+        // Truncate if too long
+        let finalContent = content;
+        if (finalContent.length > 15000) {
+          finalContent =
+            finalContent.slice(0, 15000) +
+            '\n\n... [Content truncated. ' +
+            (content.length - 15000) +
+            ' more characters. Use a search term to narrow results.]';
         }
 
         return JSON.stringify({
           success: true,
-          source: 'pave_api',
+          source: 'jobtread_specifications',
           specificationsUrl: specUrl,
-          totalItems: specs.items.length,
-          totalGroups: Object.keys(specs.groupedItems || {}).length,
+          totalItems: costItems.length,
+          note: 'Only showing approved specification items (isSpecification=true, Status not in early selection stages).',
+          matchedItems: searchTerm
+            ? finalContent.match(/•/g)?.length || 0
+            : costItems.length,
           hierarchyNote:
-            'PAVE API data is organized by COST GROUP. Area/location tags may not be fully available. ' +
-            'Check the Specifications URL for complete area assignments.',
-          content: content,
+            'Content is organized by AREA/LOCATION → COST GROUP → LINE ITEMS. ' +
+            'Look for "📍 AREA:" markers to identify which area each item belongs to. ' +
+            'ALWAYS organize your response by area first. Start with a brief summary, then details.',
+          content: finalContent,
+          attachments: attachments.length > 0 ? attachments : undefined,
+          attachmentNote: attachments.length > 0
+            ? 'MANDATORY: You MUST include ALL ' + attachments.length + ' file links in your response. ' +
+              'Format each as: [📎 FileName](url). ' +
+              'Add a "Related Documents" section at the end with all file links. ' +
+              'These are clickable PDFs/images the user needs to access.'
+            : undefined,
         });
       }
 
