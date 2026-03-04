@@ -19,6 +19,7 @@ export async function POST(req: NextRequest) {
       opportunityName,
       jtJobId,
       pipelineStage,
+      lastAgent,
     } = body;
 
     if (!Array.isArray(messages) || messages.length === 0) {
@@ -36,18 +37,20 @@ export async function POST(req: NextRequest) {
       communicationChannel: getCommChannel(pipelineStage || ''),
     };
 
-    // Route to the best agent
+    // Route to the best agent (pass lastAgent for confirmation continuity)
     const result = await routeMessage(
       messages.map((m: { role: string; content: string }) => ({
         role: m.role,
         content: m.content,
       })),
-      ctx
+      ctx,
+      lastAgent || undefined
     );
 
     return NextResponse.json({
       reply: result.reply,
       agent: result.agentName,
+      needsConfirmation: result.needsConfirmation || false,
     });
   } catch (err) {
     console.error('Chat error:', err);
