@@ -25,8 +25,10 @@ export default function AskAgentPage() {
   const [selectedJob, setSelectedJob] = useState<JobOption | null>(null);
   const [jobsLoading, setJobsLoading] = useState(true);
   const [showJobDropdown, setShowJobDropdown] = useState(false);
+  const [jobSearch, setJobSearch] = useState('');
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const dropdownRef = useRef<HTMLDivElement>(null);
+  const jobSearchRef = useRef<HTMLInputElement>(null);
 
   // Fetch active jobs on mount
   useEffect(() => {
@@ -198,14 +200,33 @@ export default function AskAgentPage() {
               style={{
                 background: '#1a1a1a',
                 border: '1px solid rgba(205,162,116,0.15)',
-                maxHeight: '300px',
+                maxHeight: '340px',
                 width: '320px',
               }}
             >
+              {/* Search input */}
+              <div className="px-2 py-2" style={{ borderBottom: '1px solid rgba(205,162,116,0.08)' }}>
+                <input
+                  ref={jobSearchRef}
+                  type="text"
+                  placeholder="Type to search projects..."
+                  value={jobSearch}
+                  onChange={(e) => setJobSearch(e.target.value)}
+                  autoFocus
+                  className="w-full px-2 py-1.5 rounded text-xs outline-none"
+                  style={{
+                    background: '#242424',
+                    color: '#e8e0d8',
+                    border: '1px solid rgba(205,162,116,0.15)',
+                  }}
+                />
+              </div>
+
               <button
                 onClick={() => {
                   setSelectedJob(null);
                   setShowJobDropdown(false);
+                  setJobSearch('');
                 }}
                 className="w-full text-left px-3 py-2 text-xs transition-colors hover:bg-[#242424]"
                 style={{ color: '#8a8078', borderBottom: '1px solid rgba(205,162,116,0.08)' }}
@@ -213,7 +234,7 @@ export default function AskAgentPage() {
                 No project selected (search all)
               </button>
 
-              <div className="overflow-y-auto" style={{ maxHeight: '260px' }}>
+              <div className="overflow-y-auto" style={{ maxHeight: '240px' }}>
                 {jobsLoading ? (
                   <div className="px-3 py-4 text-xs text-center" style={{ color: '#8a8078' }}>
                     <Loader2 size={14} className="animate-spin inline mr-2" />
@@ -223,13 +244,29 @@ export default function AskAgentPage() {
                   <div className="px-3 py-4 text-xs text-center" style={{ color: '#8a8078' }}>
                     No active projects found
                   </div>
-                ) : (
-                  jobs.map((job) => (
+                ) : (() => {
+                  const q = jobSearch.toLowerCase().trim();
+                  const filtered = q
+                    ? jobs.filter((j) =>
+                        j.name.toLowerCase().includes(q) ||
+                        j.number.includes(q) ||
+                        j.clientName.toLowerCase().includes(q)
+                      )
+                    : jobs;
+                  if (filtered.length === 0) {
+                    return (
+                      <div className="px-3 py-4 text-xs text-center" style={{ color: '#8a8078' }}>
+                        No projects match &ldquo;{jobSearch}&rdquo;
+                      </div>
+                    );
+                  }
+                  return filtered.map((job) => (
                     <button
                       key={job.id}
                       onClick={() => {
                         setSelectedJob(job);
                         setShowJobDropdown(false);
+                        setJobSearch('');
                       }}
                       className="w-full text-left px-3 py-2 text-xs transition-colors hover:bg-[#242424] flex flex-col"
                       style={{
@@ -242,8 +279,8 @@ export default function AskAgentPage() {
                         <span style={{ color: '#8a8078', fontSize: '10px' }}>{job.clientName}</span>
                       )}
                     </button>
-                  ))
-                )}
+                  ));
+                })()}
               </div>
             </div>
           )}
