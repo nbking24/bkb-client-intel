@@ -12,7 +12,7 @@ async function pave(query: any) {
 }
 
 export async function GET() {
-  const jobId = '22PEn8bysN7v'; // Wooley job
+  const jobId = '22PPpru4HpCa'; // Johnson - 4 Season Room (from screenshot)
 
   // Test what fields exist on costGroups
   // Try more field names + try looking at the actual group structure
@@ -120,21 +120,33 @@ export async function GET() {
   results.hierarchy = hierarchy;
 
   // Check which groups have isSpecification=true items
-  // This tells us which level the visibility toggle is set at
-  const specData = await pave({
-    job: {
-      $: { id: jobId },
-      costItems: {
-        $: { size: 200 },
-        nodes: {
-          id: {},
-          name: {},
-          isSpecification: {},
-          costGroup: { id: {}, name: {}, parentCostGroup: { id: {}, name: {}, parentCostGroup: { id: {}, name: {} } } },
+  // Use smaller page size to avoid 413
+  let allSpecNodes: any[] = [];
+  let specNextPage: string | null = null;
+  for (let p = 0; p < 10; p++) {
+    const pp: Record<string, unknown> = { size: 50 };
+    if (specNextPage) pp.page = specNextPage;
+    const specData = await pave({
+      job: {
+        $: { id: jobId },
+        costItems: {
+          $: pp,
+          nextPage: {},
+          nodes: {
+            id: {},
+            name: {},
+            isSpecification: {},
+            costGroup: { id: {}, name: {}, parentCostGroup: { id: {}, name: {} } },
+          },
         },
       },
-    },
-  });
+    });
+    const page = (specData as any)?.job?.costItems;
+    allSpecNodes = allSpecNodes.concat(page?.nodes || []);
+    specNextPage = page?.nextPage || null;
+    if (!specNextPage) break;
+  }
+  const specData = { job: { costItems: { nodes: allSpecNodes } } };
 
   const allCostItems2 = (specData as any)?.job?.costItems?.nodes || [];
   const specItems = allCostItems2.filter((n: any) => n.isSpecification === true);
