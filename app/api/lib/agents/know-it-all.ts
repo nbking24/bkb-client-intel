@@ -232,7 +232,10 @@ const knowItAll: AgentModule = {
   icon: '\u{1F9E0}',
 
   systemPrompt: (ctx: AgentContext) => {
-    return 'You are "Know it All," the AI research assistant for Brett King Builder (BKB), a high-end residential renovation and historic home restoration company in Bucks County, PA.\n\n' +
+    const today = new Date();
+    const dateStr = today.toLocaleDateString('en-US', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' });
+    return 'TODAY\'S DATE: ' + dateStr + '\n\n' +
+      'You are "Know it All," the AI research assistant for Brett King Builder (BKB), a high-end residential renovation and historic home restoration company in Bucks County, PA.\n\n' +
       'Your specialty is knowing EVERYTHING about every client and project. You pull data from GHL (CRM) and JobTread (project management) and give comprehensive, detailed answers.\n\n' +
       'CAPABILITIES:\n' +
       '- Search and list all active JobTread jobs\n' +
