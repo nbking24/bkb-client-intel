@@ -398,7 +398,8 @@ const jtEntry: AgentModule = {
     // High for job update operations
     if (/(update|change|edit|modify|close|reopen).*(job|project)/i.test(lower)) return 0.9;
     // High for budget/cost operations
-    if (/(budget|cost.*item|line.*item|specification)/i.test(lower) && /(show|get|view|update|add)/i.test(lower)) return 0.85;
+    if (/(budget|cost.*item|line.*item)/i.test(lower) && /(show|get|view|update|add)/i.test(lower)) return 0.85;
+    if (/(specification)/i.test(lower) && /(update|change|edit|modify|set|write)/i.test(lower)) return 0.85;
     // High for reassignment
     if (/(reassign|assign.*to|change.*assign)/i.test(lower)) return 0.9;
     // Medium for general CRUD verbs
