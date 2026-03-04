@@ -5,7 +5,7 @@ import {
   getActiveJobs, getJob, getJobSchedule, getTasksForJob, getDocumentsForJob,
   getMembers, getAllOpenTasks, getDailyLogsForJob, getCommentsForTarget,
   getTimeEntriesForJob, getSpecificationsForJob, getCostItemsForJob,
-  getEventsForJob, getFilesForJob,
+  getEventsForJob, getFilesForJob, getDocumentContent,
 } from '../../../lib/jobtread';
 
 function formatValue(val: any): string {
@@ -266,13 +266,16 @@ const knowItAll: AgentModule = {
       '- get_job_specifications: Get job specifications (description, footer, spec items).\n' +
       '- get_job_budget: Get cost items (budget line items) for a job.\n' +
       '- get_job_events: Get calendar events for a job.\n' +
-      '- get_job_files: Get uploaded files for a job.\n\n' +
+      '- get_job_files: Get uploaded files for a job.\n' +
+      '- get_document_content: Read the actual content (line items, cost groups, quantities) inside a specific document like a contract, bid, or invoice. Use this when someone asks about what is IN a document.\n\n' +
       'INSTRUCTIONS:\n' +
       '- When someone asks about a project/job, use search_jobs first to find it, then get_job_details or get_job_schedule for specifics.\n' +
       '- When listing jobs or tasks, format them clearly with job numbers and names.\n' +
       '- If you have context data injected below, use it. If not, use tools to search.\n' +
       '- Be specific, reference real data, and be concise but thorough. If data is missing, say so honestly.\n' +
-      '- When summarizing, include ALL available information. Do not skip or truncate.\n\n' +
+      '- When summarizing, include ALL available information. Do not skip or truncate.\n' +
+      '- IMPORTANT: When someone asks about content INSIDE a document (contract, invoice, bid), first use get_job_documents to find the document ID, then use get_document_content to read the actual line items and quantities. Do NOT say you cannot access document content — use the tool.\n' +
+      '- For specification questions, use get_job_specifications. For document content questions (e.g. "what was in the original contract"), use get_document_content.\n\n' +
       (ctx.communicationChannel !== 'unknown'
         ? 'Current communication channel for this opportunity: ' + ctx.communicationChannel.toUpperCase() + ' (based on pipeline stage: ' + (ctx.pipelineStage || 'unknown') + ')\n'
         : '') +
@@ -444,6 +447,18 @@ const knowItAll: AgentModule = {
         required: ['jobId'],
       },
     },
+    {
+      name: 'get_document_content',
+      description: 'Read the actual content inside a specific document (contract, bid, invoice, change order). Returns line items with quantities, costs, descriptions, and cost groups. Use this when someone asks about what is IN a document, specific line items, quantities, or pricing from a document.',
+      input_schema: {
+        type: 'object',
+        properties: {
+          documentId: { type: 'string', description: 'The document ID (get from get_job_documents first)' },
+          search: { type: 'string', description: 'Optional keyword to filter line items (e.g. "slab", "reinforcement", "soffit")' },
+        },
+        required: ['documentId'],
+      },
+    },
   ],
 
   canHandle: (message: string) => {
@@ -461,6 +476,9 @@ const knowItAll: AgentModule = {
     if (/(comment|discussion|thread)/i.test(lower) && !/(add|create|post|write)/i.test(lower)) return 0.85;
     if (/(event|meeting|inspection|calendar|appointment)/i.test(lower)) return 0.8;
     if (/(file|photo|plan|permit|upload|attachment)/i.test(lower)) return 0.8;
+    // High for document content queries (contract, invoice, what's in the document)
+    if (/(contract|invoice|bill|order|change.*order)/i.test(lower) && /(what|how.*many|how.*much|LF|linear|quantity|material|planned|original)/i.test(lower)) return 0.85;
+    if (/(in the|on the|from the).*(document|contract|invoice|proposal)/i.test(lower)) return 0.85;
     // Medium score for general client/project references
     if (/client|project|job|contact|note|message|communication|schedule|document|team/i.test(lower)) return 0.5;
     // Low base score - acts as fallback
@@ -775,6 +793,69 @@ const knowItAll: AgentModule = {
           '- ' + (f.name || 'Unnamed') + ' | Type: ' + (f.type || 'N/A') + (f.url ? ' | URL: ' + f.url : '')
         );
         return JSON.stringify({ success: true, count: files.length, files: lines.join('\n') });
+      }
+
+      if (name === 'get_document_content') {
+        const docContent = await getDocumentContent(input.documentId);
+        if (!docContent) return JSON.stringify({ success: false, error: 'Could not read document content. The document may not exist or may not have accessible line items.' });
+
+        const searchTerm = (input.search || '').toLowerCase().trim();
+        const lines: string[] = [];
+
+        lines.push('DOCUMENT: ' + docContent.name + ' | Type: ' + docContent.type + ' | Status: ' + docContent.status);
+        if (docContent.description) lines.push('DESCRIPTION: ' + docContent.description.slice(0, 2000));
+
+        // Collect all cost items (both top-level and inside cost groups)
+        const allItems: any[] = [];
+
+        // Items from cost groups
+        if (docContent.costGroups && docContent.costGroups.length > 0) {
+          for (const group of docContent.costGroups) {
+            if (group.costItems && group.costItems.length > 0) {
+              for (const ci of group.costItems) {
+                allItems.push({ ...ci, groupName: group.name });
+              }
+            }
+          }
+        }
+
+        // Top-level cost items
+        if (docContent.costItems && docContent.costItems.length > 0) {
+          for (const ci of docContent.costItems) {
+            allItems.push(ci);
+          }
+        }
+
+        // Filter by search term if provided
+        let filtered = allItems;
+        if (searchTerm) {
+          filtered = allItems.filter((item: any) => {
+            const searchable = [item.name, item.description, item.costCode?.name, item.groupName].filter(Boolean).join(' ').toLowerCase();
+            return searchable.includes(searchTerm);
+          });
+        }
+
+        if (filtered.length > 0) {
+          lines.push('\nLINE ITEMS (' + filtered.length + (searchTerm ? ' matching "' + input.search + '"' : '') + ' of ' + allItems.length + ' total):');
+          for (const item of filtered.slice(0, 75)) {
+            const qty = item.quantity ? 'Qty: ' + item.quantity : '';
+            const cost = item.unitCost ? 'Cost: $' + item.unitCost : '';
+            const price = item.unitPrice ? 'Price: $' + item.unitPrice : '';
+            const code = item.costCode ? ' (' + (item.costCode.number || '') + ' ' + (item.costCode.name || '') + ')' : '';
+            const group = item.groupName ? ' [' + item.groupName + ']' : '';
+            const desc = item.description ? ' — ' + item.description.slice(0, 300) : '';
+            lines.push('- ' + item.name + code + group + ' | ' + [qty, cost, price].filter(Boolean).join(', ') + desc);
+          }
+          if (filtered.length > 75) lines.push('... and ' + (filtered.length - 75) + ' more items. Use search to narrow results.');
+        } else if (allItems.length === 0) {
+          lines.push('\nNo line items found in this document. The document may have its content stored differently.');
+        } else {
+          lines.push('\nNo items matching "' + input.search + '". Total items: ' + allItems.length);
+        }
+
+        if (docContent.footer) lines.push('\nFOOTER: ' + docContent.footer.slice(0, 1000));
+
+        return JSON.stringify({ success: true, documentName: docContent.name, totalItems: allItems.length, filteredItems: filtered.length, content: lines.join('\n') });
       }
 
       return JSON.stringify({ error: 'Unknown tool: ' + name });
