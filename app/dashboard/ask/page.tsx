@@ -2,7 +2,7 @@
 'use client';
 
 import { useState, useRef, useEffect } from 'react';
-import { MessageSquare, Send, Loader2, Bot, User } from 'lucide-react';
+import { MessageSquare, Send, Loader2, Bot, User, ChevronDown } from 'lucide-react';
 
 interface ChatMessage {
   role: 'user' | 'assistant';
@@ -10,11 +10,67 @@ interface ChatMessage {
   agent?: string;
 }
 
+interface JobOption {
+  id: string;
+  name: string;
+  number: string;
+  clientName: string;
+}
+
 export default function AskAgentPage() {
   const [query, setQuery] = useState('');
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [loading, setLoading] = useState(false);
+  const [jobs, setJobs] = useState<JobOption[]>([]);
+  const [selectedJob, setSelectedJob] = useState<JobOption | null>(null);
+  const [jobsLoading, setJobsLoading] = useState(true);
+  const [showJobDropdown, setShowJobDropdown] = useState(false);
   const messagesEndRef = useRef<HTMLDivElement>(null);
+  const dropdownRef = useRef<HTMLDivElement>(null);
+
+  // Fetch active jobs on mount
+  useEffect(() => {
+    async function fetchJobs() {
+      try {
+        const pin = process.env.NEXT_PUBLIC_APP_PIN || '';
+        const token = btoa(pin + ':');
+        const res = await fetch('/api/dashboard/projects', {
+          headers: { 'Authorization': `Bearer ${token}` },
+        });
+        if (res.ok) {
+          const data = await res.json();
+          const jobList = (data.projects || []).map((j: any) => ({
+            id: j.id,
+            name: j.name,
+            number: j.number || '',
+            clientName: j.clientName || '',
+          }));
+          jobList.sort((a: JobOption, b: JobOption) => {
+            const numA = parseInt(a.number) || 0;
+            const numB = parseInt(b.number) || 0;
+            return numB - numA;
+          });
+          setJobs(jobList);
+        }
+      } catch (err) {
+        console.error('Failed to load jobs:', err);
+      } finally {
+        setJobsLoading(false);
+      }
+    }
+    fetchJobs();
+  }, []);
+
+  // Close dropdown when clicking outside
+  useEffect(() => {
+    function handleClickOutside(e: MouseEvent) {
+      if (dropdownRef.current && !dropdownRef.current.contains(e.target as Node)) {
+        setShowJobDropdown(false);
+      }
+    }
+    document.addEventListener('mousedown', handleClickOutside);
+    return () => document.removeEventListener('mousedown', handleClickOutside);
+  }, []);
 
   // Auto-scroll to bottom on new messages
   useEffect(() => {
@@ -27,19 +83,24 @@ export default function AskAgentPage() {
 
     const userMsg = query.trim();
     setQuery('');
+
+    // If a job is selected, prepend context to the message sent to the API
+    let messageForApi = userMsg;
+    if (selectedJob) {
+      messageForApi = `[Context: The user has selected job "${selectedJob.name}" (#${selectedJob.number}, ID: ${selectedJob.id}, Client: ${selectedJob.clientName}). Use this as the target job for their question.]\n\n${userMsg}`;
+    }
+
     setMessages(prev => [...prev, { role: 'user', content: userMsg }]);
     setLoading(true);
 
     try {
-      // Build auth token
       const pin = process.env.NEXT_PUBLIC_APP_PIN || '';
       const token = btoa(pin + ':');
 
-      // Build message history for context
-      const allMessages = [...messages, { role: 'user', content: userMsg }].map(m => ({
-        role: m.role,
-        content: m.content,
-      }));
+      const allMessages = [
+        ...messages.map(m => ({ role: m.role, content: m.content })),
+        { role: 'user', content: messageForApi },
+      ];
 
       const response = await fetch('/api/chat', {
         method: 'POST',
@@ -49,7 +110,6 @@ export default function AskAgentPage() {
         },
         body: JSON.stringify({
           messages: allMessages,
-          // No contactId/opportunityId needed — agent searches independently
         }),
       });
 
@@ -85,21 +145,15 @@ export default function AskAgentPage() {
     setQuery(suggestion);
   };
 
-  // Simple markdown-like formatting for agent responses
   const formatContent = (content: string) => {
-    // Split by newlines and handle basic formatting
     return content.split('\n').map((line, i) => {
-      // Bold text
       const formatted = line.replace(/\*\*(.*?)\*\*/g, '<strong>$1</strong>');
-      // Bullet points
       if (line.trim().startsWith('- ') || line.trim().startsWith('• ')) {
         return <div key={i} className="ml-3" dangerouslySetInnerHTML={{ __html: '&bull; ' + formatted.replace(/^[\s]*[-•]\s*/, '') }} />;
       }
-      // Numbered lists
       if (/^\d+\.\s/.test(line.trim())) {
         return <div key={i} className="ml-3" dangerouslySetInnerHTML={{ __html: formatted }} />;
       }
-      // Empty lines
       if (!line.trim()) return <div key={i} className="h-2" />;
       return <div key={i} dangerouslySetInnerHTML={{ __html: formatted }} />;
     });
@@ -107,13 +161,93 @@ export default function AskAgentPage() {
 
   return (
     <div className="flex flex-col h-[calc(100vh-3.5rem-3rem)]">
-      <div className="mb-4">
-        <h1 className="text-2xl font-bold" style={{ fontFamily: 'Georgia, serif', color: '#C9A84C' }}>
-          Ask Agent
-        </h1>
-        <p className="text-sm mt-1" style={{ color: '#8a8078' }}>
-          Ask questions about your projects, execute tasks in JobTread, or look up client information.
-        </p>
+      <div className="mb-4 flex items-start justify-between">
+        <div>
+          <h1 className="text-2xl font-bold" style={{ fontFamily: 'Georgia, serif', color: '#C9A84C' }}>
+            Ask Agent
+          </h1>
+          <p className="text-sm mt-1" style={{ color: '#8a8078' }}>
+            Ask questions about your projects, execute tasks in JobTread, or look up client information.
+          </p>
+        </div>
+
+        {/* Job Selector Dropdown */}
+        <div className="relative" ref={dropdownRef}>
+          <button
+            type="button"
+            onClick={() => setShowJobDropdown(!showJobDropdown)}
+            className="flex items-center gap-2 px-3 py-2 rounded-lg text-xs transition-colors"
+            style={{
+              background: selectedJob ? 'rgba(201,168,76,0.12)' : '#242424',
+              color: selectedJob ? '#C9A84C' : '#8a8078',
+              border: selectedJob ? '1px solid rgba(201,168,76,0.3)' : '1px solid rgba(205,162,116,0.12)',
+              minWidth: '180px',
+            }}
+          >
+            <span className="truncate flex-1 text-left">
+              {selectedJob
+                ? `#${selectedJob.number} ${selectedJob.name}`
+                : 'Select a project (optional)'}
+            </span>
+            <ChevronDown size={14} className={`transition-transform ${showJobDropdown ? 'rotate-180' : ''}`} />
+          </button>
+
+          {showJobDropdown && (
+            <div
+              className="absolute right-0 top-full mt-1 rounded-lg shadow-lg overflow-hidden z-50"
+              style={{
+                background: '#1a1a1a',
+                border: '1px solid rgba(205,162,116,0.15)',
+                maxHeight: '300px',
+                width: '320px',
+              }}
+            >
+              <button
+                onClick={() => {
+                  setSelectedJob(null);
+                  setShowJobDropdown(false);
+                }}
+                className="w-full text-left px-3 py-2 text-xs transition-colors hover:bg-[#242424]"
+                style={{ color: '#8a8078', borderBottom: '1px solid rgba(205,162,116,0.08)' }}
+              >
+                No project selected (search all)
+              </button>
+
+              <div className="overflow-y-auto" style={{ maxHeight: '260px' }}>
+                {jobsLoading ? (
+                  <div className="px-3 py-4 text-xs text-center" style={{ color: '#8a8078' }}>
+                    <Loader2 size={14} className="animate-spin inline mr-2" />
+                    Loading projects...
+                  </div>
+                ) : jobs.length === 0 ? (
+                  <div className="px-3 py-4 text-xs text-center" style={{ color: '#8a8078' }}>
+                    No active projects found
+                  </div>
+                ) : (
+                  jobs.map((job) => (
+                    <button
+                      key={job.id}
+                      onClick={() => {
+                        setSelectedJob(job);
+                        setShowJobDropdown(false);
+                      }}
+                      className="w-full text-left px-3 py-2 text-xs transition-colors hover:bg-[#242424] flex flex-col"
+                      style={{
+                        color: selectedJob?.id === job.id ? '#C9A84C' : '#e8e0d8',
+                        background: selectedJob?.id === job.id ? 'rgba(201,168,76,0.06)' : 'transparent',
+                      }}
+                    >
+                      <span className="font-medium">#{job.number} {job.name}</span>
+                      {job.clientName && (
+                        <span style={{ color: '#8a8078', fontSize: '10px' }}>{job.clientName}</span>
+                      )}
+                    </button>
+                  ))
+                )}
+              </div>
+            </div>
+          )}
+        </div>
       </div>
 
       {/* Chat Messages */}
@@ -134,13 +268,18 @@ export default function AskAgentPage() {
             </h2>
             <p className="text-sm max-w-md text-center mb-6" style={{ color: '#8a8078' }}>
               I can search JobTread and GHL to answer questions, create tasks, manage schedules, and more.
+              {selectedJob && (
+                <span style={{ color: '#C9A84C' }}>
+                  {' '}Currently focused on <strong>#{selectedJob.number} {selectedJob.name}</strong>.
+                </span>
+              )}
             </p>
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 max-w-lg w-full">
               {[
                 'What active jobs do we have?',
                 'Show me all open tasks past due',
                 'Create a task for the Smith project',
-                'What\'s the schedule for job #1234?',
+                "What's the schedule for this project?",
               ].map((suggestion) => (
                 <button
                   key={suggestion}
@@ -223,16 +362,24 @@ export default function AskAgentPage() {
 
       {/* Input */}
       <form onSubmit={handleSubmit} className="relative">
+        {selectedJob && (
+          <div
+            className="absolute -top-6 left-0 text-[10px] px-2 py-0.5 rounded-t"
+            style={{ color: '#C9A84C', background: 'rgba(201,168,76,0.08)' }}
+          >
+            Focused: #{selectedJob.number} {selectedJob.name}
+          </div>
+        )}
         <input
           type="text"
           value={query}
           onChange={(e) => setQuery(e.target.value)}
-          placeholder="Ask about any project, create tasks, or check schedules..."
+          placeholder={selectedJob ? `Ask about #${selectedJob.number} ${selectedJob.name}...` : 'Ask about any project, create tasks, or check schedules...'}
           className="w-full pl-4 pr-12 py-3 rounded-lg text-sm outline-none"
           style={{
             background: '#242424',
             color: '#e8e0d8',
-            border: '1px solid rgba(205,162,116,0.12)',
+            border: selectedJob ? '1px solid rgba(201,168,76,0.25)' : '1px solid rgba(205,162,116,0.12)',
           }}
           disabled={loading}
         />
