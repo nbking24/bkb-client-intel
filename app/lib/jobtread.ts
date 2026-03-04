@@ -951,6 +951,131 @@ export async function getApprovedDocuments(limit = 100): Promise<JTDocument[]> {
 }
 
 // ============================================================
+// DOCUMENT CONTENT — Read line items inside a document
+// ============================================================
+
+export interface JTDocumentContent {
+  id: string;
+  name: string;
+  type: string;
+  status: string;
+  description: string;
+  footer: string;
+  costGroups: {
+    id: string;
+    name: string;
+    description?: string;
+    costItems: {
+      id: string;
+      name: string;
+      description?: string;
+      quantity: number;
+      unitCost: number;
+      unitPrice: number;
+      costCode?: { name: string; number: string } | null;
+    }[];
+  }[];
+  costItems: {
+    id: string;
+    name: string;
+    description?: string;
+    quantity: number;
+    unitCost: number;
+    unitPrice: number;
+    costCode?: { name: string; number: string } | null;
+  }[];
+}
+
+export async function getDocumentContent(documentId: string): Promise<JTDocumentContent | null> {
+  try {
+    const data = await pave({
+      document: {
+        $: { id: documentId },
+        id: {},
+        name: {},
+        type: {},
+        status: {},
+        description: {},
+        footer: {},
+        cost: {},
+        price: {},
+        tax: {},
+        costGroups: {
+          nodes: {
+            id: {},
+            name: {},
+            description: {},
+            quantity: {},
+            costItems: {
+              nodes: {
+                id: {},
+                name: {},
+                description: {},
+                quantity: {},
+                unitCost: {},
+                unitPrice: {},
+                unitId: {},
+                costCode: { name: {}, number: {} },
+              },
+            },
+          },
+        },
+        costItems: {
+          $: { size: 100 },
+          nodes: {
+            id: {},
+            name: {},
+            description: {},
+            quantity: {},
+            unitCost: {},
+            unitPrice: {},
+            unitId: {},
+            costCode: { name: {}, number: {} },
+            costGroup: { id: {}, name: {} },
+          },
+        },
+      },
+    });
+    const doc = (data as any)?.document;
+    if (!doc) return null;
+    return {
+      id: doc.id,
+      name: doc.name || '',
+      type: doc.type || '',
+      status: doc.status || '',
+      description: doc.description || '',
+      footer: doc.footer || '',
+      costGroups: (doc.costGroups?.nodes || []).map((g: any) => ({
+        id: g.id,
+        name: g.name || '',
+        description: g.description || '',
+        costItems: (g.costItems?.nodes || []).map((ci: any) => ({
+          id: ci.id,
+          name: ci.name || '',
+          description: ci.description || '',
+          quantity: ci.quantity || 0,
+          unitCost: ci.unitCost || 0,
+          unitPrice: ci.unitPrice || 0,
+          costCode: ci.costCode || null,
+        })),
+      })),
+      costItems: (doc.costItems?.nodes || []).map((ci: any) => ({
+        id: ci.id,
+        name: ci.name || '',
+        description: ci.description || '',
+        quantity: ci.quantity || 0,
+        unitCost: ci.unitCost || 0,
+        unitPrice: ci.unitPrice || 0,
+        costCode: ci.costCode || null,
+      })),
+    };
+  } catch (err: any) {
+    console.warn('[getDocumentContent] Error reading document content:', documentId, err?.message);
+    return null;
+  }
+}
+
+// ============================================================
 // FILES - Job-level files for Tier 2 sync
 // ============================================================
 
@@ -1077,28 +1202,60 @@ export interface JTDailyLog {
 }
 
 export async function getDailyLogsForJob(jobId: string, limit = 50): Promise<JTDailyLog[]> {
-  // Query through organization with jobId filter (dailyLogs may not be a sub-collection on job)
-  const data = await pave({
-    organization: {
-      $: { id: JT_ORG() },
-      dailyLogs: {
-        $: { size: limit, where: ['jobId', '=', jobId] },
+  const dailyLogFields = {
+    nodes: {
+      id: {},
+      date: {},
+      notes: {},
+      createdAt: {},
+      assignedMemberships: {
         nodes: {
           id: {},
-          date: {},
-          notes: {},
-          createdAt: {},
-          assignedMemberships: {
-            nodes: {
-              id: {},
-              user: { id: {}, name: {} },
-            },
-          },
+          user: { id: {}, name: {} },
         },
       },
     },
-  });
-  return (data as any)?.organization?.dailyLogs?.nodes || [];
+  };
+
+  // Strategy 1: Try job.dailyLogs sub-collection (like tasks, documents, files)
+  try {
+    const data = await pave({
+      job: {
+        $: { id: jobId },
+        dailyLogs: {
+          $: { size: limit },
+          ...dailyLogFields,
+        },
+      },
+    });
+    const logs = (data as any)?.job?.dailyLogs?.nodes;
+    if (logs && Array.isArray(logs)) return logs;
+  } catch (_err: any) {
+    // Sub-collection not supported — fall through
+  }
+
+  // Strategy 2: Try organization-level with where filter
+  try {
+    const data = await pave({
+      organization: {
+        $: { id: JT_ORG() },
+        dailyLogs: {
+          $: { size: limit, where: ['jobId', '=', jobId] },
+          ...dailyLogFields,
+        },
+      },
+    });
+    const logs = (data as any)?.organization?.dailyLogs?.nodes;
+    if (logs && Array.isArray(logs)) return logs;
+  } catch (_err2: any) {
+    // Org-level also failed — fall through
+  }
+
+  // Strategy 3: Use the pdf() root query to get daily log data reference
+  // This is a last-resort — the pdf() function can generate dailyLogs for a job
+  // For now, return empty with a logged warning
+  console.warn('[getDailyLogsForJob] All query strategies failed for job:', jobId);
+  return [];
 }
 
 export async function createDailyLog(params: {
@@ -1250,25 +1407,51 @@ export interface JTTimeEntry {
 }
 
 export async function getTimeEntriesForJob(jobId: string, limit = 100): Promise<JTTimeEntry[]> {
-  // Query through organization with jobId filter
-  const data = await pave({
-    organization: {
-      $: { id: JT_ORG() },
-      timeEntries: {
-        $: { size: limit, where: ['jobId', '=', jobId] },
-        nodes: {
-          id: {},
-          startedAt: {},
-          endedAt: {},
-          notes: {},
-          type: {},
-          user: { id: {}, name: {} },
-          costItem: { id: {}, name: {} },
+  const teFields = {
+    nodes: {
+      id: {},
+      startedAt: {},
+      endedAt: {},
+      notes: {},
+      type: {},
+      user: { id: {}, name: {} },
+      costItem: { id: {}, name: {} },
+    },
+  };
+
+  // Strategy 1: Try job.timeEntries sub-collection
+  try {
+    const data = await pave({
+      job: {
+        $: { id: jobId },
+        timeEntries: {
+          $: { size: limit },
+          ...teFields,
         },
       },
-    },
-  });
-  return (data as any)?.organization?.timeEntries?.nodes || [];
+    });
+    const entries = (data as any)?.job?.timeEntries?.nodes;
+    if (entries && Array.isArray(entries)) return entries;
+  } catch (_err: any) {
+    // Sub-collection not supported — fall through
+  }
+
+  // Strategy 2: Organization-level with where filter
+  try {
+    const data = await pave({
+      organization: {
+        $: { id: JT_ORG() },
+        timeEntries: {
+          $: { size: limit, where: ['jobId', '=', jobId] },
+          ...teFields,
+        },
+      },
+    });
+    return (data as any)?.organization?.timeEntries?.nodes || [];
+  } catch (_err2: any) {
+    console.warn('[getTimeEntriesForJob] All query strategies failed for job:', jobId);
+    return [];
+  }
 }
 
 // ============================================================
@@ -1311,26 +1494,44 @@ export interface JTCostItem {
 }
 
 export async function getCostItemsForJob(jobId: string, limit = 100): Promise<JTCostItem[]> {
-  const data = await pave({
-    job: {
-      $: { id: jobId },
-      costItems: {
-        $: { size: limit },
-        nodes: {
-          id: {},
-          name: {},
-          description: {},
-          quantity: {},
-          unitCost: {},
-          unitPrice: {},
-          isSpecification: {},
-          costCode: { id: {}, name: {}, number: {} },
-          costGroup: { id: {}, name: {} },
+  // Paginate through all cost items (jobs can have 100+ items)
+  let allItems: any[] = [];
+  let nextPage: string | null = null;
+  const maxPages = Math.ceil(limit / 100);
+
+  for (let page = 0; page < maxPages; page++) {
+    const pageParams: Record<string, unknown> = { size: 100 };
+    if (nextPage) pageParams.page = nextPage;
+
+    const data = await pave({
+      job: {
+        $: { id: jobId },
+        costItems: {
+          $: pageParams,
+          nextPage: {},
+          nodes: {
+            id: {},
+            name: {},
+            description: {},
+            quantity: {},
+            unitCost: {},
+            unitPrice: {},
+            isSpecification: {},
+            costCode: { id: {}, name: {}, number: {} },
+            costGroup: { id: {}, name: {} },
+          },
         },
       },
-    },
-  });
-  return (data as any)?.job?.costItems?.nodes || [];
+    });
+
+    const costItemPage = (data as any)?.job?.costItems;
+    const nodes = costItemPage?.nodes || [];
+    allItems = allItems.concat(nodes);
+    nextPage = costItemPage?.nextPage || null;
+    if (!nextPage || nodes.length < 100) break;
+  }
+
+  return allItems;
 }
 
 export async function getSpecificationsForJob(jobId: string): Promise<{
@@ -1348,9 +1549,8 @@ export async function getSpecificationsForJob(jobId: string): Promise<{
   });
   const job = (jobData as any)?.job;
 
-  // Get all cost items, then filter client-side for specifications
-  // (PAVE boolean where filter may not work as expected)
-  const allCostItems = await getCostItemsForJob(jobId, 100);
+  // Get ALL cost items with pagination (large jobs can have 500+), then filter for specs
+  const allCostItems = await getCostItemsForJob(jobId, 500);
   const specItems = allCostItems.filter((item: any) => item.isSpecification === true);
 
   return {
@@ -1376,26 +1576,52 @@ export interface JTEvent {
 }
 
 export async function getEventsForJob(jobId: string, limit = 50): Promise<JTEvent[]> {
-  // Query through organization with jobId filter
-  const data = await pave({
-    organization: {
-      $: { id: JT_ORG() },
-      events: {
-        $: { size: limit, where: ['jobId', '=', jobId] },
-        nodes: {
-          id: {},
-          name: {},
-          startDate: {},
-          endDate: {},
-          startTime: {},
-          endTime: {},
-          notes: {},
-          type: {},
+  const eventFields = {
+    nodes: {
+      id: {},
+      name: {},
+      startDate: {},
+      endDate: {},
+      startTime: {},
+      endTime: {},
+      notes: {},
+      type: {},
+    },
+  };
+
+  // Strategy 1: Try job.events sub-collection
+  try {
+    const data = await pave({
+      job: {
+        $: { id: jobId },
+        events: {
+          $: { size: limit },
+          ...eventFields,
         },
       },
-    },
-  });
-  return (data as any)?.organization?.events?.nodes || [];
+    });
+    const events = (data as any)?.job?.events?.nodes;
+    if (events && Array.isArray(events)) return events;
+  } catch (_err: any) {
+    // Sub-collection not supported — fall through
+  }
+
+  // Strategy 2: Organization-level with where filter
+  try {
+    const data = await pave({
+      organization: {
+        $: { id: JT_ORG() },
+        events: {
+          $: { size: limit, where: ['jobId', '=', jobId] },
+          ...eventFields,
+        },
+      },
+    });
+    return (data as any)?.organization?.events?.nodes || [];
+  } catch (_err2: any) {
+    console.warn('[getEventsForJob] All query strategies failed for job:', jobId);
+    return [];
+  }
 }
 
 // ============================================================
