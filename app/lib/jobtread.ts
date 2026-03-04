@@ -187,11 +187,12 @@ export interface JTTask {
 
 export async function getTasksForJob(jobId: string): Promise<JTTask[]> {
   // Lightweight query — omit description & assignedMemberships to avoid 413
+  // Size 200 to avoid truncating jobs with many tasks/phases
   const data = await pave({
     job: {
       $: { id: jobId },
       tasks: {
-        $: { size: 50 },
+        $: { size: 200 },
         nodes: {
           id: {},
           name: {},
@@ -222,7 +223,7 @@ export async function getAllOpenTasks(): Promise<JTTask[]> {
   const result = await orgQuery('tasks', {
     $: {
       size: 100,
-      where: ['progress', '<', 100],
+      where: ['progress', '<', 1],
     },
     nodes: {
       id: {},
@@ -335,11 +336,12 @@ export async function getJobSchedule(jobId: string): Promise<JTJobSchedule | nul
   const customStatus = statusField?.value || null;
 
   // 2. Flat list of tasks for this job — minimal fields to avoid 413
+  // Size 200 to avoid truncating jobs with many tasks/phases
   const taskData = await pave({
     job: {
       $: { id: jobId },
       tasks: {
-        $: { size: 50 },
+        $: { size: 200 },
         nodes: {
           id: {},
           name: {},
@@ -1038,6 +1040,359 @@ export interface GridJobData {
   nextDueDate: string | null;
   stalledDays: number | null;
 }
+// ============================================================
+// DAILY LOGS — Job-level daily log entries
+// ============================================================
+
+export interface JTDailyLog {
+  id: string;
+  date: string;
+  notes: string;
+  createdAt: string;
+  assignedMemberships?: { nodes: { id: string; user?: { id: string; name: string } }[] };
+}
+
+export async function getDailyLogsForJob(jobId: string, limit = 50): Promise<JTDailyLog[]> {
+  const data = await pave({
+    job: {
+      $: { id: jobId },
+      dailyLogs: {
+        $: { size: limit },
+        nodes: {
+          id: {},
+          date: {},
+          notes: {},
+          createdAt: {},
+          assignedMemberships: {
+            nodes: {
+              id: {},
+              user: { id: {}, name: {} },
+            },
+          },
+        },
+      },
+    },
+  });
+  return (data as any)?.job?.dailyLogs?.nodes || [];
+}
+
+export async function createDailyLog(params: {
+  jobId: string;
+  date: string;       // YYYY-MM-DD
+  notes: string;
+  assignees?: string[];  // membership IDs
+  notify?: boolean;
+}) {
+  const { jobId, date, notes, assignees, notify } = params;
+  const data = await pave({
+    createDailyLog: {
+      $: {
+        jobId,
+        date,
+        notes,
+        ...(assignees?.length ? { assignees } : {}),
+        ...(notify !== undefined ? { notify } : {}),
+      },
+      createdDailyLog: { id: {}, date: {}, notes: {} },
+    },
+  });
+  const created = (data as any)?.createDailyLog?.createdDailyLog;
+  if (!created?.id) throw new Error('Daily log creation failed: ' + JSON.stringify(data));
+  return created;
+}
+
+export async function updateDailyLog(params: {
+  id: string;
+  notes?: string;
+  date?: string;
+}) {
+  const { id, notes, date } = params;
+  const updateParams: any = { id };
+  if (notes !== undefined) updateParams.notes = notes;
+  if (date !== undefined) updateParams.date = date;
+  await pave({
+    updateDailyLog: { $: updateParams },
+  });
+  return { success: true, id };
+}
+
+export async function deleteDailyLog(id: string) {
+  await pave({
+    deleteDailyLog: { $: { id } },
+  });
+}
+
+// ============================================================
+// COMMENTS — Comments on any JobTread entity
+// ============================================================
+
+export interface JTComment {
+  id: string;
+  message: string;
+  name: string;
+  createdAt: string;
+  isPinned: boolean;
+  parentComment?: { id: string } | null;
+}
+
+export async function getCommentsForTarget(targetId: string, targetType: string, limit = 50): Promise<JTComment[]> {
+  // Comments are queried via the parent entity
+  // targetType can be: job, task, document, costItem, etc.
+  const data = await pave({
+    [targetType]: {
+      $: { id: targetId },
+      comments: {
+        $: { size: limit },
+        nodes: {
+          id: {},
+          message: {},
+          name: {},
+          createdAt: {},
+          isPinned: {},
+          parentComment: { id: {} },
+        },
+      },
+    },
+  });
+  return (data as any)?.[targetType]?.comments?.nodes || [];
+}
+
+export async function createComment(params: {
+  targetId: string;
+  targetType: string;    // 'job' | 'task' | 'document' | etc.
+  message: string;
+  name?: string;         // Comment author display name
+  assignees?: string[];  // membership IDs to notify
+  isPinned?: boolean;
+  parentCommentId?: string;  // for replies
+}) {
+  const { targetId, targetType, message, name, assignees, isPinned, parentCommentId } = params;
+  const data = await pave({
+    createComment: {
+      $: {
+        targetId,
+        targetType,
+        message,
+        ...(name ? { name } : {}),
+        ...(assignees?.length ? { assignees } : {}),
+        ...(isPinned !== undefined ? { isPinned } : {}),
+        ...(parentCommentId ? { parentCommentId, isReply: true } : {}),
+      },
+      createdComment: { id: {}, message: {}, name: {}, createdAt: {} },
+    },
+  });
+  const created = (data as any)?.createComment?.createdComment;
+  if (!created?.id) throw new Error('Comment creation failed: ' + JSON.stringify(data));
+  return created;
+}
+
+// ============================================================
+// TIME ENTRIES — Track labor hours
+// ============================================================
+
+export interface JTTimeEntry {
+  id: string;
+  startedAt: string;
+  endedAt: string;
+  notes: string;
+  type: string;
+  user?: { id: string; name: string };
+  costItem?: { id: string; name: string } | null;
+}
+
+export async function getTimeEntriesForJob(jobId: string, limit = 100): Promise<JTTimeEntry[]> {
+  const data = await pave({
+    job: {
+      $: { id: jobId },
+      timeEntries: {
+        $: { size: limit },
+        nodes: {
+          id: {},
+          startedAt: {},
+          endedAt: {},
+          notes: {},
+          type: {},
+          user: { id: {}, name: {} },
+          costItem: { id: {}, name: {} },
+        },
+      },
+    },
+  });
+  return (data as any)?.job?.timeEntries?.nodes || [];
+}
+
+// ============================================================
+// JOB UPDATES — Modify job details
+// ============================================================
+
+export async function updateJob(jobId: string, fields: {
+  name?: string;
+  description?: string;
+  specificationsDescription?: string;
+  specificationsFooter?: string;
+  closedOn?: string | null;
+}) {
+  const params: any = { id: jobId };
+  if (fields.name !== undefined) params.name = fields.name;
+  if (fields.description !== undefined) params.description = fields.description;
+  if (fields.specificationsDescription !== undefined) params.specificationsDescription = fields.specificationsDescription;
+  if (fields.specificationsFooter !== undefined) params.specificationsFooter = fields.specificationsFooter;
+  if (fields.closedOn !== undefined) params.closedOn = fields.closedOn;
+  await pave({
+    updateJob: { $: params },
+  });
+  return { success: true, jobId, updatedFields: Object.keys(fields) };
+}
+
+// ============================================================
+// COST ITEMS & SPECIFICATIONS
+// ============================================================
+
+export interface JTCostItem {
+  id: string;
+  name: string;
+  description: string;
+  quantity: number;
+  unitCost: number;
+  unitPrice: number;
+  isSpecification: boolean;
+  costCode?: { id: string; name: string; number: string } | null;
+  costGroup?: { id: string; name: string } | null;
+}
+
+export async function getCostItemsForJob(jobId: string, limit = 200): Promise<JTCostItem[]> {
+  const data = await pave({
+    job: {
+      $: { id: jobId },
+      costItems: {
+        $: { size: limit },
+        nodes: {
+          id: {},
+          name: {},
+          description: {},
+          quantity: {},
+          unitCost: {},
+          unitPrice: {},
+          isSpecification: {},
+          costCode: { id: {}, name: {}, number: {} },
+          costGroup: { id: {}, name: {} },
+        },
+      },
+    },
+  });
+  return (data as any)?.job?.costItems?.nodes || [];
+}
+
+export async function getSpecificationsForJob(jobId: string): Promise<{
+  description: string;
+  footer: string;
+  items: JTCostItem[];
+}> {
+  // Get job-level spec description + footer
+  const jobData = await pave({
+    job: {
+      $: { id: jobId },
+      specificationsDescription: {},
+      specificationsFooter: {},
+      costItems: {
+        $: { size: 200, where: ['isSpecification', '=', true] },
+        nodes: {
+          id: {},
+          name: {},
+          description: {},
+          quantity: {},
+          unitCost: {},
+          unitPrice: {},
+          isSpecification: {},
+          costCode: { id: {}, name: {}, number: {} },
+          costGroup: { id: {}, name: {} },
+        },
+      },
+    },
+  });
+  const job = (jobData as any)?.job;
+  return {
+    description: job?.specificationsDescription || '',
+    footer: job?.specificationsFooter || '',
+    items: job?.costItems?.nodes || [],
+  };
+}
+
+// ============================================================
+// EVENTS / CALENDAR
+// ============================================================
+
+export interface JTEvent {
+  id: string;
+  name: string;
+  startDate: string;
+  endDate: string;
+  startTime: string;
+  endTime: string;
+  notes: string;
+  type: string;
+}
+
+export async function getEventsForJob(jobId: string, limit = 50): Promise<JTEvent[]> {
+  const data = await pave({
+    job: {
+      $: { id: jobId },
+      events: {
+        $: { size: limit },
+        nodes: {
+          id: {},
+          name: {},
+          startDate: {},
+          endDate: {},
+          startTime: {},
+          endTime: {},
+          notes: {},
+          type: {},
+        },
+      },
+    },
+  });
+  return (data as any)?.job?.events?.nodes || [];
+}
+
+// ============================================================
+// EXPANDED TASK UPDATE — More fields from PAVE API
+// ============================================================
+
+export async function updateTaskFull(taskId: string, fields: {
+  name?: string;
+  description?: string;
+  startDate?: string;
+  endDate?: string;
+  startTime?: string;
+  endTime?: string;
+  progress?: number;
+  assignedMembershipIds?: string[];
+  parentTaskId?: string;
+  taskTypeId?: string;
+}) {
+  const params: any = { id: taskId };
+  if (fields.name !== undefined) params.name = fields.name;
+  if (fields.description !== undefined) params.description = fields.description;
+  if (fields.startDate !== undefined) params.startDate = fields.startDate;
+  if (fields.endDate !== undefined) params.endDate = fields.endDate;
+  if (fields.startTime !== undefined) params.startTime = fields.startTime;
+  if (fields.endTime !== undefined) params.endTime = fields.endTime;
+  if (fields.progress !== undefined) params.progress = Math.min(1, Math.max(0, fields.progress));
+  if (fields.assignedMembershipIds !== undefined) params.assignedMembershipIds = fields.assignedMembershipIds;
+  if (fields.parentTaskId !== undefined) params.parentTaskId = fields.parentTaskId;
+  if (fields.taskTypeId !== undefined) params.taskTypeId = fields.taskTypeId;
+  await pave({
+    updateTask: { $: params },
+  });
+  return { success: true, taskId, updatedFields: Object.keys(fields) };
+}
+
+// ============================================================
+// GRID VIEW — Pre-construction dashboard data
+// Returns per-phase task counts for each active job
+// ============================================================
+
 export async function getGridScheduleData(): Promise<GridJobData[]> {
   const jobs = await getActiveJobs(50);
 
