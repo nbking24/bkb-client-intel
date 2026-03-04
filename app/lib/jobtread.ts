@@ -1158,7 +1158,7 @@ export async function getCommentsForTarget(targetId: string, targetType: string,
     });
     const comments = (data as any)?.[targetType]?.comments?.nodes;
     if (comments) return comments;
-  } catch {
+  } catch (_err: any) {
     // Fall through to org-level query
   }
 
