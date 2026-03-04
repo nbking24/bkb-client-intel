@@ -2,7 +2,7 @@
 'use client';
 
 import { useState, useRef, useEffect } from 'react';
-import { MessageSquare, Send, Loader2, Bot, User, ChevronDown, CheckCircle, XCircle } from 'lucide-react';
+import { MessageSquare, Send, Loader2, Bot, User, ChevronDown, CheckCircle, XCircle, Brain, FileSearch } from 'lucide-react';
 
 interface ChatMessage {
   role: 'user' | 'assistant';
@@ -18,6 +18,8 @@ interface JobOption {
   clientName: string;
 }
 
+type AgentMode = 'know-it-all' | 'project-details';
+
 export default function AskAgentPage() {
   const [query, setQuery] = useState('');
   const [messages, setMessages] = useState<ChatMessage[]>([]);
@@ -28,6 +30,7 @@ export default function AskAgentPage() {
   const [showJobDropdown, setShowJobDropdown] = useState(false);
   const [jobSearch, setJobSearch] = useState('');
   const [lastAgent, setLastAgent] = useState<string | null>(null);
+  const [agentMode, setAgentMode] = useState<AgentMode>('know-it-all');
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const dropdownRef = useRef<HTMLDivElement>(null);
   const jobSearchRef = useRef<HTMLInputElement>(null);
@@ -81,11 +84,20 @@ export default function AskAgentPage() {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
   }, [messages, loading]);
 
-  // Core send function — used by both the form and the confirm button
+  // When switching agents, clear conversation
+  const switchAgent = (mode: AgentMode) => {
+    if (mode !== agentMode) {
+      setAgentMode(mode);
+      setMessages([]);
+      setLastAgent(null);
+      setQuery('');
+    }
+  };
+
+  // Core send function
   const sendMessage = async (userMsg: string) => {
     if (!userMsg.trim() || loading) return;
 
-    // If a job is selected, prepend context to the message sent to the API
     let messageForApi = userMsg;
     if (selectedJob) {
       messageForApi = `[Context: The user has selected job "${selectedJob.name}" (#${selectedJob.number}, ID: ${selectedJob.id}, Client: ${selectedJob.clientName}). Use this as the target job for their question.]\n\n${userMsg}`;
@@ -112,6 +124,7 @@ export default function AskAgentPage() {
         body: JSON.stringify({
           messages: allMessages,
           lastAgent: lastAgent || undefined,
+          forcedAgent: agentMode,
         }),
       });
 
@@ -121,8 +134,6 @@ export default function AskAgentPage() {
       }
 
       const data = await response.json();
-
-      // Track which agent responded for next-message continuity
       setLastAgent(data.agent || null);
 
       setMessages(prev => [
@@ -157,7 +168,6 @@ export default function AskAgentPage() {
   };
 
   const handleConfirm = async () => {
-    // Clear the confirmation state on the last message
     setMessages(prev => prev.map((m, i) =>
       i === prev.length - 1 ? { ...m, needsConfirmation: false } : m
     ));
@@ -165,7 +175,6 @@ export default function AskAgentPage() {
   };
 
   const handleDecline = () => {
-    // Clear the confirmation state and add a decline note
     setMessages(prev => [
       ...prev.map((m, i) =>
         i === prev.length - 1 ? { ...m, needsConfirmation: false } : m
@@ -193,11 +202,24 @@ export default function AskAgentPage() {
     });
   };
 
-  // Check if the last message needs confirmation (for showing buttons)
   const lastMsgNeedsConfirm = messages.length > 0 &&
     messages[messages.length - 1].role === 'assistant' &&
     messages[messages.length - 1].needsConfirmation &&
     !loading;
+
+  const suggestions = agentMode === 'know-it-all'
+    ? [
+        'What active jobs do we have?',
+        'Show me all open tasks past due',
+        'Create a task for the Smith project',
+        "What's the schedule for this project?",
+      ]
+    : [
+        'What siding is specified?',
+        'What are the flooring selections?',
+        'Show me the exterior specifications',
+        'What countertops are specified?',
+      ];
 
   return (
     <div className="flex flex-col h-[calc(100vh-3.5rem-3rem)]">
@@ -207,7 +229,9 @@ export default function AskAgentPage() {
             Ask Agent
           </h1>
           <p className="text-sm mt-1" style={{ color: '#8a8078' }}>
-            Ask questions about your projects, execute tasks in JobTread, or look up client information.
+            {agentMode === 'know-it-all'
+              ? 'Ask questions about your projects, execute tasks in JobTread, or look up client information.'
+              : 'Ask questions about project specifications from the Specifications URL.'}
           </p>
         </div>
 
@@ -242,7 +266,6 @@ export default function AskAgentPage() {
                 width: '320px',
               }}
             >
-              {/* Search input */}
               <div className="px-2 py-2" style={{ borderBottom: '1px solid rgba(205,162,116,0.08)' }}>
                 <input
                   ref={jobSearchRef}
@@ -325,6 +348,44 @@ export default function AskAgentPage() {
         </div>
       </div>
 
+      {/* Agent Mode Toggle */}
+      <div className="flex gap-2 mb-4">
+        <button
+          onClick={() => switchAgent('know-it-all')}
+          className="flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-medium transition-all"
+          style={agentMode === 'know-it-all' ? {
+            background: 'rgba(201,168,76,0.15)',
+            color: '#C9A84C',
+            border: '1px solid rgba(201,168,76,0.4)',
+            boxShadow: '0 0 12px rgba(201,168,76,0.1)',
+          } : {
+            background: '#242424',
+            color: '#8a8078',
+            border: '1px solid rgba(205,162,116,0.12)',
+          }}
+        >
+          <Brain size={16} />
+          Know-it-All
+        </button>
+        <button
+          onClick={() => switchAgent('project-details')}
+          className="flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-medium transition-all"
+          style={agentMode === 'project-details' ? {
+            background: 'rgba(201,168,76,0.15)',
+            color: '#C9A84C',
+            border: '1px solid rgba(201,168,76,0.4)',
+            boxShadow: '0 0 12px rgba(201,168,76,0.1)',
+          } : {
+            background: '#242424',
+            color: '#8a8078',
+            border: '1px solid rgba(205,162,116,0.12)',
+          }}
+        >
+          <FileSearch size={16} />
+          Project Specs
+        </button>
+      </div>
+
       {/* Chat Messages */}
       <div className="flex-1 overflow-y-auto space-y-4 mb-4 pr-1">
         {messages.length === 0 && (
@@ -336,13 +397,18 @@ export default function AskAgentPage() {
               className="w-16 h-16 rounded-full flex items-center justify-center mb-4"
               style={{ background: 'rgba(201,168,76,0.1)' }}
             >
-              <MessageSquare size={28} style={{ color: '#C9A84C' }} />
+              {agentMode === 'know-it-all'
+                ? <Brain size={28} style={{ color: '#C9A84C' }} />
+                : <FileSearch size={28} style={{ color: '#C9A84C' }} />
+              }
             </div>
             <h2 className="text-lg font-bold mb-2" style={{ color: '#C9A84C' }}>
-              BKB Project Assistant
+              {agentMode === 'know-it-all' ? 'BKB Project Assistant' : 'Project Specifications'}
             </h2>
             <p className="text-sm max-w-md text-center mb-6" style={{ color: '#8a8078' }}>
-              I can search JobTread and GHL to answer questions, create tasks, manage schedules, and more.
+              {agentMode === 'know-it-all'
+                ? 'I can search JobTread and GHL to answer questions, create tasks, manage schedules, and more.'
+                : 'I pull specifications directly from the project\'s Specifications URL. Select a project and ask about materials, finishes, or selections.'}
               {selectedJob && (
                 <span style={{ color: '#C9A84C' }}>
                   {' '}Currently focused on <strong>#{selectedJob.number} {selectedJob.name}</strong>.
@@ -350,12 +416,7 @@ export default function AskAgentPage() {
               )}
             </p>
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 max-w-lg w-full">
-              {[
-                'What active jobs do we have?',
-                'Show me all open tasks past due',
-                'Create a task for the Smith project',
-                "What's the schedule for this project?",
-              ].map((suggestion) => (
+              {suggestions.map((suggestion) => (
                 <button
                   key={suggestion}
                   onClick={() => handleSuggestion(suggestion)}
@@ -411,7 +472,6 @@ export default function AskAgentPage() {
               )}
             </div>
 
-            {/* Confirm / Decline buttons — shown after the last message if it needs confirmation */}
             {msg.needsConfirmation && i === messages.length - 1 && !loading && (
               <div className="flex gap-2 mt-2 ml-9">
                 <button
@@ -456,7 +516,9 @@ export default function AskAgentPage() {
               style={{ background: '#242424', border: '1px solid rgba(205,162,116,0.08)' }}
             >
               <Loader2 size={16} className="animate-spin" style={{ color: '#C9A84C' }} />
-              <span className="text-xs" style={{ color: '#8a8078' }}>Searching your data...</span>
+              <span className="text-xs" style={{ color: '#8a8078' }}>
+                {agentMode === 'project-details' ? 'Reading specifications...' : 'Searching your data...'}
+              </span>
             </div>
           </div>
         )}
@@ -478,7 +540,11 @@ export default function AskAgentPage() {
           type="text"
           value={query}
           onChange={(e) => setQuery(e.target.value)}
-          placeholder={selectedJob ? `Ask about #${selectedJob.number} ${selectedJob.name}...` : 'Ask about any project, create tasks, or check schedules...'}
+          placeholder={
+            agentMode === 'project-details'
+              ? (selectedJob ? `Ask about specs for #${selectedJob.number} ${selectedJob.name}...` : 'Select a project, then ask about specifications...')
+              : (selectedJob ? `Ask about #${selectedJob.number} ${selectedJob.name}...` : 'Ask about any project, create tasks, or check schedules...')
+          }
           className="w-full pl-4 pr-12 py-3 rounded-lg text-sm outline-none"
           style={{
             background: '#242424',

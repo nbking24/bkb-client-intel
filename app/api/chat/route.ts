@@ -20,6 +20,7 @@ export async function POST(req: NextRequest) {
       jtJobId,
       pipelineStage,
       lastAgent,
+      forcedAgent, // NEW: manual agent selection from the UI
     } = body;
 
     if (!Array.isArray(messages) || messages.length === 0) {
@@ -37,14 +38,15 @@ export async function POST(req: NextRequest) {
       communicationChannel: getCommChannel(pipelineStage || ''),
     };
 
-    // Route to the best agent (pass lastAgent for confirmation continuity)
+    // Route to the best agent (pass lastAgent for confirmation continuity, forcedAgent for manual selection)
     const result = await routeMessage(
       messages.map((m: { role: string; content: string }) => ({
         role: m.role,
         content: m.content,
       })),
       ctx,
-      lastAgent || undefined
+      lastAgent || undefined,
+      forcedAgent || undefined
     );
 
     return NextResponse.json({
