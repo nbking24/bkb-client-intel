@@ -269,7 +269,7 @@ const jtEntry: AgentModule = {
     try {
       // ========== SEARCH ==========
       if (name === 'search_jobs') {
-        const jobs = await getActiveJobs(100);
+        const jobs = await getActiveJobs(50);
         const query = (input.query || '').toLowerCase().trim();
 
         if (!query) {
@@ -306,7 +306,7 @@ const jtEntry: AgentModule = {
         for (const phase of schedule.phases || []) {
           lines.push('');
           lines.push('📁 ' + phase.name + ' (ID: ' + phase.id + ') — ' + Math.round((phase.progress || 0) * 100) + '% complete');
-          for (const task of phase.childTasks || []) {
+          for (const task of phase.childTasks?.nodes || phase.childTasks || []) {
             const status = task.progress >= 1 ? '✅' : task.progress > 0 ? '🔄' : '⬜';
             const dates = [task.startDate, task.endDate].filter(Boolean).join(' → ');
             const assignees = task.assignedMemberships?.map((a: any) => a.user?.name || '').filter(Boolean).join(', ');
