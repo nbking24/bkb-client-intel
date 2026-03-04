@@ -15,17 +15,14 @@ export async function GET() {
   const jobId = '22PEn8bysN7v'; // Wooley job
 
   // Test what fields exist on costGroups
+  // Try more field names + try looking at the actual group structure
   const fieldsToTest = [
-    'visible',
-    'isPublic',
-    'isHidden',
-    'show',
-    'published',
-    'active',
-    'enabled',
-    'specificationEnabled',
-    'showInSpecifications',
-    'displayInSpecifications',
+    'isIncluded',
+    'included',
+    'specification',
+    'specVisible',
+    'status',
+    'type',
   ];
 
   const results: Record<string, any> = {};
@@ -88,6 +85,39 @@ export async function GET() {
       results[field] = { success: false, error: err.message };
     }
   }
+
+  // Also: get full hierarchy for the Wooley job to understand levels
+  const hierarchyData = await pave({
+    job: {
+      $: { id: jobId },
+      costGroups: {
+        $: { size: 50 },
+        nodes: {
+          id: {},
+          name: {},
+          description: {},
+          parentCostGroup: { id: {}, name: {} },
+        },
+      },
+    },
+  });
+
+  const allNodes = (hierarchyData as any)?.job?.costGroups?.nodes || [];
+
+  // Build tree
+  const scopeOfWork = allNodes.find((n: any) => n.name?.includes('Scope of Work'));
+  const level2 = allNodes.filter((n: any) => n.parentCostGroup?.id === scopeOfWork?.id);
+  const hierarchy: any = {};
+  for (const l2 of level2) {
+    const l3 = allNodes.filter((n: any) => n.parentCostGroup?.id === l2.id);
+    hierarchy[l2.name] = l3.map((l3n: any) => ({
+      name: l3n.name,
+      description: l3n.description?.slice(0, 100) || '(empty)',
+      children: allNodes.filter((n: any) => n.parentCostGroup?.id === l3n.id).map((l4: any) => l4.name),
+    }));
+  }
+
+  results.hierarchy = hierarchy;
 
   return NextResponse.json(results);
 }
