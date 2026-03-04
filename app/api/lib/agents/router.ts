@@ -3,6 +3,7 @@ import Anthropic from '@anthropic-ai/sdk';
 import { AgentModule, AgentContext, AgentResult } from './types';
 import knowItAll from './know-it-all';
 import jtEntry from './jt-entry';
+import projectDetails from './project-details';
 
 const anthropic = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY });
 
@@ -10,6 +11,7 @@ const anthropic = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY });
 const AGENTS: AgentModule[] = [
   knowItAll,
   jtEntry,
+  projectDetails,
   // Future: emailKid, designDolly
 ];
 
