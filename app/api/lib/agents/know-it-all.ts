@@ -400,22 +400,24 @@ const knowItAll: AgentModule = {
     },
     {
       name: 'get_job_specifications',
-      description: 'Get specifications for a job — includes the specifications description, footer, and all specification line items.',
+      description: 'Get specifications for a job — includes the specifications description, footer, and specification line items. Use the search parameter to filter by keyword (e.g. "door", "window", "plumbing") for large jobs.',
       input_schema: {
         type: 'object',
         properties: {
           jobId: { type: 'string', description: 'The JobTread Job ID' },
+          search: { type: 'string', description: 'Optional keyword to filter specification items (e.g. "door", "soffit", "window"). Recommended for large jobs to reduce data size.' },
         },
         required: ['jobId'],
       },
     },
     {
       name: 'get_job_budget',
-      description: 'Get cost items (budget/estimate line items) for a job. Shows quantities, costs, prices, and cost codes.',
+      description: 'Get cost items (budget/estimate line items) for a job. Use the search parameter to filter by keyword for large jobs.',
       input_schema: {
         type: 'object',
         properties: {
           jobId: { type: 'string', description: 'The JobTread Job ID' },
+          search: { type: 'string', description: 'Optional keyword to filter cost items (e.g. "electric", "plumbing", "door"). Recommended for large jobs.' },
         },
         required: ['jobId'],
       },
@@ -691,26 +693,54 @@ const knowItAll: AgentModule = {
 
       if (name === 'get_job_specifications') {
         const specs = await getSpecificationsForJob(input.jobId);
+        const searchTerm = (input.search || '').toLowerCase().trim();
         const lines: string[] = [];
-        if (specs.description) lines.push('SPECIFICATIONS DESCRIPTION:\n' + specs.description);
-        if (specs.footer) lines.push('\nSPECIFICATIONS FOOTER:\n' + specs.footer);
-        if (specs.items.length > 0) {
-          lines.push('\nSPECIFICATION ITEMS (' + specs.items.length + '):');
-          for (const item of specs.items) {
+
+        // Include description/footer only if no search filter or if they match
+        if (specs.description && (!searchTerm || specs.description.toLowerCase().includes(searchTerm))) {
+          lines.push('SPECIFICATIONS DESCRIPTION:\n' + specs.description.slice(0, 2000));
+        }
+        if (specs.footer && (!searchTerm || specs.footer.toLowerCase().includes(searchTerm))) {
+          lines.push('\nSPECIFICATIONS FOOTER:\n' + specs.footer.slice(0, 1000));
+        }
+
+        // Filter items by search term if provided
+        let filteredItems = specs.items;
+        if (searchTerm) {
+          filteredItems = specs.items.filter((item: any) => {
+            const searchable = [item.name, item.description, item.costCode?.name, item.costGroup?.name].filter(Boolean).join(' ').toLowerCase();
+            return searchable.includes(searchTerm);
+          });
+        }
+
+        if (filteredItems.length > 0) {
+          lines.push('\nSPECIFICATION ITEMS (' + filteredItems.length + (searchTerm ? ' matching "' + input.search + '"' : '') + ' of ' + specs.items.length + ' total):');
+          for (const item of filteredItems.slice(0, 50)) {
             const code = item.costCode ? ' (' + item.costCode.number + ' ' + item.costCode.name + ')' : '';
             const group = item.costGroup ? ' [' + item.costGroup.name + ']' : '';
-            lines.push('- ' + item.name + code + group + (item.description ? ' — ' + item.description.slice(0, 300) : ''));
+            lines.push('- ' + item.name + code + group + (item.description ? ' — ' + item.description.slice(0, 200) : ''));
           }
+          if (filteredItems.length > 50) lines.push('... and ' + (filteredItems.length - 50) + ' more items. Use a more specific search to narrow results.');
         }
-        if (lines.length === 0) return JSON.stringify({ success: true, message: 'No specifications found for this job.' });
+        if (lines.length === 0) return JSON.stringify({ success: true, message: searchTerm ? 'No specifications found matching "' + input.search + '".' : 'No specifications found for this job.' });
         return JSON.stringify({ success: true, specifications: lines.join('\n') });
       }
 
       if (name === 'get_job_budget') {
         const items = await getCostItemsForJob(input.jobId);
         if (!items || items.length === 0) return JSON.stringify({ success: true, count: 0, message: 'No cost items found.' });
+
+        const searchTerm = (input.search || '').toLowerCase().trim();
+        let filtered = items;
+        if (searchTerm) {
+          filtered = items.filter((i: any) => {
+            const searchable = [i.name, i.description, i.costCode?.name, i.costGroup?.name].filter(Boolean).join(' ').toLowerCase();
+            return searchable.includes(searchTerm);
+          });
+        }
+
         let totalCost = 0, totalPrice = 0;
-        const lines = items.map((i: any) => {
+        const lines = filtered.slice(0, 75).map((i: any) => {
           const cost = (i.quantity || 0) * (i.unitCost || 0);
           const price = (i.quantity || 0) * (i.unitPrice || 0);
           totalCost += cost;
@@ -720,9 +750,11 @@ const knowItAll: AgentModule = {
           const group = i.costGroup ? ' [' + i.costGroup.name + ']' : '';
           return '- ' + i.name + spec + code + group + ' | Qty: ' + (i.quantity || 0) + ' | Cost: $' + cost.toFixed(2) + ' | Price: $' + price.toFixed(2);
         });
+        if (filtered.length > 75) lines.push('... and ' + (filtered.length - 75) + ' more items. Use search parameter to filter.');
         lines.push('');
-        lines.push('TOTALS: Cost $' + totalCost.toFixed(2) + ' | Price $' + totalPrice.toFixed(2) + ' | Margin $' + (totalPrice - totalCost).toFixed(2));
-        return JSON.stringify({ success: true, count: items.length, costItems: lines.join('\n') });
+        lines.push('SHOWING: ' + Math.min(filtered.length, 75) + ' of ' + items.length + ' total items' + (searchTerm ? ' (filtered by "' + input.search + '")' : ''));
+        lines.push('TOTALS' + (searchTerm ? ' (filtered)' : '') + ': Cost $' + totalCost.toFixed(2) + ' | Price $' + totalPrice.toFixed(2) + ' | Margin $' + (totalPrice - totalCost).toFixed(2));
+        return JSON.stringify({ success: true, count: filtered.length, totalItems: items.length, costItems: lines.join('\n') });
       }
 
       if (name === 'get_job_events') {

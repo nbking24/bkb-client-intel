@@ -346,11 +346,12 @@ const jtEntry: AgentModule = {
     },
     {
       name: 'get_job_budget',
-      description: 'Get cost items (budget line items) for a job. Shows estimated costs, prices, and cost codes.',
+      description: 'Get cost items (budget line items) for a job. Use search parameter to filter by keyword for large jobs.',
       input_schema: {
         type: 'object',
         properties: {
           jobId: { type: 'string', description: 'The JobTread Job ID' },
+          search: { type: 'string', description: 'Optional keyword to filter cost items (e.g. "door", "electric"). Recommended for large jobs.' },
         },
         required: ['jobId'],
       },
@@ -758,8 +759,16 @@ const jtEntry: AgentModule = {
       if (name === 'get_job_budget') {
         const items = await getCostItemsForJob(input.jobId);
         if (!items || items.length === 0) return JSON.stringify({ success: true, count: 0, message: 'No cost items found.' });
+        const searchTerm = (input.search || '').toLowerCase().trim();
+        let filtered = items;
+        if (searchTerm) {
+          filtered = items.filter((i: any) => {
+            const searchable = [i.name, i.description, i.costCode?.name, i.costGroup?.name].filter(Boolean).join(' ').toLowerCase();
+            return searchable.includes(searchTerm);
+          });
+        }
         let totalCost = 0, totalPrice = 0;
-        const lines = items.map((i: any) => {
+        const lines = filtered.slice(0, 75).map((i: any) => {
           const cost = (i.quantity || 0) * (i.unitCost || 0);
           const price = (i.quantity || 0) * (i.unitPrice || 0);
           totalCost += cost;
@@ -769,9 +778,11 @@ const jtEntry: AgentModule = {
           const group = i.costGroup ? ' [' + i.costGroup.name + ']' : '';
           return '- ' + i.name + spec + code + group + ' | Qty: ' + (i.quantity || 0) + ' | Cost: $' + cost.toFixed(2) + ' | Price: $' + price.toFixed(2);
         });
+        if (filtered.length > 75) lines.push('... and ' + (filtered.length - 75) + ' more. Use search parameter to filter.');
         lines.push('');
-        lines.push('TOTALS: Cost $' + totalCost.toFixed(2) + ' | Price $' + totalPrice.toFixed(2) + ' | Margin $' + (totalPrice - totalCost).toFixed(2));
-        return JSON.stringify({ success: true, count: items.length, costItems: lines.join('\n') });
+        lines.push('SHOWING: ' + Math.min(filtered.length, 75) + ' of ' + items.length + ' total' + (searchTerm ? ' (filtered by "' + input.search + '")' : ''));
+        lines.push('TOTALS' + (searchTerm ? ' (filtered)' : '') + ': Cost $' + totalCost.toFixed(2) + ' | Price $' + totalPrice.toFixed(2) + ' | Margin $' + (totalPrice - totalCost).toFixed(2));
+        return JSON.stringify({ success: true, count: filtered.length, totalItems: items.length, costItems: lines.join('\n') });
       }
 
       // ========== UPDATE TASK FULL (advanced) ==========
