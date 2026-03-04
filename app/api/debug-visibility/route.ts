@@ -16,12 +16,16 @@ export async function GET() {
 
   // Test what fields exist on costGroups
   const fieldsToTest = [
-    'isSpecification',
-    'isVisible',
-    'visibility',
-    'showOnSpecifications',
-    'hidden',
-    'specificationVisibility',
+    'visible',
+    'isPublic',
+    'isHidden',
+    'show',
+    'published',
+    'active',
+    'enabled',
+    'specificationEnabled',
+    'showInSpecifications',
+    'displayInSpecifications',
   ];
 
   const results: Record<string, any> = {};
@@ -49,24 +53,37 @@ export async function GET() {
   // Test each field individually
   for (const field of fieldsToTest) {
     try {
-      const data = await pave({
-        job: {
-          $: { id: jobId },
-          costGroups: {
-            $: { size: 5 },
-            nodes: {
-              id: {},
-              name: {},
-              [field]: {},
+      const res = await fetch('https://api.jobtread.com/pave', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          query: {
+            $: { grantKey: JT_KEY() },
+            job: {
+              $: { id: jobId },
+              costGroups: {
+                $: { size: 3 },
+                nodes: {
+                  id: {},
+                  name: {},
+                  [field]: {},
+                },
+              },
             },
           },
-        },
+        }),
       });
-      const nodes = (data as any)?.job?.costGroups?.nodes || [];
-      results[field] = {
-        success: true,
-        sample: nodes.slice(0, 5).map((n: any) => ({ name: n.name, [field]: n[field] })),
-      };
+      const text = await res.text();
+      try {
+        const data = JSON.parse(text);
+        const nodes = data?.job?.costGroups?.nodes || [];
+        results[field] = {
+          success: true,
+          sample: nodes.slice(0, 3).map((n: any) => ({ name: n.name, [field]: n[field] })),
+        };
+      } catch {
+        results[field] = { success: false, rawResponse: text.slice(0, 200) };
+      }
     } catch (err: any) {
       results[field] = { success: false, error: err.message };
     }
