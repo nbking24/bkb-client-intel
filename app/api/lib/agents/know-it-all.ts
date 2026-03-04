@@ -1,7 +1,12 @@
 // @ts-nocheck
 import { AgentModule, AgentContext } from './types';
 import { getContact, getContactNotes, searchConversations, getConversationMessages, getContactTasks, getOpportunity, searchContacts as searchGHLContacts } from '../ghl';
-import { getActiveJobs, getJob, getJobSchedule, getTasksForJob, getDocumentsForJob, getMembers, getAllOpenTasks } from '../../../lib/jobtread';
+import {
+  getActiveJobs, getJob, getJobSchedule, getTasksForJob, getDocumentsForJob,
+  getMembers, getAllOpenTasks, getDailyLogsForJob, getCommentsForTarget,
+  getTimeEntriesForJob, getSpecificationsForJob, getCostItemsForJob,
+  getEventsForJob, getFilesForJob,
+} from '../../../lib/jobtread';
 
 function formatValue(val: any): string {
   if (val === null || val === undefined || val === '') return '';
@@ -254,7 +259,14 @@ const knowItAll: AgentModule = {
       '- get_job_documents: Get all documents associated with a job.\n' +
       '- get_all_open_tasks: Get ALL open/incomplete tasks across all jobs in the organization.\n' +
       '- search_ghl_contacts: Search GHL CRM for contacts by name or email.\n' +
-      '- get_team_members: Get list of all BKB team members with their IDs.\n\n' +
+      '- get_team_members: Get list of all BKB team members with their IDs.\n' +
+      '- get_job_daily_logs: Get daily logs for a job (site activity, notes, crew info).\n' +
+      '- get_job_comments: Get comments on a job, task, or document.\n' +
+      '- get_job_time_entries: Get time entries (labor hours) for a job.\n' +
+      '- get_job_specifications: Get job specifications (description, footer, spec items).\n' +
+      '- get_job_budget: Get cost items (budget line items) for a job.\n' +
+      '- get_job_events: Get calendar events for a job.\n' +
+      '- get_job_files: Get uploaded files for a job.\n\n' +
       'INSTRUCTIONS:\n' +
       '- When someone asks about a project/job, use search_jobs first to find it, then get_job_details or get_job_schedule for specifics.\n' +
       '- When listing jobs or tasks, format them clearly with job numbers and names.\n' +
@@ -352,6 +364,84 @@ const knowItAll: AgentModule = {
         required: [],
       },
     },
+    {
+      name: 'get_job_daily_logs',
+      description: 'Get daily logs for a specific job. Daily logs track daily site activity, notes, and crew information.',
+      input_schema: {
+        type: 'object',
+        properties: {
+          jobId: { type: 'string', description: 'The JobTread Job ID' },
+        },
+        required: ['jobId'],
+      },
+    },
+    {
+      name: 'get_job_comments',
+      description: 'Get all comments on a JobTread entity (job, task, document). Shows discussion threads and pinned comments.',
+      input_schema: {
+        type: 'object',
+        properties: {
+          targetId: { type: 'string', description: 'ID of the entity (job ID, task ID, etc.)' },
+          targetType: { type: 'string', description: 'Type: "job", "task", "document", "costItem"' },
+        },
+        required: ['targetId', 'targetType'],
+      },
+    },
+    {
+      name: 'get_job_time_entries',
+      description: 'Get time entries (labor hours) logged for a job. Shows who worked, when, and on what.',
+      input_schema: {
+        type: 'object',
+        properties: {
+          jobId: { type: 'string', description: 'The JobTread Job ID' },
+        },
+        required: ['jobId'],
+      },
+    },
+    {
+      name: 'get_job_specifications',
+      description: 'Get specifications for a job — includes the specifications description, footer, and all specification line items.',
+      input_schema: {
+        type: 'object',
+        properties: {
+          jobId: { type: 'string', description: 'The JobTread Job ID' },
+        },
+        required: ['jobId'],
+      },
+    },
+    {
+      name: 'get_job_budget',
+      description: 'Get cost items (budget/estimate line items) for a job. Shows quantities, costs, prices, and cost codes.',
+      input_schema: {
+        type: 'object',
+        properties: {
+          jobId: { type: 'string', description: 'The JobTread Job ID' },
+        },
+        required: ['jobId'],
+      },
+    },
+    {
+      name: 'get_job_events',
+      description: 'Get calendar events for a job. Shows meetings, inspections, site visits, and other scheduled events.',
+      input_schema: {
+        type: 'object',
+        properties: {
+          jobId: { type: 'string', description: 'The JobTread Job ID' },
+        },
+        required: ['jobId'],
+      },
+    },
+    {
+      name: 'get_job_files',
+      description: 'Get all uploaded files for a job (photos, plans, permits, etc.).',
+      input_schema: {
+        type: 'object',
+        properties: {
+          jobId: { type: 'string', description: 'The JobTread Job ID' },
+        },
+        required: ['jobId'],
+      },
+    },
   ],
 
   canHandle: (message: string) => {
@@ -362,6 +452,13 @@ const knowItAll: AgentModule = {
     if (/mark.*(complete|done|finished|progress)/i.test(lower)) return 0.2;
     // High score for questions, lookups, summaries (removed "update" from keywords)
     if (/\?|what|who|when|where|how|tell me|show me|summary|overview|status|history|latest|details|information|look up|find out|check on|list|all jobs|all tasks|open tasks|overdue/i.test(lower)) return 0.8;
+    // High for read-only data requests
+    if (/daily.*(log|report|entry)|site.*(log|report)/i.test(lower) && !/(create|add|write|update|edit|delete)/i.test(lower)) return 0.85;
+    if (/(time.*entry|time.*log|labor.*hour|hours.*logged)/i.test(lower)) return 0.85;
+    if (/(specification|spec|budget|cost.*item|estimate|bid)/i.test(lower) && !/(update|change|edit|modify)/i.test(lower)) return 0.85;
+    if (/(comment|discussion|thread)/i.test(lower) && !/(add|create|post|write)/i.test(lower)) return 0.85;
+    if (/(event|meeting|inspection|calendar|appointment)/i.test(lower)) return 0.8;
+    if (/(file|photo|plan|permit|upload|attachment)/i.test(lower)) return 0.8;
     // Medium score for general client/project references
     if (/client|project|job|contact|note|message|communication|schedule|document|team/i.test(lower)) return 0.5;
     // Low base score - acts as fallback
@@ -439,7 +536,9 @@ const knowItAll: AgentModule = {
         for (const phase of schedule.phases || []) {
           const phaseProgress = Math.round((phase.progress || 0) * 100);
           lines.push('📁 ' + phase.name + ' (' + phaseProgress + '% complete)');
-          for (const task of phase.childTasks?.nodes || phase.childTasks || []) {
+          const phaseTasks = phase.childTasks?.nodes || phase.childTasks || [];
+          const taskList = Array.isArray(phaseTasks) ? phaseTasks : [];
+          for (const task of taskList) {
             const status = task.progress >= 1 ? '✅' : task.progress > 0 ? '🔄' : '⬜';
             const dates = [task.startDate, task.endDate].filter(Boolean).join(' → ');
             const assignees = task.assignedMemberships?.map((a: any) => a.user?.name || a.name || '').filter(Boolean).join(', ');
@@ -546,6 +645,104 @@ const knowItAll: AgentModule = {
         const members = await getMembers();
         const lines = members.map((m: any) => '- ' + (m.user?.name || m.name || 'Unknown') + ' (ID: ' + m.id + ')');
         return JSON.stringify({ success: true, count: members.length, members: lines.join('\n') });
+      }
+
+      if (name === 'get_job_daily_logs') {
+        const logs = await getDailyLogsForJob(input.jobId);
+        if (!logs || logs.length === 0) return JSON.stringify({ success: true, count: 0, message: 'No daily logs found for this job.' });
+        const lines = logs.map((l: any) => {
+          const assignees = l.assignedMemberships?.nodes?.map((a: any) => a.user?.name || '').filter(Boolean).join(', ');
+          return '- [' + (l.date || 'No date') + '] (ID: ' + l.id + ')' + (assignees ? ' [' + assignees + ']' : '') + '\n  ' + (l.notes || '(no notes)').slice(0, 500);
+        });
+        return JSON.stringify({ success: true, count: logs.length, dailyLogs: lines.join('\n') });
+      }
+
+      if (name === 'get_job_comments') {
+        const comments = await getCommentsForTarget(input.targetId, input.targetType);
+        if (!comments || comments.length === 0) return JSON.stringify({ success: true, count: 0, message: 'No comments found.' });
+        const lines = comments.map((c: any) => {
+          const date = c.createdAt ? new Date(c.createdAt).toLocaleDateString() : '';
+          const pin = c.isPinned ? '📌 ' : '';
+          const reply = c.parentComment?.id ? '  ↳ Reply: ' : '- ';
+          return reply + pin + '[' + date + '] ' + (c.name || 'Unknown') + ': ' + (c.message || '').slice(0, 500);
+        });
+        return JSON.stringify({ success: true, count: comments.length, comments: lines.join('\n') });
+      }
+
+      if (name === 'get_job_time_entries') {
+        const entries = await getTimeEntriesForJob(input.jobId);
+        if (!entries || entries.length === 0) return JSON.stringify({ success: true, count: 0, message: 'No time entries found for this job.' });
+        let totalHours = 0;
+        const lines = entries.map((e: any) => {
+          const start = e.startedAt ? new Date(e.startedAt) : null;
+          const end = e.endedAt ? new Date(e.endedAt) : null;
+          let hours = 0;
+          if (start && end) hours = (end.getTime() - start.getTime()) / 3600000;
+          totalHours += hours;
+          const dateStr = start ? start.toLocaleDateString() : 'No date';
+          const userName = e.user?.name || 'Unknown';
+          const costItemName = e.costItem?.name || '';
+          return '- [' + dateStr + '] ' + userName + ' — ' + hours.toFixed(1) + ' hrs' + (costItemName ? ' (' + costItemName + ')' : '') + (e.notes ? ' — ' + e.notes.slice(0, 200) : '');
+        });
+        lines.push('');
+        lines.push('TOTAL: ' + totalHours.toFixed(1) + ' hours across ' + entries.length + ' entries');
+        return JSON.stringify({ success: true, count: entries.length, totalHours: totalHours.toFixed(1), timeEntries: lines.join('\n') });
+      }
+
+      if (name === 'get_job_specifications') {
+        const specs = await getSpecificationsForJob(input.jobId);
+        const lines: string[] = [];
+        if (specs.description) lines.push('SPECIFICATIONS DESCRIPTION:\n' + specs.description);
+        if (specs.footer) lines.push('\nSPECIFICATIONS FOOTER:\n' + specs.footer);
+        if (specs.items.length > 0) {
+          lines.push('\nSPECIFICATION ITEMS (' + specs.items.length + '):');
+          for (const item of specs.items) {
+            const code = item.costCode ? ' (' + item.costCode.number + ' ' + item.costCode.name + ')' : '';
+            const group = item.costGroup ? ' [' + item.costGroup.name + ']' : '';
+            lines.push('- ' + item.name + code + group + (item.description ? ' — ' + item.description.slice(0, 300) : ''));
+          }
+        }
+        if (lines.length === 0) return JSON.stringify({ success: true, message: 'No specifications found for this job.' });
+        return JSON.stringify({ success: true, specifications: lines.join('\n') });
+      }
+
+      if (name === 'get_job_budget') {
+        const items = await getCostItemsForJob(input.jobId);
+        if (!items || items.length === 0) return JSON.stringify({ success: true, count: 0, message: 'No cost items found.' });
+        let totalCost = 0, totalPrice = 0;
+        const lines = items.map((i: any) => {
+          const cost = (i.quantity || 0) * (i.unitCost || 0);
+          const price = (i.quantity || 0) * (i.unitPrice || 0);
+          totalCost += cost;
+          totalPrice += price;
+          const spec = i.isSpecification ? ' [SPEC]' : '';
+          const code = i.costCode ? ' (' + i.costCode.number + ' ' + i.costCode.name + ')' : '';
+          const group = i.costGroup ? ' [' + i.costGroup.name + ']' : '';
+          return '- ' + i.name + spec + code + group + ' | Qty: ' + (i.quantity || 0) + ' | Cost: $' + cost.toFixed(2) + ' | Price: $' + price.toFixed(2);
+        });
+        lines.push('');
+        lines.push('TOTALS: Cost $' + totalCost.toFixed(2) + ' | Price $' + totalPrice.toFixed(2) + ' | Margin $' + (totalPrice - totalCost).toFixed(2));
+        return JSON.stringify({ success: true, count: items.length, costItems: lines.join('\n') });
+      }
+
+      if (name === 'get_job_events') {
+        const events = await getEventsForJob(input.jobId);
+        if (!events || events.length === 0) return JSON.stringify({ success: true, count: 0, message: 'No events found for this job.' });
+        const lines = events.map((e: any) => {
+          const dates = [e.startDate, e.endDate].filter(Boolean).join(' → ');
+          const times = [e.startTime, e.endTime].filter(Boolean).join(' - ');
+          return '- ' + (e.name || 'Unnamed') + ' | ' + (e.type || 'N/A') + (dates ? ' | ' + dates : '') + (times ? ' ' + times : '') + (e.notes ? ' — ' + e.notes.slice(0, 200) : '');
+        });
+        return JSON.stringify({ success: true, count: events.length, events: lines.join('\n') });
+      }
+
+      if (name === 'get_job_files') {
+        const files = await getFilesForJob(input.jobId);
+        if (!files || files.length === 0) return JSON.stringify({ success: true, count: 0, message: 'No files found.' });
+        const lines = files.map((f: any) =>
+          '- ' + (f.name || 'Unnamed') + ' | Type: ' + (f.type || 'N/A') + (f.url ? ' | URL: ' + f.url : '')
+        );
+        return JSON.stringify({ success: true, count: files.length, files: lines.join('\n') });
       }
 
       return JSON.stringify({ error: 'Unknown tool: ' + name });

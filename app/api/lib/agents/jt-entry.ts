@@ -9,6 +9,7 @@ import {
   getJobSchedule,
   updateTaskProgress,
   updateTask,
+  updateTaskFull,
   deleteJTTask,
   createPhaseGroup,
   createPhaseTask,
@@ -16,6 +17,14 @@ import {
   getDocumentsForJob,
   getFilesForJob,
   moveTaskToPhase,
+  getDailyLogsForJob,
+  createDailyLog,
+  updateDailyLog,
+  deleteDailyLog,
+  createComment,
+  getCommentsForTarget,
+  updateJob,
+  getCostItemsForJob,
 } from '../../../lib/jobtread';
 
 const jtEntry: AgentModule = {
@@ -42,7 +51,16 @@ const jtEntry: AgentModule = {
       '10. apply_standard_template — Apply the BKB 9-phase standard template to a job. This creates: Admin, Concept, Design Development, Contract, Pre-Construction, Production, Inspections, Punch/Closeout, Project Closeout.\n' +
       '11. get_job_documents — View documents/contracts for a job.\n' +
       '12. get_job_files — View uploaded files for a job.\n' +
-      '13. move_task_to_phase — Move a task from one phase to another.\n\n' +
+      '13. move_task_to_phase — Move a task from one phase to another.\n' +
+      '14. get_job_daily_logs — View all daily logs for a job.\n' +
+      '15. create_daily_log — Create a new daily log entry for a job.\n' +
+      '16. update_daily_log — Update an existing daily log.\n' +
+      '17. delete_daily_log — Delete a daily log entry.\n' +
+      '18. create_comment — Add a comment to any JobTread entity (job, task, document).\n' +
+      '19. get_comments — View all comments on a JobTread entity.\n' +
+      '20. update_job — Update job details (name, description, specifications, close/reopen).\n' +
+      '21. get_job_budget — View cost items (budget line items) for a job.\n' +
+      '22. update_task_full — Advanced task update with assignee changes, time of day, etc.\n\n' +
       'CRITICAL — CONFIRMATION BEFORE EXECUTION:\n' +
       '- For ANY write operation (create, update, delete, move, apply template), you MUST first:\n' +
       '  1. Use read-only tools (search_jobs, get_job_schedule, get_job_tasks) to gather the needed info\n' +
@@ -232,6 +250,130 @@ const jtEntry: AgentModule = {
         required: ['taskId', 'targetPhaseId', 'jobId'],
       },
     },
+    {
+      name: 'get_job_daily_logs',
+      description: 'Get all daily logs for a job. Daily logs track daily job site activity, notes, and crew info.',
+      input_schema: {
+        type: 'object',
+        properties: {
+          jobId: { type: 'string', description: 'The JobTread Job ID' },
+        },
+        required: ['jobId'],
+      },
+    },
+    {
+      name: 'create_daily_log',
+      description: 'Create a new daily log entry for a job. Records daily site activity, notes, and optionally assigns crew members.',
+      input_schema: {
+        type: 'object',
+        properties: {
+          jobId: { type: 'string', description: 'The JobTread Job ID' },
+          date: { type: 'string', description: 'Date in YYYY-MM-DD format. Defaults to today if not specified.' },
+          notes: { type: 'string', description: 'Daily log notes — what happened on site, crew activity, issues, etc.' },
+          assignTo: { type: 'string', description: 'Comma-separated team member names to assign to this log (optional)' },
+          notify: { type: 'boolean', description: 'Whether to notify assigned members (default false)' },
+        },
+        required: ['jobId', 'notes'],
+      },
+    },
+    {
+      name: 'update_daily_log',
+      description: 'Update an existing daily log — change the notes or date.',
+      input_schema: {
+        type: 'object',
+        properties: {
+          logId: { type: 'string', description: 'The daily log ID to update' },
+          notes: { type: 'string', description: 'Updated notes (optional)' },
+          date: { type: 'string', description: 'Updated date in YYYY-MM-DD format (optional)' },
+        },
+        required: ['logId'],
+      },
+    },
+    {
+      name: 'delete_daily_log',
+      description: 'Delete a daily log entry. Always confirm with the user before executing.',
+      input_schema: {
+        type: 'object',
+        properties: {
+          logId: { type: 'string', description: 'The daily log ID to delete' },
+        },
+        required: ['logId'],
+      },
+    },
+    {
+      name: 'create_comment',
+      description: 'Add a comment to any JobTread entity (job, task, document, etc.). Comments support replies and pinning.',
+      input_schema: {
+        type: 'object',
+        properties: {
+          targetId: { type: 'string', description: 'ID of the entity to comment on (job ID, task ID, etc.)' },
+          targetType: { type: 'string', description: 'Type of entity: "job", "task", "document", "costItem"' },
+          message: { type: 'string', description: 'The comment text' },
+          assignTo: { type: 'string', description: 'Comma-separated team member names to notify (optional)' },
+          isPinned: { type: 'boolean', description: 'Pin this comment to the top (optional)' },
+          parentCommentId: { type: 'string', description: 'ID of parent comment if this is a reply (optional)' },
+        },
+        required: ['targetId', 'targetType', 'message'],
+      },
+    },
+    {
+      name: 'get_comments',
+      description: 'Get all comments on a JobTread entity (job, task, document, etc.).',
+      input_schema: {
+        type: 'object',
+        properties: {
+          targetId: { type: 'string', description: 'ID of the entity (job ID, task ID, etc.)' },
+          targetType: { type: 'string', description: 'Type of entity: "job", "task", "document", "costItem"' },
+        },
+        required: ['targetId', 'targetType'],
+      },
+    },
+    {
+      name: 'update_job',
+      description: 'Update a job\'s details — name, description, specifications description, specifications footer, or close/reopen the job.',
+      input_schema: {
+        type: 'object',
+        properties: {
+          jobId: { type: 'string', description: 'The JobTread Job ID' },
+          name: { type: 'string', description: 'New job name (optional)' },
+          description: { type: 'string', description: 'New job description (optional)' },
+          specificationsDescription: { type: 'string', description: 'Job specifications description text (optional)' },
+          specificationsFooter: { type: 'string', description: 'Job specifications footer text (optional)' },
+          closedOn: { type: 'string', description: 'Date to close the job (YYYY-MM-DD) or null to reopen (optional)' },
+        },
+        required: ['jobId'],
+      },
+    },
+    {
+      name: 'get_job_budget',
+      description: 'Get cost items (budget line items) for a job. Shows estimated costs, prices, and cost codes.',
+      input_schema: {
+        type: 'object',
+        properties: {
+          jobId: { type: 'string', description: 'The JobTread Job ID' },
+        },
+        required: ['jobId'],
+      },
+    },
+    {
+      name: 'update_task_full',
+      description: 'Advanced task update — change assignees, time of day, parent phase, and all standard fields. Use this when the user wants to reassign a task or change time-specific details.',
+      input_schema: {
+        type: 'object',
+        properties: {
+          taskId: { type: 'string', description: 'The task ID to update' },
+          name: { type: 'string', description: 'New task name (optional)' },
+          description: { type: 'string', description: 'New description (optional)' },
+          startDate: { type: 'string', description: 'New start date YYYY-MM-DD (optional)' },
+          endDate: { type: 'string', description: 'New end date YYYY-MM-DD (optional)' },
+          startTime: { type: 'string', description: 'Start time HH:MM (optional)' },
+          endTime: { type: 'string', description: 'End time HH:MM (optional)' },
+          progress: { type: 'number', description: '0=not started, 0.5=in progress, 1=complete (optional)' },
+          assignTo: { type: 'string', description: 'Comma-separated team member names to reassign task to (optional). Replaces current assignees.' },
+        },
+        required: ['taskId'],
+      },
+    },
   ],
 
   canHandle: (message: string) => {
@@ -248,8 +390,19 @@ const jtEntry: AgentModule = {
     if (/apply.*template|standard.*template|create.*phase|add.*phase|new.*phase/i.test(lower)) return 0.9;
     // High for any "update task" or "change task" phrasing
     if (/(update|change|edit|modify|rename|reschedule).*task/i.test(lower)) return 0.9;
+    // High for daily log operations
+    if (/(create|add|write|log|new).*(daily.*log|daily.*report|site.*log|field.*report)/i.test(lower)) return 0.95;
+    if (/daily.*(log|report|entry)/i.test(lower) && /(create|add|write|update|edit|delete)/i.test(lower)) return 0.95;
+    // High for comment operations
+    if (/(add|create|post|write|leave).*(comment|note)/i.test(lower)) return 0.9;
+    // High for job update operations
+    if (/(update|change|edit|modify|close|reopen).*(job|project)/i.test(lower)) return 0.9;
+    // High for budget/cost operations
+    if (/(budget|cost.*item|line.*item|specification)/i.test(lower) && /(show|get|view|update|add)/i.test(lower)) return 0.85;
+    // High for reassignment
+    if (/(reassign|assign.*to|change.*assign)/i.test(lower)) return 0.9;
     // Medium for general CRUD verbs
-    if (/(create|add|schedule|assign).*(task|item|entry|comment)/i.test(lower)) return 0.7;
+    if (/(create|add|schedule|assign).*(task|item|entry|comment|log)/i.test(lower)) return 0.7;
     if (/move.*task|delete.*task|remove.*task/i.test(lower)) return 0.85;
     // Lower for general action words
     if (/create|add|schedule|update|edit|delete|assign|move|apply|change|modify|rename|reschedule/i.test(lower)) return 0.5;
@@ -306,11 +459,24 @@ const jtEntry: AgentModule = {
         for (const phase of schedule.phases || []) {
           lines.push('');
           lines.push('📁 ' + phase.name + ' (ID: ' + phase.id + ') — ' + Math.round((phase.progress || 0) * 100) + '% complete');
-          for (const task of phase.childTasks?.nodes || phase.childTasks || []) {
+          const phaseTasks = phase.childTasks?.nodes || phase.childTasks || [];
+          const taskList = Array.isArray(phaseTasks) ? phaseTasks : [];
+          for (const task of taskList) {
             const status = task.progress >= 1 ? '✅' : task.progress > 0 ? '🔄' : '⬜';
             const dates = [task.startDate, task.endDate].filter(Boolean).join(' → ');
             const assignees = task.assignedMemberships?.map((a: any) => a.user?.name || '').filter(Boolean).join(', ');
             lines.push('  ' + status + ' ' + task.name + ' (ID: ' + task.id + ')' + (dates ? ' (' + dates + ')' : '') + (assignees ? ' [' + assignees + ']' : ''));
+          }
+        }
+
+        // Show orphan tasks (tasks not in any phase)
+        if (schedule.orphanTasks && schedule.orphanTasks.length > 0) {
+          lines.push('');
+          lines.push('📋 Tasks Not In Any Phase:');
+          for (const task of schedule.orphanTasks) {
+            const status = task.progress >= 1 ? '✅' : task.progress > 0 ? '🔄' : '⬜';
+            const dates = [task.startDate, task.endDate].filter(Boolean).join(' → ');
+            lines.push('  ' + status + ' ' + task.name + ' (ID: ' + task.id + ')' + (dates ? ' (' + dates + ')' : ''));
           }
         }
 
@@ -479,6 +645,164 @@ const jtEntry: AgentModule = {
           jobId: input.jobId,
         });
         return JSON.stringify({ success: true, result, message: 'Task moved to new phase.' });
+      }
+
+      // ========== DAILY LOGS ==========
+      if (name === 'get_job_daily_logs') {
+        const logs = await getDailyLogsForJob(input.jobId);
+        if (!logs || logs.length === 0) return JSON.stringify({ success: true, count: 0, message: 'No daily logs found for this job.' });
+        const lines = logs.map((l: any) => {
+          const assignees = l.assignedMemberships?.nodes?.map((a: any) => a.user?.name || '').filter(Boolean).join(', ');
+          return '- [' + (l.date || 'No date') + '] (ID: ' + l.id + ')' + (assignees ? ' [' + assignees + ']' : '') + '\n  ' + (l.notes || '(no notes)').slice(0, 500);
+        });
+        return JSON.stringify({ success: true, count: logs.length, dailyLogs: lines.join('\n') });
+      }
+
+      if (name === 'create_daily_log') {
+        const jobId = input.jobId || ctx.jtJobId;
+        if (!jobId) return JSON.stringify({ success: false, error: 'No Job ID. Use search_jobs first.' });
+        const date = input.date || new Date().toISOString().split('T')[0];
+
+        let assignees: string[] | undefined;
+        if (input.assignTo) {
+          try {
+            const members = await getMembers();
+            const names = input.assignTo.split(',').map((n: string) => n.trim().toLowerCase());
+            assignees = [];
+            for (const searchName of names) {
+              const match = members.find((m: any) => {
+                const mName = (m.user?.name || '').toLowerCase();
+                return mName.includes(searchName) || searchName.includes(mName.split(' ')[0]);
+              });
+              if (match) assignees.push(match.id);
+            }
+            if (assignees.length === 0) assignees = undefined;
+          } catch (e) { /* ignore */ }
+        }
+
+        const result = await createDailyLog({ jobId, date, notes: input.notes, assignees, notify: input.notify });
+        return JSON.stringify({ success: true, result, message: 'Daily log created for ' + date + '.' });
+      }
+
+      if (name === 'update_daily_log') {
+        const fields: any = {};
+        if (input.notes) fields.notes = input.notes;
+        if (input.date) fields.date = input.date;
+        if (Object.keys(fields).length === 0) return JSON.stringify({ success: false, error: 'No fields to update.' });
+        const result = await updateDailyLog({ id: input.logId, ...fields });
+        return JSON.stringify({ success: true, result, message: 'Daily log updated.' });
+      }
+
+      if (name === 'delete_daily_log') {
+        await deleteDailyLog(input.logId);
+        return JSON.stringify({ success: true, message: 'Daily log deleted.' });
+      }
+
+      // ========== COMMENTS ==========
+      if (name === 'get_comments') {
+        const comments = await getCommentsForTarget(input.targetId, input.targetType);
+        if (!comments || comments.length === 0) return JSON.stringify({ success: true, count: 0, message: 'No comments found.' });
+        const lines = comments.map((c: any) => {
+          const date = c.createdAt ? new Date(c.createdAt).toLocaleDateString() : '';
+          const pin = c.isPinned ? '📌 ' : '';
+          const reply = c.parentComment?.id ? '  ↳ Reply: ' : '- ';
+          return reply + pin + '[' + date + '] ' + (c.name || 'Unknown') + ': ' + (c.message || '').slice(0, 500) + ' (ID: ' + c.id + ')';
+        });
+        return JSON.stringify({ success: true, count: comments.length, comments: lines.join('\n') });
+      }
+
+      if (name === 'create_comment') {
+        let assignees: string[] | undefined;
+        if (input.assignTo) {
+          try {
+            const members = await getMembers();
+            const names = input.assignTo.split(',').map((n: string) => n.trim().toLowerCase());
+            assignees = [];
+            for (const searchName of names) {
+              const match = members.find((m: any) => {
+                const mName = (m.user?.name || '').toLowerCase();
+                return mName.includes(searchName) || searchName.includes(mName.split(' ')[0]);
+              });
+              if (match) assignees.push(match.id);
+            }
+            if (assignees.length === 0) assignees = undefined;
+          } catch (e) { /* ignore */ }
+        }
+
+        const result = await createComment({
+          targetId: input.targetId,
+          targetType: input.targetType,
+          message: input.message,
+          assignees,
+          isPinned: input.isPinned,
+          parentCommentId: input.parentCommentId,
+        });
+        return JSON.stringify({ success: true, result, message: 'Comment added.' });
+      }
+
+      // ========== UPDATE JOB ==========
+      if (name === 'update_job') {
+        const fields: any = {};
+        if (input.name) fields.name = input.name;
+        if (input.description) fields.description = input.description;
+        if (input.specificationsDescription !== undefined) fields.specificationsDescription = input.specificationsDescription;
+        if (input.specificationsFooter !== undefined) fields.specificationsFooter = input.specificationsFooter;
+        if (input.closedOn !== undefined) fields.closedOn = input.closedOn;
+        if (Object.keys(fields).length === 0) return JSON.stringify({ success: false, error: 'No fields to update.' });
+        const result = await updateJob(input.jobId, fields);
+        return JSON.stringify({ success: true, result, message: 'Job updated.' });
+      }
+
+      // ========== BUDGET / COST ITEMS ==========
+      if (name === 'get_job_budget') {
+        const items = await getCostItemsForJob(input.jobId);
+        if (!items || items.length === 0) return JSON.stringify({ success: true, count: 0, message: 'No cost items found.' });
+        let totalCost = 0, totalPrice = 0;
+        const lines = items.map((i: any) => {
+          const cost = (i.quantity || 0) * (i.unitCost || 0);
+          const price = (i.quantity || 0) * (i.unitPrice || 0);
+          totalCost += cost;
+          totalPrice += price;
+          const spec = i.isSpecification ? ' [SPEC]' : '';
+          const code = i.costCode ? ' (' + i.costCode.number + ' ' + i.costCode.name + ')' : '';
+          const group = i.costGroup ? ' [' + i.costGroup.name + ']' : '';
+          return '- ' + i.name + spec + code + group + ' | Qty: ' + (i.quantity || 0) + ' | Cost: $' + cost.toFixed(2) + ' | Price: $' + price.toFixed(2);
+        });
+        lines.push('');
+        lines.push('TOTALS: Cost $' + totalCost.toFixed(2) + ' | Price $' + totalPrice.toFixed(2) + ' | Margin $' + (totalPrice - totalCost).toFixed(2));
+        return JSON.stringify({ success: true, count: items.length, costItems: lines.join('\n') });
+      }
+
+      // ========== UPDATE TASK FULL (advanced) ==========
+      if (name === 'update_task_full') {
+        const fields: any = {};
+        if (input.name) fields.name = input.name;
+        if (input.description) fields.description = input.description;
+        if (input.startDate) fields.startDate = input.startDate;
+        if (input.endDate) fields.endDate = input.endDate;
+        if (input.startTime) fields.startTime = input.startTime;
+        if (input.endTime) fields.endTime = input.endTime;
+        if (input.progress !== undefined) fields.progress = input.progress;
+
+        if (input.assignTo) {
+          try {
+            const members = await getMembers();
+            const names = input.assignTo.split(',').map((n: string) => n.trim().toLowerCase());
+            const ids: string[] = [];
+            for (const searchName of names) {
+              const match = members.find((m: any) => {
+                const mName = (m.user?.name || '').toLowerCase();
+                return mName.includes(searchName) || searchName.includes(mName.split(' ')[0]);
+              });
+              if (match) ids.push(match.id);
+            }
+            if (ids.length > 0) fields.assignedMembershipIds = ids;
+          } catch (e) { /* ignore */ }
+        }
+
+        if (Object.keys(fields).length === 0) return JSON.stringify({ success: false, error: 'No fields to update.' });
+        const result = await updateTaskFull(input.taskId, fields);
+        return JSON.stringify({ success: true, result, message: 'Task updated (advanced).' });
       }
 
       return JSON.stringify({ error: 'Unknown tool: ' + name });
