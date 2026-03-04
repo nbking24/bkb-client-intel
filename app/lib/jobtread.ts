@@ -44,8 +44,13 @@ async function pave(query: Record<string, unknown>) {
   const text = await res.text();
   if (!text) return {};
   try {
-    return JSON.parse(text);
-  } catch {
+    const json = JSON.parse(text);
+    if (json.errors?.length) {
+      throw new Error('JT PAVE: ' + json.errors.map((e: any) => e.message || JSON.stringify(e)).join('; '));
+    }
+    return json;
+  } catch (err: any) {
+    if (err?.message?.startsWith('JT PAVE:')) throw err;
     throw new Error(`JT PAVE error: invalid JSON — ${text.slice(0, 200)}`);
   }
 }
@@ -577,10 +582,17 @@ export async function updateTask(taskId: string, fields: {
   if (fields.startDate !== undefined) params.startDate = fields.startDate;
   if (fields.endDate !== undefined) params.endDate = fields.endDate;
   if (fields.progress !== undefined) params.progress = Math.min(1, Math.max(0, fields.progress));
-  await pave({
-    updateTask: { $: params },
+  const data = await pave({
+    updateTask: {
+      $: params,
+      updatedTask: { id: {}, name: {}, startDate: {}, endDate: {}, progress: {} },
+    },
   });
-  return { success: true, taskId, updatedFields: Object.keys(fields) };
+  const updated = (data as any)?.updateTask?.updatedTask;
+  if (!updated?.id) {
+    throw new Error('Task update failed — no confirmation from JobTread: ' + JSON.stringify(data));
+  }
+  return { success: true, taskId, updatedFields: Object.keys(fields), verified: updated };
 }
 
 // Delete a task (works for both groups and individual tasks)
