@@ -459,12 +459,31 @@ const knowItAll: AgentModule = {
         const tasks = await getTasksForJob(input.jobId);
         if (!tasks || tasks.length === 0) return JSON.stringify({ success: true, count: 0, message: 'No tasks found for this job.' });
 
-        const lines = tasks.map((t: any) => {
-          const status = t.progress >= 1 ? 'DONE' : t.progress > 0 ? 'IN PROGRESS' : 'NOT STARTED';
-          const dates = [t.startDate, t.endDate].filter(Boolean).join(' → ');
-          const assignees = t.assignedMemberships?.map((a: any) => a.user?.name || '').filter(Boolean).join(', ');
-          return '- [' + status + '] ' + t.name + (dates ? ' (' + dates + ')' : '') + (assignees ? ' [' + assignees + ']' : '') + (t.description ? ' — ' + t.description.slice(0, 200) : '');
-        });
+        // Separate phases (groups) from individual tasks
+        const phases = tasks.filter((t: any) => t.isGroup && !t.parentTask?.id);
+        const childTasks = tasks.filter((t: any) => !t.isGroup);
+
+        const lines: string[] = [];
+        for (const phase of phases) {
+          const phaseProgress = Math.round((phase.progress || 0) * 100);
+          lines.push('📁 ' + phase.name + ' (' + phaseProgress + '%)');
+          const children = childTasks.filter((t: any) => t.parentTask?.id === phase.id);
+          for (const t of children) {
+            const status = t.progress >= 1 ? '✅' : t.progress > 0 ? '🔄' : '⬜';
+            const dates = [t.startDate, t.endDate].filter(Boolean).join(' → ');
+            lines.push('  ' + status + ' ' + t.name + (dates ? ' (' + dates + ')' : ''));
+          }
+        }
+        // Orphan tasks (no parent)
+        const orphans = childTasks.filter((t: any) => !t.parentTask?.id);
+        if (orphans.length > 0) {
+          lines.push('📋 Other Tasks:');
+          for (const t of orphans) {
+            const status = t.progress >= 1 ? '✅' : t.progress > 0 ? '🔄' : '⬜';
+            const dates = [t.startDate, t.endDate].filter(Boolean).join(' → ');
+            lines.push('  ' + status + ' ' + t.name + (dates ? ' (' + dates + ')' : ''));
+          }
+        }
 
         return JSON.stringify({ success: true, count: tasks.length, tasks: lines.join('\n') });
       }
