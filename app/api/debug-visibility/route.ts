@@ -136,7 +136,15 @@ export async function GET() {
     },
   });
 
-  const specItems = ((specData as any)?.job?.costItems?.nodes || []).filter((n: any) => n.isSpecification === true);
+  const allCostItems2 = (specData as any)?.job?.costItems?.nodes || [];
+  const specItems = allCostItems2.filter((n: any) => n.isSpecification === true);
+  results.totalCostItems = allCostItems2.length;
+  results.sampleItems = allCostItems2.slice(0, 5).map((n: any) => ({
+    name: n.name,
+    isSpec: n.isSpecification,
+    group: n.costGroup?.name,
+    parent: n.costGroup?.parentCostGroup?.name,
+  }));
 
   // Group spec items by their cost group name and show hierarchy
   const specGroupMap = new Map<string, { groupName: string; parentName: string; grandparentName: string; count: number }>();
