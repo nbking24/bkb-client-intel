@@ -1248,12 +1248,39 @@ export async function getDailyLogsForJob(jobId: string, limit = 50): Promise<JTD
     const logs = (data as any)?.organization?.dailyLogs?.nodes;
     if (logs && Array.isArray(logs)) return logs;
   } catch (_err2: any) {
-    // Org-level also failed — fall through
+    // Org-level with where failed — try without where and filter client-side
   }
 
-  // Strategy 3: Use the pdf() root query to get daily log data reference
-  // This is a last-resort — the pdf() function can generate dailyLogs for a job
-  // For now, return empty with a logged warning
+  // Strategy 3: Fetch recent org daily logs without where filter, filter client-side
+  try {
+    const data = await pave({
+      organization: {
+        $: { id: JT_ORG() },
+        dailyLogs: {
+          $: { size: 100 },
+          nodes: {
+            id: {},
+            date: {},
+            notes: {},
+            createdAt: {},
+            job: { id: {} },
+            assignedMemberships: {
+              nodes: {
+                id: {},
+                user: { id: {}, name: {} },
+              },
+            },
+          },
+        },
+      },
+    });
+    const allLogs = (data as any)?.organization?.dailyLogs?.nodes || [];
+    const filtered = allLogs.filter((log: any) => log?.job?.id === jobId);
+    if (filtered.length > 0) return filtered;
+  } catch (_err3: any) {
+    // All strategies failed
+  }
+
   console.warn('[getDailyLogsForJob] All query strategies failed for job:', jobId);
   return [];
 }
@@ -1538,6 +1565,8 @@ export async function getSpecificationsForJob(jobId: string): Promise<{
   description: string;
   footer: string;
   items: JTCostItem[];
+  groupedItems: Record<string, JTCostItem[]>;
+  documents: { id: string; name: string; type: string; status: string }[];
 }> {
   // Get job-level spec description + footer
   const jobData = await pave({
@@ -1549,14 +1578,47 @@ export async function getSpecificationsForJob(jobId: string): Promise<{
   });
   const job = (jobData as any)?.job;
 
-  // Get ALL cost items with pagination (large jobs can have 500+), then filter for specs
+  // Get ALL cost items with pagination (large jobs can have 500+)
+  // The JobTread Specifications view shows ALL cost items grouped by cost group,
+  // NOT just items with isSpecification=true (that flag is often unset).
   const allCostItems = await getCostItemsForJob(jobId, 500);
-  const specItems = allCostItems.filter((item: any) => item.isSpecification === true);
+
+  // Group items by cost group name (matching the Specifications page layout)
+  const groupedItems: Record<string, JTCostItem[]> = {};
+  for (const item of allCostItems) {
+    const groupName = item.costGroup?.name || 'Ungrouped';
+    if (!groupedItems[groupName]) groupedItems[groupName] = [];
+    groupedItems[groupName].push(item);
+  }
+
+  // Also fetch documents for this job (shown in Project Details section of specs page)
+  let documents: { id: string; name: string; type: string; status: string }[] = [];
+  try {
+    const docData = await pave({
+      job: {
+        $: { id: jobId },
+        documents: {
+          $: { size: 50 },
+          nodes: {
+            id: {},
+            name: {},
+            type: {},
+            status: {},
+          },
+        },
+      },
+    });
+    documents = (docData as any)?.job?.documents?.nodes || [];
+  } catch (_err) {
+    // Documents fetch is non-critical
+  }
 
   return {
     description: job?.specificationsDescription || '',
     footer: job?.specificationsFooter || '',
-    items: specItems,
+    items: allCostItems,
+    groupedItems,
+    documents,
   };
 }
 
