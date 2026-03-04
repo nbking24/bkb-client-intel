@@ -393,7 +393,7 @@ const knowItAll: AgentModule = {
   executeTool: async (name: string, input: any, ctx: AgentContext) => {
     try {
       if (name === 'search_jobs') {
-        const jobs = await getActiveJobs(100);
+        const jobs = await getActiveJobs(50);
         const query = (input.query || '').toLowerCase().trim();
 
         if (!query) {
@@ -439,7 +439,7 @@ const knowItAll: AgentModule = {
         for (const phase of schedule.phases || []) {
           const phaseProgress = Math.round((phase.progress || 0) * 100);
           lines.push('📁 ' + phase.name + ' (' + phaseProgress + '% complete)');
-          for (const task of phase.childTasks || []) {
+          for (const task of phase.childTasks?.nodes || phase.childTasks || []) {
             const status = task.progress >= 1 ? '✅' : task.progress > 0 ? '🔄' : '⬜';
             const dates = [task.startDate, task.endDate].filter(Boolean).join(' → ');
             const assignees = task.assignedMemberships?.map((a: any) => a.user?.name || a.name || '').filter(Boolean).join(', ');
