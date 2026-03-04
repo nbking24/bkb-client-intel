@@ -38,6 +38,7 @@ interface UploadedFile {
   name: string;
   size: number;
   type: string;
+  content?: string;
 }
 
 // ============================================================
@@ -675,6 +676,7 @@ function SpecWriterContent() {
   const [generatedSpec, setGeneratedSpec] = useState('');
   const [copied, setCopied] = useState(false);
   const [loading, setLoading] = useState(false);
+  const [isGeneratingQuestions, setIsGeneratingQuestions] = useState(false);
   const [expandedCategories, setExpandedCategories] = useState<Record<string, boolean>>({});
   const fileInputRef = useRef<HTMLInputElement>(null);
 
@@ -686,26 +688,90 @@ function SpecWriterContent() {
     questionsByCategory[key].push(q);
   }
 
-  // Handle Quick Spec
-  function handleQuickSpec() {
+  // Handle Quick Spec — AI-powered generation
+  async function handleQuickSpec() {
     if (!inputText.trim()) return;
     setLoading(true);
     setSpecMode('quick');
-    setTimeout(() => {
-      const spec = generateSpec(inputText, {}, 'quick');
-      setGeneratedSpec(spec);
-      setStep('output');
-      setLoading(false);
-    }, 600);
+
+    try {
+      const fileData = uploadedFiles
+        .filter((f) => f.content)
+        .map((f) => ({ name: f.name, content: f.content!, type: f.type }));
+
+      const res = await fetch('/api/spec-writer/generate', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          projectDescription: inputText,
+          mode: 'quick',
+          files: fileData,
+        }),
+      });
+
+      const data = await res.json();
+      if (res.ok && data.specification) {
+        setGeneratedSpec(data.specification);
+        setStep('output');
+        setLoading(false);
+        return;
+      }
+      console.warn('AI spec generation failed, using fallback:', data.error);
+    } catch (err) {
+      console.warn('AI spec generation API failed, using fallback:', err);
+    }
+
+    // Fallback to template-based generation
+    const spec = generateSpec(inputText, {}, 'quick');
+    setGeneratedSpec(spec);
+    setStep('output');
+    setLoading(false);
   }
 
-  // Handle Detailed Spec - show questions
-  function handleDetailedSpec() {
+  // Handle Detailed Spec - call AI for dynamic questions, fallback to static
+  async function handleDetailedSpec() {
     if (!inputText.trim()) return;
     setSpecMode('detailed');
+    setIsGeneratingQuestions(true);
+
+    try {
+      // Prepare file data for API
+      const fileData = uploadedFiles
+        .filter((f) => f.content)
+        .map((f) => ({ name: f.name, content: f.content!, type: f.type }));
+
+      const res = await fetch('/api/spec-writer/questions', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ projectDescription: inputText, files: fileData }),
+      });
+
+      const data = await res.json();
+
+      if (res.ok && data.questions && data.questions.length > 0) {
+        // AI-generated questions
+        setQuestions(data.questions);
+        const expanded: Record<string, boolean> = {};
+        for (const q of data.questions) {
+          expanded[`${q.categoryNum} ${q.category}`] = true;
+        }
+        setExpandedCategories(expanded);
+        setAnswers({});
+        setIsGeneratingQuestions(false);
+        setStep('questions');
+        return;
+      }
+
+      // API returned fallback flag or no questions — use static rules
+      console.warn('AI questions unavailable, falling back to keyword rules:', data.error);
+    } catch (err) {
+      console.warn('AI questions API failed, falling back to keyword rules:', err);
+    }
+
+    // Fallback: use static keyword detection
+    setIsGeneratingQuestions(false);
     const detected = detectQuestions(inputText);
     if (detected.length === 0) {
-      // No specific keywords found, generate quick spec with a note
       setLoading(true);
       setTimeout(() => {
         const spec = generateSpec(inputText, {}, 'quick');
@@ -716,7 +782,6 @@ function SpecWriterContent() {
       return;
     }
     setQuestions(detected);
-    // Initialize all expanded
     const expanded: Record<string, boolean> = {};
     for (const q of detected) {
       expanded[`${q.categoryNum} ${q.category}`] = true;
@@ -726,15 +791,52 @@ function SpecWriterContent() {
     setStep('questions');
   }
 
-  // Generate from questions
-  function handleGenerateFromQuestions() {
+  // Generate from questions — AI-powered with answers
+  async function handleGenerateFromQuestions() {
     setLoading(true);
-    setTimeout(() => {
-      const spec = generateSpec(inputText, answers, 'detailed');
-      setGeneratedSpec(spec);
-      setStep('output');
-      setLoading(false);
-    }, 600);
+
+    try {
+      // Build question+answer pairs for the AI
+      const questionsAndAnswers = questions.map((q) => ({
+        id: q.id,
+        category: q.category,
+        categoryNum: q.categoryNum,
+        question: q.question,
+        answer: answers[q.id] || 'tbd',
+      }));
+
+      const fileData = uploadedFiles
+        .filter((f) => f.content)
+        .map((f) => ({ name: f.name, content: f.content!, type: f.type }));
+
+      const res = await fetch('/api/spec-writer/generate', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          projectDescription: inputText,
+          mode: 'detailed',
+          questionsAndAnswers,
+          files: fileData,
+        }),
+      });
+
+      const data = await res.json();
+      if (res.ok && data.specification) {
+        setGeneratedSpec(data.specification);
+        setStep('output');
+        setLoading(false);
+        return;
+      }
+      console.warn('AI spec generation failed, using fallback:', data.error);
+    } catch (err) {
+      console.warn('AI spec generation API failed, using fallback:', err);
+    }
+
+    // Fallback to template-based generation
+    const spec = generateSpec(inputText, answers, 'detailed');
+    setGeneratedSpec(spec);
+    setStep('output');
+    setLoading(false);
   }
 
   // Copy to clipboard
@@ -755,16 +857,44 @@ function SpecWriterContent() {
     URL.revokeObjectURL(url);
   }
 
-  // File upload
+  // File upload — read text content where possible for AI analysis
   function handleFileUpload(e: React.ChangeEvent<HTMLInputElement>) {
     const files = e.target.files;
     if (!files) return;
-    const newFiles: UploadedFile[] = Array.from(files).map((f) => ({
-      name: f.name,
-      size: f.size,
-      type: f.type,
-    }));
-    setUploadedFiles((prev) => [...prev, ...newFiles]);
+
+    const textReadableTypes = [
+      'text/plain', 'text/csv', 'text/html', 'text/markdown',
+      'application/json',
+    ];
+    const textReadableExtensions = ['.txt', '.csv', '.html', '.md', '.json'];
+
+    Array.from(files).forEach((f) => {
+      const ext = f.name.toLowerCase().slice(f.name.lastIndexOf('.'));
+      const isTextReadable = textReadableTypes.includes(f.type) ||
+        textReadableExtensions.includes(ext);
+
+      if (isTextReadable) {
+        // Read text content via FileReader
+        const reader = new FileReader();
+        reader.onload = () => {
+          const content = reader.result as string;
+          setUploadedFiles((prev) => [...prev, {
+            name: f.name,
+            size: f.size,
+            type: f.type,
+            content: content.slice(0, 50000), // Cap at 50k chars
+          }]);
+        };
+        reader.onerror = () => {
+          // Still add the file even if reading fails
+          setUploadedFiles((prev) => [...prev, { name: f.name, size: f.size, type: f.type }]);
+        };
+        reader.readAsText(f);
+      } else {
+        // Non-text files — store metadata only
+        setUploadedFiles((prev) => [...prev, { name: f.name, size: f.size, type: f.type }]);
+      }
+    });
   }
 
   function removeFile(index: number) {
@@ -914,7 +1044,7 @@ function SpecWriterContent() {
             </button>
             <button
               onClick={handleDetailedSpec}
-              disabled={!inputText.trim() || loading}
+              disabled={!inputText.trim() || loading || isGeneratingQuestions}
               className="flex items-center justify-center gap-2 px-4 py-3 rounded-lg text-sm font-medium transition-colors disabled:opacity-40"
               style={{
                 background: 'rgba(201,168,76,0.15)',
@@ -922,12 +1052,12 @@ function SpecWriterContent() {
                 border: '1px solid rgba(201,168,76,0.3)',
               }}
             >
-              {loading && specMode === 'detailed' ? (
+              {(loading && specMode === 'detailed') || isGeneratingQuestions ? (
                 <Loader2 size={16} className="animate-spin" />
               ) : (
                 <Search size={16} />
               )}
-              Detailed Spec
+              {isGeneratingQuestions ? 'Analyzing...' : 'Detailed Spec'}
             </button>
           </div>
 
@@ -1135,28 +1265,17 @@ function SpecWriterContent() {
             </button>
             {specMode === 'quick' && (
               <button
-                onClick={() => {
-                  setSpecMode('detailed');
-                  const detected = detectQuestions(inputText);
-                  if (detected.length > 0) {
-                    setQuestions(detected);
-                    const expanded: Record<string, boolean> = {};
-                    for (const q of detected) {
-                      expanded[`${q.categoryNum} ${q.category}`] = true;
-                    }
-                    setExpandedCategories(expanded);
-                    setAnswers({});
-                    setStep('questions');
-                  }
-                }}
-                className="flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-medium"
+                onClick={() => handleDetailedSpec()}
+                disabled={isGeneratingQuestions}
+                className="flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-medium disabled:opacity-40"
                 style={{
                   background: 'rgba(201,168,76,0.15)',
                   color: '#C9A84C',
                   border: '1px solid rgba(201,168,76,0.3)',
                 }}
               >
-                <Search size={14} /> Refine with Details
+                {isGeneratingQuestions ? <Loader2 size={14} className="animate-spin" /> : <Search size={14} />}
+                Refine with Details
               </button>
             )}
             {specMode === 'detailed' && (
@@ -1177,14 +1296,14 @@ function SpecWriterContent() {
       )}
 
       {/* Loading overlay */}
-      {loading && (
+      {(loading || isGeneratingQuestions) && (
         <div
           className="fixed bottom-4 right-4 rounded-lg px-4 py-3 flex items-center gap-3 shadow-lg"
           style={{ background: '#1a1a1a', border: '1px solid rgba(201,168,76,0.3)', zIndex: 50 }}
         >
           <Loader2 size={16} className="animate-spin" style={{ color: '#C9A84C' }} />
           <span className="text-sm" style={{ color: '#C9A84C' }}>
-            Generating specification...
+            {isGeneratingQuestions ? 'AI is analyzing your project...' : 'Generating specification...'}
           </span>
         </div>
       )}
