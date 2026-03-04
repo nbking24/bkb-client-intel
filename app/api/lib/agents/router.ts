@@ -19,11 +19,34 @@ for (const a of AGENTS) AGENT_MAP[a.name] = a;
 // Short confirmation phrases that should stick with the previous agent
 const CONFIRMATION_PATTERN = /^(yes|yeah|yep|yup|sure|ok|okay|go ahead|do it|confirmed|proceed|approve|go for it|absolutely|please|please do|that's correct|correct|right|affirmative)\s*[.!]?$/i;
 
+// Follow-up pattern: short messages that look like the user is providing info requested by the last agent
+// (job names, IDs, dates, names, etc.) — not a new question
+const FOLLOWUP_PATTERN = /^[^?]{1,80}$/; // Short message (<=80 chars) with no question mark
+
 function selectAgent(message: string, lastAgentName?: string): AgentModule {
-  // If the last response was from a write-capable agent and this looks like a confirmation,
-  // keep using the same agent so it can execute the pending action
-  if (lastAgentName && AGENT_MAP[lastAgentName] && CONFIRMATION_PATTERN.test(message.trim())) {
-    return AGENT_MAP[lastAgentName];
+  const trimmed = message.trim();
+
+  if (lastAgentName && AGENT_MAP[lastAgentName]) {
+    // If the last response was from an agent and this looks like a confirmation, keep same agent
+    if (CONFIRMATION_PATTERN.test(trimmed)) {
+      return AGENT_MAP[lastAgentName];
+    }
+
+    // If the message is short and looks like a follow-up answer (no question mark, short),
+    // keep the same agent — the user is likely providing info the agent asked for
+    if (FOLLOWUP_PATTERN.test(trimmed)) {
+      // But only if no other agent scores really high (>0.9) — explicit new requests should still re-route
+      let maxOtherScore = 0;
+      for (const agent of AGENTS) {
+        if (agent.name !== lastAgentName) {
+          maxOtherScore = Math.max(maxOtherScore, agent.canHandle(trimmed));
+        }
+      }
+      // Keep last agent unless another agent is very confident this is their domain
+      if (maxOtherScore < 0.9) {
+        return AGENT_MAP[lastAgentName];
+      }
+    }
   }
 
   let best: AgentModule = knowItAll; // default fallback
