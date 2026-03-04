@@ -181,6 +181,7 @@ export interface JTTask {
 }
 
 export async function getTasksForJob(jobId: string): Promise<JTTask[]> {
+  // Lightweight query — omit description & assignedMemberships to avoid 413
   const data = await pave({
     job: {
       $: { id: jobId },
@@ -560,6 +561,26 @@ export async function updateTaskProgress(taskId: string, progress: number) {
       $: { id: taskId, progress: Math.min(1, Math.max(0, progress)) },
     },
   });
+}
+
+// General task update — change name, dates, description, progress, etc.
+export async function updateTask(taskId: string, fields: {
+  name?: string;
+  description?: string;
+  startDate?: string;
+  endDate?: string;
+  progress?: number;
+}) {
+  const params: any = { id: taskId };
+  if (fields.name !== undefined) params.name = fields.name;
+  if (fields.description !== undefined) params.description = fields.description;
+  if (fields.startDate !== undefined) params.startDate = fields.startDate;
+  if (fields.endDate !== undefined) params.endDate = fields.endDate;
+  if (fields.progress !== undefined) params.progress = Math.min(1, Math.max(0, fields.progress));
+  await pave({
+    updateTask: { $: params },
+  });
+  return { success: true, taskId, updatedFields: Object.keys(fields) };
 }
 
 // Delete a task (works for both groups and individual tasks)
