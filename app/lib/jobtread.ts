@@ -582,17 +582,11 @@ export async function updateTask(taskId: string, fields: {
   if (fields.startDate !== undefined) params.startDate = fields.startDate;
   if (fields.endDate !== undefined) params.endDate = fields.endDate;
   if (fields.progress !== undefined) params.progress = Math.min(1, Math.max(0, fields.progress));
-  const data = await pave({
-    updateTask: {
-      $: params,
-      updatedTask: { id: {}, name: {}, startDate: {}, endDate: {}, progress: {} },
-    },
+  // pave() now throws on PAVE API errors, so if this succeeds the update went through
+  await pave({
+    updateTask: { $: params },
   });
-  const updated = (data as any)?.updateTask?.updatedTask;
-  if (!updated?.id) {
-    throw new Error('Task update failed — no confirmation from JobTread: ' + JSON.stringify(data));
-  }
-  return { success: true, taskId, updatedFields: Object.keys(fields), verified: updated };
+  return { success: true, taskId, updatedFields: Object.keys(fields) };
 }
 
 // Delete a task (works for both groups and individual tasks)
