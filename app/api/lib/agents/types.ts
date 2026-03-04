@@ -44,7 +44,8 @@ export interface AgentContext {
 export interface AgentResult {
   agentName: string;
   reply: string;
-  handoffTo?: string;  // if this agent wants to delegate to another
+  handoffTo?: string;       // if this agent wants to delegate to another
+  needsConfirmation?: boolean;  // true when agent is awaiting user approval for a write action
 }
 
 export interface AgentModule {
@@ -53,8 +54,7 @@ export interface AgentModule {
   icon: string;
   systemPrompt: (ctx: AgentContext) => string;
   tools: Anthropic.Tool[];
-  canHandle: (message: string) => number;  // 0-1 confidence
+  canHandle: (message: string) => number; // 0-1 confidence
   fetchContext: (ctx: AgentContext) => Promise<string>;
   executeTool: (name: string, input: any, ctx: AgentContext) => Promise<string>;
 }
-

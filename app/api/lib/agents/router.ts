@@ -13,8 +13,20 @@ const AGENTS: AgentModule[] = [
   // Future: emailKid, designDolly
 ];
 
-function selectAgent(message: string): AgentModule {
-  let best: AgentModule = knowItAll;  // default fallback
+const AGENT_MAP: Record<string, AgentModule> = {};
+for (const a of AGENTS) AGENT_MAP[a.name] = a;
+
+// Short confirmation phrases that should stick with the previous agent
+const CONFIRMATION_PATTERN = /^(yes|yeah|yep|yup|sure|ok|okay|go ahead|do it|confirmed|proceed|approve|go for it|absolutely|please|please do|that's correct|correct|right|affirmative)\s*[.!]?$/i;
+
+function selectAgent(message: string, lastAgentName?: string): AgentModule {
+  // If the last response was from a write-capable agent and this looks like a confirmation,
+  // keep using the same agent so it can execute the pending action
+  if (lastAgentName && AGENT_MAP[lastAgentName] && CONFIRMATION_PATTERN.test(message.trim())) {
+    return AGENT_MAP[lastAgentName];
+  }
+
+  let best: AgentModule = knowItAll; // default fallback
   let bestScore = 0;
 
   for (const agent of AGENTS) {
@@ -30,12 +42,13 @@ function selectAgent(message: string): AgentModule {
 
 export async function routeMessage(
   messages: Array<{ role: string; content: string }>,
-  ctx: AgentContext
+  ctx: AgentContext,
+  lastAgent?: string
 ): Promise<AgentResult> {
   const lastMsg = messages[messages.length - 1]?.content || '';
 
   // Select the best agent for this message
-  const agent = selectAgent(lastMsg);
+  const agent = selectAgent(lastMsg, lastAgent);
 
   // Fetch context data specific to this agent
   const contextData = await agent.fetchContext(ctx);
@@ -48,14 +61,19 @@ export async function routeMessage(
 
   // Inject context into the last user message
   if (contextData) {
-    const contextBlock = '\n\n--- SYSTEM DATA (use this to answer the question) ---\n' +
+    const contextBlock =
+      '\n\n--- SYSTEM DATA (use this to answer the question) ---\n' +
       (ctx.contactName ? 'Selected Client: ' + ctx.contactName + '\n' : '') +
       (ctx.opportunityName ? 'Selected Opportunity: ' + ctx.opportunityName + '\n' : '') +
       (ctx.jtJobId ? 'JobTread Job ID: ' + ctx.jtJobId + '\n' : '') +
       (ctx.pipelineStage ? 'Pipeline Stage: ' + ctx.pipelineStage + '\n' : '') +
-      (ctx.communicationChannel !== 'unknown' ? 'Communication Channel: ' + ctx.communicationChannel.toUpperCase() + '\n' : '') +
-      '\n' + contextData +
+      (ctx.communicationChannel !== 'unknown'
+        ? 'Communication Channel: ' + ctx.communicationChannel.toUpperCase() + '\n'
+        : '') +
+      '\n' +
+      contextData +
       '\n--- END SYSTEM DATA ---';
+
     const lastIdx = claudeMessages.length - 1;
     claudeMessages[lastIdx].content = claudeMessages[lastIdx].content + contextBlock;
   }
@@ -113,11 +131,15 @@ export async function routeMessage(
       reply += block.text;
     }
   }
+
   if (!reply) reply = 'No response generated.';
+
+  // Detect if the agent is asking for confirmation (for the UI to show a confirm button)
+  const needsConfirmation = /shall i proceed|should i proceed|want me to proceed|confirm.*proceed|go ahead\?|want me to go ahead|ready to execute|want me to update|want me to create|want me to delete|want me to apply|want me to move/i.test(reply);
 
   return {
     agentName: agent.name,
     reply,
+    needsConfirmation,
   };
 }
-
