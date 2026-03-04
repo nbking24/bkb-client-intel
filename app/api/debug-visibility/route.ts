@@ -119,5 +119,40 @@ export async function GET() {
 
   results.hierarchy = hierarchy;
 
+  // Check which groups have isSpecification=true items
+  // This tells us which level the visibility toggle is set at
+  const specData = await pave({
+    job: {
+      $: { id: jobId },
+      costItems: {
+        $: { size: 200 },
+        nodes: {
+          id: {},
+          name: {},
+          isSpecification: {},
+          costGroup: { id: {}, name: {}, parentCostGroup: { id: {}, name: {}, parentCostGroup: { id: {}, name: {} } } },
+        },
+      },
+    },
+  });
+
+  const specItems = ((specData as any)?.job?.costItems?.nodes || []).filter((n: any) => n.isSpecification === true);
+
+  // Group spec items by their cost group name and show hierarchy
+  const specGroupMap = new Map<string, { groupName: string; parentName: string; grandparentName: string; count: number }>();
+  for (const item of specItems) {
+    const gName = item.costGroup?.name || '?';
+    const pName = item.costGroup?.parentCostGroup?.name || '?';
+    const gpName = item.costGroup?.parentCostGroup?.parentCostGroup?.name || '?';
+    const key = gName;
+    if (!specGroupMap.has(key)) {
+      specGroupMap.set(key, { groupName: gName, parentName: pName, grandparentName: gpName, count: 0 });
+    }
+    specGroupMap.get(key)!.count++;
+  }
+
+  results.specGroups = Array.from(specGroupMap.values()).sort((a, b) => a.parentName.localeCompare(b.parentName));
+  results.totalSpecItems = specItems.length;
+
   return NextResponse.json(results);
 }
