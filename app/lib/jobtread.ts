@@ -78,73 +78,52 @@ export interface JTJob {
   statusCategory?: StatusCategoryKey | null;  // Derived category for dashboard grouping
 }
 
-export async function getActiveJobs(totalLimit = 100): Promise<JTJob[]> {
-  // Paginate in batches of 25 to avoid PAVE 413 response size limits
-  const PAGE_SIZE = 25;
-  const allJobs: JTJob[] = [];
-  let offset = 0;
-
-  while (allJobs.length < totalLimit) {
-    const batchSize = Math.min(PAGE_SIZE, totalLimit - allJobs.length);
-    const result = await orgQuery('jobs', {
-      $: {
-        size: batchSize,
-        offset,
-        where: ['closedOn', '=', null],
-      },
-      nodes: {
+export async function getActiveJobs(limit = 50): Promise<JTJob[]> {
+  const result = await orgQuery('jobs', {
+    $: {
+      size: limit,
+      where: ['closedOn', '=', null],
+    },
+    nodes: {
+      id: {},
+      name: {},
+      number: {},
+      status: {},
+      createdAt: {},
+      closedOn: {},
+      location: {
         id: {},
         name: {},
-        number: {},
-        status: {},
-        createdAt: {},
-        closedOn: {},
-        location: {
-          id: {},
-          name: {},
-          account: { id: {}, name: {} },
-        },
-        customFieldValues: {
-          nodes: {
-            value: {},
-            customField: { name: {} },
-          },
+        account: { id: {}, name: {} },
+      },
+      customFieldValues: {
+        nodes: {
+          value: {},
+          customField: { name: {} },
         },
       },
-    });
-
-    const jobs = result.nodes || [];
-    if (jobs.length === 0) break;
-
-    const mapped = jobs.map((j: any) => {
-      // Extract the custom "Status" field value
-      const statusField = (j.customFieldValues?.nodes || []).find(
-        (cfv: any) => cfv.customField?.name === 'Status'
-      );
-      const customStatus = statusField?.value || null;
-      return {
-        id: j.id,
-        name: j.name,
-        number: j.number,
-        status: j.status,
-        createdAt: j.createdAt,
-        closedOn: j.closedOn,
-        clientName: j.location?.account?.name || '',
-        locationName: j.location?.name || '',
-        customStatus,
-        statusCategory: getStatusCategory(customStatus),
-      };
-    });
-
-    allJobs.push(...mapped);
-
-    // If we got fewer results than requested, we've reached the end
-    if (jobs.length < batchSize) break;
-    offset += jobs.length;
-  }
-
-  console.log(`getActiveJobs: fetched ${allJobs.length} jobs in ${Math.ceil(offset / PAGE_SIZE) + 1} pages`);
-  return allJobs;
+    },
+  });
+  const jobs = result.nodes || [];
+  return jobs.map((j: any) => {
+    // Extract the custom "Status" field value
+    const statusField = (j.customFieldValues?.nodes || []).find(
+      (cfv: any) => cfv.customField?.name === 'Status'
+    );
+    const customStatus = statusField?.value || null;
+    return {
+      id: j.id,
+      name: j.name,
+      number: j.number,
+      status: j.status,
+      createdAt: j.createdAt,
+      closedOn: j.closedOn,
+      clientName: j.location?.account?.name || '',
+      locationName: j.location?.name || '',
+      customStatus,
+      statusCategory: getStatusCategory(customStatus),
+    };
+  });
 }
 
 export async function getJob(jobId: string) {
