@@ -1053,11 +1053,12 @@ export interface JTDailyLog {
 }
 
 export async function getDailyLogsForJob(jobId: string, limit = 50): Promise<JTDailyLog[]> {
+  // Query through organization with jobId filter (dailyLogs may not be a sub-collection on job)
   const data = await pave({
-    job: {
-      $: { id: jobId },
+    organization: {
+      $: { id: JT_ORG() },
       dailyLogs: {
-        $: { size: limit },
+        $: { size: limit, where: ['jobId', '=', jobId] },
         nodes: {
           id: {},
           date: {},
@@ -1073,7 +1074,7 @@ export async function getDailyLogsForJob(jobId: string, limit = 50): Promise<JTD
       },
     },
   });
-  return (data as any)?.job?.dailyLogs?.nodes || [];
+  return (data as any)?.organization?.dailyLogs?.nodes || [];
 }
 
 export async function createDailyLog(params: {
@@ -1136,13 +1137,37 @@ export interface JTComment {
 }
 
 export async function getCommentsForTarget(targetId: string, targetType: string, limit = 50): Promise<JTComment[]> {
-  // Comments are queried via the parent entity
+  // Try querying comments through the parent entity first
   // targetType can be: job, task, document, costItem, etc.
+  try {
+    const data = await pave({
+      [targetType]: {
+        $: { id: targetId },
+        comments: {
+          $: { size: limit },
+          nodes: {
+            id: {},
+            message: {},
+            name: {},
+            createdAt: {},
+            isPinned: {},
+            parentComment: { id: {} },
+          },
+        },
+      },
+    });
+    const comments = (data as any)?.[targetType]?.comments?.nodes;
+    if (comments) return comments;
+  } catch {
+    // Fall through to org-level query
+  }
+
+  // Fallback: query through organization with targetId filter
   const data = await pave({
-    [targetType]: {
-      $: { id: targetId },
+    organization: {
+      $: { id: JT_ORG() },
       comments: {
-        $: { size: limit },
+        $: { size: limit, where: ['targetId', '=', targetId] },
         nodes: {
           id: {},
           message: {},
@@ -1154,7 +1179,7 @@ export async function getCommentsForTarget(targetId: string, targetType: string,
       },
     },
   });
-  return (data as any)?.[targetType]?.comments?.nodes || [];
+  return (data as any)?.organization?.comments?.nodes || [];
 }
 
 export async function createComment(params: {
@@ -1201,11 +1226,12 @@ export interface JTTimeEntry {
 }
 
 export async function getTimeEntriesForJob(jobId: string, limit = 100): Promise<JTTimeEntry[]> {
+  // Query through organization with jobId filter
   const data = await pave({
-    job: {
-      $: { id: jobId },
+    organization: {
+      $: { id: JT_ORG() },
       timeEntries: {
-        $: { size: limit },
+        $: { size: limit, where: ['jobId', '=', jobId] },
         nodes: {
           id: {},
           startedAt: {},
@@ -1218,7 +1244,7 @@ export async function getTimeEntriesForJob(jobId: string, limit = 100): Promise<
       },
     },
   });
-  return (data as any)?.job?.timeEntries?.nodes || [];
+  return (data as any)?.organization?.timeEntries?.nodes || [];
 }
 
 // ============================================================
@@ -1294,27 +1320,19 @@ export async function getSpecificationsForJob(jobId: string): Promise<{
       $: { id: jobId },
       specificationsDescription: {},
       specificationsFooter: {},
-      costItems: {
-        $: { size: 200, where: ['isSpecification', '=', true] },
-        nodes: {
-          id: {},
-          name: {},
-          description: {},
-          quantity: {},
-          unitCost: {},
-          unitPrice: {},
-          isSpecification: {},
-          costCode: { id: {}, name: {}, number: {} },
-          costGroup: { id: {}, name: {} },
-        },
-      },
     },
   });
   const job = (jobData as any)?.job;
+
+  // Get all cost items, then filter client-side for specifications
+  // (PAVE boolean where filter may not work as expected)
+  const allCostItems = await getCostItemsForJob(jobId, 200);
+  const specItems = allCostItems.filter((item: any) => item.isSpecification === true);
+
   return {
     description: job?.specificationsDescription || '',
     footer: job?.specificationsFooter || '',
-    items: job?.costItems?.nodes || [],
+    items: specItems,
   };
 }
 
@@ -1334,11 +1352,12 @@ export interface JTEvent {
 }
 
 export async function getEventsForJob(jobId: string, limit = 50): Promise<JTEvent[]> {
+  // Query through organization with jobId filter
   const data = await pave({
-    job: {
-      $: { id: jobId },
+    organization: {
+      $: { id: JT_ORG() },
       events: {
-        $: { size: limit },
+        $: { size: limit, where: ['jobId', '=', jobId] },
         nodes: {
           id: {},
           name: {},
@@ -1352,7 +1371,7 @@ export async function getEventsForJob(jobId: string, limit = 50): Promise<JTEven
       },
     },
   });
-  return (data as any)?.job?.events?.nodes || [];
+  return (data as any)?.organization?.events?.nodes || [];
 }
 
 // ============================================================
