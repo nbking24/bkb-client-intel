@@ -102,6 +102,18 @@ export async function POST(request: NextRequest) {
       );
     }
 
+    // Filter to only Estimating items (document = null/undefined means it's in the Estimating budget).
+    // Items attached to proposals (customerOrder) or invoices (customerInvoice) must be excluded
+    // so the spec writer only sees the actual budget categories, not billing documents.
+    const estimatingItems = allItems.filter((item: JTCostItem) => !item.document);
+
+    if (estimatingItems.length === 0) {
+      return NextResponse.json(
+        { error: 'No estimating cost items found for this job (all items belong to proposals/invoices)' },
+        { status: 404 }
+      );
+    }
+
     // Build ancestry map from the full group hierarchy
     // This gives us the complete path from root for every group,
     // handling 3+, 4+, etc. levels of nesting correctly.
@@ -155,7 +167,7 @@ export async function POST(request: NextRequest) {
       seenItemNames: Set<string>;
     }>();
 
-    for (const item of allItems) {
+    for (const item of estimatingItems) {
       const groupName = item.costGroup?.name || 'Ungrouped';
       const groupDesc = item.costGroup?.description || '';
       const groupId = item.costGroup?.id || 'ungrouped';
