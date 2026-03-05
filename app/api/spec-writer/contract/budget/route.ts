@@ -54,12 +54,12 @@ export async function POST(request: NextRequest) {
     //   costGroup = the group that directly contains it (leaf level, has description)
     //   costGroup.parentCostGroup = the section/area above it
     //
-    // This automatically adapts to any depth because we use the cost item's
-    // direct parent group, regardless of how many levels deep it is.
-    // The visibility toggle in JobTread controls which level has items —
-    // we just follow where the items actually are.
+    // IMPORTANT: Jobs can have multiple estimates/proposals in JobTread, each with
+    // their own copy of the cost group hierarchy (different IDs but same names).
+    // We deduplicate by keying on GROUP NAME + PARENT NAME instead of IDs.
+    // This merges items from duplicate groups across estimates into a single entry.
 
-    // Group items by their direct costGroup
+    // Group items by their direct costGroup, keyed by name to deduplicate across estimates
     const groupMap = new Map<string, {
       id: string;
       name: string;
@@ -67,29 +67,47 @@ export async function POST(request: NextRequest) {
       parentId: string;
       parentName: string;
       items: JTCostItem[];
+      seenItemNames: Set<string>;
     }>();
 
     for (const item of allItems) {
-      const groupId = item.costGroup?.id || 'ungrouped';
       const groupName = item.costGroup?.name || 'Ungrouped';
       const groupDesc = item.costGroup?.description || '';
+      const groupId = item.costGroup?.id || 'ungrouped';
       const parentId = item.costGroup?.parentCostGroup?.id || 'general';
       const parentName = item.costGroup?.parentCostGroup?.name || 'General';
 
-      if (!groupMap.has(groupId)) {
-        groupMap.set(groupId, {
+      // Key by parent name + group name to merge duplicates across estimates
+      const dedupeKey = `${parentName}|||${groupName}`;
+
+      if (!groupMap.has(dedupeKey)) {
+        groupMap.set(dedupeKey, {
           id: groupId,
           name: groupName,
           description: groupDesc,
           parentId,
           parentName,
           items: [],
+          seenItemNames: new Set(),
         });
       }
-      groupMap.get(groupId)!.items.push(item);
+
+      // Use longest description found (some estimates may have more detail)
+      const existing = groupMap.get(dedupeKey)!;
+      if (groupDesc.length > existing.description.length) {
+        existing.description = groupDesc;
+        existing.id = groupId; // prefer the ID with the best description
+      }
+
+      // Deduplicate cost items by name within the merged group
+      const itemKey = item.name;
+      if (!existing.seenItemNames.has(itemKey)) {
+        existing.seenItemNames.add(itemKey);
+        existing.items.push(item);
+      }
     }
 
-    // Group the cost groups by their parent (section/area)
+    // Group the cost groups by their parent section name (also deduplicated by name)
     const sectionMap = new Map<string, {
       id: string;
       name: string;
@@ -105,14 +123,15 @@ export async function POST(request: NextRequest) {
 
     const groupList = Array.from(groupMap.values());
     for (const group of groupList) {
-      if (!sectionMap.has(group.parentId)) {
-        sectionMap.set(group.parentId, {
+      const sectionKey = group.parentName;
+      if (!sectionMap.has(sectionKey)) {
+        sectionMap.set(sectionKey, {
           id: group.parentId,
           name: group.parentName,
           groups: [],
         });
       }
-      sectionMap.get(group.parentId)!.groups.push(group);
+      sectionMap.get(sectionKey)!.groups.push(group);
     }
 
     // Convert to BudgetSection format
