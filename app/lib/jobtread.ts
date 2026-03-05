@@ -1762,8 +1762,7 @@ export async function getCostGroupOrder(jobId: string): Promise<Array<{
           nodes: {
             id: {},
             name: {},
-            sortOrder: {},
-            parentCostGroup: { id: {}, name: {}, sortOrder: {} },
+            parentCostGroup: { id: {}, name: {} },
           },
         },
       },
@@ -1776,13 +1775,15 @@ export async function getCostGroupOrder(jobId: string): Promise<Array<{
     if (!nextPage || nodes.length < 100) break;
   }
 
+  // The PAVE API returns cost groups in their display order.
+  // We use the array index as the sort order since there's no sortOrder field.
   return allGroups.map((g: any, index: number) => ({
     id: g.id,
     name: g.name,
-    sortOrder: g.sortOrder ?? index, // fall back to API return order
+    sortOrder: index,
     parentId: g.parentCostGroup?.id || null,
     parentName: g.parentCostGroup?.name || null,
-    parentSortOrder: g.parentCostGroup?.sortOrder ?? null,
+    parentSortOrder: null as number | null,
   }));
 }
 
