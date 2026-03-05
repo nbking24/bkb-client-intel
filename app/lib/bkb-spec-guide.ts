@@ -332,26 +332,33 @@ For each category, these are the critical construction details that MUST be defi
 ${Object.entries(CATEGORY_QUESTION_GUIDE).map(([num, guide]) => `CATEGORY ${num} (${BKB_CATEGORIES[num] || 'Unknown'}):\n${guide}`).join('\n\n')}
 
 RULES:
-1. Generate 3-8 questions focused ONLY on the specified category.
-2. Questions must ask about SPECIFIC construction details that go into a contract — not generic project management questions.
-3. Reference the actual cost items provided. If cost items already specify a product (e.g., "Andersen E-Series windows"), do NOT ask which manufacturer — instead ask about the REMAINING unknowns (trim style, hardware finish, glass package, etc.).
-4. Provide 3-5 practical answer options per question reflecting common residential construction choices.
-5. Every answer option should be a real, specific construction choice (e.g., "Level 4 drywall finish" not "standard finish").
-6. If a detail is already clear from the cost items or category description, skip that question and ask about something that ISN'T defined yet.
-7. Think like a project manager writing a contract: what details does the homeowner need to see to understand exactly what they're getting?
+1. Generate ONLY 2-5 questions per category. NEVER exceed 5 questions. Less is more — only ask what is truly essential to define the scope and cannot be inferred from the cost items or project description.
+2. Every question MUST directly define one of these three things:
+   a) SCOPE: What specific work is being done (e.g., "Are existing cabinets being removed or staying in place?")
+   b) MATERIALS/PRODUCTS: What specific materials, manufacturers, profiles, or finishes are being used (e.g., "What baseboard profile: 3-1/4 Colonial, 5-1/4 Craftsman, or flat stock?")
+   c) BUILDING TECHNIQUE: How the work will be executed (e.g., "What framing: 2x4 or 2x6 walls?")
+3. DO NOT ask about anything that can be inferred from the cost items. If cost items already specify a product (e.g., "Andersen E-Series windows"), do NOT ask which manufacturer — only ask about REMAINING unknowns (trim style, hardware finish, glass package, etc.).
+4. DO NOT ask about anything already defined in the project scope description or category notes.
+5. DO NOT ask generic or administrative questions (permits, timeline, budget, concerns, preferences, cleanup).
+6. Provide 3-5 practical answer options per question reflecting common residential construction choices.
+7. Every answer option should be a real, specific construction choice (e.g., "Level 4 drywall finish" not "standard finish").
+8. Think like a project manager filling in the blanks on a contract: what SPECIFIC material, profile, or method selections are still undefined?
 
-EXAMPLES OF GOOD QUESTIONS (specific, contract-defining):
+EXAMPLES OF GOOD QUESTIONS (specific, scope/material/technique defining):
 - "What interior door style is planned?" → Options: ["Shaker 2-panel", "Flat panel/slab", "Raised 6-panel", "Craftsman 3-panel"]
 - "What baseboard profile and height?" → Options: ["3-1/4 inch Colonial", "5-1/4 inch Craftsman", "Modern 4 inch flat stock", "Match existing"]
-- "What drywall finish level for walls?" → Options: ["Level 3 (standard)", "Level 4 (smooth, paint-ready)", "Level 5 (skim coat, premium smooth)"]
 - "What type of wall insulation?" → Options: ["R-13 fiberglass batt (2x4 walls)", "R-21 fiberglass batt (2x6 walls)", "Open-cell spray foam", "Closed-cell spray foam"]
+- "Shower valve type?" → Options: ["Thermostatic with volume control", "Pressure balance", "Digital/smart valve"]
 
-EXAMPLES OF BAD QUESTIONS (too generic, avoid these):
+EXAMPLES OF BAD QUESTIONS (NEVER ask these):
 - "What is your budget?" ← never ask about money
 - "Do you have any special requirements?" ← too vague
 - "What is the timeline?" ← not a specification detail
 - "Are there any concerns?" ← not construction-specific
 - "What style do you prefer?" ← too broad, ask about specific items instead
+- "Will permits be required?" ← administrative, not a material/technique question
+- "How will debris be removed?" ← administrative/logistics, not scope-defining
+- "Will existing areas be protected?" ← standard practice, not a question
 
 You MUST respond with ONLY a valid JSON array. No markdown, no explanation, no code fences. Just the raw JSON array.
 

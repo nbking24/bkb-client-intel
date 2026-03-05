@@ -87,7 +87,7 @@ export async function POST(request: NextRequest) {
       }
     }
 
-    userMessage += `\n\nGenerate 3-8 targeted follow-up questions for writing a detailed construction specification for ONLY the "${categoryName}" category. Reference the specific cost items listed above. DO NOT ask about anything already covered by BKB company standards listed above. Return ONLY the JSON array.`;
+    userMessage += `\n\nGenerate 2-5 targeted follow-up questions (NEVER more than 5) for writing a construction specification for ONLY the "${categoryName}" category. Each question must define a specific MATERIAL SELECTION, BUILDING TECHNIQUE, or SCOPE DETAIL that is not already clear from the cost items, project scope, or BKB standards above. Do NOT ask about permits, timeline, cleanup, protection, or administrative items. Return ONLY the JSON array.`;
 
     const response = await anthropic.messages.create({
       model: 'claude-sonnet-4-20250514',
@@ -119,6 +119,8 @@ export async function POST(request: NextRequest) {
       );
     }
 
+    const MAX_QUESTIONS_PER_CATEGORY = 5;
+
     const validated = questions
       .filter((q: any) => q.id && q.question && Array.isArray(q.options))
       .map((q: any) => ({
@@ -126,7 +128,8 @@ export async function POST(request: NextRequest) {
         question: String(q.question),
         options: q.options.map(String),
         allowCustom: q.allowCustom !== false,
-      }));
+      }))
+      .slice(0, MAX_QUESTIONS_PER_CATEGORY); // Hard cap: never exceed 5 questions per category
 
     if (validated.length === 0) {
       return NextResponse.json(
