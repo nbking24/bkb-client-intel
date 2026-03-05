@@ -59,6 +59,7 @@ interface UploadedFile {
   size: number;
   type: string;
   content?: string;
+  extracting?: boolean;
 }
 
 type Step =
@@ -176,24 +177,63 @@ export default function ContractSpecWriter() {
     const files = e.target.files;
     if (!files) return;
     for (const file of Array.from(files)) {
-      const reader = new FileReader();
-      reader.onload = () => {
-        const content = typeof reader.result === 'string' ? reader.result : '';
-        setUploadedFiles((prev) => [
-          ...prev,
-          { name: file.name, size: file.size, type: file.type, content },
-        ]);
-      };
-      // Read text-based files
+      // Read text-based files directly
       if (
         file.type.includes('text') ||
         file.name.endsWith('.txt') ||
         file.name.endsWith('.csv') ||
         file.name.endsWith('.md')
       ) {
+        const reader = new FileReader();
+        reader.onload = () => {
+          const content = typeof reader.result === 'string' ? reader.result : '';
+          setUploadedFiles((prev) => [
+            ...prev,
+            { name: file.name, size: file.size, type: file.type, content },
+          ]);
+        };
         reader.readAsText(file);
+      } else if (
+        file.type === 'application/pdf' ||
+        file.name.endsWith('.pdf')
+      ) {
+        // For PDFs: read as base64, send to backend for text extraction
+        const tempIndex = uploadedFiles.length;
+        setUploadedFiles((prev) => [
+          ...prev,
+          { name: file.name, size: file.size, type: file.type, content: '', extracting: true },
+        ]);
+        const reader = new FileReader();
+        reader.onload = async () => {
+          try {
+            const base64 = (reader.result as string).split(',')[1]; // strip data:...;base64,
+            const res = await fetch('/api/spec-writer/contract/extract-pdf', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ fileName: file.name, base64 }),
+            });
+            const data = await res.json();
+            const extractedText = data.text || '';
+            setUploadedFiles((prev) =>
+              prev.map((f) =>
+                f.name === file.name && f.extracting
+                  ? { ...f, content: extractedText, extracting: false }
+                  : f
+              )
+            );
+          } catch {
+            setUploadedFiles((prev) =>
+              prev.map((f) =>
+                f.name === file.name && f.extracting
+                  ? { ...f, content: '', extracting: false }
+                  : f
+              )
+            );
+          }
+        };
+        reader.readAsDataURL(file);
       } else {
-        // For PDFs and other binary files, we can't read content client-side easily
+        // Other file types: store name only
         setUploadedFiles((prev) => [
           ...prev,
           { name: file.name, size: file.size, type: file.type, content: '' },
@@ -706,6 +746,14 @@ export default function ContractSpecWriter() {
                     <Paperclip size={12} style={{ color: '#C9A84C' }} />
                     <span className="text-xs flex-1" style={{ color: '#e8e0d8' }}>
                       {file.name}
+                      {file.extracting && (
+                        <span style={{ color: '#C9A84C', marginLeft: 6 }}>(extracting text...)</span>
+                      )}
+                      {!file.extracting && file.content && file.name.endsWith('.pdf') && (
+                        <span style={{ color: '#22c55e', marginLeft: 6 }}>
+                          ({Math.round(file.content.length / 4)} words extracted)
+                        </span>
+                      )}
                     </span>
                     <span className="text-xs" style={{ color: '#8a8078' }}>
                       {(file.size / 1024).toFixed(0)} KB
