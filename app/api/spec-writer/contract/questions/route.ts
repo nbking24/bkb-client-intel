@@ -1,6 +1,7 @@
 import Anthropic from '@anthropic-ai/sdk';
 import { NextRequest, NextResponse } from 'next/server';
 import { BKB_CONTRACT_QUESTIONS_SYSTEM_PROMPT } from '../../../../lib/bkb-spec-guide';
+import { getStandardsForPrompt, isFullyCoveredByStandards } from '../../../../lib/bkb-standards';
 
 const anthropic = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY });
 
@@ -37,6 +38,18 @@ export async function POST(request: NextRequest) {
       );
     }
 
+    // Check if this category is fully covered by BKB standards (no questions needed)
+    if (isFullyCoveredByStandards(categoryName)) {
+      return NextResponse.json({
+        questions: [],
+        standardsApplied: true,
+        message: `This category is covered by BKB standard specifications. No additional questions needed.`,
+      });
+    }
+
+    // Get BKB standards context for this category
+    const standardsContext = getStandardsForPrompt(categoryName);
+
     // Build user message with full context
     let userMessage = `PROJECT SCOPE DESCRIPTION:\n${projectScope.trim()}\n`;
 
@@ -45,6 +58,12 @@ export async function POST(request: NextRequest) {
     if (categoryDescription && categoryDescription.trim()) {
       userMessage += `\nEXISTING CATEGORY SPECIFICATION NOTES:\n${categoryDescription.trim()}`;
     }
+
+    // Include BKB standards so the AI knows what NOT to ask about
+    if (standardsContext) {
+      userMessage += `\n${standardsContext}`;
+    }
+
     userMessage += `\nCOST ITEMS IN THIS CATEGORY:`;
     if (costItems && costItems.length > 0) {
       for (const item of costItems) {
@@ -68,7 +87,7 @@ export async function POST(request: NextRequest) {
       }
     }
 
-    userMessage += `\n\nGenerate 3-8 targeted follow-up questions for writing a detailed construction specification for ONLY the "${categoryName}" category. Reference the specific cost items listed above. Return ONLY the JSON array.`;
+    userMessage += `\n\nGenerate 3-8 targeted follow-up questions for writing a detailed construction specification for ONLY the "${categoryName}" category. Reference the specific cost items listed above. DO NOT ask about anything already covered by BKB company standards listed above. Return ONLY the JSON array.`;
 
     const response = await anthropic.messages.create({
       model: 'claude-sonnet-4-20250514',

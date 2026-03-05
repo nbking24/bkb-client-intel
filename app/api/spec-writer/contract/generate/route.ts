@@ -1,6 +1,7 @@
 import Anthropic from '@anthropic-ai/sdk';
 import { NextRequest, NextResponse } from 'next/server';
 import { BKB_CONTRACT_SPEC_SYSTEM_PROMPT } from '../../../../lib/bkb-spec-guide';
+import { getStandardSpecText } from '../../../../lib/bkb-standards';
 
 const anthropic = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY });
 
@@ -68,6 +69,13 @@ export async function POST(request: NextRequest) {
       userMessage += `\nIMPORTANT: The above specification notes contain existing details already defined for this category. Incorporate and preserve ALL of these details in the generated specification. Do not contradict or omit any existing selections or notes.\n`;
     }
     userMessage += '\n';
+
+    // Include BKB company standards for this category
+    const standardsText = getStandardSpecText(costGroupName);
+    if (standardsText) {
+      userMessage += `BKB COMPANY STANDARD SPECIFICATIONS:\n${standardsText}\n`;
+      userMessage += `IMPORTANT: Incorporate the above BKB company standards into the specification. These are the builder's established practices and must be reflected in the output.\n\n`;
+    }
 
     userMessage += `COST ITEMS IN THIS CATEGORY:`;
     if (costItems && costItems.length > 0) {

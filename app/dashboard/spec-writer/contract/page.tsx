@@ -811,6 +811,24 @@ export default function ContractSpecWriter() {
                   <Loader2 size={20} className="animate-spin" />
                   <span className="text-sm">Generating questions...</span>
                 </div>
+              ) : currentQuestions.length === 0 ? (
+                <div
+                  className="rounded-lg p-4 flex items-start gap-3"
+                  style={{
+                    background: 'rgba(34,197,94,0.06)',
+                    border: '1px solid rgba(34,197,94,0.2)',
+                  }}
+                >
+                  <CheckCircle size={18} className="mt-0.5 shrink-0" style={{ color: '#22c55e' }} />
+                  <div>
+                    <p className="text-sm font-medium" style={{ color: '#e8e0d8' }}>
+                      Covered by BKB Standards
+                    </p>
+                    <p className="text-xs mt-1" style={{ color: '#8a8078' }}>
+                      This category will use your company standard specifications. No project-specific questions needed.
+                    </p>
+                  </div>
+                </div>
               ) : (
                 <div className="space-y-4">
                   {currentQuestions.map((q) => {
