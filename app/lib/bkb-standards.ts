@@ -109,6 +109,9 @@ export const BKB_STANDARDS: BKBStandard[] = [
     categoryKeywords: ['electrical', 'electric', 'wiring', 'panel', 'service', 'lighting'],
     standardSpec: `*Standard Electrical Specifications:*
 - Electrical service: 200 amp main panel (standard)
+- Recessed lighting throughout all renovated spaces
+- Dimmer switches included on all recessed lighting
+- Surface-mounted light fixtures are NOT provided or budgeted unless specifically noted in the scope of work
 - All electrical to be installed per approved plans and local electrical code`,
     projectSpecific: true, // layout, fixture counts, specialty circuits vary
   },
@@ -251,7 +254,8 @@ export const BKB_STANDARDS: BKBStandard[] = [
 - Asbestos abatement: Not included. If asbestos-containing materials are discovered, abatement by licensed specialist will be quoted separately
 - Mold remediation: Not included. If mold is discovered, remediation by licensed specialist will be quoted separately
 - Concealed conditions: Unforeseen conditions discovered behind walls, above ceilings, or below floors are not included and will be addressed via change order
-- Subfloor: If existing subfloor is discovered to not be 3/4" thick, replacement or supplementation will be addressed via change order`,
+- Subfloor: If existing subfloor is discovered to not be 3/4" thick, replacement or supplementation will be addressed via change order
+- Surface-mounted light fixtures: Not provided or budgeted unless specifically specified in the scope of work`,
     projectSpecific: false,
   },
 
