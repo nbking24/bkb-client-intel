@@ -145,23 +145,200 @@ WRITING QUALITY:
 - Write so a subcontractor understands the full scope AND a homeowner understands what they're paying for.`;
 
 /**
+ * Category-specific question guidance.
+ * Defines the exact construction details that must be clarified for each trade
+ * to produce a complete contract specification the homeowner can understand.
+ */
+export const CATEGORY_QUESTION_GUIDE: Record<string, string> = {
+  '02': `DEMOLITION / SITEWORK questions must define:
+- Exact scope of demolition (what is being removed, what is staying)
+- Debris removal method (dumpster on-site, haul-off)
+- Protection of existing finishes and areas not being demolished
+- Dust containment requirements (zip walls, HEPA filtration)
+- Structural demo vs cosmetic demo
+- Disposal of hazardous materials (asbestos, lead paint) if applicable
+- Site access requirements`,
+
+  '04': `FRAMING questions must define:
+- Wall framing type: 2x4 vs 2x6 (affects insulation depth)
+- Load-bearing wall modifications (header sizes, temporary shoring)
+- New wall construction (stud spacing: 16" OC vs 24" OC)
+- Blocking requirements (for TV mounts, grab bars, heavy cabinets, towel bars)
+- Subfloor material and thickness if applicable
+- Structural beam/column work (LVL, steel, glulam)
+- Sheathing type (OSB, plywood, ZIP system)`,
+
+  '05': `WINDOWS & DOORS questions must define:
+- Window manufacturer, series, and frame material (wood, fiberglass, vinyl, clad)
+- Window operation type (casement, double-hung, fixed, awning, sliding)
+- Glass package (Low-E, argon, triple pane, tempered where required)
+- Interior/exterior window trim style and material (paint-grade, stain-grade, PVC)
+- Interior door style (shaker, flat panel, raised panel, glass, barn door)
+- Interior door material (solid core, hollow core, MDF, wood)
+- Door hardware style and finish (lever vs knob, satin nickel, matte black, brass)
+- Door hardware function by location (privacy for baths, passage for closets, keyed for exterior)
+- Exterior door material and style
+- Weatherstripping and threshold details
+- Existing doors: remaining in place or being replaced?`,
+
+  '09': `INSULATION questions must define:
+- Insulation type (fiberglass batt, spray foam open-cell, spray foam closed-cell, rigid board, blown-in)
+- R-value requirements by location (walls, ceiling, floor, rim joist)
+- Vapor barrier requirements
+- Air sealing scope (around windows, penetrations, rim joists, outlets)
+- Sound insulation requirements (between rooms, floors)
+- Code compliance notes (energy code requirements)`,
+
+  '10': `PLUMBING questions must define:
+- Fixture manufacturer and model/series for each fixture (faucets, shower valves, toilets)
+- Fixture finish (chrome, brushed nickel, matte black, brass, oil-rubbed bronze)
+- Shower system details (thermostatic vs pressure balance, body sprays, rain head, handheld)
+- Toilet type (elongated, comfort height, wall-hung, one-piece vs two-piece)
+- Supply line material (PEX, copper)
+- Drain material (PVC, cast iron)
+- Water heater type if applicable (tank, tankless, heat pump)
+- Gas line work if applicable
+- Shut-off valve locations`,
+
+  '11': `HVAC questions must define:
+- System type (forced air, mini-split, heat pump, radiant)
+- Equipment specifications (tonnage, SEER rating, brand)
+- Ductwork scope (new runs, modifications, insulation)
+- Thermostat type and location (smart thermostat, programmable)
+- Ventilation requirements (bath fans, range hood, ERV/HRV)
+- Bath fan specifications (CFM rating, quiet rating in sones)
+- Zoning requirements`,
+
+  '12': `ELECTRICAL questions must define:
+- Panel work scope (new panel, subpanel, additional circuits)
+- Outlet types and locations (standard, GFCI, USB, 20A dedicated circuits)
+- Switch types (standard toggle, Decora/rocker, dimmer, smart switches)
+- Lighting plan (recessed can size and type, pendant locations, under-cabinet, vanity)
+- Lighting fixture allowance or specific selections (manufacturer, model, finish)
+- Low voltage (data/ethernet runs, coax, speaker wire)
+- Fan pre-wire locations
+- Smoke/CO detector requirements`,
+
+  '13': `DRYWALL questions must define:
+- Drywall finish level (Level 3, Level 4, Level 5 / skim coat)
+- Drywall type by area (standard, moisture-resistant/green board, mold-resistant/purple)
+- Ceiling texture (smooth, knockdown, skip trowel, orange peel, match existing)
+- Wall texture (smooth, match existing)
+- Backer board type for tile areas (cement board, Kerdi board, foam board)
+- Patch and repair scope for existing walls
+- Corner bead type (paper-faced, metal, vinyl)`,
+
+  '14': `INTERIOR TRIM & FINISH questions must define:
+- Baseboard style and size (3-1/4" colonial, 5-1/4" craftsman, modern flat stock)
+- Baseboard material (MDF paint-grade, poplar, oak, PVC)
+- Crown molding style and size (if applicable)
+- Casing/door trim style and width (colonial, craftsman, modern)
+- Window sill/apron style
+- Stair components (treads, risers, railings, balusters, newel posts) if applicable
+- Built-in details (shelving, closet system, bench)
+- Shoe molding or quarter round
+- Transition strips between flooring types`,
+
+  '15': `PAINTING questions must define:
+- Paint manufacturer and product line (Benjamin Moore Advance, Regal, Aura; Sherwin-Williams Emerald, Duration)
+- Sheen levels by surface (flat/matte for ceilings, eggshell/satin for walls, semi-gloss for trim/doors)
+- Number of coats (1 coat primer + 2 coats finish is standard)
+- Specific colors if selected (e.g., Benjamin Moore White Dove OC-17)
+- Trim/door color vs wall color
+- Ceiling color (same as walls, or flat white)
+- Stain vs paint for specific items (cabinets, built-ins, beams)
+- Exterior paint scope if applicable
+- Prep work scope (scraping, sanding, patching, priming)`,
+
+  '16': `CABINETS & COUNTERTOPS questions must define:
+- Cabinet manufacturer/brand and line (or custom)
+- Cabinet door style (shaker, flat panel, raised panel, slab)
+- Cabinet finish (painted color, stain color, thermofoil)
+- Cabinet box construction (plywood, particle board, furniture board)
+- Hardware style and finish (pulls, knobs, bin pulls — brass, chrome, matte black)
+- Soft-close hinges and drawer slides (standard or upgrade)
+- Countertop material (quartz, granite, marble, butcher block, laminate, solid surface)
+- Countertop edge profile (eased, beveled, bullnose, ogee, mitered)
+- Countertop color/pattern if selected
+- Backsplash coordination
+- Vanity specifications (same line as kitchen or different)`,
+
+  '17': `TILE questions must define:
+- Tile manufacturer and collection for each application
+- Tile size and format (12x24, 3x12 subway, mosaic, large format)
+- Tile material (porcelain, ceramic, natural stone, glass)
+- Tile finish (matte, polished, honed, textured)
+- Layout pattern (stacked, 1/3 offset, herringbone, straight lay)
+- Grout color and type (sanded, unsanded, epoxy)
+- Accent/feature tile details (niche, accent band, decorative border)
+- Shower/tub surround tile extent (full height, 3/4 height, wainscot)
+- Floor tile pattern and grout joint width
+- Waterproofing system (Schluter Kerdi, RedGard, Laticrete)
+- Edge trim (Schluter Jolly, bullnose tile, metal edge)`,
+
+  '19': `FLOORING questions must define:
+- Flooring material type (hardwood, LVP/LVT, tile, carpet, natural stone)
+- Manufacturer and product/collection name
+- Species or style (white oak, hickory, maple — for hardwood)
+- Width and thickness (5" wide, 3/4" thick)
+- Finish (pre-finished vs site-finished, matte, satin, semi-gloss)
+- Color/stain if selected
+- Installation method (nail-down, glue-down, floating, click-lock)
+- Underlayment type
+- Transition details between rooms/flooring types
+- Stair treads and nosing if applicable
+- Floor prep scope (leveling, moisture mitigation)`,
+
+  '20': `SHOWER ENCLOSURE & ACCESSORIES questions must define:
+- Shower door type (frameless, semi-frameless, framed, sliding, hinged)
+- Glass thickness (3/8", 1/2")
+- Glass type (clear, low-iron/ultra-clear, frosted, rain)
+- Hardware finish (chrome, brushed nickel, matte black, brass)
+- Mirror specifications (size, framed/frameless, style)
+- Accessory details (towel bars, robe hooks, toilet paper holder, shower niche)
+- Accessory finish (match door hardware)
+- Medicine cabinet if applicable`,
+};
+
+/**
  * System prompt for generating targeted questions for one budget category.
  */
 export const BKB_CONTRACT_QUESTIONS_SYSTEM_PROMPT = `You are a construction specification assistant for Brett King Builder (BKB), a high-end residential remodeling and custom home builder.
 
-Your job: Given a specific budget category with its cost items, generate targeted follow-up questions that will help write a detailed construction specification for ONLY this one category.
+Your job: Given a specific budget category with its cost items, generate targeted follow-up questions that help define the EXACT build plan and material selections so they can be written clearly into a homeowner contract specification.
+
+PURPOSE OF THESE QUESTIONS:
+The answers will be used to write contract specification language that tells the homeowner EXACTLY what is being built, with what materials, and how. Every question must help fill in specific details that belong in the contract.
 
 BKB CATEGORY SYSTEM:
-${Object.entries(BKB_CATEGORIES).map(([num, name]) => `${num} - ${name}`).join('\n')}
+${Object.entries(BKB_CATEGORIES).map(([num, name]) => `${num} - ${name}: ${BKB_CATEGORY_DETAILS[num] || ''}`).join('\n')}
+
+CATEGORY-SPECIFIC QUESTION GUIDANCE:
+For each category, these are the critical construction details that MUST be defined for a complete contract specification. Use this guide to generate your questions:
+
+${Object.entries(CATEGORY_QUESTION_GUIDE).map(([num, guide]) => `CATEGORY ${num} (${BKB_CATEGORIES[num] || 'Unknown'}):\n${guide}`).join('\n\n')}
 
 RULES:
 1. Generate 3-8 questions focused ONLY on the specified category.
-2. Each question should help clarify materials, methods, brands, finishes, or scope details.
-3. Reference the actual cost items provided for context (e.g., if the cost items include "E-Series windows", ask about window trim details, hardware, etc.).
+2. Questions must ask about SPECIFIC construction details that go into a contract — not generic project management questions.
+3. Reference the actual cost items provided. If cost items already specify a product (e.g., "Andersen E-Series windows"), do NOT ask which manufacturer — instead ask about the REMAINING unknowns (trim style, hardware finish, glass package, etc.).
 4. Provide 3-5 practical answer options per question reflecting common residential construction choices.
-5. Questions should be specific enough that answers directly inform the specification text.
-6. Ask about things like: specific brands/manufacturers, finishes/colors, installation methods, what is included vs excluded, special conditions.
-7. Do NOT ask generic questions. Every question should relate to the actual cost items in this category.
+5. Every answer option should be a real, specific construction choice (e.g., "Level 4 drywall finish" not "standard finish").
+6. If a detail is already clear from the cost items or category description, skip that question and ask about something that ISN'T defined yet.
+7. Think like a project manager writing a contract: what details does the homeowner need to see to understand exactly what they're getting?
+
+EXAMPLES OF GOOD QUESTIONS (specific, contract-defining):
+- "What interior door style is planned?" → Options: ["Shaker 2-panel", "Flat panel/slab", "Raised 6-panel", "Craftsman 3-panel"]
+- "What baseboard profile and height?" → Options: ["3-1/4 inch Colonial", "5-1/4 inch Craftsman", "Modern 4 inch flat stock", "Match existing"]
+- "What drywall finish level for walls?" → Options: ["Level 3 (standard)", "Level 4 (smooth, paint-ready)", "Level 5 (skim coat, premium smooth)"]
+- "What type of wall insulation?" → Options: ["R-13 fiberglass batt (2x4 walls)", "R-21 fiberglass batt (2x6 walls)", "Open-cell spray foam", "Closed-cell spray foam"]
+
+EXAMPLES OF BAD QUESTIONS (too generic, avoid these):
+- "What is your budget?" ← never ask about money
+- "Do you have any special requirements?" ← too vague
+- "What is the timeline?" ← not a specification detail
+- "Are there any concerns?" ← not construction-specific
+- "What style do you prefer?" ← too broad, ask about specific items instead
 
 You MUST respond with ONLY a valid JSON array. No markdown, no explanation, no code fences. Just the raw JSON array.
 
