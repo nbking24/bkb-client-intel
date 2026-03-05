@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { getCostItemsForJob, getJob, JTCostItem } from '../../../../lib/jobtread';
+import { getCostItemsForJob, getCostGroupOrder, getJob, JTCostItem } from '../../../../lib/jobtread';
 
 interface BudgetCostItem {
   id: string;
@@ -38,9 +38,11 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: 'Job not found' }, { status: 404 });
     }
 
-    // Fetch all cost items with full hierarchy (costGroup + parentCostGroup)
-    // This uses the same paginated PAVE query that works for the project-details agent
-    const allItems = await getCostItemsForJob(jobId, 500);
+    // Fetch all cost items and cost group ordering in parallel
+    const [allItems, groupOrder] = await Promise.all([
+      getCostItemsForJob(jobId, 500),
+      getCostGroupOrder(jobId),
+    ]);
 
     if (!allItems || allItems.length === 0) {
       return NextResponse.json(
@@ -134,25 +136,66 @@ export async function POST(request: NextRequest) {
       sectionMap.get(sectionKey)!.groups.push(group);
     }
 
-    // Convert to BudgetSection format
+    // Build sort-order lookup from the cost group hierarchy
+    // Maps group name -> sortOrder, and parent name -> min sortOrder of children
+    const groupSortMap = new Map<string, number>();
+    const parentSortMap = new Map<string, number>();
+
+    for (const g of groupOrder) {
+      const parentName = g.parentName || 'General';
+      const sortVal = g.sortOrder ?? 999999;
+
+      // Track the sort order per group name under its parent
+      const key = `${parentName}|||${g.name}`;
+      if (!groupSortMap.has(key) || sortVal < groupSortMap.get(key)!) {
+        groupSortMap.set(key, sortVal);
+      }
+
+      // Track parent sort order: use parent's own sortOrder if available,
+      // otherwise use the minimum sortOrder among its children
+      const parentSort = g.parentSortOrder ?? sortVal;
+      if (!parentSortMap.has(parentName) || parentSort < parentSortMap.get(parentName)!) {
+        parentSortMap.set(parentName, parentSort);
+      }
+    }
+
+    // Sort sections by their sort order
     const sectionList = Array.from(sectionMap.values());
-    const budgetSections: BudgetSection[] = sectionList.map((section) => ({
-      id: section.id,
-      name: section.name,
-      costGroups: section.groups.map((g) => ({
-        id: g.id,
-        name: g.name,
-        description: g.description,
-        costItems: g.items.map((ci) => ({
-          id: ci.id,
-          name: ci.name,
-          description: ci.description || '',
-          quantity: ci.quantity,
-          unitCost: ci.unitCost,
-          unitPrice: ci.unitPrice,
+    sectionList.sort((a, b) => {
+      const aSort = parentSortMap.get(a.name) ?? 999999;
+      const bSort = parentSortMap.get(b.name) ?? 999999;
+      return aSort - bSort;
+    });
+
+    // Convert to BudgetSection format, sorting groups within each section
+    const budgetSections: BudgetSection[] = sectionList.map((section) => {
+      // Sort groups within this section
+      const sortedGroups = [...section.groups].sort((a, b) => {
+        const aKey = `${section.name}|||${a.name}`;
+        const bKey = `${section.name}|||${b.name}`;
+        const aSort = groupSortMap.get(aKey) ?? 999999;
+        const bSort = groupSortMap.get(bKey) ?? 999999;
+        return aSort - bSort;
+      });
+
+      return {
+        id: section.id,
+        name: section.name,
+        costGroups: sortedGroups.map((g) => ({
+          id: g.id,
+          name: g.name,
+          description: g.description,
+          costItems: g.items.map((ci) => ({
+            id: ci.id,
+            name: ci.name,
+            description: ci.description || '',
+            quantity: ci.quantity,
+            unitCost: ci.unitCost,
+            unitPrice: ci.unitPrice,
+          })),
         })),
-      })),
-    }));
+      };
+    });
 
     return NextResponse.json({
       jobId,

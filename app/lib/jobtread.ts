@@ -1734,6 +1734,59 @@ export async function getCostGroupsForJob(jobId: string): Promise<JTCostGroup[]>
 }
 
 /**
+ * Fetch cost group ordering for a job.
+ * Returns groups in the order they appear in JobTread, with their parent hierarchy.
+ * Used by the budget route to sort sections and groups correctly.
+ */
+export async function getCostGroupOrder(jobId: string): Promise<Array<{
+  id: string;
+  name: string;
+  sortOrder: number | null;
+  parentId: string | null;
+  parentName: string | null;
+  parentSortOrder: number | null;
+}>> {
+  let allGroups: any[] = [];
+  let nextPage: string | null = null;
+
+  for (let page = 0; page < 10; page++) {
+    const pageParams: Record<string, unknown> = { size: 100 };
+    if (nextPage) pageParams.page = nextPage;
+
+    const data = await pave({
+      job: {
+        $: { id: jobId },
+        costGroups: {
+          $: pageParams,
+          nextPage: {},
+          nodes: {
+            id: {},
+            name: {},
+            sortOrder: {},
+            parentCostGroup: { id: {}, name: {}, sortOrder: {} },
+          },
+        },
+      },
+    });
+
+    const groupPage = (data as any)?.job?.costGroups;
+    const nodes = groupPage?.nodes || [];
+    allGroups = allGroups.concat(nodes);
+    nextPage = groupPage?.nextPage || null;
+    if (!nextPage || nodes.length < 100) break;
+  }
+
+  return allGroups.map((g: any, index: number) => ({
+    id: g.id,
+    name: g.name,
+    sortOrder: g.sortOrder ?? index, // fall back to API return order
+    parentId: g.parentCostGroup?.id || null,
+    parentName: g.parentCostGroup?.name || null,
+    parentSortOrder: g.parentCostGroup?.sortOrder ?? null,
+  }));
+}
+
+/**
  * Update a cost group's description field (used to write contract specs).
  */
 export async function updateCostGroup(groupId: string, fields: {
