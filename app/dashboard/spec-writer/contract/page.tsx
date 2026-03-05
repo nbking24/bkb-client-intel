@@ -327,7 +327,8 @@ export default function ContractSpecWriter() {
   // ============================================================
   async function generateSpecForGroup(
     section: BudgetSection,
-    group: BudgetCostGroup
+    group: BudgetCostGroup,
+    previousSpecs?: { categoryName: string; specification: string }[]
   ): Promise<string> {
     const answers = allAnswers[group.id] || {};
     const questionsAndAnswers = Object.entries(answers).map(([id, answer]) => ({
@@ -356,6 +357,7 @@ export default function ContractSpecWriter() {
           content: f.content || '',
           type: f.type,
         })),
+        previousSpecs: previousSpecs || [],
       }),
     });
     const data = await res.json();
@@ -367,11 +369,15 @@ export default function ContractSpecWriter() {
     setIsLoading(true);
     setError('');
     const newSpecs: Record<string, string> = {};
+    // Accumulate completed specs so each new generation has context of what came before
+    const completedSpecs: { categoryName: string; specification: string }[] = [];
 
     for (const { section, group } of flatGroups) {
       try {
-        const spec = await generateSpecForGroup(section, group);
+        const spec = await generateSpecForGroup(section, group, completedSpecs);
         newSpecs[group.id] = spec;
+        // Add to completed specs so the next category gets this context
+        completedSpecs.push({ categoryName: group.name, specification: spec });
         // Update state incrementally so user sees progress
         setGeneratedSpecs((prev) => ({ ...prev, [group.id]: spec }));
       } catch (err: any) {
@@ -390,7 +396,11 @@ export default function ContractSpecWriter() {
     if (!item) return;
     setIsLoading(true);
     try {
-      const spec = await generateSpecForGroup(item.section, item.group);
+      // When regenerating a single spec, pass all OTHER completed specs as context
+      const otherSpecs = flatGroups
+        .filter((fg) => fg.group.id !== groupId && generatedSpecs[fg.group.id] && !generatedSpecs[fg.group.id].startsWith('ERROR'))
+        .map((fg) => ({ categoryName: fg.group.name, specification: generatedSpecs[fg.group.id] }));
+      const spec = await generateSpecForGroup(item.section, item.group, otherSpecs);
       setGeneratedSpecs((prev) => ({ ...prev, [groupId]: spec }));
     } catch (err: any) {
       setError(err.message);

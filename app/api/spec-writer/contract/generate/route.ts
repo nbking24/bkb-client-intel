@@ -23,6 +23,11 @@ interface FileInfo {
   type: string;
 }
 
+interface PreviousSpec {
+  categoryName: string;
+  specification: string;
+}
+
 interface RequestBody {
   categoryName: string;
   categoryDescription?: string;
@@ -32,6 +37,7 @@ interface RequestBody {
   questionsAndAnswers: QuestionAnswer[];
   costItems: CostItemInfo[];
   files?: FileInfo[];
+  previousSpecs?: PreviousSpec[];
 }
 
 export async function POST(request: NextRequest) {
@@ -46,6 +52,7 @@ export async function POST(request: NextRequest) {
       questionsAndAnswers,
       costItems,
       files,
+      previousSpecs,
     } = body;
 
     if (!categoryName || !projectScope) {
@@ -110,6 +117,21 @@ export async function POST(request: NextRequest) {
       userMessage += '\n';
     }
 
+    // Include previously written specs for cross-spec awareness
+    if (previousSpecs && previousSpecs.length > 0) {
+      userMessage += `\n========================================\n`;
+      userMessage += `PREVIOUSLY WRITTEN SPECIFICATIONS (already finalized for this contract):\n`;
+      userMessage += `The following specifications have already been written for other categories in this same contract document. You MUST:\n`;
+      userMessage += `1. NOT repeat information that is already stated in a previous specification (e.g., if permits are addressed in Planning/Admin, do NOT mention permits again in other specs)\n`;
+      userMessage += `2. NOT contradict anything stated in a previous specification (e.g., if a previous spec says "Permit fees included", do NOT say "Permits not included" in this spec)\n`;
+      userMessage += `3. Reference previous specs where relevant instead of restating (e.g., "See 01 Planning, Admin for permit details")\n`;
+      userMessage += `4. Maintain consistency in material selections, finishes, and project assumptions across all specifications\n\n`;
+      for (const prev of previousSpecs) {
+        userMessage += `--- ${prev.categoryName} ---\n${prev.specification}\n\n`;
+      }
+      userMessage += `========================================\n`;
+    }
+
     userMessage += `\nINSTRUCTIONS:
 Write the specification for ONLY the "${costGroupName}" category. Follow BKB formatting exactly:
 - Use single asterisks for bold: *Scope of Work* (never double **)
@@ -122,6 +144,13 @@ Write the specification for ONLY the "${costGroupName}" category. Follow BKB for
 - Never use em dash characters
 - Preserve vendor estimate technical language exactly (strip vendor names and pricing only)
 - Be thorough and specific. This is a contractual document.
+
+CROSS-SPECIFICATION RULES (CRITICAL):
+- All specifications in this contract are part of ONE cohesive document. They must read as a unified whole.
+- NEVER repeat information already covered in a previous specification. If permits, cleanup, protection, or general conditions are addressed elsewhere, do NOT restate them.
+- NEVER contradict information in a previous specification. If a previous spec states permits are included or excluded, all other specs must be consistent with that statement.
+- When something is already addressed in another specification, use a brief reference like "See [Category Name] specification" rather than restating.
+- Focus THIS specification ONLY on what is unique to the "${costGroupName}" trade/scope.
 
 Return ONLY the specification text. No JSON, no code fences, no explanations.`;
 

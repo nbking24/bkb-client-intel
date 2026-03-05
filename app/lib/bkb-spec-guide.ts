@@ -142,7 +142,20 @@ WRITING QUALITY:
 - Include installation methods, materials, standards, and inclusions/exclusions.
 - Reference "per plans and specifications" or "per architectural drawings" where applicable.
 - Mention code compliance, manufacturer specifications, and industry standards where relevant.
-- Write so a subcontractor understands the full scope AND a homeowner understands what they're paying for.`;
+- Write so a subcontractor understands the full scope AND a homeowner understands what they're paying for.
+
+CROSS-SPECIFICATION COHESION (CRITICAL):
+All specifications in a contract are part of ONE unified document. When writing a specification:
+- NEVER repeat information that belongs to or is already covered by another category. Each piece of information should appear in exactly ONE specification.
+  Examples of information that should only appear once:
+  - Permit status (belongs in 01 Planning, Admin only)
+  - Debris removal/cleanup (belongs in 02 Demolition, Sitework only)
+  - General protection of existing finishes (belongs in 02 or the relevant trade only)
+  - Paint finishes and colors (belongs in 15 Painting only, other specs should say "paint by others" or "see 15 Painting")
+- NEVER contradict information stated in another specification. If you are given previously written specifications, treat them as established facts for this contract.
+- When a related item is covered by another trade, use cross-references: "See [Category Name] specification" or "by others per [Category Name]."
+- Focus each specification ONLY on the work that is unique to that specific trade/category.
+- Common items that get incorrectly repeated: permits, cleanup, dust protection, final paint touch-up, general conditions. These should be stated ONCE in the appropriate category.`;
 
 /**
  * Category-specific question guidance.
