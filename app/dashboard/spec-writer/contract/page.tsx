@@ -747,11 +747,11 @@ export default function ContractSpecWriter() {
                     <span className="text-xs flex-1" style={{ color: '#e8e0d8' }}>
                       {file.name}
                       {file.extracting && (
-                        <span style={{ color: '#C9A84C', marginLeft: 6 }}>(extracting text...)</span>
+                        <span style={{ color: '#C9A84C', marginLeft: 6 }}>(analyzing document & images...)</span>
                       )}
                       {!file.extracting && file.content && file.name.endsWith('.pdf') && (
                         <span style={{ color: '#22c55e', marginLeft: 6 }}>
-                          ({Math.round(file.content.length / 4)} words extracted)
+                          ({file.content.includes('VISUAL CONTENT ANALYSIS') ? 'text + images analyzed' : `${Math.round(file.content.length / 4)} words extracted`})
                         </span>
                       )}
                     </span>
