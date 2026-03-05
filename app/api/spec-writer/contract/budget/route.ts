@@ -23,6 +23,57 @@ interface BudgetSection {
   costGroups: BudgetCostGroup[];
 }
 
+/**
+ * Given the full group hierarchy, build a map from group ID -> full ancestor path.
+ * This handles arbitrarily deep nesting (3, 4, 5+ levels).
+ *
+ * Returns a map: groupId -> [root, child, grandchild, ..., self]
+ * Each entry has { id, name, sortOrder }
+ */
+function buildAncestryMap(groupOrder: Array<{
+  id: string;
+  name: string;
+  sortOrder: number | null;
+  parentId: string | null;
+  parentName: string | null;
+}>) {
+  // Build parent lookup: id -> group info
+  const byId = new Map<string, { id: string; name: string; sortOrder: number | null; parentId: string | null }>();
+  for (const g of groupOrder) {
+    byId.set(g.id, g);
+  }
+
+  // For each group, walk up to the root to build the full path
+  const ancestryCache = new Map<string, Array<{ id: string; name: string; sortOrder: number | null }>>();
+
+  function getAncestry(groupId: string): Array<{ id: string; name: string; sortOrder: number | null }> {
+    if (ancestryCache.has(groupId)) return ancestryCache.get(groupId)!;
+
+    const g = byId.get(groupId);
+    if (!g) return [];
+
+    if (!g.parentId) {
+      // Root group
+      const path = [{ id: g.id, name: g.name, sortOrder: g.sortOrder }];
+      ancestryCache.set(groupId, path);
+      return path;
+    }
+
+    // Recurse to parent
+    const parentPath = getAncestry(g.parentId);
+    const path = [...parentPath, { id: g.id, name: g.name, sortOrder: g.sortOrder }];
+    ancestryCache.set(groupId, path);
+    return path;
+  }
+
+  // Build ancestry for all groups
+  for (const g of groupOrder) {
+    getAncestry(g.id);
+  }
+
+  return ancestryCache;
+}
+
 export async function POST(request: NextRequest) {
   try {
     const body = await request.json();
@@ -51,23 +102,55 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    // Build sections from cost items, using their group hierarchy.
-    // Each cost item has:
-    //   costGroup = the group that directly contains it (leaf level, has description)
-    //   costGroup.parentCostGroup = the section/area above it
-    //
-    // IMPORTANT: Jobs can have multiple estimates/proposals in JobTread, each with
-    // their own copy of the cost group hierarchy (different IDs but same names).
-    // We deduplicate by keying on GROUP NAME + PARENT NAME instead of IDs.
-    // This merges items from duplicate groups across estimates into a single entry.
+    // Build ancestry map from the full group hierarchy
+    // This gives us the complete path from root for every group,
+    // handling 3+, 4+, etc. levels of nesting correctly.
+    const ancestryMap = buildAncestryMap(groupOrder);
 
-    // Group items by their direct costGroup, keyed by name to deduplicate across estimates
+    // Also build a name-based ancestry lookup since cost items from different
+    // estimates may have different IDs for the same named group
+    const nameToAncestry = new Map<string, Array<{ id: string; name: string; sortOrder: number | null }>>();
+    const ancestryEntries = Array.from(ancestryMap.entries());
+    for (const [id, path] of ancestryEntries) {
+      const g = groupOrder.find(go => go.id === id);
+      if (g) {
+        // Key by name + parentName so we can look up by the info available on cost items
+        const parentName = g.parentId ? (groupOrder.find(go => go.id === g.parentId)?.name || '') : '';
+        const key = `${parentName}|||${g.name}`;
+        if (!nameToAncestry.has(key)) {
+          nameToAncestry.set(key, path);
+        }
+      }
+    }
+
+    // For each cost item, determine its section (top-level ancestor) and
+    // its display group (the leaf group that directly contains it).
+    //
+    // The spec writer UI uses 2 levels: Section > Group
+    // For a path like [Scope of Work, Addition & Exterior, 04 Framing, Framing Specifications]:
+    //   Section = "Scope of Work" (root)
+    //   Group label = full sub-path: "Addition & Exterior > 04 Framing > Framing Specifications"
+    //   But that's too verbose. Instead, we use the LAST TWO levels:
+    //   Section = parent of leaf = "04 Framing"
+    //   Group = leaf = "Framing Specifications"
+    //
+    // Actually, looking at how the spec writer UI renders this, each cost group
+    // shown in the list IS the direct group containing cost items. The "section"
+    // is used to organize them into collapsible categories.
+    //
+    // The best approach: use the SECOND level from root as the section
+    // (e.g., "Addition & Exterior"), and the leaf group as the group name.
+    // If there are only 1-2 levels, use the root as section.
+
+    // Build grouping for each cost item
     const groupMap = new Map<string, {
       id: string;
       name: string;
       description: string;
-      parentId: string;
-      parentName: string;
+      sectionName: string;
+      sectionId: string;
+      sectionSort: number;
+      groupSort: number;
       items: JTCostItem[];
       seenItemNames: Set<string>;
     }>();
@@ -76,32 +159,90 @@ export async function POST(request: NextRequest) {
       const groupName = item.costGroup?.name || 'Ungrouped';
       const groupDesc = item.costGroup?.description || '';
       const groupId = item.costGroup?.id || 'ungrouped';
-      const parentId = item.costGroup?.parentCostGroup?.id || 'general';
-      const parentName = item.costGroup?.parentCostGroup?.name || 'General';
+      const immediateParentName = item.costGroup?.parentCostGroup?.name || '';
 
-      // Key by parent name + group name to merge duplicates across estimates
-      const dedupeKey = `${parentName}|||${groupName}`;
+      // Try to find the full ancestry for this group
+      let ancestry: Array<{ id: string; name: string; sortOrder: number | null }> = [];
+
+      // First try by ID
+      if (groupId && ancestryMap.has(groupId)) {
+        ancestry = ancestryMap.get(groupId)!;
+      } else {
+        // Fall back to name-based lookup
+        const nameKey = `${immediateParentName}|||${groupName}`;
+        if (nameToAncestry.has(nameKey)) {
+          ancestry = nameToAncestry.get(nameKey)!;
+        }
+      }
+
+      // Determine section and group from ancestry
+      let sectionName: string;
+      let sectionId: string;
+      let sectionSort: number;
+      let groupSort: number;
+
+      if (ancestry.length === 0) {
+        // No ancestry found, use immediate parent as section
+        sectionName = immediateParentName || 'General';
+        sectionId = item.costGroup?.parentCostGroup?.id || 'general';
+        sectionSort = 999999;
+        groupSort = 999999;
+      } else if (ancestry.length === 1) {
+        // The group itself is a root — use "General" as section
+        sectionName = 'General';
+        sectionId = 'general';
+        sectionSort = 0;
+        groupSort = ancestry[0].sortOrder ?? 999999;
+      } else if (ancestry.length === 2) {
+        // 2 levels: parent > group (standard case)
+        sectionName = ancestry[0].name;
+        sectionId = ancestry[0].id;
+        sectionSort = ancestry[0].sortOrder ?? 999999;
+        groupSort = ancestry[1].sortOrder ?? 999999;
+      } else {
+        // 3+ levels: use the top-level ancestor as section
+        // The leaf is the group with cost items
+        // All intermediate levels help us sort but we flatten them
+        sectionName = ancestry[0].name;
+        sectionId = ancestry[0].id;
+        sectionSort = ancestry[0].sortOrder ?? 999999;
+        // Use the leaf's sortOrder for group sorting
+        groupSort = ancestry[ancestry.length - 1].sortOrder ?? 999999;
+      }
+
+      // Deduplicate by section + group name (across estimates)
+      const dedupeKey = `${sectionName}|||${groupName}`;
 
       if (!groupMap.has(dedupeKey)) {
         groupMap.set(dedupeKey, {
           id: groupId,
           name: groupName,
           description: groupDesc,
-          parentId,
-          parentName,
+          sectionName,
+          sectionId,
+          sectionSort,
+          groupSort,
           items: [],
           seenItemNames: new Set(),
         });
       }
 
-      // Use longest description found (some estimates may have more detail)
       const existing = groupMap.get(dedupeKey)!;
+      // Use longest description found
       if (groupDesc.length > existing.description.length) {
         existing.description = groupDesc;
-        existing.id = groupId; // prefer the ID with the best description
+        existing.id = groupId;
+      }
+      // Use lowest sort orders found
+      if (sectionSort < existing.sectionSort) {
+        existing.sectionSort = sectionSort;
+        existing.sectionId = sectionId;
+      }
+      if (groupSort < existing.groupSort) {
+        existing.groupSort = groupSort;
       }
 
-      // Deduplicate cost items by name within the merged group
+      // Deduplicate cost items by name
       const itemKey = item.name;
       if (!existing.seenItemNames.has(itemKey)) {
         existing.seenItemNames.add(itemKey);
@@ -109,74 +250,37 @@ export async function POST(request: NextRequest) {
       }
     }
 
-    // Group the cost groups by their parent section name (also deduplicated by name)
+    // Group into sections
     const sectionMap = new Map<string, {
       id: string;
       name: string;
-      groups: Array<{
-        id: string;
-        name: string;
-        description: string;
-        parentId: string;
-        parentName: string;
-        items: JTCostItem[];
-      }>;
+      sortOrder: number;
+      groups: Array<typeof groupMap extends Map<string, infer V> ? V : never>;
     }>();
 
-    const groupList = Array.from(groupMap.values());
-    for (const group of groupList) {
-      const sectionKey = group.parentName;
-      if (!sectionMap.has(sectionKey)) {
-        sectionMap.set(sectionKey, {
-          id: group.parentId,
-          name: group.parentName,
+    for (const group of Array.from(groupMap.values())) {
+      if (!sectionMap.has(group.sectionName)) {
+        sectionMap.set(group.sectionName, {
+          id: group.sectionId,
+          name: group.sectionName,
+          sortOrder: group.sectionSort,
           groups: [],
         });
       }
-      sectionMap.get(sectionKey)!.groups.push(group);
-    }
-
-    // Build sort-order lookup from the cost group hierarchy
-    // Maps group name -> sortOrder, and parent name -> min sortOrder of children
-    const groupSortMap = new Map<string, number>();
-    const parentSortMap = new Map<string, number>();
-
-    for (const g of groupOrder) {
-      const parentName = g.parentName || 'General';
-      const sortVal = g.sortOrder ?? 999999;
-
-      // Track the sort order per group name under its parent
-      const key = `${parentName}|||${g.name}`;
-      if (!groupSortMap.has(key) || sortVal < groupSortMap.get(key)!) {
-        groupSortMap.set(key, sortVal);
+      const section = sectionMap.get(group.sectionName)!;
+      if (group.sectionSort < section.sortOrder) {
+        section.sortOrder = group.sectionSort;
       }
-
-      // Track parent sort order: use parent's own sortOrder if available,
-      // otherwise use the minimum sortOrder among its children
-      const parentSort = g.parentSortOrder ?? sortVal;
-      if (!parentSortMap.has(parentName) || parentSort < parentSortMap.get(parentName)!) {
-        parentSortMap.set(parentName, parentSort);
-      }
+      section.groups.push(group);
     }
 
     // Sort sections by their sort order
     const sectionList = Array.from(sectionMap.values());
-    sectionList.sort((a, b) => {
-      const aSort = parentSortMap.get(a.name) ?? 999999;
-      const bSort = parentSortMap.get(b.name) ?? 999999;
-      return aSort - bSort;
-    });
+    sectionList.sort((a, b) => a.sortOrder - b.sortOrder);
 
     // Convert to BudgetSection format, sorting groups within each section
     const budgetSections: BudgetSection[] = sectionList.map((section) => {
-      // Sort groups within this section
-      const sortedGroups = [...section.groups].sort((a, b) => {
-        const aKey = `${section.name}|||${a.name}`;
-        const bKey = `${section.name}|||${b.name}`;
-        const aSort = groupSortMap.get(aKey) ?? 999999;
-        const bSort = groupSortMap.get(bKey) ?? 999999;
-        return aSort - bSort;
-      });
+      const sortedGroups = [...section.groups].sort((a, b) => a.groupSort - b.groupSort);
 
       return {
         id: section.id,
