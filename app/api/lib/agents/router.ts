@@ -31,15 +31,19 @@ const CONFIRMATION_PATTERN = /^(yes|yeah|yep|yup|sure|ok|okay|go ahead|do it|con
 const FOLLOWUP_PATTERN = /^[^?]{1,80}$/;
 
 function selectAgent(message: string, lastAgentName?: string, forcedAgent?: string): AgentModule {
-  const trimmed = message.trim();
+  // Strip the [Context: ...] job prefix injected by the frontend before scoring
+  // so agent scoring only considers the user's actual question
+  const stripped = message.replace(/^\[Context:.*?\]\s*/s, '');
+  const trimmed = stripped.trim();
 
   // If a specific agent is forced by the UI selection, use it
   if (forcedAgent) {
     // "know-it-all" group: route between know-it-all and jt-entry based on intent
     if (forcedAgent === 'know-it-all') {
-      // Check if jt-entry should handle it (task/schedule management)
+      // Only override to jt-entry for very explicit task/schedule write operations
+      // Use a high threshold (0.9) so general questions aren't misrouted
       const jtScore = jtEntry.canHandle(trimmed);
-      if (jtScore > 0.7) return jtEntry;
+      if (jtScore >= 0.9) return jtEntry;
       return knowItAll;
     }
     // "project-details" group: always use project-details
