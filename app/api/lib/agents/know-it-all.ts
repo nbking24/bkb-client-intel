@@ -258,7 +258,8 @@ const knowItAll: AgentModule = {
       '- get_job_tasks: Get all tasks for a specific job.\n' +
       '- get_job_documents: Get all documents associated with a job.\n' +
       '- get_all_open_tasks: Get ALL open/incomplete tasks across all jobs in the organization.\n' +
-      '- search_ghl_contacts: Search GHL CRM for contacts by name or email.\n' +
+      '- search_ghl_contacts: Search GHL CRM for contacts by name or email. Returns basic info + contact IDs.\n' +
+      '- get_contact_details: Get FULL GHL details for a contact — profile, CRM notes, conversation messages, and tasks. Use after search_ghl_contacts to get the contact ID.\n' +
       '- get_team_members: Get list of all BKB team members with their IDs.\n' +
       '- get_job_daily_logs: Get daily logs for a job (site activity, notes, crew info).\n' +
       '- get_job_comments: Get comments on a job, task, or document.\n' +
@@ -275,6 +276,7 @@ const knowItAll: AgentModule = {
       '- Be specific, reference real data, and be concise but thorough. If data is missing, say so honestly.\n' +
       '- When summarizing, include ALL available information. Do not skip or truncate.\n' +
       '- IMPORTANT: When someone asks about content INSIDE a document (contract, invoice, bid), first use get_job_documents to find the document ID, then use get_document_content to read the actual line items and quantities. Do NOT say you cannot access document content — use the tool.\n' +
+      '- IMPORTANT: When someone asks about GHL notes, CRM notes, conversations, messages, or contact details, use search_ghl_contacts to find the contact, then use get_contact_details with the contact ID to see their full CRM notes, conversation history, and tasks. Do NOT say you cannot access GHL notes — use these tools.\n' +
       '- For specification questions, use get_job_specifications. For document content questions (e.g. "what was in the original contract"), use get_document_content.\n\n' +
       (ctx.communicationChannel !== 'unknown'
         ? 'Current communication channel for this opportunity: ' + ctx.communicationChannel.toUpperCase() + ' (based on pipeline stage: ' + (ctx.pipelineStage || 'unknown') + ')\n'
@@ -349,13 +351,24 @@ const knowItAll: AgentModule = {
     },
     {
       name: 'search_ghl_contacts',
-      description: 'Search GHL CRM for contacts by name or email address.',
+      description: 'Search GHL CRM for contacts by name or email address. Returns basic info and contact IDs. Use get_contact_details with the returned ID to see full profile, CRM notes, conversations, and tasks.',
       input_schema: {
         type: 'object',
         properties: {
           query: { type: 'string', description: 'Name or email to search for' },
         },
         required: ['query'],
+      },
+    },
+    {
+      name: 'get_contact_details',
+      description: 'Get full GHL CRM details for a contact including their profile, CRM notes, conversation messages (emails, SMS, calls), and tasks. Use search_ghl_contacts first to find the contact ID, then use this tool to get the full picture.',
+      input_schema: {
+        type: 'object',
+        properties: {
+          contactId: { type: 'string', description: 'The GHL contact ID (get from search_ghl_contacts)' },
+        },
+        required: ['contactId'],
       },
     },
     {
@@ -479,6 +492,8 @@ const knowItAll: AgentModule = {
     // High for document content queries (contract, invoice, what's in the document)
     if (/(contract|invoice|bill|order|change.*order)/i.test(lower) && /(what|how.*many|how.*much|LF|linear|quantity|material|planned|original)/i.test(lower)) return 0.85;
     if (/(in the|on the|from the).*(document|contract|invoice|proposal)/i.test(lower)) return 0.85;
+    // High for GHL/CRM data requests (notes, messages, conversations, contact details)
+    if (/(ghl|crm|note|notes|conversation|message|sms|email|call log|contact detail)/i.test(lower) && !/(create|add|write|send)/i.test(lower)) return 0.85;
     // Medium score for general client/project references
     if (/client|project|job|contact|note|message|communication|schedule|document|team/i.test(lower)) return 0.5;
     // Low base score - acts as fallback
@@ -658,7 +673,128 @@ const knowItAll: AgentModule = {
           '- ' + (c.firstName || '') + ' ' + (c.lastName || '') + (c.email ? ' | ' + c.email : '') + (c.phone ? ' | ' + c.phone : '') + (c.companyName ? ' | ' + c.companyName : '') + ' (ID: ' + c.id + ')'
         );
 
-        return JSON.stringify({ success: true, count: contacts.length, contacts: lines.join('\n') });
+        return JSON.stringify({ success: true, count: contacts.length, contacts: lines.join('\n'), hint: 'Use get_contact_details with a contact ID to see their full CRM notes, messages, and tasks.' });
+      }
+
+      if (name === 'get_contact_details') {
+        const cid = input.contactId;
+        const sections: string[] = [];
+
+        try {
+          const [profile, notes, convos, tasks] = await Promise.allSettled([
+            getContact(cid),
+            getContactNotes(cid),
+            searchConversations(cid),
+            getContactTasks(cid),
+          ]);
+
+          // CONTACT PROFILE
+          if (profile.status === 'fulfilled' && profile.value) {
+            const c = profile.value.contact || profile.value;
+            const profileLines: string[] = [];
+            const priorityFields = [
+              ['firstName', 'First Name'], ['lastName', 'Last Name'],
+              ['email', 'Email'], ['phone', 'Phone'], ['companyName', 'Company'],
+              ['address1', 'Address'], ['city', 'City'], ['state', 'State'],
+              ['postalCode', 'Postal Code'], ['website', 'Website'],
+              ['source', 'Lead Source'], ['dateAdded', 'Date Added'],
+              ['lastActivity', 'Last Activity'],
+            ];
+
+            const usedKeys = new Set();
+            for (const [key, label] of priorityFields) {
+              usedKeys.add(key);
+              const val = formatValue(c[key]);
+              if (val) {
+                if (key === 'dateAdded' || key === 'lastActivity') {
+                  try { profileLines.push(label + ': ' + new Date(c[key]).toLocaleString()); } catch { profileLines.push(label + ': ' + val); }
+                } else {
+                  profileLines.push(label + ': ' + val);
+                }
+              }
+            }
+            if (c.tags && Array.isArray(c.tags) && c.tags.length > 0) {
+              profileLines.push('Tags: ' + c.tags.join(', '));
+              usedKeys.add('tags');
+            }
+            if (c.customFields && Array.isArray(c.customFields) && c.customFields.length > 0) {
+              for (const cf of c.customFields) {
+                if (cf.value !== undefined && cf.value !== null && cf.value !== '') {
+                  profileLines.push((cf.fieldKey || cf.key || cf.id || 'Custom Field') + ': ' + String(cf.value));
+                }
+              }
+              usedKeys.add('customFields');
+            }
+            if (c.opportunities && Array.isArray(c.opportunities) && c.opportunities.length > 0) {
+              for (const opp of c.opportunities) {
+                profileLines.push('Opportunity: ' + (opp.name || 'Unnamed') + ' | Value: ' + (opp.monetaryValue || 'N/A') + ' | Status: ' + (opp.status || 'N/A'));
+              }
+            }
+            if (profileLines.length > 0) sections.push('=== CONTACT PROFILE ===\n' + profileLines.join('\n'));
+          }
+
+          // CRM NOTES
+          if (notes.status === 'fulfilled' && Array.isArray(notes.value) && notes.value.length > 0) {
+            const noteTexts = notes.value.slice(0, 50).map((n: any) => {
+              const date = n.dateAdded ? new Date(n.dateAdded).toLocaleDateString() : 'No date';
+              return '[' + date + '] ' + (n.body || '').slice(0, 65000);
+            });
+            sections.push('=== CRM NOTES (' + notes.value.length + ' total) ===\n' + noteTexts.join('\n---\n'));
+          } else {
+            sections.push('=== CRM NOTES ===\nNo notes found for this contact.');
+          }
+
+          // CONVERSATIONS & MESSAGES
+          if (convos.status === 'fulfilled' && Array.isArray(convos.value) && convos.value.length > 0) {
+            const msgs: string[] = [];
+            for (const conv of convos.value.slice(0, 10)) {
+              const convData = conv as any;
+              if (convData.lastMessageBody) {
+                const lastDate = convData.lastMessageDate ? new Date(convData.lastMessageDate).toLocaleDateString() : '';
+                const lastType = convData.lastMessageType || convData.type || '';
+                msgs.push('[CONV SUMMARY ' + lastDate + ' ' + lastType + '] Last message: ' + (convData.lastMessageBody || '').slice(0, 2000));
+              }
+              try {
+                const cmsgs = await getConversationMessages(convData.id, 40);
+                if (Array.isArray(cmsgs)) {
+                  for (const m of cmsgs) {
+                    const mr = m as any;
+                    const date = mr.dateAdded ? new Date(mr.dateAdded).toLocaleDateString() : '';
+                    const direction = mr.direction || mr.meta?.email?.direction || mr.meta?.direction || '?';
+                    const msgType = mr.messageType || mr.type || '';
+                    const subject = mr.meta?.email?.subject ? ' Subject: ' + mr.meta.email.subject : '';
+                    const body = mr.body || mr.text || mr.message || mr.altText || '';
+                    msgs.push('[' + date + ' ' + direction + ' ' + msgType + subject + '] ' + (body ? body.slice(0, 2000) : '(no body text)'));
+                  }
+                }
+              } catch { /* skip conversation message errors */ }
+            }
+            if (msgs.length > 0) {
+              sections.push('=== MESSAGES (' + msgs.length + ' total) ===\n' + msgs.join('\n'));
+            } else {
+              sections.push('=== MESSAGES ===\nNo message content found.');
+            }
+          } else {
+            sections.push('=== MESSAGES ===\nNo conversations found for this contact.');
+          }
+
+          // TASKS
+          if (tasks.status === 'fulfilled' && Array.isArray(tasks.value) && tasks.value.length > 0) {
+            const taskTexts = tasks.value.map((t: any) => {
+              const due = t.dueDate ? ' (Due: ' + new Date(t.dueDate).toLocaleDateString() + ')' : '';
+              const assignee = t.assignedTo ? ' [Assigned: ' + t.assignedTo + ']' : '';
+              const desc = t.description ? ' - ' + t.description.slice(0, 500) : '';
+              return '- [' + (t.completed ? 'DONE' : 'OPEN') + '] ' + (t.title || t.body || 'No title') + due + assignee + desc;
+            });
+            sections.push('=== GHL TASKS (' + tasks.value.length + ' total) ===\n' + taskTexts.join('\n'));
+          }
+
+        } catch (err) {
+          sections.push('=== ERROR ===\n' + (err instanceof Error ? err.message : 'Failed to fetch GHL data'));
+        }
+
+        if (sections.length === 0) return JSON.stringify({ success: false, error: 'No data found for contact ID: ' + cid });
+        return JSON.stringify({ success: true, contactId: cid, details: sections.join('\n\n') });
       }
 
       if (name === 'get_team_members') {
