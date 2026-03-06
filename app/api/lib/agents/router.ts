@@ -36,6 +36,29 @@ function selectAgent(message: string, lastAgentName?: string, forcedAgent?: stri
   const stripped = message.replace(/^\[Context:.*?\]\s*/s, '');
   const trimmed = stripped.trim();
 
+  // ── STICKY AGENT: confirmations and short follow-ups always go back to the last agent ──
+  // This check runs BEFORE forced-agent routing so "Yes, proceed" goes back to
+  // jt-entry (which actually has tools) rather than being re-routed to know-it-all
+  // (which would fabricate a confirmation).
+  if (lastAgentName && AGENT_MAP[lastAgentName]) {
+    if (CONFIRMATION_PATTERN.test(trimmed)) {
+      return AGENT_MAP[lastAgentName];
+    }
+    // Short follow-ups (< 80 chars, no question mark) stick with the last agent
+    // unless another agent scores very high
+    if (FOLLOWUP_PATTERN.test(trimmed)) {
+      let maxOtherScore = 0;
+      for (const agent of AGENTS) {
+        if (agent.name !== lastAgentName) {
+          maxOtherScore = Math.max(maxOtherScore, agent.canHandle(trimmed));
+        }
+      }
+      if (maxOtherScore < 0.9) {
+        return AGENT_MAP[lastAgentName];
+      }
+    }
+  }
+
   // If a specific agent is forced by the UI selection, use it
   if (forcedAgent) {
     // "know-it-all" group: route between know-it-all and jt-entry based on intent
@@ -53,24 +76,6 @@ function selectAgent(message: string, lastAgentName?: string, forcedAgent?: stri
     // Direct agent name match
     if (AGENT_MAP[forcedAgent]) {
       return AGENT_MAP[forcedAgent];
-    }
-  }
-
-  // Auto-routing (legacy behavior when no agent is forced)
-  if (lastAgentName && AGENT_MAP[lastAgentName]) {
-    if (CONFIRMATION_PATTERN.test(trimmed)) {
-      return AGENT_MAP[lastAgentName];
-    }
-    if (FOLLOWUP_PATTERN.test(trimmed)) {
-      let maxOtherScore = 0;
-      for (const agent of AGENTS) {
-        if (agent.name !== lastAgentName) {
-          maxOtherScore = Math.max(maxOtherScore, agent.canHandle(trimmed));
-        }
-      }
-      if (maxOtherScore < 0.9) {
-        return AGENT_MAP[lastAgentName];
-      }
     }
   }
 
