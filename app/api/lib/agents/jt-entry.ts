@@ -434,8 +434,9 @@ const jtEntry: AgentModule = {
     const lower = message.toLowerCase();
     // Exclude document-attached messages — those belong to Know-it-All
     if (/--- ATTACHED DOCUMENT:/i.test(message)) return 0.05;
-    // Exclude email/message drafting — that belongs to Know-it-All
+    // Exclude email/message drafting and spec writing — those belong to Know-it-All
     if (/(write|draft|compose|send|prepare|put together).*(email|message|letter|response|reply|communication)/i.test(lower)) return 0.05;
+    if (/(write|create|draft|generate).*(spec|specification|material)/i.test(lower)) return 0.05;
     if (/(email|message|letter|response|reply).*(to|for|about).*(client|customer)/i.test(lower)) return 0.05;
     // Very high for explicit task/JT operations
     if (/create.*task|add.*task|schedule.*task|new.*task|make.*task/i.test(lower)) return 0.95;

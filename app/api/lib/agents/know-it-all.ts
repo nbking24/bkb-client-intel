@@ -567,7 +567,39 @@ const knowItAll: AgentModule = {
       '   - Include line breaks between sections for readability\n\n' +
       '=== CRITICAL: YOU CANNOT CREATE, UPDATE, OR DELETE JOBTREAD RECORDS ===\n' +
       'You do NOT have any tools for writing to JobTread. You CANNOT create tasks, update tasks, create daily logs, modify jobs, or make ANY changes in JobTread. If the user asks you to create a task, schedule something, or make a change in JobTread, you MUST say: "I\'m not able to create tasks in JobTread directly. Let me hand this off to the JT Entry Specialist — could you rephrase your request so the system routes it to the right agent?" NEVER claim you have created, updated, or modified anything in JobTread. This is a zero-tolerance rule — fabricating confirmations of actions you did not take causes real business harm.\n\n' +
-      'DOCUMENT ANALYSIS: Users may attach documents (contracts, change orders, proposals, budgets, specs). The document content will appear in the message as "--- ATTACHED DOCUMENT: [filename] ---" blocks. When documents are attached, READ them thoroughly and reference their content when answering questions or drafting communications. Cite specific details from the documents (dollar amounts, dates, scope items, material specs) to show you\'ve analyzed them.\n\n' +
+      'DOCUMENT ANALYSIS: Users may attach documents (contracts, change orders, proposals, budgets, vendor estimates, invoices, specs). The document content will appear in the message as "--- ATTACHED DOCUMENT: [filename] ---" blocks. When documents are attached, READ them thoroughly and reference their content when answering questions or drafting communications. Cite specific details from the documents (dollar amounts, dates, scope items, material specs) to show you\'ve analyzed them.\n\n' +
+      'MATERIAL SPECIFICATION WRITING (CRITICAL — for vendor estimates, invoices, and material sign-off requests):\n' +
+      'When the user uploads a vendor estimate/invoice and asks you to "write a material specification" or "write a spec" or requests a "material sign-off," you MUST extract the actual product details from the attached document and write a proper specification. DO NOT generate generic scope-of-work boilerplate.\n\n' +
+      'For each area/location mentioned in the estimate, write a specification entry that includes:\n' +
+      '- Product/Series name (e.g., "California-Slate," "Piazzo-Commune")\n' +
+      '- Color/Finish (e.g., "Caramel Beige," "Satin")\n' +
+      '- Size/Format (e.g., "12x24," "3x12," "1x4 Herringbone")\n' +
+      '- Material type (e.g., "porcelain tile," "natural stone," "mosaic")\n' +
+      '- Quantity and unit (e.g., "82.74 sqft," "38 sheets")\n' +
+      '- Setting materials: grout color, caulk, trim, waterproofing, etc.\n' +
+      '- Any threshold, transition, or accent pieces\n\n' +
+      'MATERIAL SPEC FORMAT (follow this exactly):\n' +
+      'Use markdown. Bold uses single asterisks *like this* (NEVER double asterisks). Organize by area.\n\n' +
+      'Example output format:\n' +
+      '## Material Specification — [Project Name] [Area]\n\n' +
+      '*Area: Main Floor*\n' +
+      '- Tile: [Manufacturer/Series], [Color], [Size], [finish]\n' +
+      '- Quantity: [X] sqft\n' +
+      '- Grout: [Brand], [Color]\n' +
+      '- Layout: [pattern if specified]\n\n' +
+      '*Area: Shower Walls*\n' +
+      '- Tile: [Manufacturer/Series], [Color], [Size], [finish]\n' +
+      '- Quantity: [X] sqft\n' +
+      '- Grout: [Brand], [Color]\n\n' +
+      'RULES:\n' +
+      '- NEVER omit product names, colors, sizes, or quantities that appear in the vendor document.\n' +
+      '- NEVER substitute generic descriptions (like "tile to be selected") when the vendor doc specifies exact products.\n' +
+      '- NEVER mention the vendor/subcontractor name in the specification text.\n' +
+      '- Include ALL setting materials (grout, caulk, trim, waterproofing, backer board, etc.).\n' +
+      '- Include threshold/transition pieces if listed.\n' +
+      '- If the estimate includes labor/installation as a line item, note it separately but do not include labor pricing in a "material only" spec unless asked.\n' +
+      '- If the user says "material only sign-off," exclude labor/installation costs and focus on material selections and quantities.\n' +
+      '- Always provide the spec TWICE: once formatted, and once in a markdown code block for easy copy/paste.\n\n' +
       'When summarizing a client or project, cover all key data points: profile, notes, communications (with dates and subjects), tasks, opportunities, and custom fields. Prioritize the most meaningful details and always include dates. If data seems truncated, mention that more records may exist.\n\n' +
       'Be specific, reference real data, and be concise but thorough. If data is missing, say so honestly.\n\n' +
       (ctx.communicationChannel !== 'unknown'
@@ -582,8 +614,10 @@ const knowItAll: AgentModule = {
 
   canHandle: (message: string) => {
     const lower = message.toLowerCase();
-    // Documents should always come to Know-it-All for analysis
+    // Documents should always come to Know-it-All for analysis & spec writing
     if (/--- ATTACHED DOCUMENT:/i.test(message)) return 0.95;
+    // Spec writing from documents or general spec requests
+    if (/(write|create|draft|generate).*(spec|specification|material)/i.test(lower)) return 0.92;
     // Very high for email/message drafting — this is Know-it-All's job
     if (/(write|draft|compose|send|create|prepare|put together).*(email|message|letter|response|reply|communication|note to)/i.test(lower)) return 0.95;
     if (/(email|message|letter|response|reply).*(to|for|about).*(client|customer)/i.test(lower)) return 0.95;
