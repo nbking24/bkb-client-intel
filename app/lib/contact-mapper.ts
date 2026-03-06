@@ -53,7 +53,7 @@ export async function findContactByName(clientName: string): Promise<MappedConta
 
   // 2. Fall back to live GHL
   try {
-    const ghlResults = await searchContacts(clientName, 3);
+    const ghlResults = await searchContacts(clientName);
     if (ghlResults.length > 0) {
       const c = ghlResults[0];
       const mapped: MappedContact = {
@@ -83,7 +83,7 @@ export async function buildJobContactMap(
   clientNames: string[]
 ): Promise<Map<string, string>> {
   const map = new Map<string, string>();
-  const unique = [...new Set(clientNames.filter(n => n && n !== 'Unknown'))];
+  const unique = Array.from(new Set(clientNames.filter(n => n && n !== 'Unknown')));
 
   // Process in parallel batches of 5 to avoid overwhelming APIs
   const BATCH_SIZE = 5;
