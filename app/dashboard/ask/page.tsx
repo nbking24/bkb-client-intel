@@ -2,7 +2,7 @@
 'use client';
 
 import { useState, useRef, useEffect } from 'react';
-import { MessageSquare, Send, Loader2, Bot, User, ChevronDown, CheckCircle, XCircle, Brain, FileSearch } from 'lucide-react';
+import { MessageSquare, Send, Loader2, Bot, User, ChevronDown, CheckCircle, XCircle, Brain, FileSearch, Paperclip, X, FileText } from 'lucide-react';
 
 interface ChatMessage {
   role: 'user' | 'assistant';
@@ -31,6 +31,9 @@ export default function AskAgentPage() {
   const [jobSearch, setJobSearch] = useState('');
   const [lastAgent, setLastAgent] = useState<string | null>(null);
   const [agentMode, setAgentMode] = useState<AgentMode>('know-it-all');
+  const [uploadedFiles, setUploadedFiles] = useState<Array<{ name: string; content: string; extracting: boolean }>>([]);
+  const [extractingCount, setExtractingCount] = useState(0);
+  const fileInputRef = useRef<HTMLInputElement>(null);
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const dropdownRef = useRef<HTMLDivElement>(null);
   const jobSearchRef = useRef<HTMLInputElement>(null);
@@ -163,11 +166,76 @@ export default function AskAgentPage() {
     }
   };
 
+  // Handle PDF file selection
+  const handleFileSelect = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const files = Array.from(e.target.files || []);
+    if (!files.length) return;
+
+    for (const file of files) {
+      if (file.type === 'application/pdf') {
+        // Add placeholder with extracting state
+        setUploadedFiles(prev => [...prev, { name: file.name, content: '', extracting: true }]);
+        setExtractingCount(prev => prev + 1);
+
+        // Read as base64 and extract
+        const reader = new FileReader();
+        reader.onload = async () => {
+          try {
+            const base64 = (reader.result as string).split(',')[1];
+            const pin = process.env.NEXT_PUBLIC_APP_PIN || '';
+            const token = btoa(pin + ':');
+            const res = await fetch('/api/extract-pdf', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
+              body: JSON.stringify({ fileName: file.name, base64 }),
+            });
+            const data = await res.json();
+            setUploadedFiles(prev => prev.map(f =>
+              f.name === file.name && f.extracting
+                ? { name: file.name, content: data.text || 'Failed to extract content.', extracting: false }
+                : f
+            ));
+          } catch (err) {
+            setUploadedFiles(prev => prev.map(f =>
+              f.name === file.name && f.extracting
+                ? { name: file.name, content: '[Error extracting PDF]', extracting: false }
+                : f
+            ));
+          } finally {
+            setExtractingCount(prev => prev - 1);
+          }
+        };
+        reader.readAsDataURL(file);
+      } else {
+        // Plain text files
+        const text = await file.text();
+        setUploadedFiles(prev => [...prev, { name: file.name, content: text, extracting: false }]);
+      }
+    }
+    // Reset file input
+    if (fileInputRef.current) fileInputRef.current.value = '';
+  };
+
+  const removeFile = (name: string) => {
+    setUploadedFiles(prev => prev.filter(f => f.name !== name));
+  };
+
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!query.trim() || loading) return;
-    const userMsg = query.trim();
+    if (!query.trim() || loading || extractingCount > 0) return;
+    let userMsg = query.trim();
+
+    // Embed attached document content into the message
+    const readyFiles = uploadedFiles.filter(f => !f.extracting && f.content);
+    if (readyFiles.length > 0) {
+      const docBlocks = readyFiles.map(f =>
+        `--- ATTACHED DOCUMENT: ${f.name} ---\n${f.content}\n--- END DOCUMENT: ${f.name} ---`
+      ).join('\n\n');
+      userMsg = userMsg + '\n\n' + docBlocks;
+    }
+
     setQuery('');
+    setUploadedFiles([]);
     // Reset textarea height after clearing
     const textarea = document.querySelector('textarea');
     if (textarea) textarea.style.height = '44px';
@@ -599,51 +667,103 @@ export default function AskAgentPage() {
             Focused: #{selectedJob.number} {selectedJob.name}
           </div>
         )}
-        <textarea
-          value={query}
-          onChange={(e) => {
-            setQuery(e.target.value);
-            // Auto-grow textarea
-            e.target.style.height = 'auto';
-            e.target.style.height = Math.min(e.target.scrollHeight, 160) + 'px';
-          }}
-          onKeyDown={(e) => {
-            // Submit on Enter (without Shift), newline on Shift+Enter
-            if (e.key === 'Enter' && !e.shiftKey) {
-              e.preventDefault();
-              if (query.trim() && !loading) {
-                handleSubmit(e as any);
-              }
-            }
-          }}
-          placeholder={
-            agentMode === 'project-details'
-              ? (selectedJob ? `Ask about specs for #${selectedJob.number} ${selectedJob.name}...` : 'Select a project, then ask about specifications...')
-              : (selectedJob ? `Ask about #${selectedJob.number} ${selectedJob.name}...` : 'Ask about any project, create tasks, or check schedules...')
-          }
-          rows={1}
-          className="w-full pl-4 pr-12 py-3 rounded-lg text-sm outline-none resize-none"
-          style={{
-            background: '#242424',
-            color: '#e8e0d8',
-            border: selectedJob ? '1px solid rgba(201,168,76,0.25)' : '1px solid rgba(205,162,116,0.12)',
-            minHeight: '44px',
-            maxHeight: '160px',
-            overflowY: 'auto',
-          }}
-          disabled={loading}
+
+        {/* Attached file chips */}
+        {uploadedFiles.length > 0 && (
+          <div className="flex flex-wrap gap-1.5 px-3 py-2 rounded-t-lg" style={{ background: '#242424', borderTop: '1px solid rgba(205,162,116,0.12)', borderLeft: '1px solid rgba(205,162,116,0.12)', borderRight: '1px solid rgba(205,162,116,0.12)' }}>
+            {uploadedFiles.map((file, idx) => (
+              <div
+                key={`${file.name}-${idx}`}
+                className="flex items-center gap-1.5 px-2 py-1 rounded text-[11px]"
+                style={{ background: 'rgba(201,168,76,0.08)', border: '1px solid rgba(201,168,76,0.15)', color: '#C9A84C' }}
+              >
+                {file.extracting ? (
+                  <Loader2 size={12} className="animate-spin" />
+                ) : (
+                  <FileText size={12} />
+                )}
+                <span className="max-w-[150px] truncate">{file.name}</span>
+                {file.extracting ? (
+                  <span style={{ color: '#8a8078' }}>Extracting...</span>
+                ) : (
+                  <button type="button" onClick={() => removeFile(file.name)} className="hover:brightness-150">
+                    <X size={12} />
+                  </button>
+                )}
+              </div>
+            ))}
+          </div>
+        )}
+
+        {/* Hidden file input */}
+        <input
+          ref={fileInputRef}
+          type="file"
+          accept=".pdf,.txt,.md"
+          multiple
+          onChange={handleFileSelect}
+          className="hidden"
         />
-        <button
-          type="submit"
-          disabled={!query.trim() || loading}
-          className="absolute right-2 top-1/2 -translate-y-1/2 p-2 rounded-lg transition-colors"
-          style={{
-            color: query.trim() && !loading ? '#C9A84C' : '#8a8078',
-            background: query.trim() && !loading ? 'rgba(201,168,76,0.1)' : 'transparent',
-          }}
-        >
-          <Send size={18} />
-        </button>
+
+        <div className="relative">
+          <textarea
+            value={query}
+            onChange={(e) => {
+              setQuery(e.target.value);
+              e.target.style.height = 'auto';
+              e.target.style.height = Math.min(e.target.scrollHeight, 160) + 'px';
+            }}
+            onKeyDown={(e) => {
+              if (e.key === 'Enter' && !e.shiftKey) {
+                e.preventDefault();
+                if (query.trim() && !loading && extractingCount === 0) {
+                  handleSubmit(e as any);
+                }
+              }
+            }}
+            placeholder={
+              agentMode === 'project-details'
+                ? (selectedJob ? `Ask about specs for #${selectedJob.number} ${selectedJob.name}...` : 'Select a project, then ask about specifications...')
+                : (selectedJob ? `Ask about #${selectedJob.number} ${selectedJob.name}...` : 'Ask about any project, create tasks, or check schedules...')
+            }
+            rows={1}
+            className="w-full pl-10 pr-12 py-3 text-sm outline-none resize-none"
+            style={{
+              background: '#242424',
+              color: '#e8e0d8',
+              border: selectedJob ? '1px solid rgba(201,168,76,0.25)' : '1px solid rgba(205,162,116,0.12)',
+              borderRadius: uploadedFiles.length > 0 ? '0 0 0.5rem 0.5rem' : '0.5rem',
+              minHeight: '44px',
+              maxHeight: '160px',
+              overflowY: 'auto',
+            }}
+            disabled={loading}
+          />
+
+          {/* Paperclip button */}
+          <button
+            type="button"
+            onClick={() => fileInputRef.current?.click()}
+            className="absolute left-2 top-1/2 -translate-y-1/2 p-1.5 rounded transition-colors hover:bg-white/5"
+            style={{ color: uploadedFiles.length > 0 ? '#C9A84C' : '#8a8078' }}
+            title="Attach PDF, TXT, or MD file"
+          >
+            <Paperclip size={16} />
+          </button>
+
+          {/* Send button */}
+          <button
+            type="submit"
+            disabled={!query.trim() || loading || extractingCount > 0}
+            className="absolute right-2 top-1/2 -translate-y-1/2 p-2 rounded-lg transition-colors"
+            style={{
+              color: query.trim() && !loading && extractingCount === 0 ? '#C9A84C' : '#8a8078',
+              background: query.trim() && !loading && extractingCount === 0 ? 'rgba(201,168,76,0.1)' : 'transparent',
+            }}
+          >
+            <Send size={18} />
+          </button>
+        </div>
       </form>
     </div>
   );
