@@ -57,7 +57,7 @@ export async function GET() {
     // Get active jobs to compare
     let activeJobCount = 0;
     try {
-      const activeJobs = await getActiveJobs(200);
+      const activeJobs = await getActiveJobs(100);
       activeJobCount = activeJobs.length;
     } catch { /* ignore */ }
 
