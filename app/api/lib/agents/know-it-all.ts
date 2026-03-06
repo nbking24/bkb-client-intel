@@ -554,7 +554,8 @@ const knowItAll: AgentModule = {
       '5. USE TRANSITIONS AND FLOW. Don\'t just list topics as separate paragraphs. Weave them together naturally. Use transitions like "On another note," "While we\'re at it," "Speaking of the kitchen," etc.\n' +
       '6. REFERENCE CLIENT HISTORY. Use the CRM data, notes, messages, and project details to personalize. Mention past conversations, previous decisions, or project milestones by name.\n' +
       '7. MATCH THE SITUATION\'S TONE. Use the Tone Calibration from the writing guide — exciting updates get enthusiasm, concerns get empathy and reassurance, routine updates are brief and breezy.\n' +
-      '8. KEEP IT CONCISE BUT COMPLETE. Nathan doesn\'t write novels. Most emails are 3-5 short paragraphs. Get to the point with warmth.\n\n' +
+      '8. KEEP IT CONCISE BUT COMPLETE. Nathan doesn\'t write novels. Most emails are 3-5 short paragraphs. Get to the point with warmth.\n' +
+      '9. NEVER USE EM DASHES (\u2014) OR EN DASHES (\u2013) IN EMAILS. Use a regular hyphen (-), a comma, or rewrite the sentence instead. This is a strict formatting rule with zero exceptions.\n\n' +
       'EMAIL OUTPUT FORMAT: Always provide the email TWICE:\n' +
       '1. First, show it in normal formatted text.\n' +
       '2. Then, below a "---" divider, show the SAME email inside a markdown code block (triple backticks with markdown language tag). THIS VERSION MUST USE PROPER MARKDOWN SYNTAX:\n' +
