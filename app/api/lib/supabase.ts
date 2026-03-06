@@ -368,3 +368,74 @@ export async function searchContactsByName(name: string): Promise<any[]> {
   }
 }
 
+// ============================================================
+// JT Comments Queries
+// ============================================================
+
+/**
+ * Get all JT comments for a specific job, ordered newest first.
+ */
+export async function getJTCommentsByJobId(jobId: string, limit = 5000): Promise<any[]> {
+  try {
+    const { data, error } = await getSupabase()
+      .from('jt_comments')
+      .select('id, job_id, target_type, target_id, message, name, is_pinned, parent_comment_id, created_at')
+      .eq('job_id', jobId)
+      .order('created_at', { ascending: false })
+      .limit(limit);
+    if (error) {
+      console.error('getJTCommentsByJobId error:', error);
+      return [];
+    }
+    return data || [];
+  } catch (err) {
+    console.error('getJTCommentsByJobId error:', err);
+    return [];
+  }
+}
+
+/**
+ * Full-text search JT comments for a specific job.
+ */
+export async function searchJTComments(jobId: string, query: string): Promise<any[]> {
+  try {
+    const { data, error } = await getSupabase()
+      .from('jt_comments')
+      .select('id, job_id, target_type, target_id, message, name, is_pinned, created_at')
+      .eq('job_id', jobId)
+      .textSearch('message', query, { type: 'websearch' })
+      .order('created_at', { ascending: false })
+      .limit(100);
+    if (error) {
+      console.error('searchJTComments error:', error);
+      return [];
+    }
+    return data || [];
+  } catch (err) {
+    console.error('searchJTComments error:', err);
+    return [];
+  }
+}
+
+/**
+ * Get JT daily logs for a specific job.
+ */
+export async function getJTDailyLogsByJobId(jobId: string, limit = 500): Promise<any[]> {
+  try {
+    const { data, error } = await getSupabase()
+      .from('jt_daily_logs')
+      .select('id, job_id, date, notes, assigned_member_names, created_at')
+      .eq('job_id', jobId)
+      .order('date', { ascending: false })
+      .limit(limit);
+    if (error) {
+      console.error('getJTDailyLogsByJobId error:', error);
+      return [];
+    }
+    return data || [];
+  } catch (err) {
+    console.error('getJTDailyLogsByJobId error:', err);
+    return [];
+  }
+}
+

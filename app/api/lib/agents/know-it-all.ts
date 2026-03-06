@@ -19,6 +19,8 @@ import {
   getOpportunityFromDB,
   getJTJobsFromDB,
   getLastSyncTime,
+  getJTCommentsByJobId,
+  getJTDailyLogsByJobId,
 } from '../supabase';
 import {
   getContact,
@@ -428,6 +430,58 @@ async function fetchOpportunityContext(ctx: AgentContext): Promise<string> {
   }
 }
 
+// -- JT JOB DETAILS (comments + daily logs for a specific job) --------
+
+async function fetchJTJobDetails(jobId: string): Promise<string | null> {
+  try {
+    const [comments, dailyLogs] = await Promise.all([
+      getJTCommentsByJobId(jobId),
+      getJTDailyLogsByJobId(jobId),
+    ]);
+
+    const budgetSections: { label: string; content: string; priority: number }[] = [];
+
+    // JT Comments — priority 2 (important project discussion content)
+    if (comments.length > 0) {
+      const commentTexts = comments.map(c => {
+        const date = c.created_at ? new Date(c.created_at).toLocaleDateString() : 'No date';
+        const author = c.name || 'Unknown';
+        const target = c.target_type ? ' [on ' + c.target_type + ']' : '';
+        const pinned = c.is_pinned ? ' [PINNED]' : '';
+        return '[' + date + ' by ' + author + target + pinned + '] ' + (c.message || '(empty)');
+      });
+      budgetSections.push({
+        label: 'jt_comments',
+        content: '=== JOBTREAD COMMENTS (' + comments.length + ' total for this job) ===\n' + commentTexts.join('\n---\n'),
+        priority: 2,
+      });
+    }
+
+    // JT Daily Logs — priority 2
+    if (dailyLogs.length > 0) {
+      const logTexts = dailyLogs.map(l => {
+        const date = l.date || 'No date';
+        const assigned = l.assigned_member_names && l.assigned_member_names.length > 0
+          ? ' (Assigned: ' + l.assigned_member_names.join(', ') + ')'
+          : '';
+        return '[' + date + assigned + '] ' + (l.notes || '(empty)');
+      });
+      budgetSections.push({
+        label: 'jt_daily_logs',
+        content: '=== JOBTREAD DAILY LOGS (' + dailyLogs.length + ' total) ===\n' + logTexts.join('\n---\n'),
+        priority: 2,
+      });
+    }
+
+    if (budgetSections.length === 0) return null;
+
+    return trimToContextBudget(budgetSections);
+  } catch (err) {
+    console.error('fetchJTJobDetails failed for job ' + jobId + ':', err);
+    return null;
+  }
+}
+
 async function fetchJTContext(): Promise<string> {
   // Try Supabase first
   try {
@@ -518,8 +572,15 @@ const knowItAll: AgentModule = {
       if (opp) parts.push(opp);
     }
 
+    // Fetch JT job list (lightweight summary of all jobs)
     const jt = await fetchJTContext();
     if (jt) parts.push(jt);
+
+    // Fetch JT comments & daily logs for the focused job (the detailed content)
+    if (ctx.jtJobId) {
+      const jtDetails = await fetchJTJobDetails(ctx.jtJobId);
+      if (jtDetails) parts.push(jtDetails);
+    }
 
     if (usedLiveFallback && ctx.contactId) {
       triggerBackgroundSync(ctx.contactId);
