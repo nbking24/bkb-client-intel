@@ -51,8 +51,8 @@ export async function GET() {
     const { data: syncedJobs } = await supabase
       .from('jt_comments')
       .select('job_id')
-      .limit(500);
-    const syncedJobIds = new Set((syncedJobs || []).map((r: any) => r.job_id));
+      .limit(5000);
+    const syncedJobIds = new Set((syncedJobs || []).map((r: any) => r.job_id).filter(Boolean));
 
     // Get active jobs to compare
     let activeJobCount = 0;
@@ -125,12 +125,13 @@ async function backfillJT(batchSize: number, startTime: number) {
   const activeJobs = await getActiveJobs(50);
 
   // Find which jobs already have comments synced
+  // Use high limit to ensure we capture all distinct job_ids
   const { data: syncedRows } = await supabase
     .from('jt_comments')
     .select('job_id')
-    .limit(500);
+    .limit(5000);
 
-  const syncedJobIds = new Set((syncedRows || []).map((r: any) => r.job_id));
+  const syncedJobIds = new Set((syncedRows || []).map((r: any) => r.job_id).filter(Boolean));
 
   // Find jobs that still need syncing
   const pendingJobs = activeJobs.filter((j) => !syncedJobIds.has(j.id));
@@ -225,9 +226,9 @@ async function backfillGHL(batchSize: number, startTime: number) {
   const { data: syncedRows } = await supabase
     .from('ghl_messages')
     .select('contact_id')
-    .limit(500);
+    .limit(5000);
 
-  const syncedContactIds = new Set((syncedRows || []).map((r: any) => r.contact_id));
+  const syncedContactIds = new Set((syncedRows || []).map((r: any) => r.contact_id).filter(Boolean));
 
   // Find contacts that still need syncing
   const pendingContacts = contacts.filter((c: any) => !syncedContactIds.has(c.id));
