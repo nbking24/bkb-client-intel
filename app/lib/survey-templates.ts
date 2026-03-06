@@ -314,6 +314,7 @@ export function getDefaultAnswersForScopes(scopes: ProjectScope[]): SurveyAnswer
   for (const scope of scopes) {
     const defaults = getDefaultAnswers(scope);
     for (const [key, val] of Object.entries(defaults)) {
+      // true wins: if any scope defaults to true, keep it true
       if (merged[key] === undefined || val === true) {
         merged[key] = val;
       }
@@ -326,6 +327,7 @@ export function getIncludedTasksByPhaseMulti(
   scopes: ProjectScope[],
   answers: SurveyAnswers
 ): { phaseNumber: number; name: string; description: string; tasks: TaskTemplate[] }[] {
+  // Collect included tasks from all scopes, deduplicate by task name within each phase
   const phaseMap = new Map<number, { name: string; description: string; taskNames: Set<string>; tasks: TaskTemplate[] }>();
 
   for (const scope of scopes) {

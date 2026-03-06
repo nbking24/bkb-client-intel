@@ -12,8 +12,11 @@ import {
   buildAgentContext,
   analyzeProjectSchedule,
   getClientContactInfo,
+  generateOutreachEmail,
+  generateWeeklyUpdateEmail,
   type AgentFullContext,
   type AgentProjectContext,
+  type EmailDraft,
 } from '@/app/lib/design-agent';
 import {
   createPhaseGroup,
@@ -28,6 +31,7 @@ import {
 } from '@/app/lib/constants';
 import { BKB_STANDARD_TEMPLATE } from '@/app/lib/schedule-templates';
 import { createServerClient } from '@/app/lib/supabase';
+import { getBrandVoicePrompt } from '@/app/lib/bkb-brand-voice';
 
 export const runtime = 'nodejs';
 export const maxDuration = 300; // Allow up to 5 min for full agent analysis (Vercel Pro)
@@ -52,6 +56,8 @@ interface AgentProjectAssessment {
   totalProgress: number;
   alerts: string[];
   recommendations: AgentRecommendation[];
+  suggestedEmail?: EmailDraft | null;
+  weeklyUpdateEmail?: EmailDraft | null;
 }
 
 interface AgentRecommendation {
@@ -545,6 +551,51 @@ export async function GET(req: NextRequest) {
     }));
     report.alertCount = report.projects.reduce((sum, p) => sum + p.alerts.length, 0);
 
+    // Step 4c: Generate email drafts in parallel for all projects
+    // Outreach emails for stale contacts, weekly updates for all
+    if (process.env.ANTHROPIC_API_KEY) {
+      try {
+        const emailResults = await Promise.allSettled(
+          report.projects.map(async (project) => {
+            // Find the matching raw context for this project
+            const rawCtx = context.projects.find(
+              (p) => p.schedule.jobId === project.jobId
+            );
+            if (!rawCtx) return { jobId: project.jobId, outreach: null, weekly: null };
+
+            const [outreach, weekly] = await Promise.allSettled([
+              // Only generate outreach email if contact is stale
+              project.daysSinceContact !== null &&
+              project.daysSinceContact > AGENT_RULES.maxDaysNoContact
+                ? generateOutreachEmail(rawCtx)
+                : Promise.resolve(null),
+              // Generate weekly update for all active projects
+              generateWeeklyUpdateEmail(rawCtx),
+            ]);
+
+            return {
+              jobId: project.jobId,
+              outreach: outreach.status === 'fulfilled' ? outreach.value : null,
+              weekly: weekly.status === 'fulfilled' ? weekly.value : null,
+            };
+          })
+        );
+
+        // Attach emails to report projects
+        for (const result of emailResults) {
+          if (result.status !== 'fulfilled') continue;
+          const { jobId, outreach, weekly } = result.value;
+          const proj = report.projects.find((p) => p.jobId === jobId);
+          if (proj) {
+            proj.suggestedEmail = outreach;
+            proj.weeklyUpdateEmail = weekly;
+          }
+        }
+      } catch (emailErr) {
+        console.error('Email generation batch error (non-fatal):', emailErr);
+      }
+    }
+
     // Step 5: Cache the FULL report (before filtering dismissals)
     await saveCachedReport(report);
 
@@ -814,14 +865,12 @@ PROJECT: ${jobName}
 CLIENT: ${clientName}
 CONTEXT: ${contextStr}
 
-GUIDELINES:
-- Professional but warm and personal tone
-- Nathan is the Sales/Design Manager — he's their main point of contact
+ADDITIONAL INSTRUCTIONS:
+- Nathan is the Sales/Design Manager, the client's main point of contact
 - Keep it concise (3-5 sentences for text, 1-2 short paragraphs for email)
 - Reference the specific project by name
 - Include a clear call-to-action (schedule a call, confirm next steps, etc.)
 - Sign off as "Nathan King" with "Brett King Builder"
-- Do NOT be overly formal or corporate — BKB is a family-run builder
 
 Respond with VALID JSON only:
 {
@@ -830,7 +879,7 @@ Respond with VALID JSON only:
   "type": "${type}"
 }`;
 
-        const draftSystemPrompt = `You are a writing assistant for Brett King Builder. You draft professional, warm client communications. Always respond with valid JSON only — no markdown, no code fences.`;
+        const draftSystemPrompt = `You are a writing assistant for Brett King Builder. You draft professional, warm client communications. Always respond with valid JSON only — no markdown, no code fences.\n\n${getBrandVoicePrompt()}`;
 
         try {
           const response = await callClaude(draftPrompt, draftSystemPrompt);

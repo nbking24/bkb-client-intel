@@ -31,6 +31,7 @@ import {
   getEmailById,
 } from '../ghl';
 import { getActiveJobs } from '../jobtread';
+import { getBrandVoicePrompt } from '@/app/lib/bkb-brand-voice';
 
 // -- TOKEN-AWARE CONTEXT BUDGETING ------------------------------------
 // Claude Sonnet has ~200k context. We budget ~120k chars (~30k tokens)
@@ -483,7 +484,9 @@ const knowItAll: AgentModule = {
       (ctx.communicationChannel !== 'unknown'
         ? 'Current communication channel for this opportunity: ' + ctx.communicationChannel.toUpperCase() + ' (based on pipeline stage: ' + (ctx.pipelineStage || 'unknown') + ')\n'
         : '') +
-      (ctx.jtJobId ? 'JobTread Job ID: ' + ctx.jtJobId + '\n' : '');
+      (ctx.jtJobId ? 'JobTread Job ID: ' + ctx.jtJobId + '\n' : '') +
+      '\n--- BRAND VOICE (use when drafting emails, messages, or any written communication) ---\n' +
+      getBrandVoicePrompt() + '\n';
   },
 
   tools: [],

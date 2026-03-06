@@ -311,3 +311,60 @@ export async function getLastSyncTime(entityType: string, contactId?: string) {
   return data?.[0]?.completed_at || null;
 }
 
+// -- CONTACT SEARCH BY NAME (for precon dashboard mapping) -----------
+
+export async function searchContactsByName(name: string): Promise<any[]> {
+  if (!name || name === 'Unknown') return [];
+
+  const cleaned = name.trim();
+  const parts = cleaned.split(/\s+/);
+  const firstName = parts[0] || '';
+  const lastName = parts.length > 1 ? parts[parts.length - 1] : '';
+
+  try {
+    // Try exact full-name match first (first_name + last_name)
+    if (firstName && lastName) {
+      const { data: exact } = await getSupabase()
+        .from('contacts')
+        .select('id, first_name, last_name, email, company_name, last_activity')
+        .ilike('first_name', firstName)
+        .ilike('last_name', lastName)
+        .limit(5);
+      if (exact && exact.length > 0) return exact;
+    }
+
+    // Try last name match
+    if (lastName) {
+      const { data: byLast } = await getSupabase()
+        .from('contacts')
+        .select('id, first_name, last_name, email, company_name, last_activity')
+        .ilike('last_name', `%${lastName}%`)
+        .limit(5);
+      if (byLast && byLast.length > 0) return byLast;
+    }
+
+    // Try company name match
+    const { data: byCompany } = await getSupabase()
+      .from('contacts')
+      .select('id, first_name, last_name, email, company_name, last_activity')
+      .ilike('company_name', `%${cleaned}%`)
+      .limit(5);
+    if (byCompany && byCompany.length > 0) return byCompany;
+
+    // Try partial first name match as last resort
+    if (firstName) {
+      const { data: byFirst } = await getSupabase()
+        .from('contacts')
+        .select('id, first_name, last_name, email, company_name, last_activity')
+        .ilike('first_name', `%${firstName}%`)
+        .limit(5);
+      if (byFirst && byFirst.length > 0) return byFirst;
+    }
+
+    return [];
+  } catch (err) {
+    console.error('searchContactsByName error:', err);
+    return [];
+  }
+}
+

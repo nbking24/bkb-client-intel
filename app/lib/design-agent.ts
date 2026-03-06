@@ -25,6 +25,13 @@ import {
   searchConversations,
   getConversationMessages,
 } from './ghl';
+import { findContactByName } from './contact-mapper';
+import {
+  getContactMessagesFromDB,
+  getContactNotesFromDB,
+  getContactFromDB,
+} from '@/app/api/lib/supabase';
+import { getOutreachEmailPrompt, getWeeklyUpdatePrompt } from './bkb-brand-voice';
 
 // ============================================================
 // Types
@@ -245,7 +252,7 @@ export async function analyzeProjectSchedule(jobId: string): Promise<ProjectSche
 }
 
 // ============================================================
-// 3. Get Client Contact Info from GHL
+// 3. Get Client Contact Info — Supabase-first, GHL fallback
 // ============================================================
 
 export async function getClientContactInfo(clientName: string): Promise<ClientContactInfo> {
@@ -262,26 +269,82 @@ export async function getClientContactInfo(clientName: string): Promise<ClientCo
   if (!clientName || clientName === 'Unknown') return empty;
 
   try {
-    // Search for the client in GHL
-    const contacts = await searchContacts(clientName, 5);
-    if (contacts.length === 0) {
-      // Try with just the last name
-      const lastName = clientName.split(' ').pop() || clientName;
-      const retry = await searchContacts(lastName, 5);
-      if (retry.length === 0) return { ...empty, noContactAlert: true };
-      contacts.push(...retry);
+    // Step 1: Resolve client name to GHL contact ID via Supabase (fast) or GHL (fallback)
+    const mapped = await findContactByName(clientName);
+    if (!mapped) {
+      return { ...empty, noContactAlert: true };
     }
 
-    const contact = contacts[0];
-    empty.ghlContactId = contact.id;
+    const contactId = mapped.contactId;
+    empty.ghlContactId = contactId;
 
-    // Get conversations for this contact
-    const conversations = await searchConversations(contact.id);
+    // Step 2: Try Supabase for most recent message and note
+    try {
+      const [messages, notes] = await Promise.all([
+        getContactMessagesFromDB(contactId, 1),
+        getContactNotesFromDB(contactId, 1),
+      ]);
+
+      const latestMsg = messages.length > 0 ? messages[0] : null;
+      const latestNote = notes.length > 0 ? notes[0] : null;
+
+      // Find the most recent activity across messages and notes
+      let lastDate: Date | null = null;
+      let lastType: string | null = null;
+      let lastDirection: string | null = null;
+      let lastPreview: string | null = null;
+
+      if (latestMsg?.date_added) {
+        lastDate = new Date(latestMsg.date_added);
+        lastType = latestMsg.message_type || 'message';
+        lastDirection = latestMsg.direction || null;
+        lastPreview = latestMsg.body?.slice(0, 100) || latestMsg.subject?.slice(0, 100) || null;
+      }
+
+      if (latestNote?.date_added) {
+        const noteDate = new Date(latestNote.date_added);
+        if (!lastDate || noteDate > lastDate) {
+          lastDate = noteDate;
+          lastType = 'note';
+          lastDirection = 'outbound';
+          lastPreview = latestNote.body?.slice(0, 100) || null;
+        }
+      }
+
+      // Also check contact.last_activity as a fallback
+      if (!lastDate) {
+        const contact = await getContactFromDB(contactId);
+        if (contact?.last_activity) {
+          lastDate = new Date(contact.last_activity);
+          lastType = 'activity';
+        }
+      }
+
+      if (lastDate) {
+        const now = new Date();
+        const daysSince = Math.floor(
+          (now.getTime() - lastDate.getTime()) / (1000 * 60 * 60 * 24)
+        );
+        return {
+          lastContactDate: lastDate.toISOString(),
+          daysSinceContact: daysSince,
+          lastContactType: lastType,
+          lastContactDirection: lastDirection,
+          lastMessagePreview: lastPreview,
+          ghlContactId: contactId,
+          noContactAlert: daysSince > AGENT_RULES.maxDaysNoContact,
+        };
+      }
+    } catch (err) {
+      console.error('Supabase contact info lookup failed, trying GHL:', err);
+    }
+
+    // Step 3: GHL fallback — only if Supabase had no data
+    const conversations = await searchConversations(contactId);
     if (conversations.length === 0) {
-      return { ...empty, ghlContactId: contact.id, noContactAlert: true };
+      return { ...empty, ghlContactId: contactId, noContactAlert: true };
     }
 
-    // Find the most recent conversation with a message date
     const sorted = conversations
       .filter((c: any) => c.lastMessageDate)
       .sort(
@@ -290,7 +353,7 @@ export async function getClientContactInfo(clientName: string): Promise<ClientCo
       );
 
     if (sorted.length === 0) {
-      return { ...empty, ghlContactId: contact.id, noContactAlert: true };
+      return { ...empty, ghlContactId: contactId, noContactAlert: true };
     }
 
     const latest = sorted[0];
@@ -306,11 +369,11 @@ export async function getClientContactInfo(clientName: string): Promise<ClientCo
       lastContactType: latest.lastMessageType || null,
       lastContactDirection: latest.lastMessageDirection || null,
       lastMessagePreview: latest.lastMessageBody?.slice(0, 100) || null,
-      ghlContactId: contact.id,
+      ghlContactId: contactId,
       noContactAlert: daysSince > AGENT_RULES.maxDaysNoContact,
     };
   } catch (err) {
-    console.error(`GHL contact lookup failed for "${clientName}":`, err);
+    console.error(`Contact lookup failed for "${clientName}":`, err);
     return empty;
   }
 }
@@ -465,4 +528,205 @@ export async function buildAgentContext(): Promise<AgentFullContext> {
     atRiskCount,
     onTrackCount,
   };
+}
+
+// ============================================================
+// 6. Email Draft Generation
+// ============================================================
+
+export interface EmailDraft {
+  subject: string;
+  body: string;
+}
+
+/**
+ * Shared Claude caller for email generation.
+ * Uses a small max_tokens since emails are short.
+ */
+async function callClaudeForEmail(prompt: string, systemPrompt: string): Promise<string> {
+  const apiK = process.env.ANTHROPIC_API_KEY;
+  if (!apiK) throw new Error('ANTHROPIC_API_KEY not configured');
+
+  const res = await fetch('https://api.anthropic.com/v1/messages', {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      'x-api-key': apiK,
+      'anthropic-version': '2023-06-01',
+    },
+    body: JSON.stringify({
+      model: 'claude-sonnet-4-20250514',
+      max_tokens: 2048,
+      system: systemPrompt,
+      messages: [{ role: 'user', content: prompt }],
+    }),
+  });
+
+  if (!res.ok) {
+    const errText = await res.text();
+    throw new Error(`Claude API error ${res.status}: ${errText}`);
+  }
+
+  const data = await res.json();
+  const text = data.content?.[0]?.text || '';
+  return text.trim();
+}
+
+/**
+ * Generate a stale outreach email for a project with no recent contact.
+ * Called when noContactAlert is true (>21 days since last communication).
+ */
+export async function generateOutreachEmail(
+  project: AgentProjectContext
+): Promise<EmailDraft | null> {
+  if (!project.clientContact.ghlContactId) return null;
+
+  try {
+    // Pull last 5 messages for conversation context
+    let recentCommsContext = '';
+    try {
+      const messages = await getContactMessagesFromDB(
+        project.clientContact.ghlContactId,
+        5
+      );
+      if (messages.length > 0) {
+        recentCommsContext = messages
+          .map(
+            (m: any) =>
+              `[${m.direction || 'unknown'}] ${m.date_added?.slice(0, 10) || 'no date'}: ${(m.body || m.subject || '').slice(0, 200)}`
+          )
+          .join('\n');
+      }
+    } catch {
+      // Supabase messages unavailable, proceed without
+    }
+
+    // Build project context summary
+    const phase = project.schedule.currentPhase || 'unknown phase';
+    const progress = Math.round(project.schedule.totalProgress * 100);
+    const upcoming = project.schedule.upcomingTasks
+      .slice(0, 3)
+      .map((t) => t.name)
+      .join(', ');
+    const overdue = project.schedule.overdueTasks
+      .slice(0, 3)
+      .map((t) => t.name)
+      .join(', ');
+
+    const prompt = `Draft a stale outreach email for a client we haven't contacted in ${project.clientContact.daysSinceContact || '21+'} days.
+
+PROJECT DETAILS:
+- Project: ${project.schedule.jobName}
+- Client: ${project.schedule.clientName}
+- Current Phase: ${phase}
+- Overall Progress: ${progress}%
+- Upcoming Tasks: ${upcoming || 'none identified'}
+- Overdue Tasks: ${overdue || 'none'}
+
+RECENT COMMUNICATION HISTORY:
+${recentCommsContext || 'No recent messages found in system.'}
+
+INSTRUCTIONS:
+- Follow the STALE OUTREACH EMAIL guidelines exactly
+- Reference a specific project milestone or upcoming decision
+- Keep it short (3-5 sentences in body)
+- End with a soft question, not a demand
+- Do NOT include a greeting line or sign-off (those will be added separately)
+
+Return ONLY a JSON object with exactly two keys:
+{"subject": "...", "body": "..."}`;
+
+    const raw = await callClaudeForEmail(prompt, getOutreachEmailPrompt());
+
+    // Parse JSON from response (handle markdown code blocks)
+    const jsonStr = raw.replace(/```json?\n?/g, '').replace(/```/g, '').trim();
+    const parsed = JSON.parse(jsonStr);
+
+    return {
+      subject: parsed.subject || `${project.schedule.jobName} -- Check-In`,
+      body: parsed.body || '',
+    };
+  } catch (err) {
+    console.error(`generateOutreachEmail failed for ${project.schedule.jobName}:`, err);
+    return null;
+  }
+}
+
+/**
+ * Generate a weekly client update email for any active project.
+ * Provides a copy/paste-ready email summarizing project status.
+ */
+export async function generateWeeklyUpdateEmail(
+  project: AgentProjectContext
+): Promise<EmailDraft | null> {
+  try {
+    const phase = project.schedule.currentPhase || 'unknown phase';
+    const progress = Math.round(project.schedule.totalProgress * 100);
+
+    // Completed tasks (progress = 100%) from all categories
+    const completedRecently = project.schedule.categories
+      .flatMap((c) => c.tasks)
+      .filter((t) => t.progress >= 1)
+      .slice(0, 5)
+      .map((t) => t.name);
+
+    // Upcoming tasks
+    const upcoming = project.schedule.upcomingTasks
+      .slice(0, 5)
+      .map((t) => `${t.name} (due in ${t.daysUntilDue}d)`);
+
+    // Items needing client attention (overdue + undated)
+    const needsAttention = [
+      ...project.schedule.overdueTasks.slice(0, 3).map((t) => `${t.name} (overdue)`),
+      ...project.schedule.undatedTasks.slice(0, 2).map((t) => `${t.name} (needs scheduling)`),
+    ];
+
+    // Days since contact for context
+    const daysSince = project.clientContact.daysSinceContact;
+
+    const todayStr = getTodayDateString();
+
+    const prompt = `Draft a weekly client update email for this project.
+
+PROJECT DETAILS:
+- Project: ${project.schedule.jobName}
+- Client: ${project.schedule.clientName}
+- Current Phase: ${phase}
+- Overall Progress: ${progress}%
+- Days Since Last Contact: ${daysSince !== null ? daysSince : 'unknown'}
+- Today's Date: ${todayStr}
+
+WHAT HAPPENED RECENTLY (completed tasks):
+${completedRecently.length > 0 ? completedRecently.join('\n') : 'No tasks completed this period.'}
+
+WHAT'S COMING UP NEXT:
+${upcoming.length > 0 ? upcoming.join('\n') : 'No upcoming deadlines identified.'}
+
+ITEMS NEEDING CLIENT ATTENTION:
+${needsAttention.length > 0 ? needsAttention.join('\n') : 'None at this time.'}
+
+INSTRUCTIONS:
+- Follow the WEEKLY UPDATE EMAIL guidelines exactly
+- Open with one-line summary of where things stand
+- Include sections for: what happened, what's coming, items needing attention (only if any)
+- Close with availability or next scheduled touchpoint
+- Total length: 150-250 words ideal
+- Do NOT include a greeting line or sign-off (those will be added separately)
+
+Return ONLY a JSON object with exactly two keys:
+{"subject": "...", "body": "..."}`;
+
+    const raw = await callClaudeForEmail(prompt, getWeeklyUpdatePrompt());
+
+    const jsonStr = raw.replace(/```json?\n?/g, '').replace(/```/g, '').trim();
+    const parsed = JSON.parse(jsonStr);
+
+    return {
+      subject: parsed.subject || `${project.schedule.jobName} -- Weekly Update (${todayStr})`,
+      body: parsed.body || '',
+    };
+  } catch (err) {
+    console.error(`generateWeeklyUpdateEmail failed for ${project.schedule.jobName}:`, err);
+    return null;
+  }
 }

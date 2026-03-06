@@ -22,6 +22,9 @@ import {
   Check,
   Search,
   X,
+  Mail,
+  Copy,
+  FileText,
 } from 'lucide-react';
 
 // ============================================================
@@ -50,6 +53,8 @@ interface AgentProject {
   totalProgress: number;
   alerts: string[];
   recommendations: AgentRecommendation[];
+  suggestedEmail?: { subject: string; body: string } | null;
+  weeklyUpdateEmail?: { subject: string; body: string } | null;
 }
 
 interface AgentReport {
@@ -179,14 +184,92 @@ function TopPriorities({ priorities }: { priorities: string[] }) {
 // ============================================================
 // Project Card
 // ============================================================
+function EmailDraftSection({
+  title,
+  icon: Icon,
+  iconColor,
+  email,
+  onCopy,
+}: {
+  title: string;
+  icon: any;
+  iconColor: string;
+  email: { subject: string; body: string };
+  onCopy: () => void;
+}) {
+  const [showBody, setShowBody] = useState(false);
+
+  return (
+    <div
+      className="rounded-md p-2.5"
+      style={{
+        background: 'rgba(26,26,26,0.8)',
+        border: `1px solid ${iconColor}20`,
+      }}
+    >
+      <div className="flex items-center justify-between mb-1.5">
+        <div className="flex items-center gap-1.5">
+          <Icon size={12} style={{ color: iconColor }} />
+          <span className="text-[10px] font-semibold uppercase" style={{ color: iconColor }}>
+            {title}
+          </span>
+        </div>
+        <button
+          onClick={(e) => {
+            e.stopPropagation();
+            onCopy();
+          }}
+          className="flex items-center gap-1 text-[10px] px-2 py-1 rounded font-medium hover:opacity-80 transition-opacity"
+          style={{
+            background: `${iconColor}15`,
+            color: iconColor,
+            border: `1px solid ${iconColor}30`,
+          }}
+        >
+          <Copy size={10} />
+          Copy Email
+        </button>
+      </div>
+      <div className="text-xs mb-1" style={{ color: '#d4ccc4' }}>
+        <span style={{ color: '#8a8078' }}>Subject: </span>
+        {email.subject}
+      </div>
+      <button
+        onClick={(e) => {
+          e.stopPropagation();
+          setShowBody(!showBody);
+        }}
+        className="text-[10px] hover:opacity-80 transition-opacity"
+        style={{ color: '#8a8078' }}
+      >
+        {showBody ? '▾ Hide body' : '▸ Show body'}
+      </button>
+      {showBody && (
+        <div
+          className="mt-1.5 p-2 rounded text-xs whitespace-pre-wrap leading-relaxed"
+          style={{
+            background: 'rgba(0,0,0,0.3)',
+            color: '#d4ccc4',
+            border: '1px solid rgba(205,162,116,0.06)',
+          }}
+        >
+          {email.body}
+        </div>
+      )}
+    </div>
+  );
+}
+
 function ProjectCard({
   project,
   onDismissRec,
   onCompleteRec,
+  onCopyEmail,
 }: {
   project: AgentProject;
   onDismissRec: (jobId: string, rec: AgentRecommendation) => void;
   onCompleteRec: (jobId: string, rec: AgentRecommendation) => void;
+  onCopyEmail: (subject: string, body: string) => void;
 }) {
   const [expanded, setExpanded] = useState(false);
   const config = STATUS_CONFIG[project.status] || STATUS_CONFIG.stalled;
@@ -366,6 +449,32 @@ function ProjectCard({
               </div>
             </div>
           )}
+
+          {/* Stale Outreach Email */}
+          {project.suggestedEmail && (
+            <EmailDraftSection
+              title="Suggested Outreach Email"
+              icon={Mail}
+              iconColor="#eab308"
+              email={project.suggestedEmail}
+              onCopy={() =>
+                onCopyEmail(project.suggestedEmail!.subject, project.suggestedEmail!.body)
+              }
+            />
+          )}
+
+          {/* Weekly Update Email */}
+          {project.weeklyUpdateEmail && (
+            <EmailDraftSection
+              title="Weekly Client Update"
+              icon={FileText}
+              iconColor="#C9A84C"
+              email={project.weeklyUpdateEmail}
+              onCopy={() =>
+                onCopyEmail(project.weeklyUpdateEmail!.subject, project.weeklyUpdateEmail!.body)
+              }
+            />
+          )}
         </div>
       )}
     </div>
@@ -509,6 +618,16 @@ export default function PreConDashboard() {
     } catch (err: any) {
       showToast(`Error: ${err.message}`);
     }
+  }
+
+  // Copy email to clipboard
+  function handleCopyEmail(subject: string, body: string) {
+    const text = `Subject: ${subject}\n\n${body}`;
+    navigator.clipboard.writeText(text).then(() => {
+      showToast('Email copied to clipboard');
+    }).catch(() => {
+      showToast('Failed to copy email');
+    });
   }
 
   // Filter projects by search query (matches job name, job number, or client name)
@@ -683,6 +802,7 @@ export default function PreConDashboard() {
                       project={project}
                       onDismissRec={handleDismissRec}
                       onCompleteRec={handleCompleteRec}
+                      onCopyEmail={handleCopyEmail}
                     />
                   ))}
                   {inDesignProjects.length === 0 && (
@@ -713,6 +833,7 @@ export default function PreConDashboard() {
                       project={project}
                       onDismissRec={handleDismissRec}
                       onCompleteRec={handleCompleteRec}
+                      onCopyEmail={handleCopyEmail}
                     />
                   ))}
                   {readyProjects.length === 0 && (
