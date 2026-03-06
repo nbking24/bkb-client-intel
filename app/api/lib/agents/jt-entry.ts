@@ -25,13 +25,10 @@ import {
   getCommentsForTarget,
   updateJob,
   getCostItemsForJob,
-  // Cached versions — read from Supabase first, fall back to live API
-  getTasksForJobCached,
-  getCommentsForTargetCached,
-  getDailyLogsForJobCached,
-  getCostItemsForJobCached,
-  // Write-through helpers
-  createTaskWithCache,
+  // DB-only reads for messages & daily logs (prevents duplication)
+  getCommentsFromDB,
+  getDailyLogsFromDB,
+  // Write-through helpers for messages & daily logs
   createCommentWithCache,
   createDailyLogWithCache,
 } from '../../../lib/jobtread';
@@ -496,7 +493,7 @@ const jtEntry: AgentModule = {
 
       // ========== TASKS ==========
       if (name === 'get_job_tasks') {
-        const tasks = await getTasksForJobCached(input.jobId);
+        const tasks = await getTasksForJob(input.jobId);
         if (!tasks || tasks.length === 0) return JSON.stringify({ success: true, count: 0, message: 'No tasks found.' });
 
         const lines = tasks.map((t: any) => {
@@ -532,7 +529,7 @@ const jtEntry: AgentModule = {
           } catch (e) { /* ignore lookup errors */ }
         }
 
-        const result = await createTaskWithCache({
+        const result = await createTask({
           jobId,
           name: input.name,
           description: input.description || '',
@@ -660,7 +657,7 @@ const jtEntry: AgentModule = {
 
       // ========== DAILY LOGS ==========
       if (name === 'get_job_daily_logs') {
-        const logs = await getDailyLogsForJobCached(input.jobId);
+        const logs = await getDailyLogsFromDB(input.jobId);
         if (!logs || logs.length === 0) return JSON.stringify({ success: true, count: 0, message: 'No daily logs found for this job.' });
         const lines = logs.map((l: any) => {
           const assignees = l.assignedMemberships?.nodes?.map((a: any) => a.user?.name || '').filter(Boolean).join(', ');
@@ -711,7 +708,7 @@ const jtEntry: AgentModule = {
 
       // ========== COMMENTS ==========
       if (name === 'get_comments') {
-        const comments = await getCommentsForTargetCached(input.targetId, input.targetType);
+        const comments = await getCommentsFromDB(input.targetId);
         if (!comments || comments.length === 0) return JSON.stringify({ success: true, count: 0, message: 'No comments found.' });
         const lines = comments.map((c: any) => {
           const date = c.createdAt ? new Date(c.createdAt).toLocaleDateString() : '';
@@ -766,7 +763,7 @@ const jtEntry: AgentModule = {
 
       // ========== BUDGET / COST ITEMS ==========
       if (name === 'get_job_budget') {
-        const items = await getCostItemsForJobCached(input.jobId);
+        const items = await getCostItemsForJob(input.jobId);
         if (!items || items.length === 0) return JSON.stringify({ success: true, count: 0, message: 'No cost items found.' });
         const searchTerm = (input.search || '').toLowerCase().trim();
         let filtered = items;

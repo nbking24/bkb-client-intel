@@ -1,35 +1,30 @@
 /**
- * Hourly incremental sync cron job.
+ * Daily sync cron — syncs JT messages (comments + daily logs) for all active jobs
+ * and GHL messages + notes for known contacts.
  *
- * Fetches all active JT jobs and syncs any that haven't been updated in the cache
- * within the last 90 minutes. For each stale job, runs a deep sync (all 3 stages).
+ * Runs once per day at 5 AM (before the workday).
+ * Only syncs message/note data that exceeds API pagination limits.
+ * All other data (jobs, tasks, cost items, etc.) is read live from APIs.
  *
- * Designed to complete within Vercel's 60-second timeout by:
- *   - Skipping recently-synced jobs
- *   - Processing in batches with a time guard
- *   - Logging sync state for monitoring
- *
- * Cron schedule: 0 * * * * (every hour)
+ * Cron schedule: 0 5 * * * (5 AM daily)
  */
 
 import { NextRequest, NextResponse } from 'next/server';
-import { getActiveJobs, getJob, getTasksForJob } from '../../../lib/jobtread';
-import { writeCache, readCache, createSyncState, updateSyncState } from '../../../lib/cache';
+import { getActiveJobs, getCommentsForTarget, getDailyLogsForJob } from '../../../lib/jobtread';
+import { searchContacts, searchConversations, getAllConversationMessages, getContactNotes } from '../../../lib/ghl';
+import { writeCache, clearCacheForEntity, createSyncState, updateSyncState } from '../../../lib/cache';
 
 export const maxDuration = 60;
 
-const STALE_THRESHOLD_MS = 90 * 60 * 1000; // 90 minutes
 const MAX_SYNC_TIME_MS = 50 * 1000; // Stop after 50s to leave buffer
 
 export async function GET(request: NextRequest) {
   const startTime = Date.now();
 
-  // Verify this is a cron call (Vercel includes auth header for cron jobs)
-  // In dev, allow unauthenticated calls
+  // Verify authorization
   const authHeader = request.headers.get('authorization');
   const cronSecret = process.env.CRON_SECRET;
   if (cronSecret && authHeader !== `Bearer ${cronSecret}`) {
-    // Also check if it matches our app PIN auth
     const appPin = process.env.APP_PIN;
     if (appPin) {
       const expectedAuth = `Bearer ${Buffer.from(appPin + ':').toString('base64')}`;
@@ -39,82 +34,125 @@ export async function GET(request: NextRequest) {
     }
   }
 
-  const syncState = await createSyncState('jt_jobs_incremental', null, 'cron');
+  const syncState = await createSyncState('daily_sync', null, 'cron');
   const syncId = syncState?.id;
 
-  let jobsSynced = 0;
-  let jobsSkipped = 0;
+  let jtJobsSynced = 0;
+  let ghlContactsSynced = 0;
+  let totalItems = 0;
   let errors = 0;
   const errorDetails: string[] = [];
 
   try {
-    // Fetch all active jobs from JT
+    // ─── PHASE 1: JT Messages (comments + daily logs) ───
     const activeJobs = await getActiveJobs(200);
 
-    if (!activeJobs || activeJobs.length === 0) {
-      if (syncId) await updateSyncState(syncId, { status: 'completed', items_processed: 0 });
-      return NextResponse.json({ status: 'completed', message: 'No active jobs found', jobsSynced: 0 });
-    }
-
-    // Get existing cache timestamps
-    const cachedJobs = await readCache('jt_jobs', {}, { orderBy: 'synced_at', ascending: true });
-    const cacheMap = new Map<string, string>();
-    for (const cj of cachedJobs) {
-      cacheMap.set(cj.id, cj.synced_at);
-    }
-
-    const now = Date.now();
-    const staleThreshold = new Date(now - STALE_THRESHOLD_MS).toISOString();
-
     for (const job of activeJobs) {
-      // Time guard — stop if we're running out of time
-      if (Date.now() - startTime > MAX_SYNC_TIME_MS) {
-        console.log(`[cron] Time guard hit after ${jobsSynced} jobs synced, ${jobsSkipped} skipped`);
-        break;
-      }
+      if (Date.now() - startTime > MAX_SYNC_TIME_MS) break;
 
       try {
-        // Check if this job was recently synced
-        const lastSynced = cacheMap.get(job.id);
-        if (lastSynced && lastSynced > staleThreshold) {
-          jobsSkipped++;
-          continue;
-        }
-
-        // Sync job details
-        await writeCache('jt_jobs', [{
-          id: job.id,
-          number: job.number || '',
-          name: job.name || '',
-          status: job.status || '',
-          description: (job as any).description || '',
-          account_id: (job as any).account?.id || null,
-          account_name: (job as any).account?.name || null,
-          raw_data: job,
-        }]);
-
-        // Quick task sync (just tasks for this job, not full deep sync)
-        const tasks = await getTasksForJob(job.id);
-        if (tasks && tasks.length > 0) {
-          const taskRows = tasks.map((t: any) => ({
-            id: t.id,
+        // Sync comments
+        const comments = await getCommentsForTarget(job.id, 'job', 2000);
+        if (comments && comments.length > 0) {
+          await clearCacheForEntity('jt_comments', 'job_id', job.id);
+          const rows = comments.map((c: any) => ({
+            id: c.id,
             job_id: job.id,
-            parent_task_id: t.parentTask?.id || null,
-            name: t.name || '',
-            progress: t.progress ?? null,
-            is_group: t.isGroup || false,
-            start_date: t.startDate || null,
-            end_date: t.endDate || null,
-            raw_data: t,
+            target_id: job.id,
+            target_type: 'job',
+            message: c.message || '',
+            name: c.name || '',
+            is_pinned: c.isPinned || false,
+            parent_comment_id: c.parentComment?.id || null,
+            created_at: c.createdAt || null,
+            raw_data: c,
           }));
-          await writeCache('jt_tasks', taskRows);
+          const res = await writeCache('jt_comments', rows);
+          totalItems += res.count;
         }
 
-        jobsSynced++;
+        // Sync daily logs
+        const logs = await getDailyLogsForJob(job.id, 2000);
+        if (logs && logs.length > 0) {
+          await clearCacheForEntity('jt_daily_logs', 'job_id', job.id);
+          const rows = logs.map((l: any) => ({
+            id: l.id,
+            job_id: job.id,
+            date: l.date || null,
+            notes: l.notes || '',
+            created_at: l.createdAt || null,
+            assigned_member_ids: l.assignedMemberships?.nodes?.map((a: any) => a.id) || [],
+            assigned_member_names: l.assignedMemberships?.nodes?.map((a: any) => a.user?.name || '').filter(Boolean) || [],
+            raw_data: l,
+          }));
+          const res = await writeCache('jt_daily_logs', rows);
+          totalItems += res.count;
+        }
+
+        jtJobsSynced++;
       } catch (err: any) {
         errors++;
-        errorDetails.push(`${job.id}: ${err.message}`);
-        console.error(`[cron] Sync failed for job ${job.id}:`, err.message);
+        errorDetails.push(`JT ${job.id}: ${err.message}`);
+      }
+    }
+
+    // ─── PHASE 2: GHL Messages + Notes ───
+    if (Date.now() - startTime < MAX_SYNC_TIME_MS) {
+      try {
+        const contacts = await searchContacts('', 100);
+
+        for (const contact of contacts) {
+          if (Date.now() - startTime > MAX_SYNC_TIME_MS) break;
+
+          try {
+            // Sync messages from all conversations
+            const conversations = await searchConversations(contact.id);
+            await clearCacheForEntity('ghl_messages', 'contact_id', contact.id);
+
+            for (const convo of conversations) {
+              const messages = await getAllConversationMessages(convo.id);
+              if (messages && messages.length > 0) {
+                const rows = messages.map((m: any) => ({
+                  id: m.id,
+                  conversation_id: convo.id,
+                  contact_id: contact.id,
+                  type: m.type || m.messageType || '',
+                  direction: m.direction || '',
+                  body: m.body || m.message || '',
+                  subject: m.subject || '',
+                  date_added: m.dateAdded || m.createdAt || null,
+                  raw_data: m,
+                }));
+                const res = await writeCache('ghl_messages', rows);
+                totalItems += res.count;
+              }
+            }
+
+            // Sync notes
+            const notes = await getContactNotes(contact.id);
+            if (notes && notes.length > 0) {
+              await clearCacheForEntity('ghl_notes', 'contact_id', contact.id);
+              const rows = notes.map((n: any) => ({
+                id: n.id,
+                contact_id: contact.id,
+                body: n.body || '',
+                created_by: n.createdBy || '',
+                date_added: n.dateAdded || n.createdAt || null,
+                raw_data: n,
+              }));
+              const res = await writeCache('ghl_notes', rows);
+              totalItems += res.count;
+            }
+
+            ghlContactsSynced++;
+          } catch (err: any) {
+            errors++;
+            errorDetails.push(`GHL ${contact.id}: ${err.message}`);
+          }
+        }
+      } catch (err: any) {
+        errors++;
+        errorDetails.push(`GHL contacts fetch: ${err.message}`);
       }
     }
 
@@ -122,8 +160,8 @@ export async function GET(request: NextRequest) {
 
     if (syncId) {
       await updateSyncState(syncId, {
-        status: errors > 0 ? 'completed' : 'completed',
-        items_processed: jobsSynced,
+        status: 'completed',
+        items_processed: totalItems,
         completed_at: new Date().toISOString(),
         error_message: errors > 0 ? `${errors} errors: ${errorDetails.slice(0, 3).join('; ')}` : null,
       });
@@ -132,14 +170,14 @@ export async function GET(request: NextRequest) {
     return NextResponse.json({
       status: 'completed',
       duration: `${duration}s`,
-      activeJobs: activeJobs.length,
-      jobsSynced,
-      jobsSkipped,
+      jtJobsSynced,
+      ghlContactsSynced,
+      totalItems,
       errors,
       errorDetails: errorDetails.slice(0, 5),
     });
   } catch (err: any) {
-    console.error('[cron] Incremental sync failed:', err);
+    console.error('[cron] Daily sync failed:', err);
 
     if (syncId) {
       await updateSyncState(syncId, {

@@ -7,6 +7,12 @@
                     "app/api/sync/job/[jobId]/route.ts": {
                                     "maxDuration": 60
                     },
+                    "app/api/sync/ghl/[contactId]/route.ts": {
+                                    "maxDuration": 60
+                    },
+                    "app/api/sync/force/route.ts": {
+                                    "maxDuration": 60
+                    },
                     "app/api/cron/sync-incremental/route.ts": {
                                     "maxDuration": 60
                     }
@@ -18,7 +24,7 @@
                     },
                     {
                                     "path": "/api/cron/sync-incremental",
-                                    "schedule": "0 * * * *"
+                                    "schedule": "0 5 * * *"
                     }
         ]
 }

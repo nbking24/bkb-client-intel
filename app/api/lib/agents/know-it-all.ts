@@ -1,14 +1,13 @@
 // @ts-nocheck
 import { AgentModule, AgentContext } from './types';
-import { getContact, getContactNotes, searchConversations, getConversationMessages, getContactTasks, getOpportunity, searchContacts as searchGHLContacts } from '../ghl';
+import { getContact, getContactNotes, searchConversations, getConversationMessages, getContactTasks, getOpportunity, searchContacts as searchGHLContacts, getMessagesFromDB, getNotesFromDB } from '../ghl';
 import {
   getActiveJobs, getJob, getJobSchedule, getTasksForJob, getDocumentsForJob,
   getMembers, getAllOpenTasks, getDailyLogsForJob, getCommentsForTarget,
   getTimeEntriesForJob, getSpecificationsForJob, getCostItemsForJob,
   getEventsForJob, getFilesForJob, getDocumentContent,
-  // Cached versions — read from Supabase first, fall back to live API
-  getTasksForJobCached, getCommentsForTargetCached, getDailyLogsForJobCached,
-  getTimeEntriesForJobCached, getCostItemsForJobCached,
+  // DB-only reads for messages & daily logs (prevents duplication)
+  getCommentsFromDB, getDailyLogsFromDB,
 } from '../../../lib/jobtread';
 
 function formatValue(val: any): string {
@@ -43,10 +42,10 @@ async function fetchGHLContext(ctx: AgentContext): Promise<string> {
   const sections: string[] = [];
 
   try {
-    const [profile, notes, convos, tasks] = await Promise.allSettled([
+    const [profile, notes, dbMessages, tasks] = await Promise.allSettled([
       getContact(ctx.contactId),
-      getContactNotes(ctx.contactId),
-      searchConversations(ctx.contactId),
+      getNotesFromDB(ctx.contactId),
+      getMessagesFromDB(ctx.contactId),
       getContactTasks(ctx.contactId),
     ]);
 
@@ -131,47 +130,26 @@ async function fetchGHLContext(ctx: AgentContext): Promise<string> {
       sections.push('=== NOTES ERROR ===\nFailed to fetch notes: ' + errMsg);
     }
 
-    // CONVERSATIONS & MESSAGES
-    if (convos.status === 'fulfilled' && Array.isArray(convos.value)) {
-      if (convos.value.length === 0) {
-        sections.push('=== MESSAGES ===\nNo conversations found for this contact.');
+    // MESSAGES (from database — complete history, no pagination limits)
+    if (dbMessages.status === 'fulfilled' && Array.isArray(dbMessages.value)) {
+      if (dbMessages.value.length === 0) {
+        sections.push('=== MESSAGES ===\nNo messages found for this contact.');
       } else {
         const msgs: string[] = [];
-        let msgFetchErrors = 0;
-
-        for (const conv of convos.value.slice(0, 10)) {
-          const convData = conv as any;
-          if (convData.lastMessageBody) {
-            const lastDate = convData.lastMessageDate ? new Date(convData.lastMessageDate).toLocaleDateString() : '';
-            const lastType = convData.lastMessageType || convData.type || '';
-            msgs.push('[CONV SUMMARY ' + lastDate + ' ' + lastType + '] Last message: ' + (convData.lastMessageBody || '').slice(0, 2000));
-          }
-          try {
-            const cmsgs = await getConversationMessages(convData.id, 40);
-            if (Array.isArray(cmsgs)) {
-              for (const m of cmsgs) {
-                const mr = m as any;
-                const date = mr.dateAdded ? new Date(mr.dateAdded).toLocaleDateString() : '';
-                const direction = mr.direction || mr.meta?.email?.direction || mr.meta?.direction || '?';
-                const msgType = mr.messageType || mr.type || '';
-                const subject = mr.meta?.email?.subject ? ' Subject: ' + mr.meta.email.subject : '';
-                const body = mr.body || mr.text || mr.message || mr.altText || '';
-                msgs.push('[' + date + ' ' + direction + ' ' + msgType + subject + '] ' + (body ? body.slice(0, 2000) : '(no body text)'));
-              }
-            }
-          } catch (msgErr) {
-            msgFetchErrors++;
-          }
+        for (const m of dbMessages.value) {
+          const mr = m as any;
+          const date = mr.dateAdded ? new Date(mr.dateAdded).toLocaleDateString() : '';
+          const direction = mr.direction || mr.meta?.email?.direction || mr.meta?.direction || '?';
+          const msgType = mr.messageType || mr.type || '';
+          const subject = mr.meta?.email?.subject ? ' Subject: ' + mr.meta.email.subject : (mr.subject ? ' Subject: ' + mr.subject : '');
+          const body = mr.body || mr.text || mr.message || mr.altText || '';
+          msgs.push('[' + date + ' ' + direction + ' ' + msgType + subject + '] ' + (body ? body.slice(0, 2000) : '(no body text)'));
         }
-        if (msgs.length > 0) {
-          sections.push('=== MESSAGES (' + msgs.length + ' total) ===\n' + msgs.join('\n'));
-        } else if (msgFetchErrors > 0) {
-          sections.push('=== MESSAGES ERROR ===\nFound ' + convos.value.length + ' conversation(s) but failed to fetch messages from ' + msgFetchErrors + ' of them.');
-        }
+        sections.push('=== MESSAGES (' + msgs.length + ' total) ===\n' + msgs.join('\n'));
       }
-    } else if (convos.status === 'rejected') {
-      const errMsg = convos.reason instanceof Error ? convos.reason.message : 'Unknown error';
-      sections.push('=== CONVERSATIONS ERROR ===\nFailed to fetch conversations: ' + errMsg);
+    } else if (dbMessages.status === 'rejected') {
+      const errMsg = dbMessages.reason instanceof Error ? dbMessages.reason.message : 'Unknown error';
+      sections.push('=== MESSAGES ERROR ===\nFailed to fetch messages: ' + errMsg);
     }
 
     // TASKS
@@ -597,7 +575,7 @@ const knowItAll: AgentModule = {
       }
 
       if (name === 'get_job_tasks') {
-        const tasks = await getTasksForJobCached(input.jobId);
+        const tasks = await getTasksForJob(input.jobId);
         if (!tasks || tasks.length === 0) return JSON.stringify({ success: true, count: 0, message: 'No tasks found for this job.' });
 
         // Separate phases (groups) from individual tasks
@@ -684,10 +662,10 @@ const knowItAll: AgentModule = {
         const sections: string[] = [];
 
         try {
-          const [profile, notes, convos, tasks] = await Promise.allSettled([
+          const [profile, notes, dbMsgs, tasks] = await Promise.allSettled([
             getContact(cid),
-            getContactNotes(cid),
-            searchConversations(cid),
+            getNotesFromDB(cid),
+            getMessagesFromDB(cid),
             getContactTasks(cid),
           ]);
 
@@ -747,38 +725,21 @@ const knowItAll: AgentModule = {
             sections.push('=== CRM NOTES ===\nNo notes found for this contact.');
           }
 
-          // CONVERSATIONS & MESSAGES
-          if (convos.status === 'fulfilled' && Array.isArray(convos.value) && convos.value.length > 0) {
+          // MESSAGES (from database — complete history)
+          if (dbMsgs.status === 'fulfilled' && Array.isArray(dbMsgs.value) && dbMsgs.value.length > 0) {
             const msgs: string[] = [];
-            for (const conv of convos.value.slice(0, 10)) {
-              const convData = conv as any;
-              if (convData.lastMessageBody) {
-                const lastDate = convData.lastMessageDate ? new Date(convData.lastMessageDate).toLocaleDateString() : '';
-                const lastType = convData.lastMessageType || convData.type || '';
-                msgs.push('[CONV SUMMARY ' + lastDate + ' ' + lastType + '] Last message: ' + (convData.lastMessageBody || '').slice(0, 2000));
-              }
-              try {
-                const cmsgs = await getConversationMessages(convData.id, 40);
-                if (Array.isArray(cmsgs)) {
-                  for (const m of cmsgs) {
-                    const mr = m as any;
-                    const date = mr.dateAdded ? new Date(mr.dateAdded).toLocaleDateString() : '';
-                    const direction = mr.direction || mr.meta?.email?.direction || mr.meta?.direction || '?';
-                    const msgType = mr.messageType || mr.type || '';
-                    const subject = mr.meta?.email?.subject ? ' Subject: ' + mr.meta.email.subject : '';
-                    const body = mr.body || mr.text || mr.message || mr.altText || '';
-                    msgs.push('[' + date + ' ' + direction + ' ' + msgType + subject + '] ' + (body ? body.slice(0, 2000) : '(no body text)'));
-                  }
-                }
-              } catch { /* skip conversation message errors */ }
+            for (const m of dbMsgs.value) {
+              const mr = m as any;
+              const date = mr.dateAdded ? new Date(mr.dateAdded).toLocaleDateString() : '';
+              const direction = mr.direction || mr.meta?.email?.direction || mr.meta?.direction || '?';
+              const msgType = mr.messageType || mr.type || '';
+              const subject = mr.meta?.email?.subject ? ' Subject: ' + mr.meta.email.subject : (mr.subject ? ' Subject: ' + mr.subject : '');
+              const body = mr.body || mr.text || mr.message || mr.altText || '';
+              msgs.push('[' + date + ' ' + direction + ' ' + msgType + subject + '] ' + (body ? body.slice(0, 2000) : '(no body text)'));
             }
-            if (msgs.length > 0) {
-              sections.push('=== MESSAGES (' + msgs.length + ' total) ===\n' + msgs.join('\n'));
-            } else {
-              sections.push('=== MESSAGES ===\nNo message content found.');
-            }
+            sections.push('=== MESSAGES (' + msgs.length + ' total) ===\n' + msgs.join('\n'));
           } else {
-            sections.push('=== MESSAGES ===\nNo conversations found for this contact.');
+            sections.push('=== MESSAGES ===\nNo messages found for this contact.');
           }
 
           // TASKS
@@ -807,7 +768,7 @@ const knowItAll: AgentModule = {
       }
 
       if (name === 'get_job_daily_logs') {
-        const logs = await getDailyLogsForJobCached(input.jobId);
+        const logs = await getDailyLogsFromDB(input.jobId);
         if (!logs || logs.length === 0) return JSON.stringify({ success: true, count: 0, message: 'No daily logs found for this job.' });
         const lines = logs.map((l: any) => {
           const assignees = l.assignedMemberships?.nodes?.map((a: any) => a.user?.name || '').filter(Boolean).join(', ');
@@ -817,7 +778,7 @@ const knowItAll: AgentModule = {
       }
 
       if (name === 'get_job_comments') {
-        const comments = await getCommentsForTargetCached(input.targetId, input.targetType);
+        const comments = await getCommentsFromDB(input.targetId);
         if (!comments || comments.length === 0) return JSON.stringify({ success: true, count: 0, message: 'No comments found.' });
         const lines = comments.map((c: any) => {
           const date = c.createdAt ? new Date(c.createdAt).toLocaleDateString() : '';
@@ -829,7 +790,7 @@ const knowItAll: AgentModule = {
       }
 
       if (name === 'get_job_time_entries') {
-        const entries = await getTimeEntriesForJobCached(input.jobId);
+        const entries = await getTimeEntriesForJob(input.jobId);
         if (!entries || entries.length === 0) return JSON.stringify({ success: true, count: 0, message: 'No time entries found for this job.' });
         let totalHours = 0;
         const lines = entries.map((e: any) => {
@@ -912,7 +873,7 @@ const knowItAll: AgentModule = {
       }
 
       if (name === 'get_job_budget') {
-        const items = await getCostItemsForJobCached(input.jobId);
+        const items = await getCostItemsForJob(input.jobId);
         if (!items || items.length === 0) return JSON.stringify({ success: true, count: 0, message: 'No cost items found.' });
 
         const searchTerm = (input.search || '').toLowerCase().trim();

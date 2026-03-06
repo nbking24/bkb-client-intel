@@ -106,6 +106,43 @@ export async function getConversationMessages(conversationId: string, limit = 40
   return [];
 }
 
+/**
+ * Fetch ALL messages for a conversation with pagination.
+ * Used by the sync engine to get the complete message history.
+ */
+export async function getAllConversationMessages(conversationId: string, maxPages = 20): Promise<any[]> {
+  const allMessages: any[] = [];
+  let nextPage: string | null = null;
+  let page = 0;
+
+  while (page < maxPages) {
+    let url = `/conversations/${conversationId}/messages?limit=100`;
+    if (nextPage) url += `&lastMessageId=${nextPage}`;
+
+    const data = await ghlFetch(url);
+    const msgs = data.messages;
+
+    let batch: any[] = [];
+    let pageToken: string | null = null;
+
+    if (msgs && typeof msgs === 'object' && !Array.isArray(msgs)) {
+      batch = Array.isArray(msgs.messages) ? msgs.messages : [];
+      pageToken = msgs.nextPage || msgs.lastMessageId || null;
+    } else if (Array.isArray(msgs)) {
+      batch = msgs;
+    }
+
+    allMessages.push(...batch);
+    page++;
+
+    // Stop if no more pages or no new messages
+    if (!pageToken || batch.length === 0) break;
+    nextPage = pageToken;
+  }
+
+  return allMessages;
+}
+
 // ============================================================
 // NOTES
 // ============================================================
@@ -148,3 +185,77 @@ export const CUSTOM_FIELDS = {
   JT_JOB_ID: 'GjwWvbGyh7CQfGmFir5p',
   JT_CUSTOMER_ID: 'QzmJOO31vKrjXZmRSm3X',
 } as const;
+
+// ============================================================
+// DATABASE-ONLY READ FUNCTIONS (messages & notes)
+//
+// These read ONLY from the Supabase database — never from the
+// live GHL API. This prevents duplication. The database is kept
+// current by the daily sync cron + on-demand force-sync.
+//
+// For all other GHL data (contacts, opportunities, etc.)
+// agents continue to use the live API functions above.
+// ============================================================
+
+import { readCache } from './cache';
+
+/**
+ * Get all messages for a contact from the database.
+ * Falls back to live API only if DB has zero rows (bootstrap).
+ */
+export async function getMessagesFromDB(contactId: string, limit = 2000): Promise<any[]> {
+  try {
+    const cached = await readCache<any>(
+      'ghl_messages',
+      { contact_id: contactId },
+      { orderBy: 'date_added', ascending: false, limit }
+    );
+
+    if (cached.length > 0) {
+      return cached.map((row) => row.raw_data || row);
+    }
+
+    // DB empty — fall back to live API for bootstrap
+    console.warn(`[db] No cached GHL messages for contact ${contactId}, falling back to live API`);
+    const conversations = await searchConversations(contactId);
+    const allMsgs: any[] = [];
+    for (const convo of conversations) {
+      const msgs = await getConversationMessages(convo.id, 40);
+      allMsgs.push(...msgs);
+    }
+    return allMsgs;
+  } catch (err) {
+    console.warn('[db] getMessagesFromDB error, falling back to live:', err);
+    const conversations = await searchConversations(contactId);
+    const allMsgs: any[] = [];
+    for (const convo of conversations) {
+      const msgs = await getConversationMessages(convo.id, 40);
+      allMsgs.push(...msgs);
+    }
+    return allMsgs;
+  }
+}
+
+/**
+ * Get all notes for a contact from the database.
+ * Falls back to live API only if DB has zero rows (bootstrap).
+ */
+export async function getNotesFromDB(contactId: string, limit = 2000): Promise<any[]> {
+  try {
+    const cached = await readCache<any>(
+      'ghl_notes',
+      { contact_id: contactId },
+      { orderBy: 'date_added', ascending: false, limit }
+    );
+
+    if (cached.length > 0) {
+      return cached.map((row) => row.raw_data || row);
+    }
+
+    console.warn(`[db] No cached GHL notes for contact ${contactId}, falling back to live API`);
+    return getContactNotes(contactId);
+  } catch (err) {
+    console.warn('[db] getNotesFromDB error, falling back to live:', err);
+    return getContactNotes(contactId);
+  }
+}

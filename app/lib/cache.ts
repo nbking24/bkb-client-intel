@@ -1,91 +1,25 @@
 /**
  * Cache utility layer for BKB Client Intel
  *
- * Provides read/write helpers for the Supabase cache tables.
- * Agents call these instead of hitting JT/GHL APIs directly.
+ * Only caches data that exceeds API pagination limits:
+ *   - JT comments (messages) & daily logs
+ *   - GHL messages & notes
  *
- * Pattern:
- *   1. Check cache (is data present and fresh?)
- *   2. If yes → return cached data instantly
- *   3. If no → fall back to live API, then upsert into cache
+ * Everything else (jobs, tasks, cost items, contacts, etc.)
+ * is read live from the respective APIs.
+ *
+ * Agents read messages/notes ONLY from the database (never the live API)
+ * to avoid duplication. A daily sync agent + force-sync endpoint
+ * keeps the database current.
  */
 
 import { createServerClient } from './supabase';
 
 // ============================================================
-// FRESHNESS THRESHOLDS (milliseconds)
+// VALID CACHE TABLES
 // ============================================================
 
-const FRESH_THRESHOLD = {
-  jt_jobs: 60 * 60 * 1000,         // 1 hour
-  jt_tasks: 60 * 60 * 1000,        // 1 hour
-  jt_comments: 60 * 60 * 1000,     // 1 hour
-  jt_daily_logs: 2 * 60 * 60 * 1000, // 2 hours
-  jt_time_entries: 4 * 60 * 60 * 1000, // 4 hours
-  jt_cost_items: 4 * 60 * 60 * 1000,  // 4 hours
-  jt_documents: 4 * 60 * 60 * 1000,   // 4 hours
-  jt_members: 24 * 60 * 60 * 1000,    // 24 hours
-  ghl_contacts: 60 * 60 * 1000,    // 1 hour
-  ghl_messages: 60 * 60 * 1000,    // 1 hour
-  ghl_notes: 2 * 60 * 60 * 1000,   // 2 hours
-  ghl_opportunities: 2 * 60 * 60 * 1000, // 2 hours
-} as const;
-
-type CacheTable = keyof typeof FRESH_THRESHOLD;
-
-// ============================================================
-// FRESHNESS CHECK
-// ============================================================
-
-/**
- * Check if cached data for a given table + filter is fresh.
- * Returns { isFresh, count, oldestSyncedAt }
- */
-export async function checkCacheFreshness(
-  table: CacheTable,
-  filterColumn: string,
-  filterValue: string
-): Promise<{ isFresh: boolean; count: number; oldestSyncedAt: string | null }> {
-  try {
-    const supabase = createServerClient();
-    const threshold = new Date(Date.now() - FRESH_THRESHOLD[table]).toISOString();
-
-    // Count total cached rows
-    const { count: totalCount } = await supabase
-      .from(table)
-      .select('*', { count: 'exact', head: true })
-      .eq(filterColumn, filterValue);
-
-    if (!totalCount || totalCount === 0) {
-      return { isFresh: false, count: 0, oldestSyncedAt: null };
-    }
-
-    // Count rows that are still fresh
-    const { count: freshCount } = await supabase
-      .from(table)
-      .select('*', { count: 'exact', head: true })
-      .eq(filterColumn, filterValue)
-      .gte('synced_at', threshold);
-
-    // Find oldest synced_at
-    const { data: oldest } = await supabase
-      .from(table)
-      .select('synced_at')
-      .eq(filterColumn, filterValue)
-      .order('synced_at', { ascending: true })
-      .limit(1)
-      .single();
-
-    return {
-      isFresh: freshCount === totalCount && totalCount > 0,
-      count: totalCount || 0,
-      oldestSyncedAt: oldest?.synced_at || null,
-    };
-  } catch (err) {
-    console.warn(`[cache] Freshness check failed for ${table}:`, err);
-    return { isFresh: false, count: 0, oldestSyncedAt: null };
-  }
-}
+export type CacheTable = 'jt_comments' | 'jt_daily_logs' | 'ghl_messages' | 'ghl_notes';
 
 // ============================================================
 // GENERIC CACHE READ
@@ -95,7 +29,7 @@ export async function checkCacheFreshness(
  * Read from cache table with filters. Returns rows or empty array.
  */
 export async function readCache<T = any>(
-  table: string,
+  table: CacheTable | 'sync_state',
   filters: Record<string, string>,
   options?: { orderBy?: string; ascending?: boolean; limit?: number }
 ): Promise<T[]> {
@@ -135,7 +69,7 @@ export async function readCache<T = any>(
  * Upsert rows into a cache table. Uses the `id` column as conflict target.
  */
 export async function writeCache(
-  table: string,
+  table: CacheTable,
   rows: Record<string, any>[],
   options?: { onConflict?: string }
 ): Promise<{ success: boolean; count: number; error?: string }> {
@@ -177,15 +111,11 @@ export async function writeCache(
 }
 
 // ============================================================
-// DELETE STALE CACHE (for cleanup)
+// DELETE STALE CACHE (for cleanup before re-populating)
 // ============================================================
 
-/**
- * Delete cached rows for a specific entity before re-populating.
- * Useful for deep syncs where we want a clean slate for one job.
- */
 export async function clearCacheForEntity(
-  table: string,
+  table: CacheTable,
   filterColumn: string,
   filterValue: string
 ): Promise<void> {
@@ -214,9 +144,6 @@ export interface SyncState {
   retry_count: number;
 }
 
-/**
- * Get the most recent sync state for an entity.
- */
 export async function getLatestSyncState(
   entityType: string,
   entityId?: string
@@ -241,9 +168,6 @@ export async function getLatestSyncState(
   }
 }
 
-/**
- * Create a new sync state record.
- */
 export async function createSyncState(
   entityType: string,
   entityId: string | null,
@@ -268,9 +192,6 @@ export async function createSyncState(
   }
 }
 
-/**
- * Update an existing sync state record.
- */
 export async function updateSyncState(
   syncId: string,
   updates: Partial<Pick<SyncState, 'status' | 'stage' | 'items_processed' | 'error_message' | 'completed_at' | 'retry_count'>>
@@ -281,25 +202,4 @@ export async function updateSyncState(
   } catch (err) {
     console.warn('[cache] Failed to update sync state:', err);
   }
-}
-
-// ============================================================
-// BACKGROUND SYNC TRIGGER
-// ============================================================
-
-/**
- * Fire-and-forget trigger for a background sync.
- * Uses the internal API endpoint. Won't block the caller.
- */
-export function triggerBackgroundSync(jobId: string, stage: number = 1): void {
-  const baseUrl = process.env.VERCEL_URL
-    ? `https://${process.env.VERCEL_URL}`
-    : process.env.NEXT_PUBLIC_SITE_URL || 'http://localhost:3000';
-
-  fetch(`${baseUrl}/api/sync/job/${jobId}?stage=${stage}`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-  }).catch((err) => {
-    console.warn(`[cache] Background sync trigger failed for job ${jobId}:`, err);
-  });
 }
