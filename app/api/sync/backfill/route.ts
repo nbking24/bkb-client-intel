@@ -122,7 +122,7 @@ async function backfillJT(batchSize: number, startTime: number) {
   const supabase = createServerClient();
 
   // Get all active jobs
-  const activeJobs = await getActiveJobs(200);
+  const activeJobs = await getActiveJobs(100);
 
   // Find which jobs already have comments synced
   const { data: syncedRows } = await supabase
