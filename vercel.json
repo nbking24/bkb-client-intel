@@ -3,12 +3,22 @@
                     "app/api/chat/route.ts": {
                                     "maxDuration": 60,
                                     "memory": 1024
+                    },
+                    "app/api/sync/job/[jobId]/route.ts": {
+                                    "maxDuration": 60
+                    },
+                    "app/api/cron/sync-incremental/route.ts": {
+                                    "maxDuration": 60
                     }
         },
         "crons": [
                     {
                                     "path": "/api/cron/design-agent",
                                     "schedule": "0 6 * * *"
+                    },
+                    {
+                                    "path": "/api/cron/sync-incremental",
+                                    "schedule": "0 * * * *"
                     }
         ]
 }

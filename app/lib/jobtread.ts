@@ -2191,3 +2191,215 @@ export async function getGridScheduleData(): Promise<GridJobData[]> {
     };
   });
 }
+
+// ============================================================
+// CACHED READ FUNCTIONS
+// Read from Supabase cache first, fall back to live API.
+// These return ALL data (no pagination limits).
+// ============================================================
+
+import {
+  checkCacheFreshness,
+  readCache,
+  writeCache,
+  clearCacheForEntity,
+  triggerBackgroundSync,
+} from './cache';
+
+/**
+ * Get tasks for a job — cache-first with live API fallback.
+ * Returns ALL tasks (no 500-item cap).
+ */
+export async function getTasksForJobCached(jobId: string): Promise<JTTask[]> {
+  try {
+    const { isFresh, count } = await checkCacheFreshness('jt_tasks', 'job_id', jobId);
+
+    if (isFresh && count > 0) {
+      const cached = await readCache<any>('jt_tasks', { job_id: jobId }, { orderBy: 'end_date', ascending: true });
+      // Return raw_data if available (full JT shape), otherwise the flat row
+      return cached.map((row) => row.raw_data || row);
+    }
+
+    // Cache miss or stale — trigger background sync and fall back to live
+    triggerBackgroundSync(jobId, 1);
+    return getTasksForJob(jobId);
+  } catch (err) {
+    console.warn('[cached] getTasksForJobCached fallback to live:', err);
+    return getTasksForJob(jobId);
+  }
+}
+
+/**
+ * Get comments for a target — cache-first with live API fallback.
+ * Returns ALL comments (no 200-item cap).
+ */
+export async function getCommentsForTargetCached(
+  targetId: string,
+  targetType: string,
+  limit = 500
+): Promise<JTComment[]> {
+  try {
+    // For job-level comments, check cache
+    if (targetType === 'job') {
+      const { isFresh, count } = await checkCacheFreshness('jt_comments', 'job_id', targetId);
+
+      if (isFresh && count > 0) {
+        const cached = await readCache<any>(
+          'jt_comments',
+          { job_id: targetId },
+          { orderBy: 'created_at', ascending: false, limit }
+        );
+        return cached.map((row) => row.raw_data || row);
+      }
+
+      // Trigger background sync
+      triggerBackgroundSync(targetId, 2);
+    }
+
+    // Fall back to live API
+    return getCommentsForTarget(targetId, targetType, limit);
+  } catch (err) {
+    console.warn('[cached] getCommentsForTargetCached fallback to live:', err);
+    return getCommentsForTarget(targetId, targetType, limit);
+  }
+}
+
+/**
+ * Get daily logs for a job — cache-first with live API fallback.
+ */
+export async function getDailyLogsForJobCached(jobId: string, limit = 500): Promise<JTDailyLog[]> {
+  try {
+    const { isFresh, count } = await checkCacheFreshness('jt_daily_logs', 'job_id', jobId);
+
+    if (isFresh && count > 0) {
+      const cached = await readCache<any>(
+        'jt_daily_logs',
+        { job_id: jobId },
+        { orderBy: 'date', ascending: false, limit }
+      );
+      return cached.map((row) => row.raw_data || row);
+    }
+
+    triggerBackgroundSync(jobId, 2);
+    return getDailyLogsForJob(jobId, limit);
+  } catch (err) {
+    console.warn('[cached] getDailyLogsForJobCached fallback to live:', err);
+    return getDailyLogsForJob(jobId, limit);
+  }
+}
+
+/**
+ * Get time entries for a job — cache-first with live API fallback.
+ */
+export async function getTimeEntriesForJobCached(jobId: string, limit = 500): Promise<any[]> {
+  try {
+    const { isFresh, count } = await checkCacheFreshness('jt_time_entries', 'job_id', jobId);
+
+    if (isFresh && count > 0) {
+      const cached = await readCache<any>(
+        'jt_time_entries',
+        { job_id: jobId },
+        { orderBy: 'started_at', ascending: false, limit }
+      );
+      return cached.map((row) => row.raw_data || row);
+    }
+
+    triggerBackgroundSync(jobId, 3);
+    return getTimeEntriesForJob(jobId, limit);
+  } catch (err) {
+    console.warn('[cached] getTimeEntriesForJobCached fallback to live:', err);
+    return getTimeEntriesForJob(jobId, limit);
+  }
+}
+
+/**
+ * Get cost items for a job — cache-first with live API fallback.
+ * Only returns Estimating items (already filtered during sync).
+ */
+export async function getCostItemsForJobCached(jobId: string, limit = 1000): Promise<JTCostItem[]> {
+  try {
+    const { isFresh, count } = await checkCacheFreshness('jt_cost_items', 'job_id', jobId);
+
+    if (isFresh && count > 0) {
+      const cached = await readCache<any>(
+        'jt_cost_items',
+        { job_id: jobId },
+        { limit }
+      );
+      return cached.map((row) => row.raw_data || row);
+    }
+
+    triggerBackgroundSync(jobId, 3);
+    return getCostItemsForJob(jobId, limit);
+  } catch (err) {
+    console.warn('[cached] getCostItemsForJobCached fallback to live:', err);
+    return getCostItemsForJob(jobId, limit);
+  }
+}
+
+// ============================================================
+// WRITE-THROUGH HELPERS
+// Write to JT API first, then update cache immediately.
+// ============================================================
+
+/**
+ * Create a task and update cache.
+ */
+export async function createTaskWithCache(params: Parameters<typeof createTask>[0]) {
+  const result = await createTask(params);
+
+  // Fire-and-forget cache update
+  if (result?.id) {
+    const jobId = (params as any).jobId || (params as any).job?.id;
+    if (jobId) {
+      writeCache('jt_tasks', [{
+        id: result.id,
+        job_id: jobId,
+        name: (params as any).name || '',
+        raw_data: result,
+      }]).catch(() => {});
+    }
+  }
+
+  return result;
+}
+
+/**
+ * Create a comment and update cache.
+ */
+export async function createCommentWithCache(params: Parameters<typeof createComment>[0]) {
+  const result = await createComment(params);
+
+  if (result?.id) {
+    writeCache('jt_comments', [{
+      id: result.id,
+      job_id: params.targetType === 'job' ? params.targetId : null,
+      target_id: params.targetId,
+      target_type: params.targetType,
+      message: params.message,
+      name: params.name || 'BKB AI',
+      raw_data: result,
+    }]).catch(() => {});
+  }
+
+  return result;
+}
+
+/**
+ * Create a daily log and update cache.
+ */
+export async function createDailyLogWithCache(params: Parameters<typeof createDailyLog>[0]) {
+  const result = await createDailyLog(params);
+
+  if (result?.id) {
+    writeCache('jt_daily_logs', [{
+      id: result.id,
+      job_id: params.jobId,
+      date: params.date,
+      notes: params.notes || '',
+      raw_data: result,
+    }]).catch(() => {});
+  }
+
+  return result;
+}

@@ -6,6 +6,9 @@ import {
   getMembers, getAllOpenTasks, getDailyLogsForJob, getCommentsForTarget,
   getTimeEntriesForJob, getSpecificationsForJob, getCostItemsForJob,
   getEventsForJob, getFilesForJob, getDocumentContent,
+  // Cached versions — read from Supabase first, fall back to live API
+  getTasksForJobCached, getCommentsForTargetCached, getDailyLogsForJobCached,
+  getTimeEntriesForJobCached, getCostItemsForJobCached,
 } from '../../../lib/jobtread';
 
 function formatValue(val: any): string {
@@ -594,7 +597,7 @@ const knowItAll: AgentModule = {
       }
 
       if (name === 'get_job_tasks') {
-        const tasks = await getTasksForJob(input.jobId);
+        const tasks = await getTasksForJobCached(input.jobId);
         if (!tasks || tasks.length === 0) return JSON.stringify({ success: true, count: 0, message: 'No tasks found for this job.' });
 
         // Separate phases (groups) from individual tasks
@@ -804,7 +807,7 @@ const knowItAll: AgentModule = {
       }
 
       if (name === 'get_job_daily_logs') {
-        const logs = await getDailyLogsForJob(input.jobId);
+        const logs = await getDailyLogsForJobCached(input.jobId);
         if (!logs || logs.length === 0) return JSON.stringify({ success: true, count: 0, message: 'No daily logs found for this job.' });
         const lines = logs.map((l: any) => {
           const assignees = l.assignedMemberships?.nodes?.map((a: any) => a.user?.name || '').filter(Boolean).join(', ');
@@ -814,7 +817,7 @@ const knowItAll: AgentModule = {
       }
 
       if (name === 'get_job_comments') {
-        const comments = await getCommentsForTarget(input.targetId, input.targetType);
+        const comments = await getCommentsForTargetCached(input.targetId, input.targetType);
         if (!comments || comments.length === 0) return JSON.stringify({ success: true, count: 0, message: 'No comments found.' });
         const lines = comments.map((c: any) => {
           const date = c.createdAt ? new Date(c.createdAt).toLocaleDateString() : '';
@@ -826,7 +829,7 @@ const knowItAll: AgentModule = {
       }
 
       if (name === 'get_job_time_entries') {
-        const entries = await getTimeEntriesForJob(input.jobId);
+        const entries = await getTimeEntriesForJobCached(input.jobId);
         if (!entries || entries.length === 0) return JSON.stringify({ success: true, count: 0, message: 'No time entries found for this job.' });
         let totalHours = 0;
         const lines = entries.map((e: any) => {
@@ -909,7 +912,7 @@ const knowItAll: AgentModule = {
       }
 
       if (name === 'get_job_budget') {
-        const items = await getCostItemsForJob(input.jobId);
+        const items = await getCostItemsForJobCached(input.jobId);
         if (!items || items.length === 0) return JSON.stringify({ success: true, count: 0, message: 'No cost items found.' });
 
         const searchTerm = (input.search || '').toLowerCase().trim();
