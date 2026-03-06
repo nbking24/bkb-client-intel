@@ -39,6 +39,7 @@ interface UploadedFile {
   size: number;
   type: string;
   content?: string;
+  extracting?: boolean;
 }
 
 // ============================================================
@@ -872,8 +873,43 @@ function SpecWriterContent() {
       const ext = f.name.toLowerCase().slice(f.name.lastIndexOf('.'));
       const isTextReadable = textReadableTypes.includes(f.type) ||
         textReadableExtensions.includes(ext);
+      const isPdf = f.type === 'application/pdf' || ext === '.pdf';
 
-      if (isTextReadable) {
+      if (isPdf) {
+        // PDF files — extract content via /api/extract-pdf (or contract extract-pdf)
+        setUploadedFiles((prev) => [...prev, {
+          name: f.name,
+          size: f.size,
+          type: f.type,
+          content: undefined,
+          extracting: true,
+        }]);
+        const reader = new FileReader();
+        reader.onload = async () => {
+          try {
+            const base64 = (reader.result as string).split(',')[1];
+            const res = await fetch('/api/extract-pdf', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ fileName: f.name, base64 }),
+            });
+            const data = await res.json();
+            setUploadedFiles((prev) => prev.map((uf) =>
+              uf.name === f.name && uf.extracting
+                ? { ...uf, content: data.text || '[Failed to extract PDF content]', extracting: false }
+                : uf
+            ));
+          } catch (err) {
+            console.error('PDF extraction failed:', err);
+            setUploadedFiles((prev) => prev.map((uf) =>
+              uf.name === f.name && uf.extracting
+                ? { ...uf, content: '[Error extracting PDF]', extracting: false }
+                : uf
+            ));
+          }
+        };
+        reader.readAsDataURL(f);
+      } else if (isTextReadable) {
         // Read text content via FileReader
         const reader = new FileReader();
         reader.onload = () => {
@@ -1028,9 +1064,17 @@ function SpecWriterContent() {
                     className="flex items-center gap-2 rounded-lg px-3 py-1.5 text-xs"
                     style={{ background: '#0d0d0d', border: '1px solid rgba(205,162,116,0.15)', color: '#d4ccc4' }}
                   >
-                    <Paperclip size={10} style={{ color: '#C9A84C' }} />
+                    {f.extracting ? (
+                      <Loader2 size={10} className="animate-spin" style={{ color: '#C9A84C' }} />
+                    ) : (
+                      <Paperclip size={10} style={{ color: f.content ? '#C9A84C' : '#666' }} />
+                    )}
                     <span>{f.name}</span>
-                    <span style={{ color: '#8a8078' }}>({formatSize(f.size)})</span>
+                    {f.extracting ? (
+                      <span style={{ color: '#C9A84C' }}>Extracting...</span>
+                    ) : (
+                      <span style={{ color: '#8a8078' }}>({formatSize(f.size)}){f.content ? ' ✓' : ''}</span>
+                    )}
                     <button
                       onClick={() => removeFile(i)}
                       className="ml-1 hover:text-red-400 transition-colors"
@@ -1048,7 +1092,7 @@ function SpecWriterContent() {
           <div className="grid grid-cols-2 gap-3">
             <button
               onClick={handleQuickSpec}
-              disabled={!inputText.trim() || loading}
+              disabled={!inputText.trim() || loading || uploadedFiles.some(f => f.extracting)}
               className="flex items-center justify-center gap-2 px-4 py-3 rounded-lg text-sm font-medium transition-colors disabled:opacity-40"
               style={{ background: '#C9A84C', color: '#0d0d0d' }}
             >
@@ -1057,11 +1101,11 @@ function SpecWriterContent() {
               ) : (
                 <Zap size={16} />
               )}
-              Quick Spec
+              {uploadedFiles.some(f => f.extracting) ? 'Extracting PDF...' : 'Quick Spec'}
             </button>
             <button
               onClick={handleDetailedSpec}
-              disabled={!inputText.trim() || loading || isGeneratingQuestions}
+              disabled={!inputText.trim() || loading || isGeneratingQuestions || uploadedFiles.some(f => f.extracting)}
               className="flex items-center justify-center gap-2 px-4 py-3 rounded-lg text-sm font-medium transition-colors disabled:opacity-40"
               style={{
                 background: 'rgba(201,168,76,0.15)',

@@ -60,6 +60,33 @@ Example of good detail level for a single bullet:
 Example of BAD (too thin) detail:
 - Install hardwood flooring per plans.
 
+VENDOR ESTIMATE / MATERIAL SPECIFICATION MODE (CRITICAL):
+When the user provides a vendor estimate, invoice, or quote AND asks for a "material specification" or "material spec" or "material sign-off":
+- DO NOT write a generic scope of work with "tbd per owner selection" — the selections are IN the document.
+- EXTRACT the ACTUAL product names, colors, sizes, finishes, quantities, and setting materials from the uploaded document.
+- Organize by area/location as listed in the estimate (e.g., Main Floor, Shower Walls, Shower Floor, Threshold).
+- For each area, list: tile/material product name, color, size/format, quantity, and all setting materials (grout color, caulk, trim, waterproofing, etc.).
+- NEVER mention the vendor or subcontractor name in the specification text.
+- If the user says "material only," focus on material selections and quantities. Do NOT include labor/installation pricing.
+- Include threshold and transition pieces if listed in the estimate.
+- The output should be a clean material specification that a client can sign off on, organized by area.
+
+Example of GOOD material spec from a vendor estimate:
+17 Tile
+**Material Specification — Bathroom**
+
+*Main Floor*
+- Tile: California-Slate, Caramel Beige, 12x24 porcelain
+- Quantity: 82.74 sqft (13.79 sqft per carton)
+- Grout: 25# UltraColor Powder Grout, Biscuit
+
+*Shower Walls*
+- Tile: Piazzo-Commune, Satin finish, 3x12
+- Quantity: 184.11 sqft (9.69 sqft per carton)
+
+Example of BAD material spec (ignoring the document):
+- Provide and install tile on shower walls, material tbd per owner selection.
+
 IMPORTANT: Return ONLY the specification text. No JSON, no markdown code fences, no explanations. Just the formatted specification ready to paste into a contract.`;
 
 interface QuestionAnswer {
@@ -97,7 +124,7 @@ export async function POST(request: NextRequest) {
       userMessage += '\nUPLOADED PROJECT FILES:';
       for (const file of files) {
         if (file.content && file.content.trim()) {
-          userMessage += `\n\n--- ${file.name} ---\n${file.content.slice(0, 10000)}`;
+          userMessage += `\n\n--- ${file.name} ---\n${file.content.slice(0, 30000)}`;
         } else {
           userMessage += `\n\n--- ${file.name} (${file.type}) --- [content not available]`;
         }
