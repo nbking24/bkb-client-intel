@@ -1201,82 +1201,143 @@ export interface JTDailyLog {
   assignedMemberships?: { nodes: { id: string; user?: { id: string; name: string } }[] };
 }
 
-export async function getDailyLogsForJob(jobId: string, limit = 50): Promise<JTDailyLog[]> {
-  const dailyLogFields = {
-    nodes: {
-      id: {},
-      date: {},
-      notes: {},
-      createdAt: {},
-      assignedMemberships: {
-        nodes: {
-          id: {},
-          user: { id: {}, name: {} },
-        },
+export async function getDailyLogsForJob(jobId: string, limit = 200): Promise<JTDailyLog[]> {
+  const dailyLogNodeFields = {
+    id: {},
+    date: {},
+    notes: {},
+    createdAt: {},
+    assignedMemberships: {
+      nodes: {
+        id: {},
+        user: { id: {}, name: {} },
       },
     },
   };
 
-  // Strategy 1: Try job.dailyLogs sub-collection (like tasks, documents, files)
+  const PAGE_SIZE = 100;
+
+  // Strategy 1: Try job.dailyLogs sub-collection with pagination
   try {
-    const data = await pave({
-      job: {
-        $: { id: jobId },
-        dailyLogs: {
-          $: { size: limit },
-          ...dailyLogFields,
+    let allLogs: any[] = [];
+    let nextPage: string | null = null;
+
+    for (let page = 0; page < 10; page++) {
+      const pageParams: Record<string, unknown> = { size: PAGE_SIZE };
+      if (nextPage) pageParams.page = nextPage;
+
+      const data = await pave({
+        job: {
+          $: { id: jobId },
+          dailyLogs: {
+            $: pageParams,
+            nextPage: {},
+            nodes: dailyLogNodeFields,
+          },
         },
-      },
-    });
-    const logs = (data as any)?.job?.dailyLogs?.nodes;
-    if (logs && Array.isArray(logs)) return logs;
+      });
+      const logPage = (data as any)?.job?.dailyLogs;
+      const nodes = logPage?.nodes || [];
+      allLogs = allLogs.concat(nodes);
+      nextPage = logPage?.nextPage || null;
+
+      if (allLogs.length >= limit || !nextPage || nodes.length < PAGE_SIZE) break;
+    }
+
+    if (allLogs.length > 0) {
+      // Sort by date descending (newest first)
+      allLogs.sort((a, b) => {
+        const dateA = a.date || a.createdAt || '';
+        const dateB = b.date || b.createdAt || '';
+        return dateB.localeCompare(dateA);
+      });
+      return allLogs.slice(0, limit);
+    }
   } catch (_err: any) {
     // Sub-collection not supported — fall through
   }
 
-  // Strategy 2: Try organization-level with where filter
+  // Strategy 2: Try organization-level with where filter + pagination
   try {
-    const data = await pave({
-      organization: {
-        $: { id: JT_ORG() },
-        dailyLogs: {
-          $: { size: limit, where: ['jobId', '=', jobId] },
-          ...dailyLogFields,
+    let allLogs: any[] = [];
+    let nextPage: string | null = null;
+
+    for (let page = 0; page < 10; page++) {
+      const pageParams: Record<string, unknown> = {
+        size: PAGE_SIZE,
+        where: ['jobId', '=', jobId],
+      };
+      if (nextPage) pageParams.page = nextPage;
+
+      const data = await pave({
+        organization: {
+          $: { id: JT_ORG() },
+          dailyLogs: {
+            $: pageParams,
+            nextPage: {},
+            nodes: dailyLogNodeFields,
+          },
         },
-      },
-    });
-    const logs = (data as any)?.organization?.dailyLogs?.nodes;
-    if (logs && Array.isArray(logs)) return logs;
+      });
+      const logPage = (data as any)?.organization?.dailyLogs;
+      const nodes = logPage?.nodes || [];
+      allLogs = allLogs.concat(nodes);
+      nextPage = logPage?.nextPage || null;
+
+      if (allLogs.length >= limit || !nextPage || nodes.length < PAGE_SIZE) break;
+    }
+
+    if (allLogs.length > 0) {
+      allLogs.sort((a, b) => {
+        const dateA = a.date || a.createdAt || '';
+        const dateB = b.date || b.createdAt || '';
+        return dateB.localeCompare(dateA);
+      });
+      return allLogs.slice(0, limit);
+    }
   } catch (_err2: any) {
     // Org-level with where failed — try without where and filter client-side
   }
 
-  // Strategy 3: Fetch recent org daily logs without where filter, filter client-side
+  // Strategy 3: Fetch org daily logs without where filter, filter client-side
   try {
-    const data = await pave({
-      organization: {
-        $: { id: JT_ORG() },
-        dailyLogs: {
-          $: { size: 100 },
-          nodes: {
-            id: {},
-            date: {},
-            notes: {},
-            createdAt: {},
-            job: { id: {} },
-            assignedMemberships: {
-              nodes: {
-                id: {},
-                user: { id: {}, name: {} },
-              },
+    let allLogs: any[] = [];
+    let nextPage: string | null = null;
+
+    for (let page = 0; page < 5; page++) {
+      const pageParams: Record<string, unknown> = { size: PAGE_SIZE };
+      if (nextPage) pageParams.page = nextPage;
+
+      const data = await pave({
+        organization: {
+          $: { id: JT_ORG() },
+          dailyLogs: {
+            $: pageParams,
+            nextPage: {},
+            nodes: {
+              ...dailyLogNodeFields,
+              job: { id: {} },
             },
           },
         },
-      },
-    });
-    const allLogs = (data as any)?.organization?.dailyLogs?.nodes || [];
+      });
+      const logPage = (data as any)?.organization?.dailyLogs;
+      const nodes = logPage?.nodes || [];
+      allLogs = allLogs.concat(nodes);
+      nextPage = logPage?.nextPage || null;
+
+      if (!nextPage || nodes.length < PAGE_SIZE) break;
+    }
+
     const filtered = allLogs.filter((log: any) => log?.job?.id === jobId);
-    if (filtered.length > 0) return filtered;
+    if (filtered.length > 0) {
+      filtered.sort((a, b) => {
+        const dateA = a.date || a.createdAt || '';
+        const dateB = b.date || b.createdAt || '';
+        return dateB.localeCompare(dateA);
+      });
+      return filtered.slice(0, limit);
+    }
   } catch (_err3: any) {
     // All strategies failed
   }
@@ -1344,50 +1405,99 @@ export interface JTComment {
   parentComment?: { id: string } | null;
 }
 
-export async function getCommentsForTarget(targetId: string, targetType: string, limit = 50): Promise<JTComment[]> {
+export async function getCommentsForTarget(targetId: string, targetType: string, limit = 200): Promise<JTComment[]> {
+  // Paginate to get all comments (default limit raised to 200, supports multi-page fetching)
   // Try querying comments through the parent entity first
   // targetType can be: job, task, document, costItem, etc.
+
+  const commentFields = {
+    id: {},
+    message: {},
+    name: {},
+    createdAt: {},
+    isPinned: {},
+    parentComment: { id: {} },
+  };
+
+  // Strategy 1: Sub-collection query through the parent entity, with pagination
   try {
-    const data = await pave({
-      [targetType]: {
-        $: { id: targetId },
-        comments: {
-          $: { size: limit },
-          nodes: {
-            id: {},
-            message: {},
-            name: {},
-            createdAt: {},
-            isPinned: {},
-            parentComment: { id: {} },
+    let allComments: any[] = [];
+    let nextPage: string | null = null;
+    const PAGE_SIZE = 100;
+
+    for (let page = 0; page < 10; page++) { // Max 10 pages = 1000 comments
+      const pageParams: Record<string, unknown> = { size: PAGE_SIZE };
+      if (nextPage) pageParams.page = nextPage;
+
+      const data = await pave({
+        [targetType]: {
+          $: { id: targetId },
+          comments: {
+            $: pageParams,
+            nextPage: {},
+            nodes: commentFields,
           },
         },
-      },
-    });
-    const comments = (data as any)?.[targetType]?.comments?.nodes;
-    if (comments) return comments;
+      });
+      const commentPage = (data as any)?.[targetType]?.comments;
+      const nodes = commentPage?.nodes || [];
+      allComments = allComments.concat(nodes);
+      nextPage = commentPage?.nextPage || null;
+
+      // Stop if we've hit the requested limit, no more pages, or got fewer than page size
+      if (allComments.length >= limit || !nextPage || nodes.length < PAGE_SIZE) break;
+    }
+
+    if (allComments.length > 0) {
+      // Sort by createdAt descending (newest first) to ensure recent comments are included
+      allComments.sort((a, b) => {
+        const dateA = a.createdAt ? new Date(a.createdAt).getTime() : 0;
+        const dateB = b.createdAt ? new Date(b.createdAt).getTime() : 0;
+        return dateB - dateA;
+      });
+      return allComments.slice(0, limit);
+    }
   } catch (_err: any) {
     // Fall through to org-level query
   }
 
-  // Fallback: query through organization with targetId filter
-  const data = await pave({
-    organization: {
-      $: { id: JT_ORG() },
-      comments: {
-        $: { size: limit, where: ['targetId', '=', targetId] },
-        nodes: {
-          id: {},
-          message: {},
-          name: {},
-          createdAt: {},
-          isPinned: {},
-          parentComment: { id: {} },
+  // Strategy 2: Fallback — query through organization with targetId filter, with pagination
+  let allComments: any[] = [];
+  let nextPage: string | null = null;
+  const PAGE_SIZE = 100;
+
+  for (let page = 0; page < 10; page++) {
+    const pageParams: Record<string, unknown> = {
+      size: PAGE_SIZE,
+      where: ['targetId', '=', targetId],
+    };
+    if (nextPage) pageParams.page = nextPage;
+
+    const data = await pave({
+      organization: {
+        $: { id: JT_ORG() },
+        comments: {
+          $: pageParams,
+          nextPage: {},
+          nodes: commentFields,
         },
       },
-    },
+    });
+    const commentPage = (data as any)?.organization?.comments;
+    const nodes = commentPage?.nodes || [];
+    allComments = allComments.concat(nodes);
+    nextPage = commentPage?.nextPage || null;
+
+    if (allComments.length >= limit || !nextPage || nodes.length < PAGE_SIZE) break;
+  }
+
+  // Sort by createdAt descending (newest first)
+  allComments.sort((a, b) => {
+    const dateA = a.createdAt ? new Date(a.createdAt).getTime() : 0;
+    const dateB = b.createdAt ? new Date(b.createdAt).getTime() : 0;
+    return dateB - dateA;
   });
-  return (data as any)?.organization?.comments?.nodes || [];
+  return allComments.slice(0, limit);
 }
 
 export async function createComment(params: {
