@@ -1,5 +1,6 @@
 "use client";
 import { useState, useEffect, useRef, useCallback } from "react";
+/* v2 — confirmation card + duration fix */
 
 /* ——— Types ———————————————————————————————————————————————————————————— */
 interface Contact { id: string; name: string; email?: string; phone?: string; }
@@ -14,7 +15,9 @@ const PHASES = ["Admin Tasks", "Conceptual Design", "Design Development", "Contr
 const TEAM_MEMBERS = ["", "Nathan King", "Terri Dalavai", "David Steich", "Evan Harrington", "John Molnar", "Karen Molnar", "Chrissy Zajick"];
 
 function parseTaskConfirmation(content: string, msgId: string): TaskConfirmation | null {
-  const match = content.match(/@@TASK_CONFIRM@@\s*([\s\S]*?)\s*@@END_CONFIRM@@/);
+  // Handle agent output that may wrap delimiters in markdown code fences or backticks
+  const cleaned = content.replace(/```[\s\S]*?```/g, (m) => m.replace(/```\w*\n?/g, '').replace(/```/g, ''));
+  const match = cleaned.match(/@@TASK_CONFIRM@@\s*([\s\S]*?)\s*@@END_CONFIRM@@/);
   if (!match) return null;
   try {
     const data = JSON.parse(match[1].trim());
@@ -23,7 +26,13 @@ function parseTaskConfirmation(content: string, msgId: string): TaskConfirmation
 }
 
 function stripConfirmBlock(content: string): string {
-  return content.replace(/@@TASK_CONFIRM@@[\s\S]*?@@END_CONFIRM@@/, "").trim();
+  // Strip the block including any surrounding code fences
+  let s = content;
+  // Pattern 1: block inside code fences
+  s = s.replace(/```\w*\s*@@TASK_CONFIRM@@[\s\S]*?@@END_CONFIRM@@\s*```/g, "");
+  // Pattern 2: raw block
+  s = s.replace(/@@TASK_CONFIRM@@[\s\S]*?@@END_CONFIRM@@/g, "");
+  return s.trim();
 }
 
 const TEMPLATES: Tpl[] = [
@@ -495,7 +504,7 @@ export default function Home() {
             )}
 
             {msgs.map(m => {
-              const hasConfirm = m.role === "assistant" && m.content.includes("@@TASK_CONFIRM@@");
+              const hasConfirm = m.role === "assistant" && (m.content.includes("@@TASK_CONFIRM@@") || m.content.includes("TASK_CONFIRM"));
               const displayContent = hasConfirm ? stripConfirmBlock(m.content) : m.content;
               const isActiveConfirm = pendingConfirm && pendingConfirm.msgId === m.id;
               return (

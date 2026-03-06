@@ -119,6 +119,9 @@ const jtEntry: AgentModule = {
       '- The phaseId must be the actual ID from get_job_schedule results.\n' +
       '- If no assignee, use "" (empty string). If no dates, use "" (empty string).\n' +
       '- This format enables the UI to show an editable confirmation card so the user can make quick changes before approving.\n\n' +
+      'TASK DURATION (CRITICAL):\n' +
+      '- ALWAYS set durationDays to 1. Every task should be a 1-day task unless the user explicitly requests a different duration.\n' +
+      '- Do NOT calculate multi-day durations based on start/end dates — just use durationDays: 1.\n\n' +
       'OTHER RULES:\n' +
       '- If you need a Job ID and none is provided, use search_jobs first to find the right job.\n' +
       '- Use the assignTo field with team member names. Match names fuzzy (e.g. "Nathan" matches "Nathan King").\n' +
