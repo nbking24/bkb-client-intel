@@ -205,6 +205,8 @@ export default function Home() {
   const [authed, setAuthed] = useState(false);
   const [tab, setTab] = useState<Tab>("chat");
   const [error, setError] = useState("");
+  const [syncing, setSyncing] = useState(false);
+  const [syncResult, setSyncResult] = useState<string | null>(null);
 
   // Notes
   const [contact, setContact] = useState<Contact | null>(null);
@@ -229,6 +231,19 @@ export default function Home() {
 
   const canUpload = contact && meetingType && transcript.trim();
   const resetNotes = () => { setContact(null); setMeetingType(""); setMeetingDate(""); setTranscript(""); setSaved(false); setSavedParts(0); };
+
+  /* Force sync */
+  const forceSync = async () => {
+    if (syncing) return;
+    setSyncing(true); setSyncResult(null); setError("");
+    try {
+      const r = await fetch("/api/sync/force", { method: "POST", headers: { Authorization: "Bearer " + getToken() } });
+      if (!r.ok) throw new Error("Sync failed");
+      const d = await r.json();
+      setSyncResult("Synced " + (d.totalItems || 0) + " items in " + (d.duration || "?"));
+      setTimeout(() => setSyncResult(null), 5000);
+    } catch (e: unknown) { setError("Sync failed: " + (e instanceof Error ? e.message : "unknown error")); } finally { setSyncing(false); }
+  };
 
   // Fetch opportunities when chat contact changes
   useEffect(() => {
@@ -341,6 +356,17 @@ export default function Home() {
             {chatContact && tab === "chat" && (
               <span className="text-xs px-2 py-1 rounded" style={{ color: "#8a8078", background: "rgba(205,162,116,0.06)" }}>{chatContact.name.split(" ")[0]}</span>
             )}
+            {syncResult && (
+              <span className="text-xs px-2 py-1 rounded animate-fade-in" style={{ color: "#4a9", background: "rgba(74,153,74,0.1)" }}>{syncResult}</span>
+            )}
+            <button onClick={forceSync} disabled={syncing} title="Sync GHL & JobTread data"
+              className="w-8 h-8 flex items-center justify-center rounded-lg transition-all hover:brightness-125 disabled:opacity-40"
+              style={{ background: "rgba(205,162,116,0.1)" }}>
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#CDA274" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"
+                className={syncing ? "animate-spin" : ""}>
+                <path d="M21 2v6h-6"/><path d="M3 12a9 9 0 0 1 15-6.7L21 8"/><path d="M3 22v-6h6"/><path d="M21 12a9 9 0 0 1-15 6.7L3 16"/>
+              </svg>
+            </button>
             <span className="text-xs" style={{ color: "#CDA274", fontFamily: "Georgia, serif", fontStyle: "italic" }}>Client Hub</span>
           </div>
         </div>
