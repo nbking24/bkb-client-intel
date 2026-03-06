@@ -49,7 +49,7 @@ export async function POST(request: NextRequest) {
         totalItems += r.comments + r.dailyLogs;
       } else {
         // Sync all active jobs
-        const activeJobs = await getActiveJobs(100);
+        const activeJobs = await getActiveJobs(50);
         for (const job of activeJobs) {
           if (Date.now() - startTime > MAX_SYNC_TIME_MS) {
             summary.jtTimedOut = true;
