@@ -168,6 +168,9 @@ export default function AskAgentPage() {
     if (!query.trim() || loading) return;
     const userMsg = query.trim();
     setQuery('');
+    // Reset textarea height after clearing
+    const textarea = document.querySelector('textarea');
+    if (textarea) textarea.style.height = '44px';
     await sendMessage(userMsg);
   };
 
@@ -555,20 +558,37 @@ export default function AskAgentPage() {
             Focused: #{selectedJob.number} {selectedJob.name}
           </div>
         )}
-        <input
-          type="text"
+        <textarea
           value={query}
-          onChange={(e) => setQuery(e.target.value)}
+          onChange={(e) => {
+            setQuery(e.target.value);
+            // Auto-grow textarea
+            e.target.style.height = 'auto';
+            e.target.style.height = Math.min(e.target.scrollHeight, 160) + 'px';
+          }}
+          onKeyDown={(e) => {
+            // Submit on Enter (without Shift), newline on Shift+Enter
+            if (e.key === 'Enter' && !e.shiftKey) {
+              e.preventDefault();
+              if (query.trim() && !loading) {
+                handleSubmit(e as any);
+              }
+            }
+          }}
           placeholder={
             agentMode === 'project-details'
               ? (selectedJob ? `Ask about specs for #${selectedJob.number} ${selectedJob.name}...` : 'Select a project, then ask about specifications...')
               : (selectedJob ? `Ask about #${selectedJob.number} ${selectedJob.name}...` : 'Ask about any project, create tasks, or check schedules...')
           }
-          className="w-full pl-4 pr-12 py-3 rounded-lg text-sm outline-none"
+          rows={1}
+          className="w-full pl-4 pr-12 py-3 rounded-lg text-sm outline-none resize-none"
           style={{
             background: '#242424',
             color: '#e8e0d8',
             border: selectedJob ? '1px solid rgba(201,168,76,0.25)' : '1px solid rgba(205,162,116,0.12)',
+            minHeight: '44px',
+            maxHeight: '160px',
+            overflowY: 'auto',
           }}
           disabled={loading}
         />

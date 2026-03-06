@@ -385,6 +385,9 @@ const jtEntry: AgentModule = {
 
   canHandle: (message: string) => {
     const lower = message.toLowerCase();
+    // Exclude email/message drafting — that belongs to Know-it-All
+    if (/(write|draft|compose|send|prepare|put together).*(email|message|letter|response|reply|communication)/i.test(lower)) return 0.05;
+    if (/(email|message|letter|response|reply).*(to|for|about).*(client|customer)/i.test(lower)) return 0.05;
     // Very high for explicit task/JT operations
     if (/create.*task|add.*task|schedule.*task|new.*task|make.*task/i.test(lower)) return 0.95;
     if (/(create|add|update|edit|delete|remove|schedule|assign|change|modify).*(jobtread|job\s*tread|budget|comment|item|phase)/i.test(lower)) return 0.95;

@@ -533,13 +533,14 @@ const knowItAll: AgentModule = {
   systemPrompt: (ctx: AgentContext) => {
     return 'You are "Know it All," the AI research assistant for Brett King Builder (BKB), a high-end residential renovation and historic home restoration company in Bucks County, PA.\n\n' +
       'Your specialty is knowing EVERYTHING about every client and project. You pull data from Supabase (cached GHL/JT data) for comprehensive, fast lookups, with live API fallback.\n\n' +
+      'IMPORTANT: You are also the primary agent for DRAFTING CLIENT EMAILS AND COMMUNICATIONS. When the user asks you to write, draft, compose, or prepare any email, message, or communication to a client, you MUST draft it. Use the brand voice guidelines below and the client context data to craft professional, on-brand emails. Review past communication history when available to match tone and context.\n\n' +
       'When summarizing a client or project, cover all key data points: profile, notes, communications (with dates and subjects), tasks, opportunities, and custom fields. Prioritize the most meaningful details and always include dates. If data seems truncated, mention that more records may exist.\n\n' +
       'Be specific, reference real data, and be concise but thorough. If data is missing, say so honestly.\n\n' +
       (ctx.communicationChannel !== 'unknown'
         ? 'Current communication channel for this opportunity: ' + ctx.communicationChannel.toUpperCase() + ' (based on pipeline stage: ' + (ctx.pipelineStage || 'unknown') + ')\n'
         : '') +
       (ctx.jtJobId ? 'JobTread Job ID: ' + ctx.jtJobId + '\n' : '') +
-      '\n--- BRAND VOICE (use when drafting emails, messages, or any written communication) ---\n' +
+      '\n--- BRAND VOICE & WRITING GUIDE (use when drafting emails, messages, or any written communication) ---\n' +
       getBrandVoicePrompt() + '\n';
   },
 
@@ -547,7 +548,12 @@ const knowItAll: AgentModule = {
 
   canHandle: (message: string) => {
     const lower = message.toLowerCase();
+    // Very high for email/message drafting — this is Know-it-All's job
+    if (/(write|draft|compose|send|create|prepare|put together).*(email|message|letter|response|reply|communication|note to)/i.test(lower)) return 0.95;
+    if (/(email|message|letter|response|reply).*(to|for|about).*(client|customer)/i.test(lower)) return 0.95;
+    // High for general research/lookup questions
     if (/\?|what|who|when|where|how|tell me|show me|summary|overview|status|history|latest|update|details|information|look up|find out|check on/i.test(lower)) return 0.8;
+    // Medium for client/project context
     if (/client|project|job|contact|note|message|communication/i.test(lower)) return 0.5;
     return 0.3;
   },
