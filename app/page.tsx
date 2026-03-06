@@ -293,10 +293,15 @@ export default function Home() {
       if (!r.ok) { const e = await r.json().catch(() => ({})); throw new Error(e.error || "Chat failed"); }
       const d = await r.json();
       const newMsgId = uid();
+      // The API now strips @@TASK_CONFIRM@@ blocks and returns taskConfirm separately
       setMsgs(p => [...p, { id: newMsgId, role: "assistant", content: d.reply, ts: Date.now(), agent: d.agent }]);
-      // Check if the response contains a task confirmation block
-      const confirm = parseTaskConfirmation(d.reply, newMsgId);
-      if (confirm) setPendingConfirm(confirm);
+      // Use API-provided taskConfirm (server-side parsed), fallback to client-side parsing
+      if (d.taskConfirm) {
+        setPendingConfirm({ name: d.taskConfirm.name || "", phase: d.taskConfirm.phase || "", phaseId: d.taskConfirm.phaseId || "", description: d.taskConfirm.description || "", assignee: d.taskConfirm.assignee || "", startDate: d.taskConfirm.startDate || "", endDate: d.taskConfirm.endDate || "", msgId: newMsgId });
+      } else {
+        const confirm = parseTaskConfirmation(d.reply, newMsgId);
+        if (confirm) setPendingConfirm(confirm);
+      }
     } catch (e: unknown) {
       setMsgs(p => [...p, { id: uid(), role: "assistant", content: "Sorry, something went wrong. " + (e instanceof Error ? e.message : ""), ts: Date.now() }]);
     } finally { setThinking(false); }

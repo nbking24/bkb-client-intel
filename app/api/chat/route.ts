@@ -70,10 +70,28 @@ export async function POST(req: NextRequest) {
       forcedAgent || undefined
     );
 
+    // Extract task confirmation block from reply (if present)
+    let reply = result.reply;
+    let taskConfirm = null;
+    // Handle block inside code fences OR raw
+    const fencedMatch = reply.match(/```\w*\s*@@TASK_CONFIRM@@\s*([\s\S]*?)\s*@@END_CONFIRM@@\s*```/);
+    const rawMatch = reply.match(/@@TASK_CONFIRM@@\s*([\s\S]*?)\s*@@END_CONFIRM@@/);
+    const confirmMatch = fencedMatch || rawMatch;
+    if (confirmMatch) {
+      try {
+        taskConfirm = JSON.parse(confirmMatch[1].trim());
+      } catch { /* non-fatal: malformed JSON */ }
+      // Strip the block from the reply text (both fenced and raw patterns)
+      reply = reply.replace(/```\w*\s*@@TASK_CONFIRM@@[\s\S]*?@@END_CONFIRM@@\s*```/g, '');
+      reply = reply.replace(/@@TASK_CONFIRM@@[\s\S]*?@@END_CONFIRM@@/g, '');
+      reply = reply.trim();
+    }
+
     return NextResponse.json({
-      reply: result.reply,
+      reply,
       agent: result.agentName,
       needsConfirmation: result.needsConfirmation || false,
+      taskConfirm,
     });
   } catch (err) {
     console.error('Chat error:', err);
