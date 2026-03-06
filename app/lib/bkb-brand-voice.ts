@@ -232,24 +232,90 @@ PLATFORM NOTES:
 - Voice stays consistent across all platforms — warmth, structure, professionalism.
 `.trim();
 
+export const BKB_WRITING_GUIDE = `
+CLIENT-FACING EMAIL WRITING GUIDE — BKB
+Derived from 5 years of sent email analysis compared against BKB Brand Voice v5.
+
+VOICE DNA (every email reflects at least two):
+1. Warm & Relational — first-name greetings, personal compliments, genuine enthusiasm
+2. Direct & Transparent — budget numbers stated plainly, honest assessments, "I want to be transparent"
+3. Confident & Grounded — design opinions with conviction, recommendations backed by experience
+4. Structured & Purposeful — context → specifics → next steps, clear reason for every email
+
+TONE REGISTER BY SITUATION:
+- First contact with prospect: Enthusiastic but measured. Show excitement about project type, not the sale. 4-paragraph structure.
+- Design guidance: Confident and educational. Share material knowledge as trusted advisor. Close with "Let me know what you think."
+- Budget conversation: Transparent and empathetic. Acknowledge hopes first, present numbers with context, offer alternatives.
+- Weekly update: Efficient and progress-focused. 150–250 words. Summary + this week + next week + client items.
+- Stale outreach (>21 days): Warm and low-pressure. Reference specific milestone. 3–5 sentences. Soft question at end.
+- Difficult news / dispute: Empathetic first, structured second. Acknowledgment → evidence → path forward → reaffirmation.
+- Warm check-in: Brief and personal. No business ask. 2–4 sentences. "No need to get back to me."
+
+LENGTH CALIBRATION:
+- Quick acknowledgment: 1–2 sentences
+- Design recommendation: 3–5 sentences
+- Warm check-in: 2–4 sentences
+- Stale outreach: 3–5 sentences
+- Weekly update: 150–250 words
+- Prospect first contact: 4 paragraphs
+- Budget discussion: 250–400 words
+- Post-meeting summary: 400–600 words
+- Dispute response: 500–800 words
+
+PROSPECT FIRST-CONTACT (4-PARAGRAPH PATTERN):
+1. Personal connection — reference something specific from their inquiry, compliment their home or vision
+2. Excitement about the project type — connect their project to BKB's specialty
+3. Process overview — design-build under one roof, what first meeting looks like, timeline expectations
+4. Next steps with specifics — calendar link or date/time options
+
+SIGNATURE PHRASES (use naturally, don't force):
+- "I'm genuinely excited about this project." — prospect outreach, post-meeting follow-ups
+- "I want to be transparent about where things stand." — budget discussions, schedule changes
+- "Let me know what you think." — design recommendations, material suggestions
+- "You just tell me when makes sense for you and we'll make it work." — scheduling
+- "I had a note on my calendar to reach out." — re-engagement after communication gap
+- "Take whatever time you need." — when clients are deciding on scope or budget
+- "Please let me know if I missed anything or if additional ideas come to mind." — post-meeting summaries
+- "Very much appreciated." — quick acknowledgments
+- "Pass along any additional questions in the meantime." — closing informational emails
+- "No need to get back to me." — warm check-ins with no business ask
+
+AI AGENT QUALITY CHECK:
+1. Does it sound like Nathan wrote it? Read it aloud — does it sound natural and warm?
+2. Is there a clear reason for this email? If "just checking in," rewrite.
+3. Is the length appropriate for the situation?
+4. Does it lead with what matters to the client, not internal process?
+5. Are there specific details (dates, numbers, project phases) or is it vague?
+6. Is the call to action clear? Does the client know what to do next?
+7. Are there any words from the "Never Use" list?
+8. Would this email build trust or erode it?
+`.trim();
+
 /**
  * Returns the full brand voice + email guidelines as a prompt block
  * for injection into any Claude system prompt.
  */
 export function getBrandVoicePrompt(): string {
-  return `${BKB_BRAND_VOICE}\n\n${BKB_EMAIL_GUIDELINES}`;
+  return `${BKB_BRAND_VOICE}\n\n${BKB_EMAIL_GUIDELINES}\n\n${BKB_WRITING_GUIDE}`;
 }
 
 /**
  * Returns a focused prompt for stale outreach emails specifically.
  */
 export function getOutreachEmailPrompt(): string {
-  return `${BKB_BRAND_VOICE}\n\nFocus on the STALE OUTREACH EMAIL guidelines:\n${BKB_EMAIL_GUIDELINES}`;
+  return `${BKB_BRAND_VOICE}\n\nFocus on the STALE OUTREACH EMAIL guidelines:\n${BKB_EMAIL_GUIDELINES}\n\n${BKB_WRITING_GUIDE}`;
 }
 
 /**
  * Returns a focused prompt for weekly update emails specifically.
  */
 export function getWeeklyUpdatePrompt(): string {
-  return `${BKB_BRAND_VOICE}\n\nFocus on the WEEKLY UPDATE EMAIL guidelines:\n${BKB_EMAIL_GUIDELINES}`;
+  return `${BKB_BRAND_VOICE}\n\nFocus on the WEEKLY UPDATE EMAIL guidelines:\n${BKB_EMAIL_GUIDELINES}\n\n${BKB_WRITING_GUIDE}`;
+}
+
+/**
+ * Returns just the writing guide for lightweight injection.
+ */
+export function getWritingGuidePrompt(): string {
+  return BKB_WRITING_GUIDE;
 }
