@@ -462,7 +462,7 @@ export async function getJTDailyLogsByJobId(jobId: string, limit = 500): Promise
 export async function createConversation(title: string, jobId?: string, jobName?: string) {
   const sb = getSupabase();
   const { data, error } = await sb
-    .from('conversations')
+    .from('chat_conversations')
     .insert({
       title,
       jt_job_id: jobId || null,
@@ -477,7 +477,7 @@ export async function createConversation(title: string, jobId?: string, jobName?
 export async function listConversations(limit = 30) {
   const sb = getSupabase();
   const { data, error } = await sb
-    .from('conversations')
+    .from('chat_conversations')
     .select('id, title, jt_job_id, jt_job_name, created_at, updated_at')
     .order('updated_at', { ascending: false })
     .limit(limit);
@@ -488,8 +488,8 @@ export async function listConversations(limit = 30) {
 export async function getConversationWithMessages(conversationId: string) {
   const sb = getSupabase();
   const [convResult, msgsResult] = await Promise.all([
-    sb.from('conversations').select('*').eq('id', conversationId).single(),
-    sb.from('conversation_messages')
+    sb.from('chat_conversations').select('*').eq('id', conversationId).single(),
+    sb.from('chat_messages')
       .select('*')
       .eq('conversation_id', conversationId)
       .order('created_at', { ascending: true }),
@@ -509,7 +509,7 @@ export async function addConversationMessage(
 ) {
   const sb = getSupabase();
   const { error: msgError } = await sb
-    .from('conversation_messages')
+    .from('chat_messages')
     .insert({
       conversation_id: conversationId,
       role,
@@ -523,7 +523,7 @@ export async function addConversationMessage(
   if (role === 'user') {
     // Auto-title from first user message (truncated)
     const { data: conv } = await sb
-      .from('conversations')
+      .from('chat_conversations')
       .select('title')
       .eq('id', conversationId)
       .single();
@@ -531,13 +531,13 @@ export async function addConversationMessage(
       updates.title = content.slice(0, 80) + (content.length > 80 ? '...' : '');
     }
   }
-  await sb.from('conversations').update(updates).eq('id', conversationId);
+  await sb.from('chat_conversations').update(updates).eq('id', conversationId);
 }
 
 export async function deleteConversation(conversationId: string) {
   const sb = getSupabase();
   // Messages cascade-delete via FK
-  const { error } = await sb.from('conversations').delete().eq('id', conversationId);
+  const { error } = await sb.from('chat_conversations').delete().eq('id', conversationId);
   if (error) throw error;
 }
 

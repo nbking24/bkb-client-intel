@@ -3,7 +3,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { validateAuth } from '../../lib/auth';
 import { getSupabase } from '../../lib/supabase';
 
-// POST /api/conversations/setup — create the conversations tables
+// POST /api/conversations/setup — create the chat_conversations tables
 export async function POST(req: NextRequest) {
   if (!validateAuth(req.headers.get('authorization'))) {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
@@ -12,10 +12,10 @@ export async function POST(req: NextRequest) {
   const sb = getSupabase();
 
   try {
-    // Create conversations table
+    // Create chat_conversations table
     const { error: err1 } = await sb.rpc('exec_sql', {
       sql: `
-        CREATE TABLE IF NOT EXISTS conversations (
+        CREATE TABLE IF NOT EXISTS chat_conversations (
           id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
           title TEXT NOT NULL DEFAULT 'New conversation',
           jt_job_id TEXT,
@@ -26,12 +26,12 @@ export async function POST(req: NextRequest) {
       `
     });
 
-    // Create conversation_messages table
+    // Create chat_messages table
     const { error: err2 } = await sb.rpc('exec_sql', {
       sql: `
-        CREATE TABLE IF NOT EXISTS conversation_messages (
+        CREATE TABLE IF NOT EXISTS chat_messages (
           id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-          conversation_id UUID NOT NULL REFERENCES conversations(id) ON DELETE CASCADE,
+          conversation_id UUID NOT NULL REFERENCES chat_conversations(id) ON DELETE CASCADE,
           role TEXT NOT NULL CHECK (role IN ('user', 'assistant')),
           content TEXT NOT NULL,
           agent_name TEXT,
@@ -43,8 +43,8 @@ export async function POST(req: NextRequest) {
     // Create index for fast message lookup
     const { error: err3 } = await sb.rpc('exec_sql', {
       sql: `
-        CREATE INDEX IF NOT EXISTS idx_conv_messages_conv_id ON conversation_messages(conversation_id);
-        CREATE INDEX IF NOT EXISTS idx_conversations_updated ON conversations(updated_at DESC);
+        CREATE INDEX IF NOT EXISTS idx_chat_messages_conv_id ON chat_messages(conversation_id);
+        CREATE INDEX IF NOT EXISTS idx_chat_conversations_updated ON chat_conversations(updated_at DESC);
       `
     });
 
@@ -57,7 +57,7 @@ export async function POST(req: NextRequest) {
       }, { status: 207 });
     }
 
-    return NextResponse.json({ success: true, message: 'Conversation tables created' });
+    return NextResponse.json({ success: true, message: 'Chat conversation tables created' });
   } catch (err) {
     return NextResponse.json({
       error: 'Setup failed. You may need to create the tables manually in the Supabase SQL editor.',
@@ -70,7 +70,7 @@ export async function POST(req: NextRequest) {
 const MANUAL_SQL = `
 -- Run this in the Supabase SQL Editor if auto-setup fails:
 
-CREATE TABLE IF NOT EXISTS conversations (
+CREATE TABLE IF NOT EXISTS chat_conversations (
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   title TEXT NOT NULL DEFAULT 'New conversation',
   jt_job_id TEXT,
@@ -79,17 +79,17 @@ CREATE TABLE IF NOT EXISTS conversations (
   updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 
-CREATE TABLE IF NOT EXISTS conversation_messages (
+CREATE TABLE IF NOT EXISTS chat_messages (
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-  conversation_id UUID NOT NULL REFERENCES conversations(id) ON DELETE CASCADE,
+  conversation_id UUID NOT NULL REFERENCES chat_conversations(id) ON DELETE CASCADE,
   role TEXT NOT NULL CHECK (role IN ('user', 'assistant')),
   content TEXT NOT NULL,
   agent_name TEXT,
   created_at TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 
-CREATE INDEX IF NOT EXISTS idx_conv_messages_conv_id ON conversation_messages(conversation_id);
-CREATE INDEX IF NOT EXISTS idx_conversations_updated ON conversations(updated_at DESC);
+CREATE INDEX IF NOT EXISTS idx_chat_messages_conv_id ON chat_messages(conversation_id);
+CREATE INDEX IF NOT EXISTS idx_chat_conversations_updated ON chat_conversations(updated_at DESC);
 `;
 
 // GET — return the SQL for manual setup
