@@ -1,14 +1,85 @@
 // @ts-nocheck
+/**
+ * Know It All Agent - v2 (Supabase-backed)
+ *
+ * Strategy: Try Supabase first (fast, no rate-limit risk).
+ * Fall back to live GHL API if Supabase is empty or unavailable.
+ * Triggers a background sync after live-fetch so next query uses cache.
+ *
+ * This lets us pull ALL notes, ALL messages, ALL history - no truncation -
+ * because Supabase queries are fast and free of GHL rate limits.
+ */
 import { AgentModule, AgentContext } from './types';
-import { getContact, getContactNotes, searchConversations, getConversationMessages, getContactTasks, getOpportunity, searchContacts as searchGHLContacts, getMessagesFromDB, getNotesFromDB } from '../ghl';
 import {
-  getActiveJobs, getJob, getJobSchedule, getTasksForJob, getDocumentsForJob,
-  getMembers, getAllOpenTasks, getDailyLogsForJob, getCommentsForTarget,
-  getTimeEntriesForJob, getSpecificationsForJob, getCostItemsForJob,
-  getEventsForJob, getFilesForJob, getDocumentContent,
-  // DB-only reads for messages & daily logs (prevents duplication)
-  getCommentsFromDB, getDailyLogsFromDB,
-} from '../../../lib/jobtread';
+  getContactFromDB,
+  getContactNotesFromDB,
+  getContactMessagesFromDB,
+  getContactTasksFromDB,
+  getContactOpportunitiesFromDB,
+  getOpportunityFromDB,
+  getJTJobsFromDB,
+  getLastSyncTime,
+} from '../supabase';
+import {
+  getContact,
+  getContactNotes,
+  searchConversations,
+  getConversationMessages,
+  getContactTasks,
+  getOpportunity,
+  getMessageById,
+  getEmailById,
+} from '../ghl';
+import { getActiveJobs } from '../jobtread';
+
+// -- TOKEN-AWARE CONTEXT BUDGETING ------------------------------------
+// Claude Sonnet has ~200k context. We budget ~120k chars (~30k tokens)
+// for system data so the model still has room for system prompt +
+// conversation history + response generation.
+const MAX_CONTEXT_CHARS = 120_000;
+
+// Priority order: profile & opps are small and always included.
+// Notes and messages are large and get trimmed (oldest first) if needed.
+// Rough char-per-token ratio: ~4 chars = 1 token.
+function trimToContextBudget(sections: { label: string; content: string; priority: number }[]): string {
+  // Sort by priority (lower = more important, always included first)
+  sections.sort((a, b) => a.priority - b.priority);
+
+  let totalChars = 0;
+  const included: string[] = [];
+
+  for (const section of sections) {
+    if (totalChars + section.content.length <= MAX_CONTEXT_CHARS) {
+      included.push(section.content);
+      totalChars += section.content.length;
+    } else {
+      // Partial inclusion: trim from the END (oldest entries) since
+      // content is ordered newest-first from Supabase
+      const remaining = MAX_CONTEXT_CHARS - totalChars;
+      if (remaining > 500) {
+        // Keep the newest entries (at the start of the string)
+        const trimmed = section.content.slice(0, remaining);
+        const lastNewline = trimmed.lastIndexOf('\n');
+        const cleanCut = lastNewline > 0 ? trimmed.slice(0, lastNewline) : trimmed;
+        included.push(cleanCut + '\n... (older records trimmed to fit context window)');
+        totalChars += cleanCut.length;
+      }
+      break; // No room for remaining sections
+    }
+  }
+
+  return included.join('\n\n');
+}
+
+function stripHtml(html: string): string {
+  return html
+    .replace(/<style[^>]*>[\s\S]*?<\/style>/gi, '')
+    .replace(/<[^>]+>/g, ' ')
+    .replace(/&nbsp;/g, ' ').replace(/&amp;/g, '&')
+    .replace(/&lt;/g, '<').replace(/&gt;/g, '>')
+    .replace(/&quot;/g, '"').replace(/&#39;/g, "'")
+    .replace(/\s+/g, ' ').trim();
+}
 
 function formatValue(val: any): string {
   if (val === null || val === undefined || val === '') return '';
@@ -37,15 +108,139 @@ const SKIP_FIELDS = new Set([
   '__v', 'deleted', 'type',
 ]);
 
-async function fetchGHLContext(ctx: AgentContext): Promise<string> {
+// -- SUPABASE-FIRST CONTEXT FETCHING ---------------------------------
+
+async function fetchContextFromSupabase(ctx: AgentContext): Promise<string | null> {
+  if (!ctx.contactId) return null;
+
+  try {
+    const lastSync = await getLastSyncTime('contact_full', ctx.contactId);
+    if (!lastSync) return null; // No sync yet, fall back to live
+
+    // Fetch ALL data concurrently - no artificial limits
+    const [contact, opps, notes, messages, tasks] = await Promise.all([
+      getContactFromDB(ctx.contactId),
+      getContactOpportunitiesFromDB(ctx.contactId),
+      getContactNotesFromDB(ctx.contactId),
+      getContactMessagesFromDB(ctx.contactId),
+      getContactTasksFromDB(ctx.contactId),
+    ]);
+
+    const budgetSections: { label: string; content: string; priority: number }[] = [];
+
+    // 1. CONTACT PROFILE - priority 1 (always included, small)
+    if (contact) {
+      const profileLines: string[] = [];
+      if (contact.first_name) profileLines.push('First Name: ' + contact.first_name);
+      if (contact.last_name) profileLines.push('Last Name: ' + contact.last_name);
+      if (contact.email) profileLines.push('Email: ' + contact.email);
+      if (contact.phone) profileLines.push('Phone: ' + contact.phone);
+      if (contact.company_name) profileLines.push('Company: ' + contact.company_name);
+      if (contact.address) profileLines.push('Address: ' + contact.address);
+      if (contact.city) profileLines.push('City: ' + contact.city);
+      if (contact.state) profileLines.push('State: ' + contact.state);
+      if (contact.postal_code) profileLines.push('Postal Code: ' + contact.postal_code);
+      if (contact.country) profileLines.push('Country: ' + contact.country);
+      if (contact.website) profileLines.push('Website: ' + contact.website);
+      if (contact.source) profileLines.push('Lead Source: ' + contact.source);
+      if (contact.date_added) profileLines.push('Date Added: ' + new Date(contact.date_added).toLocaleString());
+      if (contact.last_activity) profileLines.push('Last Activity: ' + new Date(contact.last_activity).toLocaleString());
+      if (contact.assigned_to) profileLines.push('Assigned To: ' + contact.assigned_to);
+      if (contact.dnd) profileLines.push('Do Not Disturb: Yes');
+      if (contact.tags && contact.tags.length > 0) profileLines.push('Tags: ' + contact.tags.join(', '));
+      if (contact.custom_fields && typeof contact.custom_fields === 'object') {
+        for (const [key, value] of Object.entries(contact.custom_fields)) {
+          if (value != null && value !== '') profileLines.push(key + ': ' + String(value));
+        }
+      }
+      if (profileLines.length > 0) {
+        budgetSections.push({
+          label: 'profile',
+          content: '=== CONTACT PROFILE (from cache, synced ' + new Date(lastSync).toLocaleString() + ') ===\n' + profileLines.join('\n'),
+          priority: 1,
+        });
+      }
+    }
+
+    // 2. OPPORTUNITIES - priority 1 (always included, small)
+    if (opps.length > 0) {
+      const oppLines = opps.map(o =>
+        '- ' + (o.name || 'Unnamed') + ' | Value: ' + (o.monetary_value || 'N/A') +
+        ' | Status: ' + (o.status || 'N/A') + ' | Stage: ' + (o.pipeline_stage || 'N/A')
+      );
+      budgetSections.push({
+        label: 'opportunities',
+        content: '=== OPPORTUNITIES (' + opps.length + ') ===\n' + oppLines.join('\n'),
+        priority: 1,
+      });
+    }
+
+    // 3. TASKS - priority 1 (always included, usually small)
+    if (tasks.length > 0) {
+      const taskTexts = tasks.map(t => {
+        const due = t.due_date ? ' (Due: ' + new Date(t.due_date).toLocaleDateString() + ')' : '';
+        const assignee = t.assigned_to ? ' [Assigned: ' + t.assigned_to + ']' : '';
+        return '- [' + (t.completed ? 'DONE' : 'OPEN') + '] ' + (t.title || 'No title') + due + assignee;
+      });
+      budgetSections.push({
+        label: 'tasks',
+        content: '=== TASKS (' + tasks.length + ') ===\n' + taskTexts.join('\n'),
+        priority: 1,
+      });
+    }
+
+    // 4. NOTES - priority 2 (important context, full bodies, trimmed if needed)
+    if (notes.length > 0) {
+      const noteTexts = notes.map(n => {
+        const date = n.date_added ? new Date(n.date_added).toLocaleDateString() : 'No date';
+        return '[' + date + '] ' + (n.body || '');
+      });
+      budgetSections.push({
+        label: 'notes',
+        content: '=== CRM NOTES (' + notes.length + ' total) ===\n' + noteTexts.join('\n---\n'),
+        priority: 2,
+      });
+    }
+
+    // 5. MESSAGES - priority 3 (largest dataset, trimmed first if overflow)
+    if (messages.length > 0) {
+      const msgTexts = messages.map(m => {
+        const date = m.date_added ? new Date(m.date_added).toLocaleDateString() : '';
+        const direction = m.direction || '?';
+        const msgType = m.message_type || '';
+        const subject = m.subject ? ' Subject: ' + m.subject : '';
+        const body = m.body || '(no body)';
+        return '[' + date + ' ' + direction + ' ' + msgType + subject + '] ' + body;
+      });
+      budgetSections.push({
+        label: 'messages',
+        content: '=== MESSAGES (' + messages.length + ' total from Supabase) ===\n' + msgTexts.join('\n'),
+        priority: 3,
+      });
+    }
+
+    if (budgetSections.length === 0) return null;
+
+    // Smart truncation: fit everything into ~120k chars, trimming lowest-priority first
+    return trimToContextBudget(budgetSections);
+
+  } catch (err) {
+    console.error('Supabase fetch failed, falling back to live API:', err);
+    return null;
+  }
+}
+
+// -- LIVE GHL FALLBACK (original logic, with token budgets) -----------
+
+async function fetchGHLContextLive(ctx: AgentContext): Promise<string> {
   if (!ctx.contactId) return '';
   const sections: string[] = [];
 
   try {
-    const [profile, notes, dbMessages, tasks] = await Promise.allSettled([
+    const [profile, notes, convos, tasks] = await Promise.allSettled([
       getContact(ctx.contactId),
-      getNotesFromDB(ctx.contactId),
-      getMessagesFromDB(ctx.contactId),
+      getContactNotes(ctx.contactId),
+      searchConversations(ctx.contactId),
       getContactTasks(ctx.contactId),
     ]);
 
@@ -91,15 +286,6 @@ async function fetchGHLContext(ctx: AgentContext): Promise<string> {
         usedKeys.add('customFields');
       }
 
-      if (c.additionalEmails && c.additionalEmails.length > 0) {
-        profileLines.push('Additional Emails: ' + c.additionalEmails.join(', '));
-        usedKeys.add('additionalEmails');
-      }
-      if (c.additionalPhones && c.additionalPhones.length > 0) {
-        profileLines.push('Additional Phones: ' + c.additionalPhones.map((p: any) => p.phone || p).join(', '));
-        usedKeys.add('additionalPhones');
-      }
-
       if (c.opportunities && Array.isArray(c.opportunities) && c.opportunities.length > 0) {
         for (const opp of c.opportunities) {
           profileLines.push('Opportunity: ' + (opp.name || 'Unnamed') + ' | Value: ' + (opp.monetaryValue || 'N/A') + ' | Status: ' + (opp.status || 'N/A'));
@@ -115,41 +301,64 @@ async function fetchGHLContext(ctx: AgentContext): Promise<string> {
         }
       }
 
-      if (profileLines.length > 0) sections.push('=== CONTACT PROFILE ===\n' + profileLines.join('\n'));
+      if (profileLines.length > 0) sections.push('=== CONTACT PROFILE (live from GHL) ===\n' + profileLines.join('\n'));
     }
 
-    // CRM NOTES
+    // NOTES (budgeted for live)
     if (notes.status === 'fulfilled' && Array.isArray(notes.value) && notes.value.length > 0) {
-      const noteTexts = notes.value.slice(0, 50).map((n: any) => {
+      const noteTexts = notes.value.slice(0, 20).map((n: any) => {
         const date = n.dateAdded ? new Date(n.dateAdded).toLocaleDateString() : 'No date';
-        return '[' + date + '] ' + (n.body || '').slice(0, 65000);
+        return '[' + date + '] ' + (n.body || '').slice(0, 1500);
       });
-      sections.push('=== CRM NOTES (' + notes.value.length + ' total) ===\n' + noteTexts.join('\n---\n'));
-    } else if (notes.status === 'rejected') {
-      const errMsg = notes.reason instanceof Error ? notes.reason.message : 'Unknown error';
-      sections.push('=== NOTES ERROR ===\nFailed to fetch notes: ' + errMsg);
+      sections.push('=== CRM NOTES (' + notes.value.length + ' total, showing latest 20 - LIVE) ===\n' + noteTexts.join('\n---\n'));
     }
 
-    // MESSAGES (from database — complete history, no pagination limits)
-    if (dbMessages.status === 'fulfilled' && Array.isArray(dbMessages.value)) {
-      if (dbMessages.value.length === 0) {
-        sections.push('=== MESSAGES ===\nNo messages found for this contact.');
-      } else {
-        const msgs: string[] = [];
-        for (const m of dbMessages.value) {
-          const mr = m as any;
-          const date = mr.dateAdded ? new Date(mr.dateAdded).toLocaleDateString() : '';
-          const direction = mr.direction || mr.meta?.email?.direction || mr.meta?.direction || '?';
-          const msgType = mr.messageType || mr.type || '';
-          const subject = mr.meta?.email?.subject ? ' Subject: ' + mr.meta.email.subject : (mr.subject ? ' Subject: ' + mr.subject : '');
-          const body = mr.body || mr.text || mr.message || mr.altText || '';
-          msgs.push('[' + date + ' ' + direction + ' ' + msgType + subject + '] ' + (body ? body.slice(0, 2000) : '(no body text)'));
-        }
-        sections.push('=== MESSAGES (' + msgs.length + ' total) ===\n' + msgs.join('\n'));
+    // CONVERSATIONS & MESSAGES (budgeted for live)
+    const MAX_CONVOS = 5;
+    const MAX_MSGS_PER_CONVO = 20;
+    const MAX_BODY_CHARS = 1200;
+    const MAX_EMAIL_BODY_FETCHES = 8;
+    let emailBodyFetches = 0;
+
+    if (convos.status === 'fulfilled' && Array.isArray(convos.value) && convos.value.length > 0) {
+      const msgs: string[] = [];
+      for (const conv of convos.value.slice(0, MAX_CONVOS)) {
+        try {
+          const cmsgs = await getConversationMessages(conv.id, MAX_MSGS_PER_CONVO);
+          if (Array.isArray(cmsgs)) {
+            for (const m of cmsgs) {
+              const date = m.dateAdded ? new Date(m.dateAdded).toLocaleDateString() : '';
+              const direction = m.direction || '?';
+              const msgType = m.messageType || m.type || '';
+              const subject = m.meta?.email?.subject ? ' Subject: ' + m.meta.email.subject : '';
+              let body = m.body || m.text || m.message || '';
+
+              if (!body && m.messageType === 'TYPE_EMAIL' && emailBodyFetches < MAX_EMAIL_BODY_FETCHES) {
+                emailBodyFetches++;
+                try {
+                  const fullMsg = await getMessageById(m.id);
+                  const msgData = fullMsg.message || fullMsg;
+                  body = msgData.body || msgData.text || msgData.html || '';
+                  if (body && (msgData.contentType === 'text/html' || body.startsWith('<'))) body = stripHtml(body);
+                } catch { /* fail silently */ }
+                if (!body && m.meta?.email?.messageIds?.length > 0) {
+                  try {
+                    const emailData = await getEmailById(m.meta.email.messageIds[0]);
+                    const email = emailData.email || emailData;
+                    body = email.body || email.text || email.html || email.textBody || email.htmlBody || '';
+                    if (body && body.startsWith('<')) body = stripHtml(body);
+                  } catch { /* fail silently */ }
+                }
+              }
+              if (!body && m.id === cmsgs[0]?.id && conv.lastMessageBody) body = conv.lastMessageBody;
+              msgs.push('[' + date + ' ' + direction + ' ' + msgType + subject + '] ' + (body ? body.slice(0, MAX_BODY_CHARS) : '(no body)'));
+            }
+          }
+        } catch { /* skip conversation */ }
       }
-    } else if (dbMessages.status === 'rejected') {
-      const errMsg = dbMessages.reason instanceof Error ? dbMessages.reason.message : 'Unknown error';
-      sections.push('=== MESSAGES ERROR ===\nFailed to fetch messages: ' + errMsg);
+      if (msgs.length > 0) {
+        sections.push('=== MESSAGES (' + msgs.length + ' shown - LIVE, budgeted) ===\n' + msgs.join('\n'));
+      }
     }
 
     // TASKS
@@ -157,10 +366,9 @@ async function fetchGHLContext(ctx: AgentContext): Promise<string> {
       const taskTexts = tasks.value.map((t: any) => {
         const due = t.dueDate ? ' (Due: ' + new Date(t.dueDate).toLocaleDateString() + ')' : '';
         const assignee = t.assignedTo ? ' [Assigned: ' + t.assignedTo + ']' : '';
-        const desc = t.description ? ' - ' + t.description.slice(0, 500) : '';
-        return '- [' + (t.completed ? 'DONE' : 'OPEN') + '] ' + (t.title || t.body || 'No title') + due + assignee + desc;
+        return '- [' + (t.completed ? 'DONE' : 'OPEN') + '] ' + (t.title || t.body || 'No title') + due + assignee;
       });
-      sections.push('=== TASKS (' + tasks.value.length + ' total) ===\n' + taskTexts.join('\n'));
+      sections.push('=== TASKS (' + tasks.value.length + ') ===\n' + taskTexts.join('\n'));
     }
 
   } catch (err) {
@@ -172,10 +380,33 @@ async function fetchGHLContext(ctx: AgentContext): Promise<string> {
 
 async function fetchOpportunityContext(ctx: AgentContext): Promise<string> {
   if (!ctx.opportunityId) return '';
+
+  // Try Supabase first
+  try {
+    const opp = await getOpportunityFromDB(ctx.opportunityId);
+    if (opp) {
+      const lines = [
+        'Name: ' + (opp.name || 'N/A'),
+        'Status: ' + (opp.status || 'N/A'),
+        'Pipeline Stage: ' + (ctx.pipelineStage || opp.pipeline_stage || 'N/A'),
+        'Monetary Value: ' + (opp.monetary_value || 'N/A'),
+        'Communication Channel: ' + ctx.communicationChannel.toUpperCase(),
+      ];
+      if (ctx.jtJobId) lines.push('JobTread Job ID: ' + ctx.jtJobId);
+      if (opp.custom_fields && typeof opp.custom_fields === 'object') {
+        for (const [key, value] of Object.entries(opp.custom_fields)) {
+          if (value != null && value !== '') lines.push(key + ': ' + String(value));
+        }
+      }
+      return '=== SELECTED OPPORTUNITY (from cache) ===\n' + lines.join('\n');
+    }
+  } catch { /* fall through to live */ }
+
+  // Fallback to live GHL
   try {
     const opp = await getOpportunity(ctx.opportunityId);
     const o = opp.opportunity || opp;
-    const lines: string[] = [
+    const lines = [
       'Name: ' + (o.name || 'N/A'),
       'Status: ' + (o.status || 'N/A'),
       'Pipeline Stage: ' + (ctx.pipelineStage || o.pipelineStageName || o.stageName || 'N/A'),
@@ -190,806 +421,112 @@ async function fetchOpportunityContext(ctx: AgentContext): Promise<string> {
         }
       }
     }
-    return '=== SELECTED OPPORTUNITY ===\n' + lines.join('\n');
+    return '=== SELECTED OPPORTUNITY (live) ===\n' + lines.join('\n');
   } catch (err) {
     return '=== OPPORTUNITY ERROR ===\n' + (err instanceof Error ? err.message : 'Failed');
   }
 }
 
-async function fetchJTContext(ctx: AgentContext): Promise<string> {
-  const sections: string[] = [];
+async function fetchJTContext(): Promise<string> {
+  // Try Supabase first
+  try {
+    const jobs = await getJTJobsFromDB(50);
+    if (jobs.length > 0) {
+      const lines = jobs.map(j =>
+        '- #' + (j.number || '?') + ' ' + (j.name || 'Unnamed') + ' | Status: ' + (j.status || 'N/A')
+      );
+      return '=== JOBTREAD ACTIVE JOBS (from cache) ===\n' + lines.join('\n');
+    }
+  } catch { /* fall through */ }
+
+  // Fallback to live
   try {
     const jobs = await getActiveJobs(30);
     if (Array.isArray(jobs) && jobs.length > 0) {
       const lines = jobs.map((j: any) =>
-        '- #' + (j.number || '?') + ' ' + (j.name || 'Unnamed') + ' (ID: ' + j.id + ') | Status: ' + (j.status || 'N/A') + (j.clientName ? ' | Client: ' + j.clientName : '')
+        '- #' + (j.number || '?') + ' ' + (j.name || 'Unnamed') + ' | Status: ' + (j.status || 'N/A')
       );
-      sections.push('=== JOBTREAD ACTIVE JOBS ===\n' + lines.join('\n'));
+      return '=== JOBTREAD ACTIVE JOBS (live) ===\n' + lines.join('\n');
     }
   } catch (err) {
-    sections.push('=== JT JOBS ERROR ===\n' + (err instanceof Error ? err.message : 'Failed'));
+    return '=== JT JOBS ERROR ===\n' + (err instanceof Error ? err.message : 'Failed');
   }
-  return sections.join('\n\n');
+  return '';
 }
+
+// -- BACKGROUND SYNC TRIGGER -----------------------------------------
+
+function triggerBackgroundSync(contactId: string) {
+  const baseUrl = process.env.NEXT_PUBLIC_APP_URL || (process.env.VERCEL_URL
+    ? 'https://' + process.env.VERCEL_URL
+    : 'http://localhost:3000');
+  const syncUrl = baseUrl + '/api/sync';
+  fetch(syncUrl, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ contactId }),
+  }).catch(err => console.error('Background sync trigger failed:', err));
+}
+
+// -- AGENT MODULE ----------------------------------------------------
 
 const knowItAll: AgentModule = {
   name: 'Know it All',
-  description: 'Pulls all data from GHL and JobTread to answer any question about clients, projects, history, and status.',
+  description: 'Pulls all data from GHL and JobTread to answer any question about clients, projects, history, and status. Uses Supabase cache for fast, comprehensive lookups.',
   icon: '\u{1F9E0}',
 
   systemPrompt: (ctx: AgentContext) => {
-    const today = new Date();
-    const dateStr = today.toLocaleDateString('en-US', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' });
-    return 'TODAY\'S DATE: ' + dateStr + '\n\n' +
-      'You are "Know it All," the AI research assistant for Brett King Builder (BKB), a high-end residential renovation and historic home restoration company in Bucks County, PA.\n\n' +
-      'Your specialty is knowing EVERYTHING about every client and project. You pull data from GHL (CRM) and JobTread (project management) and give comprehensive, detailed answers.\n\n' +
-      'CAPABILITIES:\n' +
-      '- Search and list all active JobTread jobs\n' +
-      '- Get detailed information about any specific job (name, status, client, location, dates, custom fields)\n' +
-      '- View full job schedules with phases and tasks\n' +
-      '- Get task lists for any job\n' +
-      '- View job documents and files\n' +
-      '- Search GHL contacts by name or email\n' +
-      '- Get all open tasks across the organization\n' +
-      '- View team member information\n\n' +
-      'TOOLS AVAILABLE:\n' +
-      '- search_jobs: Search JobTread jobs by name, number, or client name. Returns matching jobs with IDs.\n' +
-      '- get_job_details: Get full details for a specific job by its ID.\n' +
-      '- get_job_schedule: Get the complete phase/task schedule tree for a job.\n' +
-      '- get_job_tasks: Get all tasks for a specific job.\n' +
-      '- get_job_documents: Get all documents associated with a job.\n' +
-      '- get_all_open_tasks: Get ALL open/incomplete tasks across all jobs in the organization.\n' +
-      '- search_ghl_contacts: Search GHL CRM for contacts by name or email. Returns basic info + contact IDs.\n' +
-      '- get_contact_details: Get FULL GHL details for a contact — profile, CRM notes, conversation messages, and tasks. Use after search_ghl_contacts to get the contact ID.\n' +
-      '- get_team_members: Get list of all BKB team members with their IDs.\n' +
-      '- get_job_daily_logs: Get daily logs for a job (site activity, notes, crew info).\n' +
-      '- get_job_comments: Get comments on a job, task, or document.\n' +
-      '- get_job_time_entries: Get time entries (labor hours) for a job.\n' +
-      '- get_job_specifications: Get the full specifications for a job — ALL cost items grouped by cost group (scope of work, materials, labor, etc.), project documents, and specifications description/footer. Use the search parameter to filter by keyword.\n' +
-      '- get_job_budget: Get cost items (budget line items) for a job.\n' +
-      '- get_job_events: Get calendar events for a job.\n' +
-      '- get_job_files: Get uploaded files for a job.\n' +
-      '- get_document_content: Read the actual content (line items, cost groups, quantities) inside a specific document like a contract, bid, or invoice. Use this when someone asks about what is IN a document.\n\n' +
-      'INSTRUCTIONS:\n' +
-      '- When someone asks about a project/job, use search_jobs first to find it, then get_job_details or get_job_schedule for specifics.\n' +
-      '- When listing jobs or tasks, format them clearly with job numbers and names.\n' +
-      '- If you have context data injected below, use it. If not, use tools to search.\n' +
-      '- Be specific, reference real data, and be concise but thorough. If data is missing, say so honestly.\n' +
-      '- When summarizing, include ALL available information. Do not skip or truncate.\n' +
-      '- IMPORTANT: When someone asks about content INSIDE a document (contract, invoice, bid), first use get_job_documents to find the document ID, then use get_document_content to read the actual line items and quantities. Do NOT say you cannot access document content — use the tool.\n' +
-      '- IMPORTANT: When someone asks about GHL notes, CRM notes, conversations, messages, or contact details, use search_ghl_contacts to find the contact, then use get_contact_details with the contact ID to see their full CRM notes, conversation history, and tasks. Do NOT say you cannot access GHL notes — use these tools.\n' +
-      '- For specification questions, use get_job_specifications. For document content questions (e.g. "what was in the original contract"), use get_document_content.\n\n' +
+    return 'You are "Know it All," the AI research assistant for Brett King Builder (BKB), a high-end residential renovation and historic home restoration company in Bucks County, PA.\n\n' +
+      'Your specialty is knowing EVERYTHING about every client and project. You pull data from Supabase (cached GHL/JT data) for comprehensive, fast lookups, with live API fallback.\n\n' +
+      'When summarizing a client or project, cover all key data points: profile, notes, communications (with dates and subjects), tasks, opportunities, and custom fields. Prioritize the most meaningful details and always include dates. If data seems truncated, mention that more records may exist.\n\n' +
+      'Be specific, reference real data, and be concise but thorough. If data is missing, say so honestly.\n\n' +
       (ctx.communicationChannel !== 'unknown'
         ? 'Current communication channel for this opportunity: ' + ctx.communicationChannel.toUpperCase() + ' (based on pipeline stage: ' + (ctx.pipelineStage || 'unknown') + ')\n'
         : '') +
       (ctx.jtJobId ? 'JobTread Job ID: ' + ctx.jtJobId + '\n' : '');
   },
 
-  tools: [
-    {
-      name: 'search_jobs',
-      description: 'Search JobTread for active jobs. Returns jobs matching the query by name, number, or client name. Use this when someone asks about a project or wants to find a job.',
-      input_schema: {
-        type: 'object',
-        properties: {
-          query: { type: 'string', description: 'Search term — matches against job name, job number, or client name. Leave empty to get all active jobs.' },
-        },
-        required: [],
-      },
-    },
-    {
-      name: 'get_job_details',
-      description: 'Get full details for a specific JobTread job including name, status, client, location, dates, and custom fields.',
-      input_schema: {
-        type: 'object',
-        properties: {
-          jobId: { type: 'string', description: 'The JobTread Job ID' },
-        },
-        required: ['jobId'],
-      },
-    },
-    {
-      name: 'get_job_schedule',
-      description: 'Get the complete schedule for a job — all phases (task groups) and their tasks, with progress, dates, and assignments.',
-      input_schema: {
-        type: 'object',
-        properties: {
-          jobId: { type: 'string', description: 'The JobTread Job ID' },
-        },
-        required: ['jobId'],
-      },
-    },
-    {
-      name: 'get_job_tasks',
-      description: 'Get all tasks for a specific JobTread job with their status, dates, assignments, and progress.',
-      input_schema: {
-        type: 'object',
-        properties: {
-          jobId: { type: 'string', description: 'The JobTread Job ID' },
-        },
-        required: ['jobId'],
-      },
-    },
-    {
-      name: 'get_job_documents',
-      description: 'Get all documents (contracts, change orders, etc.) associated with a job.',
-      input_schema: {
-        type: 'object',
-        properties: {
-          jobId: { type: 'string', description: 'The JobTread Job ID' },
-        },
-        required: ['jobId'],
-      },
-    },
-    {
-      name: 'get_all_open_tasks',
-      description: 'Get ALL open/incomplete tasks across all jobs in the organization. Useful for "what tasks are overdue" or "show me all open tasks" queries.',
-      input_schema: {
-        type: 'object',
-        properties: {},
-        required: [],
-      },
-    },
-    {
-      name: 'search_ghl_contacts',
-      description: 'Search GHL CRM for contacts by name or email address. Returns basic info and contact IDs. Use get_contact_details with the returned ID to see full profile, CRM notes, conversations, and tasks.',
-      input_schema: {
-        type: 'object',
-        properties: {
-          query: { type: 'string', description: 'Name or email to search for' },
-        },
-        required: ['query'],
-      },
-    },
-    {
-      name: 'get_contact_details',
-      description: 'Get full GHL CRM details for a contact including their profile, CRM notes, conversation messages (emails, SMS, calls), and tasks. Use search_ghl_contacts first to find the contact ID, then use this tool to get the full picture.',
-      input_schema: {
-        type: 'object',
-        properties: {
-          contactId: { type: 'string', description: 'The GHL contact ID (get from search_ghl_contacts)' },
-        },
-        required: ['contactId'],
-      },
-    },
-    {
-      name: 'get_team_members',
-      description: 'Get list of all BKB team members with their membership IDs. Useful for looking up who can be assigned to tasks.',
-      input_schema: {
-        type: 'object',
-        properties: {},
-        required: [],
-      },
-    },
-    {
-      name: 'get_job_daily_logs',
-      description: 'Get daily logs for a specific job. Daily logs track daily site activity, notes, and crew information.',
-      input_schema: {
-        type: 'object',
-        properties: {
-          jobId: { type: 'string', description: 'The JobTread Job ID' },
-        },
-        required: ['jobId'],
-      },
-    },
-    {
-      name: 'get_job_comments',
-      description: 'Get all comments on a JobTread entity (job, task, document). Shows discussion threads and pinned comments.',
-      input_schema: {
-        type: 'object',
-        properties: {
-          targetId: { type: 'string', description: 'ID of the entity (job ID, task ID, etc.)' },
-          targetType: { type: 'string', description: 'Type: "job", "task", "document", "costItem"' },
-        },
-        required: ['targetId', 'targetType'],
-      },
-    },
-    {
-      name: 'get_job_time_entries',
-      description: 'Get time entries (labor hours) logged for a job. Shows who worked, when, and on what.',
-      input_schema: {
-        type: 'object',
-        properties: {
-          jobId: { type: 'string', description: 'The JobTread Job ID' },
-        },
-        required: ['jobId'],
-      },
-    },
-    {
-      name: 'get_job_specifications',
-      description: 'Get the full specifications for a job — ALL cost items grouped by cost group (scope of work, materials, labor, etc.), project documents, and description/footer. This returns the same data as the JobTread Specifications page. Use the search parameter to filter by keyword (e.g. "door", "window", "plumbing", "kitchen") for large jobs.',
-      input_schema: {
-        type: 'object',
-        properties: {
-          jobId: { type: 'string', description: 'The JobTread Job ID' },
-          search: { type: 'string', description: 'Optional keyword to filter specification items (e.g. "door", "soffit", "window"). Recommended for large jobs to reduce data size.' },
-        },
-        required: ['jobId'],
-      },
-    },
-    {
-      name: 'get_job_budget',
-      description: 'Get cost items (budget/estimate line items) for a job. Use the search parameter to filter by keyword for large jobs.',
-      input_schema: {
-        type: 'object',
-        properties: {
-          jobId: { type: 'string', description: 'The JobTread Job ID' },
-          search: { type: 'string', description: 'Optional keyword to filter cost items (e.g. "electric", "plumbing", "door"). Recommended for large jobs.' },
-        },
-        required: ['jobId'],
-      },
-    },
-    {
-      name: 'get_job_events',
-      description: 'Get calendar events for a job. Shows meetings, inspections, site visits, and other scheduled events.',
-      input_schema: {
-        type: 'object',
-        properties: {
-          jobId: { type: 'string', description: 'The JobTread Job ID' },
-        },
-        required: ['jobId'],
-      },
-    },
-    {
-      name: 'get_job_files',
-      description: 'Get all uploaded files for a job (photos, plans, permits, etc.).',
-      input_schema: {
-        type: 'object',
-        properties: {
-          jobId: { type: 'string', description: 'The JobTread Job ID' },
-        },
-        required: ['jobId'],
-      },
-    },
-    {
-      name: 'get_document_content',
-      description: 'Read the actual content inside a specific document (contract, bid, invoice, change order). Returns line items with quantities, costs, descriptions, and cost groups. Use this when someone asks about what is IN a document, specific line items, quantities, or pricing from a document.',
-      input_schema: {
-        type: 'object',
-        properties: {
-          documentId: { type: 'string', description: 'The document ID (get from get_job_documents first)' },
-          search: { type: 'string', description: 'Optional keyword to filter line items (e.g. "slab", "reinforcement", "soffit")' },
-        },
-        required: ['documentId'],
-      },
-    },
-  ],
+  tools: [],
 
   canHandle: (message: string) => {
     const lower = message.toLowerCase();
-    // If the message contains write-operation verbs targeting tasks, yield to jt-entry
-    if (/(update|change|edit|modify|rename|reschedule|push|move|set|adjust).*(task|date|due|deadline|schedule|phase)/i.test(lower)) return 0.2;
-    if (/(create|add|delete|remove|assign|apply).*(task|phase|template)/i.test(lower)) return 0.2;
-    if (/mark.*(complete|done|finished|progress)/i.test(lower)) return 0.2;
-    // High score for questions, lookups, summaries (removed "update" from keywords)
-    if (/\?|what|who|when|where|how|tell me|show me|summary|overview|status|history|latest|details|information|look up|find out|check on|list|all jobs|all tasks|open tasks|overdue/i.test(lower)) return 0.8;
-    // High for read-only data requests
-    if (/daily.*(log|report|entry)|site.*(log|report)/i.test(lower) && !/(create|add|write|update|edit|delete)/i.test(lower)) return 0.85;
-    if (/(time.*entry|time.*log|labor.*hour|hours.*logged)/i.test(lower)) return 0.85;
-    if (/(specification|spec|budget|cost.*item|estimate|bid)/i.test(lower) && !/(update|change|edit|modify)/i.test(lower)) return 0.85;
-    if (/(comment|discussion|thread)/i.test(lower) && !/(add|create|post|write)/i.test(lower)) return 0.85;
-    if (/(event|meeting|inspection|calendar|appointment)/i.test(lower)) return 0.8;
-    if (/(file|photo|plan|permit|upload|attachment)/i.test(lower)) return 0.8;
-    // High for document content queries (contract, invoice, what's in the document)
-    if (/(contract|invoice|bill|order|change.*order)/i.test(lower) && /(what|how.*many|how.*much|LF|linear|quantity|material|planned|original)/i.test(lower)) return 0.85;
-    if (/(in the|on the|from the).*(document|contract|invoice|proposal)/i.test(lower)) return 0.85;
-    // High for GHL/CRM data requests (notes, messages, conversations, contact details)
-    if (/(ghl|crm|note|notes|conversation|message|sms|email|call log|contact detail)/i.test(lower) && !/(create|add|write|send)/i.test(lower)) return 0.85;
-    // Medium score for general client/project references
-    if (/client|project|job|contact|note|message|communication|schedule|document|team/i.test(lower)) return 0.5;
-    // Low base score - acts as fallback
+    if (/\?|what|who|when|where|how|tell me|show me|summary|overview|status|history|latest|update|details|information|look up|find out|check on/i.test(lower)) return 0.8;
+    if (/client|project|job|contact|note|message|communication/i.test(lower)) return 0.5;
     return 0.3;
   },
 
   fetchContext: async (ctx: AgentContext) => {
     const parts: string[] = [];
+    let usedLiveFallback = false;
 
-    // Always fetch GHL data if we have a contact
     if (ctx.contactId) {
-      const ghl = await fetchGHLContext(ctx);
-      if (ghl) parts.push(ghl);
+      const supabaseData = await fetchContextFromSupabase(ctx);
+      if (supabaseData) {
+        parts.push(supabaseData);
+      } else {
+        const liveData = await fetchGHLContextLive(ctx);
+        if (liveData) parts.push(liveData);
+        usedLiveFallback = true;
+      }
     }
 
-    // Fetch opportunity details if selected
     if (ctx.opportunityId) {
       const opp = await fetchOpportunityContext(ctx);
       if (opp) parts.push(opp);
     }
 
-    // Always fetch JT jobs overview (even without contactId)
-    const jt = await fetchJTContext(ctx);
+    const jt = await fetchJTContext();
     if (jt) parts.push(jt);
+
+    if (usedLiveFallback && ctx.contactId) {
+      triggerBackgroundSync(ctx.contactId);
+    }
 
     return parts.join('\n\n');
   },
 
-  executeTool: async (name: string, input: any, ctx: AgentContext) => {
-    try {
-      if (name === 'search_jobs') {
-        const jobs = await getActiveJobs(50);
-        const query = (input.query || '').toLowerCase().trim();
-
-        if (!query) {
-          // Return all active jobs
-          const lines = jobs.map((j: any) =>
-            '- #' + (j.number || '?') + ' ' + (j.name || 'Unnamed') + ' (ID: ' + j.id + ') | Status: ' + (j.status || 'N/A') + (j.clientName ? ' | Client: ' + j.clientName : '') + (j.locationName ? ' | Location: ' + j.locationName : '')
-          );
-          return JSON.stringify({ success: true, count: jobs.length, jobs: lines.join('\n') });
-        }
-
-        // Filter by query
-        const matches = jobs.filter((j: any) => {
-          const searchable = [j.name, j.number, j.clientName, j.locationName, j.id].filter(Boolean).join(' ').toLowerCase();
-          return searchable.includes(query);
-        });
-
-        if (matches.length === 0) {
-          return JSON.stringify({ success: true, count: 0, message: 'No jobs found matching "' + input.query + '". Try a different search term.' });
-        }
-
-        const lines = matches.map((j: any) =>
-          '- #' + (j.number || '?') + ' ' + (j.name || 'Unnamed') + ' (ID: ' + j.id + ') | Status: ' + (j.status || 'N/A') + (j.clientName ? ' | Client: ' + j.clientName : '') + (j.locationName ? ' | Location: ' + j.locationName : '')
-        );
-        return JSON.stringify({ success: true, count: matches.length, jobs: lines.join('\n') });
-      }
-
-      if (name === 'get_job_details') {
-        const job = await getJob(input.jobId);
-        if (!job) return JSON.stringify({ success: false, error: 'Job not found with ID: ' + input.jobId });
-        return JSON.stringify({ success: true, job });
-      }
-
-      if (name === 'get_job_schedule') {
-        const schedule = await getJobSchedule(input.jobId);
-        if (!schedule) return JSON.stringify({ success: false, error: 'No schedule found for job ID: ' + input.jobId });
-
-        // Format the schedule tree
-        const lines: string[] = [];
-        lines.push('Job: #' + (schedule.number || '?') + ' ' + schedule.name);
-        lines.push('Overall Progress: ' + Math.round((schedule.totalProgress || 0) * 100) + '%');
-        lines.push('');
-
-        for (const phase of schedule.phases || []) {
-          const phaseProgress = Math.round((phase.progress || 0) * 100);
-          lines.push('📁 ' + phase.name + ' (' + phaseProgress + '% complete)');
-          const phaseTasks = phase.childTasks?.nodes || phase.childTasks || [];
-          const taskList = Array.isArray(phaseTasks) ? phaseTasks : [];
-          for (const task of taskList) {
-            const status = task.progress >= 1 ? '✅' : task.progress > 0 ? '🔄' : '⬜';
-            const dates = [task.startDate, task.endDate].filter(Boolean).join(' → ');
-            const assignees = task.assignedMemberships?.map((a: any) => a.user?.name || a.name || '').filter(Boolean).join(', ');
-            lines.push('  ' + status + ' ' + task.name + (dates ? ' (' + dates + ')' : '') + (assignees ? ' [' + assignees + ']' : ''));
-          }
-        }
-
-        if (schedule.orphanTasks && schedule.orphanTasks.length > 0) {
-          lines.push('');
-          lines.push('📋 Unassigned Tasks:');
-          for (const task of schedule.orphanTasks) {
-            const status = task.progress >= 1 ? '✅' : task.progress > 0 ? '🔄' : '⬜';
-            lines.push('  ' + status + ' ' + task.name);
-          }
-        }
-
-        return JSON.stringify({ success: true, schedule: lines.join('\n') });
-      }
-
-      if (name === 'get_job_tasks') {
-        const tasks = await getTasksForJob(input.jobId);
-        if (!tasks || tasks.length === 0) return JSON.stringify({ success: true, count: 0, message: 'No tasks found for this job.' });
-
-        // Separate phases (groups) from individual tasks
-        const phases = tasks.filter((t: any) => t.isGroup && !t.parentTask?.id);
-        const childTasks = tasks.filter((t: any) => !t.isGroup);
-
-        const lines: string[] = [];
-        for (const phase of phases) {
-          const phaseProgress = Math.round((phase.progress || 0) * 100);
-          lines.push('📁 ' + phase.name + ' (' + phaseProgress + '%)');
-          const children = childTasks.filter((t: any) => t.parentTask?.id === phase.id);
-          for (const t of children) {
-            const status = t.progress >= 1 ? '✅' : t.progress > 0 ? '🔄' : '⬜';
-            const dates = [t.startDate, t.endDate].filter(Boolean).join(' → ');
-            lines.push('  ' + status + ' ' + t.name + (dates ? ' (' + dates + ')' : ''));
-          }
-        }
-        // Orphan tasks (no parent)
-        const orphans = childTasks.filter((t: any) => !t.parentTask?.id);
-        if (orphans.length > 0) {
-          lines.push('📋 Other Tasks:');
-          for (const t of orphans) {
-            const status = t.progress >= 1 ? '✅' : t.progress > 0 ? '🔄' : '⬜';
-            const dates = [t.startDate, t.endDate].filter(Boolean).join(' → ');
-            lines.push('  ' + status + ' ' + t.name + (dates ? ' (' + dates + ')' : ''));
-          }
-        }
-
-        return JSON.stringify({ success: true, count: tasks.length, tasks: lines.join('\n') });
-      }
-
-      if (name === 'get_job_documents') {
-        const docs = await getDocumentsForJob(input.jobId);
-        if (!docs || docs.length === 0) return JSON.stringify({ success: true, count: 0, message: 'No documents found for this job.' });
-
-        const lines = docs.map((d: any) =>
-          '- ' + (d.name || 'Unnamed') + ' | Type: ' + (d.type || 'N/A') + ' | Status: ' + (d.status || 'N/A') + (d.number ? ' | #' + d.number : '') + (d.description ? ' — ' + d.description.slice(0, 200) : '')
-        );
-
-        return JSON.stringify({ success: true, count: docs.length, documents: lines.join('\n') });
-      }
-
-      if (name === 'get_all_open_tasks') {
-        const tasks = await getAllOpenTasks();
-        if (!tasks || tasks.length === 0) return JSON.stringify({ success: true, count: 0, message: 'No open tasks found.' });
-
-        const now = new Date();
-        const lines = tasks.map((t: any) => {
-          const jobName = t.job?.name || 'Unknown Job';
-          const jobNum = t.job?.number || '?';
-          const dates = [t.startDate, t.endDate].filter(Boolean).join(' → ');
-          const assignees = t.assignedMemberships?.map((a: any) => a.user?.name || '').filter(Boolean).join(', ');
-          const isOverdue = t.endDate && new Date(t.endDate) < now;
-          return (isOverdue ? '⚠️ OVERDUE ' : '- ') + '[#' + jobNum + ' ' + jobName + '] ' + t.name + (dates ? ' (' + dates + ')' : '') + (assignees ? ' [' + assignees + ']' : '');
-        });
-
-        const overdueCount = tasks.filter((t: any) => t.endDate && new Date(t.endDate) < now).length;
-
-        return JSON.stringify({
-          success: true,
-          count: tasks.length,
-          overdueCount,
-          tasks: lines.join('\n'),
-        });
-      }
-
-      if (name === 'search_ghl_contacts') {
-        const results = await searchGHLContacts(input.query);
-        const contacts = results?.contacts || results || [];
-
-        if (!Array.isArray(contacts) || contacts.length === 0) {
-          return JSON.stringify({ success: true, count: 0, message: 'No contacts found matching "' + input.query + '".' });
-        }
-
-        const lines = contacts.map((c: any) =>
-          '- ' + (c.firstName || '') + ' ' + (c.lastName || '') + (c.email ? ' | ' + c.email : '') + (c.phone ? ' | ' + c.phone : '') + (c.companyName ? ' | ' + c.companyName : '') + ' (ID: ' + c.id + ')'
-        );
-
-        return JSON.stringify({ success: true, count: contacts.length, contacts: lines.join('\n'), hint: 'Use get_contact_details with a contact ID to see their full CRM notes, messages, and tasks.' });
-      }
-
-      if (name === 'get_contact_details') {
-        const cid = input.contactId;
-        const sections: string[] = [];
-
-        try {
-          const [profile, notes, dbMsgs, tasks] = await Promise.allSettled([
-            getContact(cid),
-            getNotesFromDB(cid),
-            getMessagesFromDB(cid),
-            getContactTasks(cid),
-          ]);
-
-          // CONTACT PROFILE
-          if (profile.status === 'fulfilled' && profile.value) {
-            const c = profile.value.contact || profile.value;
-            const profileLines: string[] = [];
-            const priorityFields = [
-              ['firstName', 'First Name'], ['lastName', 'Last Name'],
-              ['email', 'Email'], ['phone', 'Phone'], ['companyName', 'Company'],
-              ['address1', 'Address'], ['city', 'City'], ['state', 'State'],
-              ['postalCode', 'Postal Code'], ['website', 'Website'],
-              ['source', 'Lead Source'], ['dateAdded', 'Date Added'],
-              ['lastActivity', 'Last Activity'],
-            ];
-
-            const usedKeys = new Set();
-            for (const [key, label] of priorityFields) {
-              usedKeys.add(key);
-              const val = formatValue(c[key]);
-              if (val) {
-                if (key === 'dateAdded' || key === 'lastActivity') {
-                  try { profileLines.push(label + ': ' + new Date(c[key]).toLocaleString()); } catch { profileLines.push(label + ': ' + val); }
-                } else {
-                  profileLines.push(label + ': ' + val);
-                }
-              }
-            }
-            if (c.tags && Array.isArray(c.tags) && c.tags.length > 0) {
-              profileLines.push('Tags: ' + c.tags.join(', '));
-              usedKeys.add('tags');
-            }
-            if (c.customFields && Array.isArray(c.customFields) && c.customFields.length > 0) {
-              for (const cf of c.customFields) {
-                if (cf.value !== undefined && cf.value !== null && cf.value !== '') {
-                  profileLines.push((cf.fieldKey || cf.key || cf.id || 'Custom Field') + ': ' + String(cf.value));
-                }
-              }
-              usedKeys.add('customFields');
-            }
-            if (c.opportunities && Array.isArray(c.opportunities) && c.opportunities.length > 0) {
-              for (const opp of c.opportunities) {
-                profileLines.push('Opportunity: ' + (opp.name || 'Unnamed') + ' | Value: ' + (opp.monetaryValue || 'N/A') + ' | Status: ' + (opp.status || 'N/A'));
-              }
-            }
-            if (profileLines.length > 0) sections.push('=== CONTACT PROFILE ===\n' + profileLines.join('\n'));
-          }
-
-          // CRM NOTES
-          if (notes.status === 'fulfilled' && Array.isArray(notes.value) && notes.value.length > 0) {
-            const noteTexts = notes.value.slice(0, 50).map((n: any) => {
-              const date = n.dateAdded ? new Date(n.dateAdded).toLocaleDateString() : 'No date';
-              return '[' + date + '] ' + (n.body || '').slice(0, 65000);
-            });
-            sections.push('=== CRM NOTES (' + notes.value.length + ' total) ===\n' + noteTexts.join('\n---\n'));
-          } else {
-            sections.push('=== CRM NOTES ===\nNo notes found for this contact.');
-          }
-
-          // MESSAGES (from database — complete history)
-          if (dbMsgs.status === 'fulfilled' && Array.isArray(dbMsgs.value) && dbMsgs.value.length > 0) {
-            const msgs: string[] = [];
-            for (const m of dbMsgs.value) {
-              const mr = m as any;
-              const date = mr.dateAdded ? new Date(mr.dateAdded).toLocaleDateString() : '';
-              const direction = mr.direction || mr.meta?.email?.direction || mr.meta?.direction || '?';
-              const msgType = mr.messageType || mr.type || '';
-              const subject = mr.meta?.email?.subject ? ' Subject: ' + mr.meta.email.subject : (mr.subject ? ' Subject: ' + mr.subject : '');
-              const body = mr.body || mr.text || mr.message || mr.altText || '';
-              msgs.push('[' + date + ' ' + direction + ' ' + msgType + subject + '] ' + (body ? body.slice(0, 2000) : '(no body text)'));
-            }
-            sections.push('=== MESSAGES (' + msgs.length + ' total) ===\n' + msgs.join('\n'));
-          } else {
-            sections.push('=== MESSAGES ===\nNo messages found for this contact.');
-          }
-
-          // TASKS
-          if (tasks.status === 'fulfilled' && Array.isArray(tasks.value) && tasks.value.length > 0) {
-            const taskTexts = tasks.value.map((t: any) => {
-              const due = t.dueDate ? ' (Due: ' + new Date(t.dueDate).toLocaleDateString() + ')' : '';
-              const assignee = t.assignedTo ? ' [Assigned: ' + t.assignedTo + ']' : '';
-              const desc = t.description ? ' - ' + t.description.slice(0, 500) : '';
-              return '- [' + (t.completed ? 'DONE' : 'OPEN') + '] ' + (t.title || t.body || 'No title') + due + assignee + desc;
-            });
-            sections.push('=== GHL TASKS (' + tasks.value.length + ' total) ===\n' + taskTexts.join('\n'));
-          }
-
-        } catch (err) {
-          sections.push('=== ERROR ===\n' + (err instanceof Error ? err.message : 'Failed to fetch GHL data'));
-        }
-
-        if (sections.length === 0) return JSON.stringify({ success: false, error: 'No data found for contact ID: ' + cid });
-        return JSON.stringify({ success: true, contactId: cid, details: sections.join('\n\n') });
-      }
-
-      if (name === 'get_team_members') {
-        const members = await getMembers();
-        const lines = members.map((m: any) => '- ' + (m.user?.name || m.name || 'Unknown') + ' (ID: ' + m.id + ')');
-        return JSON.stringify({ success: true, count: members.length, members: lines.join('\n') });
-      }
-
-      if (name === 'get_job_daily_logs') {
-        const logs = await getDailyLogsFromDB(input.jobId);
-        if (!logs || logs.length === 0) return JSON.stringify({ success: true, count: 0, message: 'No daily logs found for this job.' });
-        const lines = logs.map((l: any) => {
-          const assignees = l.assignedMemberships?.nodes?.map((a: any) => a.user?.name || '').filter(Boolean).join(', ');
-          return '- [' + (l.date || 'No date') + '] (ID: ' + l.id + ')' + (assignees ? ' [' + assignees + ']' : '') + '\n  ' + (l.notes || '(no notes)').slice(0, 500);
-        });
-        return JSON.stringify({ success: true, count: logs.length, dailyLogs: lines.join('\n') });
-      }
-
-      if (name === 'get_job_comments') {
-        const comments = await getCommentsFromDB(input.targetId);
-        if (!comments || comments.length === 0) return JSON.stringify({ success: true, count: 0, message: 'No comments found.' });
-        const lines = comments.map((c: any) => {
-          const date = c.createdAt ? new Date(c.createdAt).toLocaleDateString() : '';
-          const pin = c.isPinned ? '📌 ' : '';
-          const reply = c.parentComment?.id ? '  ↳ Reply: ' : '- ';
-          return reply + pin + '[' + date + '] ' + (c.name || 'Unknown') + ': ' + (c.message || '').slice(0, 500);
-        });
-        return JSON.stringify({ success: true, count: comments.length, comments: lines.join('\n') });
-      }
-
-      if (name === 'get_job_time_entries') {
-        const entries = await getTimeEntriesForJob(input.jobId);
-        if (!entries || entries.length === 0) return JSON.stringify({ success: true, count: 0, message: 'No time entries found for this job.' });
-        let totalHours = 0;
-        const lines = entries.map((e: any) => {
-          const start = e.startedAt ? new Date(e.startedAt) : null;
-          const end = e.endedAt ? new Date(e.endedAt) : null;
-          let hours = 0;
-          if (start && end) hours = (end.getTime() - start.getTime()) / 3600000;
-          totalHours += hours;
-          const dateStr = start ? start.toLocaleDateString() : 'No date';
-          const userName = e.user?.name || 'Unknown';
-          const costItemName = e.costItem?.name || '';
-          return '- [' + dateStr + '] ' + userName + ' — ' + hours.toFixed(1) + ' hrs' + (costItemName ? ' (' + costItemName + ')' : '') + (e.notes ? ' — ' + e.notes.slice(0, 200) : '');
-        });
-        lines.push('');
-        lines.push('TOTAL: ' + totalHours.toFixed(1) + ' hours across ' + entries.length + ' entries');
-        return JSON.stringify({ success: true, count: entries.length, totalHours: totalHours.toFixed(1), timeEntries: lines.join('\n') });
-      }
-
-      if (name === 'get_job_specifications') {
-        const specs = await getSpecificationsForJob(input.jobId);
-        const searchTerm = (input.search || '').toLowerCase().trim();
-        const lines: string[] = [];
-
-        // Include description/footer only if no search filter or if they match
-        if (specs.description && (!searchTerm || specs.description.toLowerCase().includes(searchTerm))) {
-          lines.push('SPECIFICATIONS DESCRIPTION:\n' + specs.description.slice(0, 2000));
-        }
-        if (specs.footer && (!searchTerm || specs.footer.toLowerCase().includes(searchTerm))) {
-          lines.push('\nSPECIFICATIONS FOOTER:\n' + specs.footer.slice(0, 1000));
-        }
-
-        // Show documents (Project Details section)
-        if (specs.documents && specs.documents.length > 0) {
-          const matchingDocs = searchTerm
-            ? specs.documents.filter((d: any) => [d.name, d.type, d.status].filter(Boolean).join(' ').toLowerCase().includes(searchTerm))
-            : specs.documents;
-          if (matchingDocs.length > 0) {
-            lines.push('\nPROJECT DOCUMENTS (' + matchingDocs.length + '):');
-            for (const doc of matchingDocs) {
-              lines.push('- ' + doc.name + ' [' + doc.type + '] — Status: ' + doc.status);
-            }
-          }
-        }
-
-        // Show cost items grouped by cost group (matching the Specifications page layout)
-        const groupedItems = specs.groupedItems || {};
-        const groupNames = Object.keys(groupedItems);
-        let totalShown = 0;
-        const maxItems = 80;
-
-        if (groupNames.length > 0) {
-          for (const groupName of groupNames) {
-            let items = groupedItems[groupName];
-            // Filter by search term if provided
-            if (searchTerm) {
-              items = items.filter((item: any) => {
-                const searchable = [item.name, item.description, item.costCode?.name, groupName].filter(Boolean).join(' ').toLowerCase();
-                return searchable.includes(searchTerm);
-              });
-            }
-            if (items.length === 0) continue;
-
-            lines.push('\n--- ' + groupName + ' (' + items.length + ' items) ---');
-            for (const item of items) {
-              if (totalShown >= maxItems) break;
-              const code = item.costCode ? ' (' + item.costCode.number + ')' : '';
-              const desc = item.description ? '\n    ' + item.description.slice(0, 300) : '';
-              lines.push('• ' + item.name + code + desc);
-              totalShown++;
-            }
-            if (totalShown >= maxItems) {
-              lines.push('\n... showing ' + maxItems + ' of ' + specs.items.length + ' total items. Use a more specific search to narrow results.');
-              break;
-            }
-          }
-        }
-
-        if (lines.length === 0) return JSON.stringify({ success: true, message: searchTerm ? 'No specifications found matching "' + input.search + '".' : 'No specifications found for this job. The job may not have any cost items or documents yet.' });
-        return JSON.stringify({ success: true, totalItems: specs.items.length, totalGroups: groupNames.length, specifications: lines.join('\n') });
-      }
-
-      if (name === 'get_job_budget') {
-        const items = await getCostItemsForJob(input.jobId);
-        if (!items || items.length === 0) return JSON.stringify({ success: true, count: 0, message: 'No cost items found.' });
-
-        const searchTerm = (input.search || '').toLowerCase().trim();
-        let filtered = items;
-        if (searchTerm) {
-          filtered = items.filter((i: any) => {
-            const searchable = [i.name, i.description, i.costCode?.name, i.costGroup?.name].filter(Boolean).join(' ').toLowerCase();
-            return searchable.includes(searchTerm);
-          });
-        }
-
-        let totalCost = 0, totalPrice = 0;
-        const lines = filtered.slice(0, 75).map((i: any) => {
-          const cost = (i.quantity || 0) * (i.unitCost || 0);
-          const price = (i.quantity || 0) * (i.unitPrice || 0);
-          totalCost += cost;
-          totalPrice += price;
-          const spec = i.isSpecification ? ' [SPEC]' : '';
-          const code = i.costCode ? ' (' + i.costCode.number + ' ' + i.costCode.name + ')' : '';
-          const group = i.costGroup ? ' [' + i.costGroup.name + ']' : '';
-          return '- ' + i.name + spec + code + group + ' | Qty: ' + (i.quantity || 0) + ' | Cost: $' + cost.toFixed(2) + ' | Price: $' + price.toFixed(2);
-        });
-        if (filtered.length > 75) lines.push('... and ' + (filtered.length - 75) + ' more items. Use search parameter to filter.');
-        lines.push('');
-        lines.push('SHOWING: ' + Math.min(filtered.length, 75) + ' of ' + items.length + ' total items' + (searchTerm ? ' (filtered by "' + input.search + '")' : ''));
-        lines.push('TOTALS' + (searchTerm ? ' (filtered)' : '') + ': Cost $' + totalCost.toFixed(2) + ' | Price $' + totalPrice.toFixed(2) + ' | Margin $' + (totalPrice - totalCost).toFixed(2));
-        return JSON.stringify({ success: true, count: filtered.length, totalItems: items.length, costItems: lines.join('\n') });
-      }
-
-      if (name === 'get_job_events') {
-        const events = await getEventsForJob(input.jobId);
-        if (!events || events.length === 0) return JSON.stringify({ success: true, count: 0, message: 'No events found for this job.' });
-        const lines = events.map((e: any) => {
-          const dates = [e.startDate, e.endDate].filter(Boolean).join(' → ');
-          const times = [e.startTime, e.endTime].filter(Boolean).join(' - ');
-          return '- ' + (e.name || 'Unnamed') + ' | ' + (e.type || 'N/A') + (dates ? ' | ' + dates : '') + (times ? ' ' + times : '') + (e.notes ? ' — ' + e.notes.slice(0, 200) : '');
-        });
-        return JSON.stringify({ success: true, count: events.length, events: lines.join('\n') });
-      }
-
-      if (name === 'get_job_files') {
-        const files = await getFilesForJob(input.jobId);
-        if (!files || files.length === 0) return JSON.stringify({ success: true, count: 0, message: 'No files found.' });
-        const lines = files.map((f: any) =>
-          '- ' + (f.name || 'Unnamed') + ' | Type: ' + (f.type || 'N/A') + (f.url ? ' | URL: ' + f.url : '')
-        );
-        return JSON.stringify({ success: true, count: files.length, files: lines.join('\n') });
-      }
-
-      if (name === 'get_document_content') {
-        const docContent = await getDocumentContent(input.documentId);
-        if (!docContent) return JSON.stringify({ success: false, error: 'Could not read document content. The document may not exist or may not have accessible line items.' });
-
-        const searchTerm = (input.search || '').toLowerCase().trim();
-        const lines: string[] = [];
-
-        lines.push('DOCUMENT: ' + docContent.name + ' | Type: ' + docContent.type + ' | Status: ' + docContent.status);
-        if (docContent.description) lines.push('DESCRIPTION: ' + docContent.description.slice(0, 2000));
-
-        // Collect all cost items (both top-level and inside cost groups)
-        const allItems: any[] = [];
-
-        // Items from cost groups
-        if (docContent.costGroups && docContent.costGroups.length > 0) {
-          for (const group of docContent.costGroups) {
-            if (group.costItems && group.costItems.length > 0) {
-              for (const ci of group.costItems) {
-                allItems.push({ ...ci, groupName: group.name });
-              }
-            }
-          }
-        }
-
-        // Top-level cost items
-        if (docContent.costItems && docContent.costItems.length > 0) {
-          for (const ci of docContent.costItems) {
-            allItems.push(ci);
-          }
-        }
-
-        // Filter by search term if provided
-        let filtered = allItems;
-        if (searchTerm) {
-          filtered = allItems.filter((item: any) => {
-            const searchable = [item.name, item.description, item.costCode?.name, item.groupName].filter(Boolean).join(' ').toLowerCase();
-            return searchable.includes(searchTerm);
-          });
-        }
-
-        if (filtered.length > 0) {
-          lines.push('\nLINE ITEMS (' + filtered.length + (searchTerm ? ' matching "' + input.search + '"' : '') + ' of ' + allItems.length + ' total):');
-          for (const item of filtered.slice(0, 75)) {
-            const qty = item.quantity ? 'Qty: ' + item.quantity : '';
-            const cost = item.unitCost ? 'Cost: $' + item.unitCost : '';
-            const price = item.unitPrice ? 'Price: $' + item.unitPrice : '';
-            const code = item.costCode ? ' (' + (item.costCode.number || '') + ' ' + (item.costCode.name || '') + ')' : '';
-            const group = item.groupName ? ' [' + item.groupName + ']' : '';
-            const desc = item.description ? ' — ' + item.description.slice(0, 300) : '';
-            lines.push('- ' + item.name + code + group + ' | ' + [qty, cost, price].filter(Boolean).join(', ') + desc);
-          }
-          if (filtered.length > 75) lines.push('... and ' + (filtered.length - 75) + ' more items. Use search to narrow results.');
-        } else if (allItems.length === 0) {
-          lines.push('\nNo line items found in this document. The document may have its content stored differently.');
-        } else {
-          lines.push('\nNo items matching "' + input.search + '". Total items: ' + allItems.length);
-        }
-
-        if (docContent.footer) lines.push('\nFOOTER: ' + docContent.footer.slice(0, 1000));
-
-        return JSON.stringify({ success: true, documentName: docContent.name, totalItems: allItems.length, filteredItems: filtered.length, content: lines.join('\n') });
-      }
-
-      return JSON.stringify({ error: 'Unknown tool: ' + name });
-    } catch (err) {
-      return JSON.stringify({ success: false, error: err instanceof Error ? err.message : 'Tool execution failed' });
-    }
+  executeTool: async () => {
+    return JSON.stringify({ error: 'Know it All does not execute tools' });
   },
 };
 

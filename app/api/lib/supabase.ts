@@ -212,7 +212,7 @@ export async function getContactFromDB(contactId: string) {
   return data;
 }
 
-export async function getContactNotesFromDB(contactId: string, limit = 50) {
+export async function getContactNotesFromDB(contactId: string, limit = 5000) {
   const { data, error } = await getSupabase()
     .from('notes')
     .select('*')
@@ -223,7 +223,7 @@ export async function getContactNotesFromDB(contactId: string, limit = 50) {
   return data || [];
 }
 
-export async function getContactMessagesFromDB(contactId: string, limit = 100) {
+export async function getContactMessagesFromDB(contactId: string, limit = 5000) {
   const { data, error } = await getSupabase()
     .from('messages')
     .select('*')
