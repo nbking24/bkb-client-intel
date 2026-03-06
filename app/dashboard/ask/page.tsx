@@ -2,7 +2,7 @@
 'use client';
 
 import { useState, useRef, useEffect, useCallback } from 'react';
-import { MessageSquare, Send, Loader2, Bot, User, ChevronDown, CheckCircle, XCircle, Brain, FileSearch, Paperclip, X, FileText, Plus, Clock, Trash2, PanelLeftClose, PanelLeft } from 'lucide-react';
+import { MessageSquare, Send, Loader2, Bot, User, ChevronDown, CheckCircle, XCircle, Brain, FileSearch, Paperclip, X, FileText, Plus, Clock, Trash2, PanelLeftClose, PanelLeft, RefreshCw } from 'lucide-react';
 
 interface ChatMessage {
   role: 'user' | 'assistant';
@@ -52,6 +52,10 @@ export default function AskAgentPage() {
   const dropdownRef = useRef<HTMLDivElement>(null);
   const jobSearchRef = useRef<HTMLInputElement>(null);
 
+  // Sync state
+  const [syncing, setSyncing] = useState(false);
+  const [syncResult, setSyncResult] = useState<string | null>(null);
+
   // Conversation persistence state
   const [conversationId, setConversationId] = useState<string | null>(null);
   const [conversations, setConversations] = useState<ConversationSummary[]>([]);
@@ -77,6 +81,18 @@ export default function AskAgentPage() {
     } finally {
       setConvsLoading(false);
     }
+  };
+
+  const forceSync = async () => {
+    if (syncing) return;
+    setSyncing(true); setSyncResult(null);
+    try {
+      const r = await fetch('/api/sync/force', { method: 'POST', headers: { 'Authorization': `Bearer ${getAuthToken()}` } });
+      if (!r.ok) throw new Error('Sync failed');
+      const d = await r.json();
+      setSyncResult(`Synced ${d.totalItems || 0} items in ${d.duration || '?'}`);
+      setTimeout(() => setSyncResult(null), 5000);
+    } catch { setSyncResult('Sync failed'); setTimeout(() => setSyncResult(null), 4000); } finally { setSyncing(false); }
   };
 
   const createNewConversation = async (firstMessage: string): Promise<string | null> => {
@@ -590,7 +606,22 @@ export default function AskAgentPage() {
             </div>
           </div>
 
-          {/* Job Selector Dropdown */}
+          {/* Sync Button + Job Selector */}
+          <div className="flex items-center gap-2">
+            {syncResult && (
+              <span className="text-[10px] px-2 py-1 rounded" style={{ color: '#22c55e', background: 'rgba(34,197,94,0.08)' }}>{syncResult}</span>
+            )}
+            <button
+              onClick={forceSync}
+              disabled={syncing}
+              title="Sync GHL & JobTread data"
+              className="flex items-center gap-1.5 px-3 py-2 rounded-lg text-xs transition-all hover:brightness-110 disabled:opacity-40"
+              style={{ background: '#242424', color: syncing ? '#C9A84C' : '#8a8078', border: '1px solid rgba(205,162,116,0.12)' }}
+            >
+              <RefreshCw size={14} className={syncing ? 'animate-spin' : ''} />
+              {syncing ? 'Syncing...' : 'Sync'}
+            </button>
+          </div>
           <div className="relative" ref={dropdownRef}>
             <button
               type="button"
