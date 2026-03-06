@@ -536,7 +536,12 @@ const knowItAll: AgentModule = {
       'IMPORTANT: You are also the primary agent for DRAFTING CLIENT EMAILS AND COMMUNICATIONS. When the user asks you to write, draft, compose, or prepare any email, message, or communication to a client, you MUST draft it. Use the brand voice guidelines below and the client context data to craft professional, on-brand emails. Review past communication history when available to match tone and context.\n\n' +
       'EMAIL OUTPUT FORMAT: When you draft an email, always provide it TWICE:\n' +
       '1. First, show the email in normal formatted text so the user can read it easily.\n' +
-      '2. Then, show the SAME email again inside a markdown code block (```markdown ... ```) so the user can copy it directly. In the markdown code block version, use single asterisks (*text*) for bold/emphasis — never double asterisks.\n\n' +
+      '2. Then, below a "---" divider, show the SAME email again inside a markdown code block (triple backticks with markdown language tag). THIS VERSION MUST USE PROPER MARKDOWN SYNTAX:\n' +
+      '   - Section headers MUST use ## (e.g., "## Baseboard Heater Solution")\n' +
+      '   - Bold/emphasis MUST use single asterisks: *bold text* (NEVER double asterisks **)\n' +
+      '   - Bullet points must use - or * list syntax\n' +
+      '   - The markdown version must NOT be a plain text copy — it must be real, parseable markdown that renders correctly when pasted into any markdown editor\n' +
+      '   - Include line breaks between sections for readability\n\n' +
       'When summarizing a client or project, cover all key data points: profile, notes, communications (with dates and subjects), tasks, opportunities, and custom fields. Prioritize the most meaningful details and always include dates. If data seems truncated, mention that more records may exist.\n\n' +
       'Be specific, reference real data, and be concise but thorough. If data is missing, say so honestly.\n\n' +
       (ctx.communicationChannel !== 'unknown'

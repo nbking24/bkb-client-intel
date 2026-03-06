@@ -196,10 +196,47 @@ export default function AskAgentPage() {
   };
 
   const formatContent = (content: string) => {
-    return content.split('\n').map((line, i) => {
-      // Process markdown: bold, then links
+    const elements: React.ReactNode[] = [];
+    const lines = content.split('\n');
+    let i = 0;
+
+    while (i < lines.length) {
+      const line = lines[i];
+
+      // Detect code block opening (```markdown or ``` anything)
+      if (line.trim().startsWith('```')) {
+        const codeLines: string[] = [];
+        i++; // skip opening ```
+        while (i < lines.length && !lines[i].trim().startsWith('```')) {
+          codeLines.push(lines[i]);
+          i++;
+        }
+        i++; // skip closing ```
+        const codeContent = codeLines.join('\n');
+        elements.push(
+          <div key={`code-${i}`} className="relative mt-3 mb-3 rounded-lg" style={{ background: '#1a1a1a', border: '1px solid rgba(205,162,116,0.15)' }}>
+            <div className="flex items-center justify-between px-3 py-1.5" style={{ borderBottom: '1px solid rgba(205,162,116,0.1)', background: 'rgba(205,162,116,0.04)' }}>
+              <span className="text-[10px] font-medium" style={{ color: '#8a8078' }}>Markdown — Copy below</span>
+              <button
+                onClick={() => {
+                  navigator.clipboard.writeText(codeContent);
+                  const btn = document.activeElement as HTMLButtonElement;
+                  if (btn) { btn.textContent = 'Copied!'; setTimeout(() => { btn.textContent = 'Copy'; }, 2000); }
+                }}
+                className="text-[10px] px-2 py-0.5 rounded"
+                style={{ color: '#C9A84C', background: 'rgba(201,168,76,0.1)', border: '1px solid rgba(201,168,76,0.2)' }}
+              >
+                Copy
+              </button>
+            </div>
+            <pre className="px-3 py-2 text-xs overflow-x-auto whitespace-pre-wrap" style={{ color: '#c8c0b8', fontFamily: 'ui-monospace, SFMono-Regular, "SF Mono", Menlo, monospace', lineHeight: '1.5' }}>{codeContent}</pre>
+          </div>
+        );
+        continue;
+      }
+
+      // Process regular lines: bold, then links
       let formatted = line.replace(/\*\*(.*?)\*\*/g, '<strong>$1</strong>');
-      // Convert markdown links [text](url) to clickable <a> tags
       formatted = formatted.replace(
         /\[([^\]]+)\]\((https?:\/\/[^)]+)\)/g,
         '<a href="$2" target="_blank" rel="noopener noreferrer" style="color:#C9A84C;text-decoration:underline;word-break:break-all;">$1</a>'
@@ -207,21 +244,25 @@ export default function AskAgentPage() {
       // Convert ## headers to styled headers
       if (line.trim().startsWith('## ')) {
         const headerText = formatted.replace(/^[\s]*##\s+/, '');
-        return <div key={i} className="font-bold mt-3 mb-1" style={{ color: '#C9A84C', fontSize: '0.9rem' }} dangerouslySetInnerHTML={{ __html: headerText }} />;
-      }
-      if (line.trim().startsWith('### ')) {
+        elements.push(<div key={i} className="font-bold mt-3 mb-1" style={{ color: '#C9A84C', fontSize: '0.9rem' }} dangerouslySetInnerHTML={{ __html: headerText }} />);
+      } else if (line.trim().startsWith('### ')) {
         const headerText = formatted.replace(/^[\s]*###\s+/, '');
-        return <div key={i} className="font-semibold mt-2 mb-0.5" style={{ color: '#e8e0d8', fontSize: '0.85rem' }} dangerouslySetInnerHTML={{ __html: headerText }} />;
+        elements.push(<div key={i} className="font-semibold mt-2 mb-0.5" style={{ color: '#e8e0d8', fontSize: '0.85rem' }} dangerouslySetInnerHTML={{ __html: headerText }} />);
+      } else if (line.trim().startsWith('- ') || line.trim().startsWith('• ')) {
+        elements.push(<div key={i} className="ml-3" dangerouslySetInnerHTML={{ __html: '&bull; ' + formatted.replace(/^[\s]*[-•]\s*/, '') }} />);
+      } else if (/^\d+\.\s/.test(line.trim())) {
+        elements.push(<div key={i} className="ml-3" dangerouslySetInnerHTML={{ __html: formatted }} />);
+      } else if (line.trim() === '---') {
+        elements.push(<hr key={i} className="my-3" style={{ borderColor: 'rgba(205,162,116,0.15)' }} />);
+      } else if (!line.trim()) {
+        elements.push(<div key={i} className="h-2" />);
+      } else {
+        elements.push(<div key={i} dangerouslySetInnerHTML={{ __html: formatted }} />);
       }
-      if (line.trim().startsWith('- ') || line.trim().startsWith('• ')) {
-        return <div key={i} className="ml-3" dangerouslySetInnerHTML={{ __html: '&bull; ' + formatted.replace(/^[\s]*[-•]\s*/, '') }} />;
-      }
-      if (/^\d+\.\s/.test(line.trim())) {
-        return <div key={i} className="ml-3" dangerouslySetInnerHTML={{ __html: formatted }} />;
-      }
-      if (!line.trim()) return <div key={i} className="h-2" />;
-      return <div key={i} dangerouslySetInnerHTML={{ __html: formatted }} />;
-    });
+      i++;
+    }
+
+    return elements;
   };
 
   const lastMsgNeedsConfirm = messages.length > 0 &&
