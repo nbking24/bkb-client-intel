@@ -15,6 +15,9 @@
                     },
                     "app/api/cron/sync-incremental/route.ts": {
                                     "maxDuration": 60
+                    },
+                    "app/api/sync/backfill/route.ts": {
+                                    "maxDuration": 60
                     }
         },
         "crons": [
