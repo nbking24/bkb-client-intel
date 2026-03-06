@@ -457,3 +457,87 @@ export async function getJTDailyLogsByJobId(jobId: string, limit = 500): Promise
   }
 }
 
+// ── CONVERSATION PERSISTENCE ─────────────────────────────────
+
+export async function createConversation(title: string, jobId?: string, jobName?: string) {
+  const sb = getSupabase();
+  const { data, error } = await sb
+    .from('conversations')
+    .insert({
+      title,
+      jt_job_id: jobId || null,
+      jt_job_name: jobName || null,
+    })
+    .select('id, title, created_at')
+    .single();
+  if (error) throw error;
+  return data;
+}
+
+export async function listConversations(limit = 30) {
+  const sb = getSupabase();
+  const { data, error } = await sb
+    .from('conversations')
+    .select('id, title, jt_job_id, jt_job_name, created_at, updated_at')
+    .order('updated_at', { ascending: false })
+    .limit(limit);
+  if (error) throw error;
+  return data || [];
+}
+
+export async function getConversationWithMessages(conversationId: string) {
+  const sb = getSupabase();
+  const [convResult, msgsResult] = await Promise.all([
+    sb.from('conversations').select('*').eq('id', conversationId).single(),
+    sb.from('conversation_messages')
+      .select('*')
+      .eq('conversation_id', conversationId)
+      .order('created_at', { ascending: true }),
+  ]);
+  if (convResult.error) throw convResult.error;
+  return {
+    conversation: convResult.data,
+    messages: msgsResult.data || [],
+  };
+}
+
+export async function addConversationMessage(
+  conversationId: string,
+  role: 'user' | 'assistant',
+  content: string,
+  agentName?: string
+) {
+  const sb = getSupabase();
+  const { error: msgError } = await sb
+    .from('conversation_messages')
+    .insert({
+      conversation_id: conversationId,
+      role,
+      content,
+      agent_name: agentName || null,
+    });
+  if (msgError) throw msgError;
+
+  // Update conversation's updated_at and title if it's the first user message
+  const updates: any = { updated_at: new Date().toISOString() };
+  if (role === 'user') {
+    // Auto-title from first user message (truncated)
+    const { data: conv } = await sb
+      .from('conversations')
+      .select('title')
+      .eq('id', conversationId)
+      .single();
+    if (conv && conv.title === 'New conversation') {
+      updates.title = content.slice(0, 80) + (content.length > 80 ? '...' : '');
+    }
+  }
+  await sb.from('conversations').update(updates).eq('id', conversationId);
+}
+
+export async function deleteConversation(conversationId: string) {
+  const sb = getSupabase();
+  // Messages cascade-delete via FK
+  const { error } = await sb.from('conversations').delete().eq('id', conversationId);
+  if (error) throw error;
+}
+
