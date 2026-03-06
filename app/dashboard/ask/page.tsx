@@ -125,6 +125,10 @@ export default function AskAgentPage() {
           messages: allMessages,
           lastAgent: lastAgent || undefined,
           forcedAgent: agentMode,
+          ...(selectedJob ? {
+            jtJobId: selectedJob.id,
+            contactName: selectedJob.clientName,
+          } : {}),
         }),
       });
 

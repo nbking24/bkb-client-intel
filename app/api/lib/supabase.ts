@@ -274,6 +274,24 @@ export async function getJTJobsFromDB(limit = 50) {
   return data || [];
 }
 
+/** Search jt_jobs by name (case-insensitive ilike). Returns the best match. */
+export async function findJTJobByName(jobName: string): Promise<{ id: string; name: string; number: string } | null> {
+  try {
+    const { data, error } = await getSupabase()
+      .from('jt_jobs')
+      .select('id, name, number')
+      .ilike('name', '%' + jobName + '%')
+      .limit(5);
+    if (error || !data || data.length === 0) return null;
+    // Prefer exact match, fall back to first result
+    const exact = data.find(j => j.name?.toLowerCase() === jobName.toLowerCase());
+    return exact || data[0];
+  } catch (err) {
+    console.error('findJTJobByName error:', err);
+    return null;
+  }
+}
+
 export async function searchMessagesFullText(contactId: string, searchQuery: string, limit = 20) {
   const { data, error } = await getSupabase()
     .from('messages')

@@ -3,6 +3,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { validateAuth } from '../lib/auth';
 import { AgentContext, getCommChannel } from '../lib/agents/types';
 import { routeMessage } from '../lib/agents/router';
+import { findJTJobByName } from '../lib/supabase';
 
 export async function POST(req: NextRequest) {
   if (!validateAuth(req.headers.get('authorization'))) {
@@ -27,13 +28,33 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: 'No messages provided' }, { status: 400 });
     }
 
+    // Try to resolve jtJobId from the message context if not explicitly provided
+    let resolvedJtJobId = jtJobId || undefined;
+    if (!resolvedJtJobId) {
+      // Check if the latest message contains a job context hint (injected by frontend)
+      const lastMsg = messages[messages.length - 1]?.content || '';
+      const jobIdMatch = lastMsg.match(/\[Context:.*?ID:\s*([A-Za-z0-9]+)/);
+      if (jobIdMatch) {
+        resolvedJtJobId = jobIdMatch[1];
+      } else {
+        // Try to find a job name mentioned in the message by checking against known jobs
+        const jobNameMatch = lastMsg.match(/\[Context:.*?job "([^"]+)"/);
+        if (jobNameMatch) {
+          try {
+            const found = await findJTJobByName(jobNameMatch[1]);
+            if (found) resolvedJtJobId = found.id;
+          } catch { /* non-fatal */ }
+        }
+      }
+    }
+
     // Build shared agent context
     const ctx: AgentContext = {
       contactId: contactId || undefined,
       contactName: contactName || undefined,
       opportunityId: opportunityId || undefined,
       opportunityName: opportunityName || undefined,
-      jtJobId: jtJobId || undefined,
+      jtJobId: resolvedJtJobId,
       pipelineStage: pipelineStage || undefined,
       communicationChannel: getCommChannel(pipelineStage || ''),
     };
