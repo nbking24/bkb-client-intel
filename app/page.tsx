@@ -6,8 +6,25 @@ interface Contact { id: string; name: string; email?: string; phone?: string; }
 interface Opportunity { id: string; name: string; status: string; pipelineName: string; stageName: string; monetaryValue: number; jtJobId: string; }
 interface ChatMsg { id: string; role: "user" | "assistant"; content: string; ts: number; agent?: string; }
 interface Tpl { id: string; title: string; prompt: string; icon: string; }
+interface TaskConfirmation { name: string; phase: string; phaseId: string; description: string; assignee: string; startDate: string; endDate: string; msgId: string; }
 type MeetingType = "" | "Client Meeting" | "Internal" | "Trade" | "Other";
 type Tab = "notes" | "chat";
+
+const PHASES = ["Admin Tasks", "Conceptual Design", "Design Development", "Contract", "Preconstruction", "In Production", "Inspections", "Punch List", "Project Completion"];
+const TEAM_MEMBERS = ["", "Nathan King", "Terri Dalavai", "David Steich", "Evan Harrington", "John Molnar", "Karen Molnar", "Chrissy Zajick"];
+
+function parseTaskConfirmation(content: string, msgId: string): TaskConfirmation | null {
+  const match = content.match(/@@TASK_CONFIRM@@\s*([\s\S]*?)\s*@@END_CONFIRM@@/);
+  if (!match) return null;
+  try {
+    const data = JSON.parse(match[1].trim());
+    return { name: data.name || "", phase: data.phase || "", phaseId: data.phaseId || "", description: data.description || "", assignee: data.assignee || "", startDate: data.startDate || "", endDate: data.endDate || "", msgId };
+  } catch { return null; }
+}
+
+function stripConfirmBlock(content: string): string {
+  return content.replace(/@@TASK_CONFIRM@@[\s\S]*?@@END_CONFIRM@@/, "").trim();
+}
 
 const TEMPLATES: Tpl[] = [
   { id: "overview", title: "Project Overview", icon: "\u{1F4CB}", prompt: "Give me a summary overview of the latest communication with this client \u2014 current TO DO items, what the client is expecting, and pending decisions." },
@@ -112,6 +129,68 @@ function ContactSearch({ selected, onSelect }: { selected: Contact | null; onSel
   );
 }
 
+/* ——— Task Confirmation Card —————————————————————————————————————————— */
+function TaskConfirmCard({ data, onChange, onApprove, onCancel, busy }: {
+  data: TaskConfirmation;
+  onChange: (d: TaskConfirmation) => void;
+  onApprove: () => void;
+  onCancel: () => void;
+  busy: boolean;
+}) {
+  const fieldStyle = { background: "#2a2a2a", border: "1px solid rgba(205,162,116,0.18)", color: "#e8e0d8", borderRadius: "8px", padding: "8px 12px", fontSize: "13px", width: "100%", outline: "none" } as const;
+  const labelStyle = { color: "#CDA274", fontSize: "10px", textTransform: "uppercase" as const, letterSpacing: "0.05em", marginBottom: "4px", display: "block" };
+  return (
+    <div className="rounded-xl overflow-hidden" style={{ background: "#1f1f1f", border: "1px solid rgba(205,162,116,0.25)" }}>
+      <div className="px-4 py-2.5 flex items-center gap-2" style={{ background: "rgba(205,162,116,0.08)", borderBottom: "1px solid rgba(205,162,116,0.12)" }}>
+        <span style={{ fontSize: "14px" }}>📝</span>
+        <span style={{ color: "#CDA274", fontSize: "12px", fontWeight: 600 }}>Review Task Before Creating</span>
+      </div>
+      <div className="p-4 space-y-3">
+        <div>
+          <label style={labelStyle}>Task Name</label>
+          <input value={data.name} onChange={e => onChange({ ...data, name: e.target.value })} style={fieldStyle} />
+        </div>
+        <div className="grid grid-cols-2 gap-3">
+          <div>
+            <label style={labelStyle}>Phase</label>
+            <select value={data.phase} onChange={e => onChange({ ...data, phase: e.target.value })} style={{ ...fieldStyle, appearance: "none" as const }}>
+              {PHASES.map(p => <option key={p} value={p}>{p}</option>)}
+            </select>
+          </div>
+          <div>
+            <label style={labelStyle}>Assignee</label>
+            <select value={data.assignee} onChange={e => onChange({ ...data, assignee: e.target.value })} style={{ ...fieldStyle, appearance: "none" as const }}>
+              {TEAM_MEMBERS.map(m => <option key={m} value={m}>{m || "Unassigned"}</option>)}
+            </select>
+          </div>
+        </div>
+        <div>
+          <label style={labelStyle}>Description</label>
+          <textarea value={data.description} onChange={e => onChange({ ...data, description: e.target.value })} rows={3} style={{ ...fieldStyle, resize: "vertical" as const }} />
+        </div>
+        <div className="grid grid-cols-2 gap-3">
+          <div>
+            <label style={labelStyle}>Start Date</label>
+            <input type="date" value={data.startDate} onChange={e => onChange({ ...data, startDate: e.target.value })} style={{ ...fieldStyle, colorScheme: "dark" }} />
+          </div>
+          <div>
+            <label style={labelStyle}>Due Date</label>
+            <input type="date" value={data.endDate} onChange={e => onChange({ ...data, endDate: e.target.value })} style={{ ...fieldStyle, colorScheme: "dark" }} />
+          </div>
+        </div>
+      </div>
+      <div className="px-4 py-3 flex gap-2" style={{ borderTop: "1px solid rgba(205,162,116,0.12)" }}>
+        <button onClick={onApprove} disabled={busy || !data.name.trim()} className="flex-1 py-2.5 rounded-lg font-semibold text-sm disabled:opacity-30 transition-all" style={{ background: "#CDA274", color: "#1a1a1a" }}>
+          {busy ? "Creating..." : "Approve & Create"}
+        </button>
+        <button onClick={onCancel} disabled={busy} className="px-4 py-2.5 rounded-lg text-sm transition-all" style={{ background: "rgba(205,162,116,0.08)", color: "#8a8078" }}>
+          Cancel
+        </button>
+      </div>
+    </div>
+  );
+}
+
 /* ——— Main App ———————————————————————————————————————————————————————— */
 export default function Home() {
   const [authed, setAuthed] = useState(false);
@@ -135,6 +214,7 @@ export default function Home() {
   const [msgs, setMsgs] = useState<ChatMsg[]>([]);
   const [input, setInput] = useState("");
   const [thinking, setThinking] = useState(false);
+  const [pendingConfirm, setPendingConfirm] = useState<TaskConfirmation | null>(null);
   const endRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLTextAreaElement>(null);
 
@@ -203,10 +283,33 @@ export default function Home() {
         }) });
       if (!r.ok) { const e = await r.json().catch(() => ({})); throw new Error(e.error || "Chat failed"); }
       const d = await r.json();
-      setMsgs(p => [...p, { id: uid(), role: "assistant", content: d.reply, ts: Date.now(), agent: d.agent }]);
+      const newMsgId = uid();
+      setMsgs(p => [...p, { id: newMsgId, role: "assistant", content: d.reply, ts: Date.now(), agent: d.agent }]);
+      // Check if the response contains a task confirmation block
+      const confirm = parseTaskConfirmation(d.reply, newMsgId);
+      if (confirm) setPendingConfirm(confirm);
     } catch (e: unknown) {
       setMsgs(p => [...p, { id: uid(), role: "assistant", content: "Sorry, something went wrong. " + (e instanceof Error ? e.message : ""), ts: Date.now() }]);
     } finally { setThinking(false); }
+  };
+
+  const approveTask = async (data: TaskConfirmation) => {
+    const details = [
+      "Yes, proceed with these details:",
+      "Task: " + data.name,
+      "Phase: " + data.phase,
+      data.description ? "Description: " + data.description : "",
+      data.assignee ? "Assignee: " + data.assignee : "Assignee: none",
+      data.startDate ? "Start: " + data.startDate : "",
+      data.endDate ? "Due: " + data.endDate : "",
+    ].filter(Boolean).join("\n");
+    setPendingConfirm(null);
+    await sendChat(details);
+  };
+
+  const cancelTask = () => {
+    setPendingConfirm(null);
+    sendChat("Cancel, do not create the task.");
   };
 
   useEffect(() => { endRef.current?.scrollIntoView({ behavior: "smooth" }); }, [msgs, thinking]);
@@ -391,24 +494,36 @@ export default function Home() {
               </div>
             )}
 
-            {msgs.map(m => (
-              <div key={m.id} className={"flex items-start gap-3 animate-slide-up " + (m.role === "user" ? "flex-row-reverse" : "")}>
-                {m.role === "assistant" && (
-                  <div className="flex-shrink-0 w-8 h-8 rounded-full flex items-center justify-center text-xs font-bold" style={{ background: "#CDA274", color: "#1a1a1a" }}>BK</div>
-                )}
-                <div className="max-w-[85%]">
-                  <div className={"px-4 py-3 text-sm leading-relaxed whitespace-pre-wrap " + (m.role === "user" ? "rounded-2xl rounded-tr-md ml-auto" : "rounded-2xl rounded-tl-md")}
-                    style={{ background: m.role === "user" ? "#CDA274" : "#242424", color: m.role === "user" ? "#1a1a1a" : "#e8e0d8", border: m.role === "user" ? "none" : "1px solid rgba(205,162,116,0.12)" }}>
-                    {m.content}
-                  </div>
-                  {m.agent && m.role === "assistant" && (
-                    <p className="text-right mt-1 text-xs italic" style={{ color: "#5a534c" }}>
-                      via {m.agent}
-                    </p>
+            {msgs.map(m => {
+              const hasConfirm = m.role === "assistant" && m.content.includes("@@TASK_CONFIRM@@");
+              const displayContent = hasConfirm ? stripConfirmBlock(m.content) : m.content;
+              const isActiveConfirm = pendingConfirm && pendingConfirm.msgId === m.id;
+              return (
+                <div key={m.id} className={"flex items-start gap-3 animate-slide-up " + (m.role === "user" ? "flex-row-reverse" : "")}>
+                  {m.role === "assistant" && (
+                    <div className="flex-shrink-0 w-8 h-8 rounded-full flex items-center justify-center text-xs font-bold" style={{ background: "#CDA274", color: "#1a1a1a" }}>BK</div>
                   )}
+                  <div className="max-w-[85%]">
+                    {displayContent && (
+                      <div className={"px-4 py-3 text-sm leading-relaxed whitespace-pre-wrap " + (m.role === "user" ? "rounded-2xl rounded-tr-md ml-auto" : "rounded-2xl rounded-tl-md")}
+                        style={{ background: m.role === "user" ? "#CDA274" : "#242424", color: m.role === "user" ? "#1a1a1a" : "#e8e0d8", border: m.role === "user" ? "none" : "1px solid rgba(205,162,116,0.12)" }}>
+                        {displayContent}
+                      </div>
+                    )}
+                    {isActiveConfirm && (
+                      <div className={displayContent ? "mt-3" : ""}>
+                        <TaskConfirmCard data={pendingConfirm} onChange={setPendingConfirm} onApprove={() => approveTask(pendingConfirm)} onCancel={cancelTask} busy={thinking} />
+                      </div>
+                    )}
+                    {m.agent && m.role === "assistant" && (
+                      <p className="text-right mt-1 text-xs italic" style={{ color: "#5a534c" }}>
+                        via {m.agent}
+                      </p>
+                    )}
+                  </div>
                 </div>
-              </div>
-            ))}
+              );
+            })}
 
             {thinking && (
               <div className="flex items-start gap-3 animate-slide-up">

@@ -82,6 +82,31 @@ const jtEntry: AgentModule = {
       '- Examples of GOOD task names: "Schedule fireplace review meeting", "Contact Scott re: plumbing permit", "Order kitchen cabinets", "Submit permit application"\n' +
       '- Examples of BAD task names: "Setup appointment with Nathan to meet with clients and Estate Chimney to review fireplace installation" (way too long!)\n' +
       '- The description field is where you put: who needs to attend, what to discuss, specific instructions, deadlines, preferences, etc.\n\n' +
+      'PHASE ASSIGNMENT (CRITICAL — EVERY TASK MUST GO UNDER A PHASE):\n' +
+      '- Every new task MUST be created under one of the 9 standard phases. NEVER create orphan/unorganized tasks.\n' +
+      '- Before creating a task, ALWAYS call get_job_schedule first to see the existing phases and their IDs.\n' +
+      '- Determine which phase the task belongs to based on its nature:\n' +
+      '  1. Admin Tasks — billing, insurance, internal admin, project setup\n' +
+      '  2. Conceptual Design — initial design meetings, concept reviews, budget estimates\n' +
+      '  3. Design Development — DD drawings, revisions, selections, plan reviews\n' +
+      '  4. Contract — final plans, engineering, contract prep and signing\n' +
+      '  5. Preconstruction — permits, material orders, sub scheduling, pre-con meetings\n' +
+      '  6. In Production — all construction/build tasks, site work, installations\n' +
+      '  7. Inspections — site inspections, code inspections\n' +
+      '  8. Punch List — final fixes, touch-ups, punch items\n' +
+      '  9. Project Completion — final walkthrough, final billing, warranties, closeout\n' +
+      '- Use create_phase_task (with the phase ID as parentGroupId) instead of create_jobtread_task.\n' +
+      '- If the job does not have phases yet, tell the user and offer to apply the standard template first.\n' +
+      '- Include the phase name in your confirmation summary so the user knows where the task will go.\n\n' +
+      'CONFIRMATION FORMAT (CRITICAL — ALWAYS USE THIS FORMAT):\n' +
+      '- When presenting a task for approval, ALWAYS include this structured block at the END of your message:\n' +
+      '@@TASK_CONFIRM@@\n' +
+      '{"name":"short task name","phase":"Phase Name","phaseId":"phase-id-from-schedule","description":"detailed description here","assignee":"Team Member Name","startDate":"YYYY-MM-DD or empty","endDate":"YYYY-MM-DD or empty"}\n' +
+      '@@END_CONFIRM@@\n' +
+      '- The phaseId must be the actual ID from get_job_schedule results.\n' +
+      '- If no assignee, use "" (empty string). If no dates, use "" (empty string).\n' +
+      '- This format enables the UI to show an editable confirmation card so the user can make quick changes before approving.\n' +
+      '- You can still include a brief natural-language summary BEFORE the @@TASK_CONFIRM@@ block.\n\n' +
       'OTHER RULES:\n' +
       '- If you need a Job ID and none is provided, use search_jobs first to find the right job.\n' +
       '- Use the assignTo field with team member names. Match names fuzzy (e.g. "Nathan" matches "Nathan King").\n' +
