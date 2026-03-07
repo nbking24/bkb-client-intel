@@ -25,6 +25,7 @@ import {
   getCommentsForTarget,
   updateJob,
   getCostItemsForJob,
+  getAllOpenTasks,
   // DB-only reads for messages & daily logs (prevents duplication)
   getCommentsFromDB,
   getDailyLogsFromDB,
@@ -67,7 +68,8 @@ const jtEntry: AgentModule = {
       '19. get_comments — View all comments on a JobTread entity.\n' +
       '20. update_job — Update job details (name, description, specifications, close/reopen).\n' +
       '21. get_job_budget — View cost items (budget line items) for a job.\n' +
-      '22. update_task_full — Advanced task update with assignee changes, time of day, etc.\n\n' +
+      '22. update_task_full — Advanced task update with assignee changes, time of day, etc.\n' +
+      '23. get_all_open_tasks — Get ALL incomplete tasks across ALL active jobs with assignees and dates. Use when the user asks about their tasks across multiple projects or team workload.\n\n' +
       'CRITICAL — CONFIRMATION BEFORE EXECUTION:\n' +
       '- For ANY write operation (create, update, delete, move, apply template), you MUST first:\n' +
       '  1. Use read-only tools (search_jobs, get_job_schedule, get_job_tasks) to gather the needed info\n' +
@@ -185,6 +187,15 @@ const jtEntry: AgentModule = {
           jobId: { type: 'string', description: 'The JobTread Job ID' },
         },
         required: ['jobId'],
+      },
+    },
+    {
+      name: 'get_all_open_tasks',
+      description: 'Get all open (incomplete) tasks across ALL active jobs. Returns task name, dates, progress, job name, and assigned team members. Use when the user asks about their tasks, team workload, or open items across multiple projects.',
+      input_schema: {
+        type: 'object',
+        properties: {},
+        required: [],
       },
     },
     {
@@ -570,6 +581,19 @@ const jtEntry: AgentModule = {
           const dates = [t.startDate, t.endDate].filter(Boolean).join(' → ');
           const assignees = t.assignedMemberships?.map((a: any) => a.user?.name || '').filter(Boolean).join(', ');
           return '- [' + status + '] ' + t.name + ' (ID: ' + t.id + ')' + (dates ? ' (' + dates + ')' : '') + (assignees ? ' [' + assignees + ']' : '');
+        });
+        return JSON.stringify({ success: true, count: tasks.length, tasks: lines.join('\n') });
+      }
+
+      // ========== ALL OPEN TASKS (cross-job) ==========
+      if (name === 'get_all_open_tasks') {
+        const tasks = await getAllOpenTasks();
+        if (!tasks || tasks.length === 0) return JSON.stringify({ success: true, count: 0, message: 'No open tasks found.' });
+        const lines = tasks.map((t: any) => {
+          const status = t.progress >= 1 ? 'DONE' : t.progress > 0 ? 'IN PROGRESS' : 'NOT STARTED';
+          const assigned = t.assignedMemberships?.nodes?.map((m: any) => m.user?.name || m.id).join(', ') || 'Unassigned';
+          const job = t.job ? (t.job.name || t.job.id) : 'No job';
+          return `- [${status}] "${t.name}" | Job: ${job} | Assigned: ${assigned} | Due: ${t.endDate || 'No date'} | Start: ${t.startDate || 'No date'}`;
         });
         return JSON.stringify({ success: true, count: tasks.length, tasks: lines.join('\n') });
       }

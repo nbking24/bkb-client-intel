@@ -249,6 +249,7 @@ export async function getAllOpenTasks(): Promise<JTTask[]> {
       assignedMemberships: {
         nodes: {
           id: {},
+          user: { id: {}, name: {} },
         },
       },
     },

@@ -33,6 +33,13 @@ import {
   getEmailById,
 } from '../ghl';
 import { getActiveJobs } from '../jobtread';
+import {
+  getAllOpenTasks,
+  getTasksForJob,
+  getJobSchedule,
+  getMembers,
+  getDocumentsForJob,
+} from '@/app/lib/jobtread';
 import { getBrandVoicePrompt } from '@/app/lib/bkb-brand-voice';
 
 // -- TOKEN-AWARE CONTEXT BUDGETING ------------------------------------
@@ -565,8 +572,17 @@ const knowItAll: AgentModule = {
       '   - Bullet points must use - or * list syntax\n' +
       '   - Must be real, parseable markdown (NOT a plain text copy)\n' +
       '   - Include line breaks between sections for readability\n\n' +
+      '=== JOBTREAD READ ACCESS (NEW) ===\n' +
+      'You now have READ-ONLY tools for querying JobTread data:\n' +
+      '- get_all_open_tasks — Get all incomplete tasks across ALL active jobs (with assignees and dates)\n' +
+      '- get_job_tasks — Get all tasks for a specific job\n' +
+      '- get_job_schedule — View the full phase/task hierarchy for a job\n' +
+      '- search_jobs — List all active jobs with IDs\n' +
+      '- get_members — List all team members with membership IDs\n' +
+      '- get_job_documents — View documents (estimates, COs, invoices) for a job\n' +
+      'USE THESE TOOLS when the user asks about tasks, schedules, team workload, documents, or job details. Do NOT try to answer from context alone — call the tool to get fresh data.\n\n' +
       '=== CRITICAL: YOU CANNOT CREATE, UPDATE, OR DELETE JOBTREAD RECORDS ===\n' +
-      'You do NOT have any tools for writing to JobTread. You CANNOT create tasks, update tasks, create daily logs, modify jobs, or make ANY changes in JobTread. If the user asks you to create a task, schedule something, or make a change in JobTread, you MUST say: "I\'m not able to create tasks in JobTread directly. Let me hand this off to the JT Entry Specialist — could you rephrase your request so the system routes it to the right agent?" NEVER claim you have created, updated, or modified anything in JobTread. This is a zero-tolerance rule — fabricating confirmations of actions you did not take causes real business harm.\n\n' +
+      'You have READ-ONLY access to JobTread. You CANNOT create tasks, update tasks, create daily logs, modify jobs, or make ANY changes in JobTread. If the user asks you to create a task, schedule something, or make a change in JobTread, you MUST say: "I can\'t modify JobTread directly — let me hand this off to the JT Entry Specialist. Could you rephrase your request so the system routes it to the right agent?" NEVER claim you have created, updated, or modified anything in JobTread. This is a zero-tolerance rule — fabricating confirmations of actions you did not take causes real business harm.\n\n' +
       'DOCUMENT ANALYSIS: Users may attach documents (contracts, change orders, proposals, budgets, vendor estimates, invoices, specs). The document content will appear in the message as "--- ATTACHED DOCUMENT: [filename] ---" blocks. When documents are attached, READ them thoroughly and reference their content when answering questions or drafting communications. Cite specific details from the documents (dollar amounts, dates, scope items, material specs) to show you\'ve analyzed them.\n\n' +
       'MATERIAL SPECIFICATION WRITING (CRITICAL — for vendor estimates, invoices, and material sign-off requests):\n' +
       'When the user uploads a vendor estimate/invoice and asks you to "write a material specification" or "write a spec" or requests a "material sign-off," you MUST extract the actual product details from the attached document and write a proper specification. DO NOT generate generic scope-of-work boilerplate.\n\n' +
@@ -610,7 +626,68 @@ const knowItAll: AgentModule = {
       getBrandVoicePrompt() + '\n';
   },
 
-  tools: [],
+  tools: [
+    {
+      name: 'get_all_open_tasks',
+      description: 'Get all open (incomplete) tasks across ALL active jobs in JobTread. Returns task name, dates, progress, job name, and assigned team members. Use when the user asks about their tasks, team workload, or open items across projects.',
+      input_schema: {
+        type: 'object',
+        properties: {},
+        required: [],
+      },
+    },
+    {
+      name: 'get_job_tasks',
+      description: 'Get all tasks for a specific JobTread job. Returns task name, dates, progress, and assignees.',
+      input_schema: {
+        type: 'object',
+        properties: {
+          jobId: { type: 'string', description: 'The JobTread Job ID' },
+        },
+        required: ['jobId'],
+      },
+    },
+    {
+      name: 'get_job_schedule',
+      description: 'Get the full phase/task hierarchy (schedule) for a specific job. Shows phases and their tasks organized in a tree.',
+      input_schema: {
+        type: 'object',
+        properties: {
+          jobId: { type: 'string', description: 'The JobTread Job ID' },
+        },
+        required: ['jobId'],
+      },
+    },
+    {
+      name: 'search_jobs',
+      description: 'Search for JobTread jobs. Returns a list of active jobs with ID, number, name, and status.',
+      input_schema: {
+        type: 'object',
+        properties: {},
+        required: [],
+      },
+    },
+    {
+      name: 'get_members',
+      description: 'Get all team members (memberships) in the JobTread organization. Returns membership ID and user name.',
+      input_schema: {
+        type: 'object',
+        properties: {},
+        required: [],
+      },
+    },
+    {
+      name: 'get_job_documents',
+      description: 'Get documents (estimates, change orders, invoices, etc.) for a specific job.',
+      input_schema: {
+        type: 'object',
+        properties: {
+          jobId: { type: 'string', description: 'The JobTread Job ID' },
+        },
+        required: ['jobId'],
+      },
+    },
+  ],
 
   canHandle: (message: string) => {
     const lower = message.toLowerCase();
@@ -665,8 +742,79 @@ const knowItAll: AgentModule = {
     return parts.join('\n\n');
   },
 
-  executeTool: async () => {
-    return JSON.stringify({ error: 'Know it All does not execute tools' });
+  executeTool: async (name: string, input: any, ctx: AgentContext) => {
+    try {
+      if (name === 'get_all_open_tasks') {
+        const tasks = await getAllOpenTasks();
+        if (!tasks || tasks.length === 0) return JSON.stringify({ success: true, count: 0, message: 'No open tasks found.' });
+        const lines = tasks.map((t: any) => {
+          const status = t.progress >= 1 ? 'DONE' : t.progress > 0 ? 'IN PROGRESS' : 'NOT STARTED';
+          const assigned = t.assignedMemberships?.nodes?.map((m: any) => m.user?.name || m.id).join(', ') || 'Unassigned';
+          const job = t.job ? (t.job.name || t.job.id) : 'No job';
+          return `- [${status}] "${t.name}" | Job: ${job} | Assigned: ${assigned} | Due: ${t.endDate || 'No date'} | Start: ${t.startDate || 'No date'}`;
+        });
+        return JSON.stringify({ success: true, count: tasks.length, tasks: lines.join('\n') });
+      }
+
+      if (name === 'get_job_tasks') {
+        const tasks = await getTasksForJob(input.jobId);
+        if (!tasks || tasks.length === 0) return JSON.stringify({ success: true, count: 0, message: 'No tasks found.' });
+        const lines = tasks.map((t: any) => {
+          const status = t.progress >= 1 ? 'DONE' : t.progress > 0 ? 'IN PROGRESS' : 'NOT STARTED';
+          return `- [${status}] "${t.name}" | Due: ${t.endDate || 'No date'} | Start: ${t.startDate || 'No date'}`;
+        });
+        return JSON.stringify({ success: true, count: tasks.length, tasks: lines.join('\n') });
+      }
+
+      if (name === 'get_job_schedule') {
+        const schedule = await getJobSchedule(input.jobId);
+        if (!schedule) return JSON.stringify({ success: true, message: 'No schedule found.' });
+        // Format the schedule tree
+        const formatNode = (node: any, depth = 0): string => {
+          const indent = '  '.repeat(depth);
+          const status = node.progress >= 1 ? 'DONE' : node.progress > 0 ? 'IN PROGRESS' : 'NOT STARTED';
+          let line = `${indent}- [${status}] "${node.name}"`;
+          if (node.endDate) line += ` | Due: ${node.endDate}`;
+          if (node.startDate) line += ` | Start: ${node.startDate}`;
+          if (node.children && node.children.length > 0) {
+            line += '\n' + node.children.map((c: any) => formatNode(c, depth + 1)).join('\n');
+          }
+          return line;
+        };
+        const tree = Array.isArray(schedule) ? schedule : (schedule.children || [schedule]);
+        const lines = tree.map((n: any) => formatNode(n));
+        return JSON.stringify({ success: true, schedule: lines.join('\n') });
+      }
+
+      if (name === 'search_jobs') {
+        const jobs = await getActiveJobs(50);
+        if (!jobs || jobs.length === 0) return JSON.stringify({ success: true, count: 0, message: 'No active jobs found.' });
+        const lines = (jobs as any[]).map((j: any) => `- #${j.number || '?'} "${j.name}" | ID: ${j.id} | Status: ${j.status || 'N/A'}`);
+        return JSON.stringify({ success: true, count: jobs.length, jobs: lines.join('\n') });
+      }
+
+      if (name === 'get_members') {
+        const members = await getMembers();
+        if (!members || members.length === 0) return JSON.stringify({ success: true, count: 0, message: 'No members found.' });
+        const lines = members.map((m: any) => `- ${m.user?.name || 'Unknown'} | Membership ID: ${m.id}`);
+        return JSON.stringify({ success: true, count: members.length, members: lines.join('\n') });
+      }
+
+      if (name === 'get_job_documents') {
+        const docs = await getDocumentsForJob(input.jobId);
+        if (!docs || docs.length === 0) return JSON.stringify({ success: true, count: 0, message: 'No documents found.' });
+        const lines = (docs as any[]).map((d: any) => {
+          const status = d.status || 'N/A';
+          const total = d.total !== undefined ? `$${Number(d.total).toLocaleString()}` : 'N/A';
+          return `- "${d.name || 'Untitled'}" | Type: ${d.type || 'N/A'} | Status: ${status} | Total: ${total}`;
+        });
+        return JSON.stringify({ success: true, count: docs.length, documents: lines.join('\n') });
+      }
+
+      return JSON.stringify({ error: 'Unknown tool: ' + name });
+    } catch (err) {
+      return JSON.stringify({ error: 'Tool failed: ' + (err instanceof Error ? err.message : String(err)) });
+    }
   },
 };
 
