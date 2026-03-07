@@ -461,6 +461,12 @@ export function useAskAgent() {
     // Include the task data so Claude can call the actual tool
     if (taskData) {
       const mergedData = edits ? { ...taskData, ...edits } : taskData;
+      // If the user changed the phase, REMOVE the stale phaseId so Claude
+      // is forced to call get_job_schedule to find the correct one.
+      if (edits?.phase && edits.phase !== taskData.phase) {
+        delete (mergedData as any).phaseId;
+        (mergedData as any).phaseChanged = true;
+      }
       confirmMsg += '\n\n[APPROVED TASK DATA — execute this now using create_phase_task tool]\n' + JSON.stringify(mergedData);
     }
 
