@@ -4,7 +4,7 @@
 >
 > **Nathan:** If starting a new conversation, mention this doc or say "review the architecture doc" so the assistant knows to read it first.
 
-**Last updated:** 2026-03-06
+**Last updated:** 2026-03-07
 **Repo:** `github.com/nbking24/bkb-client-intel`
 **Deploy:** Vercel (auto-deploy on push to `main`)
 **Live URL:** `https://bkb-client-intel.vercel.app`
@@ -141,7 +141,7 @@ User message → /api/chat → router.ts → canHandle() on each agent → highe
 | Agent | File | Score Range | What It Does |
 |-------|------|-------------|-------------|
 | **Know-it-All** | `know-it-all.ts` | 0.05–0.95 | General Q&A, searches Supabase + GHL, creates tasks, drafts emails, writes material specs |
-| **JT Entry** | `jt-entry.ts` | 0.05–0.95 | JobTread task mutations (create, update, apply templates) |
+| **JT Entry** | `jt-entry.ts` | 0.05–0.95 | JobTread task mutations (create/update tasks with assignee + dates, apply templates) — 22 tools |
 | **Project Details** | `project-details.ts` | 0.1–0.9 | Answers questions about specs from project's Specifications URL via PAVE cost items |
 
 ### 3.3 Routing Gotchas
@@ -157,11 +157,36 @@ When JT Entry wants to create/modify a task, it returns a confirmation block:
 
 ```
 @@TASK_CONFIRM@@
-{JSON with action details}
+{JSON with action details: name, phase, phaseId, description, assignee, startDate, endDate}
 @@END_CONFIRM@@
 ```
 
-The server-side `/api/chat/route.ts` extracts this block and sets `needsConfirmation: true` in the response. The frontend shows Approve/Cancel buttons. On approve, the user sends "Yes, proceed." which routes back to JT Entry.
+The server-side `/api/chat/route.ts` extracts this block and sets `needsConfirmation: true` in the response. The frontend renders an **editable TaskConfirmCard** (both desktop and mobile) showing name, phase, assignee, dates, and description. The user can edit any field inline before approving.
+
+**On Approve** the hook (`useAskAgent.ts`) sends:
+```
+Yes, proceed but [list of edits if any].
+
+[APPROVED TASK DATA — execute this now using create_phase_task tool]
+{"name":"...","phase":"...","phaseId":"...","assignee":"...","endDate":"..."}
+```
+
+**Field mapping** (JSON → `create_phase_task` tool params):
+| JSON field | Tool param |
+|------------|------------|
+| `name` | `name` |
+| `phaseId` | `parentGroupId` |
+| `description` | `description` |
+| `assignee` | `assignTo` |
+| `startDate` | `startDate` |
+| `endDate` | `endDate` |
+
+**Phase change handling**: If the user edits the phase dropdown, `useAskAgent.ts` deletes the stale `phaseId` and sets `phaseChanged: true`. When JT Entry sees `phaseChanged: true` with no `phaseId`, it calls `get_job_schedule` to look up the correct phase ID by name, then uses that as `parentGroupId` in `create_phase_task`. This prevents orphan tasks.
+
+**Sticky routing**: The router has three patterns that keep confirmations with the last agent:
+- `CONFIRMATION_PATTERN` — "yes", "ok", "proceed", etc.
+- `EXTENDED_CONFIRM_PATTERN` — "Yes, proceed but ..."
+- `APPROVED_TASK_PATTERN` — messages containing `[APPROVED TASK DATA`
 
 ---
 
@@ -341,11 +366,30 @@ JT API  ──→ jt_comments, jt_daily_logs (Supabase cache)
 
 6. **Task confirmation is server-side**: The `@@TASK_CONFIRM@@` block is extracted in `/api/chat/route.ts`, NOT in the frontend. The frontend only sees `needsConfirmation: true`.
 
+7. **Editable confirmation cards can cause stale data**: When the user edits the phase dropdown on a TaskConfirmCard, the `phaseId` from the original suggestion becomes stale. The hook deletes the old `phaseId` and sets `phaseChanged: true` — JT Entry must then look up the correct phase ID via `get_job_schedule`. If this logic is bypassed, tasks get created as orphans.
+
+8. **`create_phase_task` vs `create_jobtread_task`**: Always use `create_phase_task` (with `parentGroupId`) for approved tasks. Using `create_jobtread_task` creates orphan tasks with no phase assignment. The JT Entry system prompt explicitly forbids `create_jobtread_task` for approved tasks.
+
+9. **Tool param names don't match JSON keys**: The confirmation card JSON uses `assignee` but the tool expects `assignTo`. Similarly `phaseId` maps to `parentGroupId`. The JT Entry system prompt has an explicit mapping table — if you modify the tool schema, update the mapping too.
+
 ---
 
 ## 13. Changelog
 
 All modifications to the codebase should be logged here with date, files changed, and what was done.
+
+### 2026-03-07 — Session: Fix Orphan Tasks + Date/Assignee Passthrough
+
+**Problem 1:** When user edited the phase in the confirmation card dropdown, the stale `phaseId` from the original suggestion was still sent. Claude used the old phaseId, creating the task under the wrong phase — or as an orphan with no phase at all.
+
+**Problem 2:** After fixing the phase issue, tasks were created in the right phase but with no assignee and no due date. Root cause: the `create_phase_task` tool definition was missing `startDate` and `endDate` parameters entirely. The system prompt also lacked explicit field mapping between JSON keys and tool params.
+
+**Changes:**
+- `app/hooks/useAskAgent.ts` — When user changes phase in dropdown, delete stale `phaseId` and set `phaseChanged: true` so Claude is forced to look up the correct phase ID via `get_job_schedule`
+- `app/api/lib/agents/jt-entry.ts` — Added `startDate` and `endDate` to `create_phase_task` tool schema; updated execution code to pass them to `createPhaseTask()`; added explicit field mapping instructions and phase change handling steps to system prompt
+- Updated ARCHITECTURE.md section 3.4 with full task confirmation flow documentation
+
+**Commits:** `659d972` (orphan fix), `a0d86e9` (date/assignee fix)
 
 ### 2026-03-07 — Session: Fix Task Confirmation Card
 
