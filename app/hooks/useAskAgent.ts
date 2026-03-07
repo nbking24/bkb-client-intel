@@ -4,11 +4,22 @@
 import { useState, useRef, useEffect, useCallback } from 'react';
 
 /* ── Shared types ── */
+export interface TaskConfirmData {
+  name?: string;
+  phase?: string;
+  phaseId?: string;
+  description?: string;
+  assignee?: string;
+  startDate?: string;
+  endDate?: string;
+}
+
 export interface ChatMessage {
   role: 'user' | 'assistant';
   content: string;
   agent?: string;
   needsConfirmation?: boolean;
+  taskConfirm?: TaskConfirmData;
 }
 
 export interface ConversationSummary {
@@ -338,6 +349,7 @@ export function useAskAgent() {
           content: assistantMsg,
           agent: data.agent,
           needsConfirmation: data.needsConfirmation || false,
+          taskConfirm: data.taskConfirm || undefined,
         },
       ]);
 

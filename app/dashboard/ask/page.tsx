@@ -9,7 +9,7 @@ import {
 } from 'lucide-react';
 import {
   useAskAgent, formatContent, formatTimeAgo, getSuggestions,
-  type ChatMessage, type AgentMode,
+  type ChatMessage, type AgentMode, type TaskConfirmData,
 } from '@/app/hooks/useAskAgent';
 
 /* ── Render formatted elements to JSX ── */
@@ -46,6 +46,51 @@ function RenderContent({ content }: { content: string }) {
         return <div key={el.key} dangerouslySetInnerHTML={{ __html: el.html }} />;
       })}
     </>
+  );
+}
+
+/* ── Task Confirmation Card ── */
+function TaskConfirmCard({ data }: { data: TaskConfirmData }) {
+  return (
+    <div className="mt-3 rounded-lg overflow-hidden" style={{ background: '#1a1a1a', border: '1px solid rgba(201,168,76,0.25)' }}>
+      <div className="px-3 py-2 flex items-center gap-2" style={{ background: 'rgba(201,168,76,0.08)', borderBottom: '1px solid rgba(201,168,76,0.15)' }}>
+        <span className="text-xs font-semibold" style={{ color: '#C9A84C' }}>Task Preview</span>
+      </div>
+      <div className="px-3 py-2.5 space-y-1.5">
+        {data.name && (
+          <div className="flex items-start gap-2">
+            <span className="text-[10px] font-medium w-16 flex-shrink-0 pt-0.5" style={{ color: '#8a8078' }}>Name</span>
+            <span className="text-sm font-medium" style={{ color: '#e8e0d8' }}>{data.name}</span>
+          </div>
+        )}
+        {data.phase && (
+          <div className="flex items-start gap-2">
+            <span className="text-[10px] font-medium w-16 flex-shrink-0 pt-0.5" style={{ color: '#8a8078' }}>Phase</span>
+            <span className="text-xs px-2 py-0.5 rounded" style={{ color: '#C9A84C', background: 'rgba(201,168,76,0.1)' }}>{data.phase}</span>
+          </div>
+        )}
+        {data.assignee && (
+          <div className="flex items-start gap-2">
+            <span className="text-[10px] font-medium w-16 flex-shrink-0 pt-0.5" style={{ color: '#8a8078' }}>Assignee</span>
+            <span className="text-xs" style={{ color: '#e8e0d8' }}>{data.assignee}</span>
+          </div>
+        )}
+        {(data.startDate || data.endDate) && (
+          <div className="flex items-start gap-2">
+            <span className="text-[10px] font-medium w-16 flex-shrink-0 pt-0.5" style={{ color: '#8a8078' }}>Dates</span>
+            <span className="text-xs" style={{ color: '#e8e0d8' }}>
+              {data.startDate && data.endDate ? `${data.startDate} → ${data.endDate}` : data.endDate ? `Due: ${data.endDate}` : `Start: ${data.startDate}`}
+            </span>
+          </div>
+        )}
+        {data.description && (
+          <div className="flex items-start gap-2">
+            <span className="text-[10px] font-medium w-16 flex-shrink-0 pt-0.5" style={{ color: '#8a8078' }}>Details</span>
+            <span className="text-xs leading-relaxed" style={{ color: '#c8c0b8' }}>{data.description}</span>
+          </div>
+        )}
+      </div>
+    </div>
   );
 }
 
@@ -254,13 +299,16 @@ export default function AskAgentPage() {
               </div>
 
               {msg.needsConfirmation && i === messages.length - 1 && !loading && (
-                <div className="flex gap-2 mt-2 ml-9">
-                  <button onClick={handleConfirm} className="flex items-center gap-1.5 px-4 py-2 rounded-lg text-sm font-medium transition-all hover:brightness-110" style={{ background: 'linear-gradient(135deg, #22c55e, #16a34a)', color: '#fff', boxShadow: '0 2px 8px rgba(34,197,94,0.3)' }}>
-                    <CheckCircle size={16} /> Approve
-                  </button>
-                  <button onClick={handleDecline} className="flex items-center gap-1.5 px-4 py-2 rounded-lg text-sm font-medium transition-all hover:brightness-110" style={{ background: '#3a2a2a', color: '#f87171', border: '1px solid rgba(248,113,113,0.2)' }}>
-                    <XCircle size={16} /> Cancel
-                  </button>
+                <div className="ml-9">
+                  {msg.taskConfirm && <TaskConfirmCard data={msg.taskConfirm} />}
+                  <div className="flex gap-2 mt-2">
+                    <button onClick={handleConfirm} className="flex items-center gap-1.5 px-4 py-2 rounded-lg text-sm font-medium transition-all hover:brightness-110" style={{ background: 'linear-gradient(135deg, #22c55e, #16a34a)', color: '#fff', boxShadow: '0 2px 8px rgba(34,197,94,0.3)' }}>
+                      <CheckCircle size={16} /> Approve
+                    </button>
+                    <button onClick={handleDecline} className="flex items-center gap-1.5 px-4 py-2 rounded-lg text-sm font-medium transition-all hover:brightness-110" style={{ background: '#3a2a2a', color: '#f87171', border: '1px solid rgba(248,113,113,0.2)' }}>
+                      <XCircle size={16} /> Cancel
+                    </button>
+                  </div>
                 </div>
               )}
             </div>

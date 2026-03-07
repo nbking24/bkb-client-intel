@@ -9,6 +9,7 @@ import {
 } from 'lucide-react';
 import {
   useAskAgent, formatContent, formatTimeAgo, getSuggestions,
+  type TaskConfirmData,
 } from '@/app/hooks/useAskAgent';
 
 /* ── Render formatted elements to JSX (mobile sizing) ── */
@@ -37,6 +38,34 @@ function RenderContent({ content }: { content: string }) {
         return <div key={el.key} dangerouslySetInnerHTML={{ __html: el.html }} />;
       })}
     </>
+  );
+}
+
+/* ── Task Confirmation Card (mobile) ── */
+function TaskConfirmCard({ data }: { data: TaskConfirmData }) {
+  return (
+    <div className="mt-2 rounded-xl overflow-hidden" style={{ background: '#1a1a1a', border: '1px solid rgba(201,168,76,0.25)' }}>
+      <div className="px-3 py-1.5 flex items-center gap-2" style={{ background: 'rgba(201,168,76,0.08)', borderBottom: '1px solid rgba(201,168,76,0.15)' }}>
+        <span className="text-[11px] font-semibold" style={{ color: '#C9A84C' }}>Task Preview</span>
+      </div>
+      <div className="px-3 py-2 space-y-1.5">
+        {data.name && (
+          <div><span className="text-[10px] font-medium" style={{ color: '#8a8078' }}>Name: </span><span className="text-[13px] font-medium" style={{ color: '#e8e0d8' }}>{data.name}</span></div>
+        )}
+        {data.phase && (
+          <div><span className="text-[10px] font-medium" style={{ color: '#8a8078' }}>Phase: </span><span className="text-xs px-1.5 py-0.5 rounded" style={{ color: '#C9A84C', background: 'rgba(201,168,76,0.1)' }}>{data.phase}</span></div>
+        )}
+        {data.assignee && (
+          <div><span className="text-[10px] font-medium" style={{ color: '#8a8078' }}>Assignee: </span><span className="text-xs" style={{ color: '#e8e0d8' }}>{data.assignee}</span></div>
+        )}
+        {(data.startDate || data.endDate) && (
+          <div><span className="text-[10px] font-medium" style={{ color: '#8a8078' }}>Due: </span><span className="text-xs" style={{ color: '#e8e0d8' }}>{data.endDate || data.startDate}</span></div>
+        )}
+        {data.description && (
+          <div className="pt-0.5"><span className="text-[10px] font-medium" style={{ color: '#8a8078' }}>Details: </span><span className="text-xs leading-relaxed" style={{ color: '#c8c0b8' }}>{data.description}</span></div>
+        )}
+      </div>
+    </div>
   );
 }
 
@@ -166,15 +195,18 @@ export default function MobileAskAgentPage() {
             </div>
 
             {msg.needsConfirmation && i === messages.length - 1 && !loading && (
-              <div className="flex gap-2 mt-2 ml-8">
-                <button onClick={handleConfirm} className="flex items-center gap-1.5 px-4 py-2.5 rounded-xl text-sm font-medium active:brightness-110"
-                  style={{ background: 'linear-gradient(135deg, #22c55e, #16a34a)', color: '#fff', boxShadow: '0 2px 8px rgba(34,197,94,0.3)' }}>
-                  <CheckCircle size={16} /> Approve
-                </button>
-                <button onClick={handleDecline} className="flex items-center gap-1.5 px-4 py-2.5 rounded-xl text-sm font-medium active:brightness-110"
-                  style={{ background: '#3a2a2a', color: '#f87171', border: '1px solid rgba(248,113,113,0.2)' }}>
-                  <XCircle size={16} /> Cancel
-                </button>
+              <div className="ml-8">
+                {msg.taskConfirm && <TaskConfirmCard data={msg.taskConfirm} />}
+                <div className="flex gap-2 mt-2">
+                  <button onClick={handleConfirm} className="flex items-center gap-1.5 px-4 py-2.5 rounded-xl text-sm font-medium active:brightness-110"
+                    style={{ background: 'linear-gradient(135deg, #22c55e, #16a34a)', color: '#fff', boxShadow: '0 2px 8px rgba(34,197,94,0.3)' }}>
+                    <CheckCircle size={16} /> Approve
+                  </button>
+                  <button onClick={handleDecline} className="flex items-center gap-1.5 px-4 py-2.5 rounded-xl text-sm font-medium active:brightness-110"
+                    style={{ background: '#3a2a2a', color: '#f87171', border: '1px solid rgba(248,113,113,0.2)' }}>
+                    <XCircle size={16} /> Cancel
+                  </button>
+                </div>
               </div>
             )}
           </div>

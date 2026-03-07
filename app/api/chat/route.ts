@@ -90,7 +90,7 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({
       reply,
       agent: result.agentName,
-      needsConfirmation: result.needsConfirmation || false,
+      needsConfirmation: result.needsConfirmation || !!taskConfirm,
       taskConfirm,
     });
   } catch (err) {
