@@ -66,8 +66,8 @@ app/
 │   │   ├── agents/
 │   │   │   ├── router.ts            # ★ Agent routing — canHandle() scoring
 │   │   │   ├── types.ts             # Shared types, stage mappings
-│   │   │   ├── know-it-all.ts       # ★ General Q&A + task agent
-│   │   │   ├── jt-entry.ts          # ★ JobTread task execution agent
+│   │   │   ├── know-it-all.ts       # ★ Unified Ask agent (Q&A + JT read/write, 39 tools)
+│   │   │   ├── jt-entry.ts          # (DEPRECATED — merged into know-it-all)
 │   │   │   └── project-details.ts   # Project specs agent (PAVE cost items)
 │   │   ├── auth.ts                  # validateAuth() helper
 │   │   ├── ghl.ts                   # GHL API service (API routes)
@@ -123,7 +123,7 @@ app/
 
 ## 3. Agent System — HOW IT WORKS
 
-This is the most important section. The agent system has three agents and a router. **Modifying one agent can break the others if routing scores overlap.**
+This is the most important section. The agent system has two agents and a router.
 
 ### 3.1 Routing Flow
 
@@ -140,20 +140,21 @@ User message → /api/chat → router.ts → canHandle() on each agent → highe
 
 | Agent | File | Score Range | What It Does |
 |-------|------|-------------|-------------|
-| **Know-it-All** | `know-it-all.ts` | 0.05–0.95 | General Q&A, searches Supabase + GHL, creates tasks, drafts emails, writes material specs |
-| **JT Entry** | `jt-entry.ts` | 0.05–0.95 | JobTread task mutations (create/update tasks with assignee + dates, apply templates) — 22 tools |
+| **Know-it-All** | `know-it-all.ts` | 0.05–0.95 | Unified Ask agent — full JT read+write (39 tools), Supabase + GHL search, email drafting, material specs, task creation/updates |
 | **Project Details** | `project-details.ts` | 0.1–0.9 | Answers questions about specs from project's Specifications URL via PAVE cost items |
+
+> **Note:** JT Entry (`jt-entry.ts`) was merged into Know-it-All as of 2026-03-07. The file still exists but is no longer registered in the router.
 
 ### 3.3 Routing Gotchas
 
-- Know-it-All and JT Entry both handle task-related requests — the routing scores determine which one wins
-- JT Entry has an **exclusion rule**: if the message matches `/(write|create|draft|generate).*(spec|specification|material)/i`, it returns 0.05 to avoid intercepting spec writing
-- Know-it-All has a **boost**: same pattern returns 0.92 to grab spec writing requests
+- Know-it-All handles ALL task operations (read + write) — there is no separate write agent
 - The `forcedAgent` parameter from the Ask Agent UI (`'know-it-all'` or `'project-details'`) bypasses routing entirely
+- Know-it-All boosts to 0.95 for task mutations, email drafting, document analysis, and JT operations
+- Know-it-All boosts to 0.92 for spec writing requests
 
 ### 3.4 Task Confirmation Flow
 
-When JT Entry wants to create/modify a task, it returns a confirmation block:
+When Know-it-All wants to create/modify a task, it returns a confirmation block:
 
 ```
 @@TASK_CONFIRM@@
@@ -181,7 +182,7 @@ Yes, proceed but [list of edits if any].
 | `startDate` | `startDate` |
 | `endDate` | `endDate` |
 
-**Phase change handling**: If the user edits the phase dropdown, `useAskAgent.ts` deletes the stale `phaseId` and sets `phaseChanged: true`. When JT Entry sees `phaseChanged: true` with no `phaseId`, it calls `get_job_schedule` to look up the correct phase ID by name, then uses that as `parentGroupId` in `create_phase_task`. This prevents orphan tasks.
+**Phase change handling**: If the user edits the phase dropdown, `useAskAgent.ts` deletes the stale `phaseId` and sets `phaseChanged: true`. When Know-it-All sees `phaseChanged: true` with no `phaseId`, it calls `get_job_schedule` to look up the correct phase ID by name, then uses that as `parentGroupId` in `create_phase_task`. This prevents orphan tasks.
 
 **Sticky routing**: The router has three patterns that keep confirmations with the last agent:
 - `CONFIRMATION_PATTERN` — "yes", "ok", "proceed", etc.
@@ -354,7 +355,7 @@ JT API  ──→ jt_comments, jt_daily_logs (Supabase cache)
 
 ## 12. Known Gotchas & Warnings
 
-1. **Agent routing is fragile**: Changing `canHandle()` scores in one agent can reroute messages away from another agent. Always check all three agents when modifying routing.
+1. **Agent routing**: With two agents (Know-it-All + Project Details), routing is simpler but still score-based. Check both agents when modifying `canHandle()` scores.
 
 2. **Two copies of service files**: GHL and JobTread each have TWO service files — one in `app/api/lib/` (for API routes) and one in `app/lib/` (for expanded platform use). They are NOT the same file.
 
@@ -366,17 +367,30 @@ JT API  ──→ jt_comments, jt_daily_logs (Supabase cache)
 
 6. **Task confirmation is server-side**: The `@@TASK_CONFIRM@@` block is extracted in `/api/chat/route.ts`, NOT in the frontend. The frontend only sees `needsConfirmation: true`.
 
-7. **Editable confirmation cards can cause stale data**: When the user edits the phase dropdown on a TaskConfirmCard, the `phaseId` from the original suggestion becomes stale. The hook deletes the old `phaseId` and sets `phaseChanged: true` — JT Entry must then look up the correct phase ID via `get_job_schedule`. If this logic is bypassed, tasks get created as orphans.
+7. **Editable confirmation cards can cause stale data**: When the user edits the phase dropdown on a TaskConfirmCard, the `phaseId` from the original suggestion becomes stale. The hook deletes the old `phaseId` and sets `phaseChanged: true` — Know-it-All must then look up the correct phase ID via `get_job_schedule`. If this logic is bypassed, tasks get created as orphans.
 
-8. **`create_phase_task` vs `create_jobtread_task`**: Always use `create_phase_task` (with `parentGroupId`) for approved tasks. Using `create_jobtread_task` creates orphan tasks with no phase assignment. The JT Entry system prompt explicitly forbids `create_jobtread_task` for approved tasks.
+8. **`create_phase_task` vs `create_jobtread_task`**: Always use `create_phase_task` (with `parentGroupId`) for approved tasks. Using `create_jobtread_task` creates orphan tasks with no phase assignment. The Know-it-All system prompt explicitly forbids `create_jobtread_task` for approved tasks.
 
-9. **Tool param names don't match JSON keys**: The confirmation card JSON uses `assignee` but the tool expects `assignTo`. Similarly `phaseId` maps to `parentGroupId`. The JT Entry system prompt has an explicit mapping table — if you modify the tool schema, update the mapping too.
+9. **Tool param names don't match JSON keys**: The confirmation card JSON uses `assignee` but the tool expects `assignTo`. Similarly `phaseId` maps to `parentGroupId`. The Know-it-All system prompt has an explicit mapping table — if you modify the tool schema, update the mapping too.
 
 ---
 
 ## 13. Changelog
 
 All modifications to the codebase should be logged here with date, files changed, and what was done.
+
+### 2026-03-07 — Session: Merge JT Entry into Know-it-All (Unified Ask Agent)
+
+**Problem:** The two-agent architecture (Know-it-All for reads, JT Entry for writes) caused routing confusion. When a user asked to create tasks, Know-it-All had the read tools to look up data but no write tools to execute, causing a tool-use loop that exhausted all 5 iterations and returned "No response generated." The split also meant confirmations could get lost when routing switched between agents.
+
+**Solution:** Merged JT Entry into Know-it-All, creating a single unified agent with 39 tools (23 read + 16 write). The router now only has two agents: Know-it-All and Project Details.
+
+**Changes:**
+- `app/api/lib/agents/know-it-all.ts` — Added all 20 write imports, 16 write tool definitions, 16 write executeTool handlers, comprehensive system prompt with task confirmation format + phase assignment rules + field mapping, updated canHandle() with write operation patterns
+- `app/api/lib/agents/router.ts` — Removed jt-entry import and registration, simplified forcedAgent routing
+- `ARCHITECTURE.md` — Updated agent table, routing docs, gotchas, project structure to reflect merge
+
+**Commits:** `04758ec` (agent merge), next commit (architecture doc update)
 
 ### 2026-03-07 — Session: Fix Orphan Tasks + Date/Assignee Passthrough
 
