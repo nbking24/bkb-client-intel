@@ -41,20 +41,50 @@ function RenderContent({ content }: { content: string }) {
   );
 }
 
-/* ── Task Confirmation Card (mobile) ── */
-function TaskConfirmCard({ data }: { data: TaskConfirmData }) {
+const BKB_PHASES = [
+  'Admin Tasks', 'Conceptual Design', 'Design Development', 'Contract',
+  'Preconstruction', 'In Production', 'Inspections', 'Punch/Closeout', 'Project Completion',
+];
+
+/* ── Task Confirmation Card (mobile, editable phase) ── */
+function TaskConfirmCard({ data, onPhaseChange }: { data: TaskConfirmData; onPhaseChange?: (phase: string) => void }) {
+  const [editingPhase, setEditingPhase] = useState(false);
+  const [selectedPhase, setSelectedPhase] = useState(data.phase || '');
+
+  const handlePhaseSelect = (phase: string) => {
+    setSelectedPhase(phase);
+    setEditingPhase(false);
+    if (onPhaseChange) onPhaseChange(phase);
+  };
+
+  const displayPhase = selectedPhase || data.phase;
+  const phaseChanged = displayPhase !== data.phase;
+
   return (
     <div className="mt-2 rounded-xl overflow-hidden" style={{ background: '#1a1a1a', border: '1px solid rgba(201,168,76,0.25)' }}>
       <div className="px-3 py-1.5 flex items-center gap-2" style={{ background: 'rgba(201,168,76,0.08)', borderBottom: '1px solid rgba(201,168,76,0.15)' }}>
         <span className="text-[11px] font-semibold" style={{ color: '#C9A84C' }}>Task Preview</span>
+        {phaseChanged && <span className="text-[9px] px-1.5 py-0.5 rounded" style={{ color: '#22c55e', background: 'rgba(34,197,94,0.1)' }}>Phase edited</span>}
       </div>
       <div className="px-3 py-2 space-y-1.5">
         {data.name && (
           <div><span className="text-[10px] font-medium" style={{ color: '#8a8078' }}>Name: </span><span className="text-[13px] font-medium" style={{ color: '#e8e0d8' }}>{data.name}</span></div>
         )}
-        {data.phase && (
-          <div><span className="text-[10px] font-medium" style={{ color: '#8a8078' }}>Phase: </span><span className="text-xs px-1.5 py-0.5 rounded" style={{ color: '#C9A84C', background: 'rgba(201,168,76,0.1)' }}>{data.phase}</span></div>
-        )}
+        <div className="relative">
+          <span className="text-[10px] font-medium" style={{ color: '#8a8078' }}>Phase: </span>
+          <button onClick={() => setEditingPhase(!editingPhase)} className="inline-flex items-center gap-1 text-xs px-1.5 py-0.5 rounded transition-colors active:brightness-125" style={{ color: phaseChanged ? '#22c55e' : '#C9A84C', background: phaseChanged ? 'rgba(34,197,94,0.1)' : 'rgba(201,168,76,0.1)', border: '1px solid ' + (phaseChanged ? 'rgba(34,197,94,0.2)' : 'rgba(201,168,76,0.2)'), cursor: 'pointer' }}>
+            {displayPhase} <ChevronDown size={10} className={`transition-transform ${editingPhase ? 'rotate-180' : ''}`} />
+          </button>
+          {editingPhase && (
+            <div className="absolute left-0 top-full mt-1 z-20 rounded-xl shadow-lg overflow-hidden" style={{ background: '#242424', border: '1px solid rgba(205,162,116,0.2)', minWidth: '200px' }}>
+              {BKB_PHASES.map(phase => (
+                <button key={phase} onClick={() => handlePhaseSelect(phase)} className="w-full text-left px-3 py-2 text-xs transition-colors active:bg-white/5" style={{ color: phase === displayPhase ? '#C9A84C' : '#e8e0d8', background: phase === displayPhase ? 'rgba(201,168,76,0.08)' : 'transparent' }}>
+                  {phase}
+                </button>
+              ))}
+            </div>
+          )}
+        </div>
         {data.assignee && (
           <div><span className="text-[10px] font-medium" style={{ color: '#8a8078' }}>Assignee: </span><span className="text-xs" style={{ color: '#e8e0d8' }}>{data.assignee}</span></div>
         )}
@@ -87,6 +117,7 @@ export default function MobileAskAgentPage() {
   // Mobile-specific state
   const [showDrawer, setShowDrawer] = useState(false);
   const [showJobPicker, setShowJobPicker] = useState(false);
+  const [phaseEdit, setPhaseEdit] = useState<string | null>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
 
   const suggestions = getSuggestions(agentMode);
@@ -196,13 +227,13 @@ export default function MobileAskAgentPage() {
 
             {msg.needsConfirmation && i === messages.length - 1 && !loading && (
               <div className="ml-8">
-                {msg.taskConfirm && <TaskConfirmCard data={msg.taskConfirm} />}
+                {msg.taskConfirm && <TaskConfirmCard data={msg.taskConfirm} onPhaseChange={(phase) => setPhaseEdit(phase)} />}
                 <div className="flex gap-2 mt-2">
-                  <button onClick={handleConfirm} className="flex items-center gap-1.5 px-4 py-2.5 rounded-xl text-sm font-medium active:brightness-110"
+                  <button onClick={() => { handleConfirm(phaseEdit ? { phase: phaseEdit } : undefined); setPhaseEdit(null); }} className="flex items-center gap-1.5 px-4 py-2.5 rounded-xl text-sm font-medium active:brightness-110"
                     style={{ background: 'linear-gradient(135deg, #22c55e, #16a34a)', color: '#fff', boxShadow: '0 2px 8px rgba(34,197,94,0.3)' }}>
                     <CheckCircle size={16} /> Approve
                   </button>
-                  <button onClick={handleDecline} className="flex items-center gap-1.5 px-4 py-2.5 rounded-xl text-sm font-medium active:brightness-110"
+                  <button onClick={() => { handleDecline(); setPhaseEdit(null); }} className="flex items-center gap-1.5 px-4 py-2.5 rounded-xl text-sm font-medium active:brightness-110"
                     style={{ background: '#3a2a2a', color: '#f87171', border: '1px solid rgba(248,113,113,0.2)' }}>
                     <XCircle size={16} /> Cancel
                   </button>
