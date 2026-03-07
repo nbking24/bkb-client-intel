@@ -61,8 +61,8 @@ function TaskConfirmCard({ data, onPhaseChange }: { data: TaskConfirmData; onPha
   const phaseChanged = displayPhase !== data.phase;
 
   return (
-    <div className="mt-2 rounded-xl overflow-hidden" style={{ background: '#1a1a1a', border: '1px solid rgba(201,168,76,0.25)' }}>
-      <div className="px-3 py-1.5 flex items-center gap-2" style={{ background: 'rgba(201,168,76,0.08)', borderBottom: '1px solid rgba(201,168,76,0.15)' }}>
+    <div className="mt-2 rounded-xl" style={{ background: '#1a1a1a', border: '1px solid rgba(201,168,76,0.25)' }}>
+      <div className="px-3 py-1.5 flex items-center gap-2 rounded-t-xl" style={{ background: 'rgba(201,168,76,0.08)', borderBottom: '1px solid rgba(201,168,76,0.15)' }}>
         <span className="text-[11px] font-semibold" style={{ color: '#C9A84C' }}>Task Preview</span>
         {phaseChanged && <span className="text-[9px] px-1.5 py-0.5 rounded" style={{ color: '#22c55e', background: 'rgba(34,197,94,0.1)' }}>Phase edited</span>}
       </div>
@@ -76,7 +76,7 @@ function TaskConfirmCard({ data, onPhaseChange }: { data: TaskConfirmData; onPha
             {displayPhase} <ChevronDown size={10} className={`transition-transform ${editingPhase ? 'rotate-180' : ''}`} />
           </button>
           {editingPhase && (
-            <div className="absolute left-0 top-full mt-1 z-20 rounded-xl shadow-lg overflow-hidden" style={{ background: '#242424', border: '1px solid rgba(205,162,116,0.2)', minWidth: '200px' }}>
+            <div className="absolute left-0 top-full mt-1 z-50 rounded-xl shadow-lg" style={{ background: '#242424', border: '1px solid rgba(205,162,116,0.2)', minWidth: '200px', maxHeight: '280px', overflowY: 'auto' }}>
               {BKB_PHASES.map(phase => (
                 <button key={phase} onClick={() => handlePhaseSelect(phase)} className="w-full text-left px-3 py-2 text-xs transition-colors active:bg-white/5" style={{ color: phase === displayPhase ? '#C9A84C' : '#e8e0d8', background: phase === displayPhase ? 'rgba(201,168,76,0.08)' : 'transparent' }}>
                   {phase}
