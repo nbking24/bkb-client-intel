@@ -55,6 +55,26 @@ import {
   getCommentsForTarget,
   getScheduleAudit,
   getGridScheduleData,
+  createTask,
+  updateTaskProgress,
+  updateTask,
+  updateTaskFull,
+  deleteJTTask,
+  createPhaseGroup,
+  createPhaseTask,
+  applyStandardTemplate,
+  moveTaskToPhase,
+  createDailyLog,
+  updateDailyLog,
+  deleteDailyLog,
+  createComment,
+  updateJob,
+  updateCostGroup,
+  applyPhaseDefaults,
+  getCommentsFromDB,
+  getDailyLogsFromDB,
+  createCommentWithCache,
+  createDailyLogWithCache,
 } from '@/app/lib/jobtread';
 import { getBrandVoicePrompt } from '@/app/lib/bkb-brand-voice';
 
@@ -588,40 +608,83 @@ const knowItAll: AgentModule = {
       '   - Bullet points must use - or * list syntax\n' +
       '   - Must be real, parseable markdown (NOT a plain text copy)\n' +
       '   - Include line breaks between sections for readability\n\n' +
-      '=== JOBTREAD READ ACCESS (23 TOOLS) ===\n' +
-      'You have comprehensive READ-ONLY tools for querying JobTread data:\n' +
-      'JOBS & SEARCH:\n' +
-      '- search_jobs — List all active jobs with IDs\n' +
-      '- get_job_details — Full details for a specific job (jobId required)\n' +
-      'TASKS & SCHEDULE:\n' +
+      '=== JOBTREAD TOOLS (FULL READ + WRITE ACCESS) ===\n' +
+      'You have comprehensive tools for reading AND writing JobTread data.\n\n' +
+      'READ TOOLS:\n' +
+      '- search_jobs — Find jobs by name/number/client\n' +
+      '- get_job_details — Full details for a single job\n' +
       '- get_all_open_tasks — All incomplete tasks across ALL active jobs\n' +
       '- get_job_tasks — All tasks for a specific job\n' +
-      '- get_member_tasks — Open tasks for a specific team member (membershipId required)\n' +
+      '- get_member_tasks — Open tasks for a specific team member\n' +
       '- get_job_schedule — Full phase/task hierarchy for a job\n' +
       '- get_schedule_audit — Schedule health check across all jobs\n' +
       '- get_grid_schedule — Gantt/grid view of all active job schedules\n' +
-      'TEAM:\n' +
       '- get_members — List all team members with membership IDs\n' +
-      'DOCUMENTS & FILES:\n' +
       '- get_job_documents — Documents (estimates, COs, invoices) for a job\n' +
       '- get_approved_documents — All approved documents across all jobs\n' +
-      '- get_document_content — Line items and details of a specific document (documentId required)\n' +
+      '- get_document_content — Line items of a specific document\n' +
       '- get_job_files — Uploaded files for a job\n' +
       '- get_billable_documents — Documents ready for billing\n' +
-      'FINANCIAL:\n' +
       '- get_job_budget — Cost items/budget for a job\n' +
       '- get_cost_groups — Budget categories/groups for a job\n' +
       '- get_cost_codes — Organization-wide cost codes\n' +
       '- get_time_entries — Labor time entries for a job\n' +
-      'ACTIVITY:\n' +
       '- get_job_daily_logs — Daily logs for a job\n' +
-      '- get_job_comments — Comments/notes for a job\n' +
+      '- get_job_comments — Comments/notes on any entity\n' +
       '- get_job_events — Calendar events for a job\n' +
-      'OTHER:\n' +
-      '- get_specifications — Scope/specs for a job\n' +
-      'USE THESE TOOLS when the user asks about tasks, schedules, team workload, documents, budgets, costs, files, or job details. Do NOT try to answer from context alone — call the tool to get fresh data.\n\n' +
-      '=== CRITICAL: YOU CANNOT CREATE, UPDATE, OR DELETE JOBTREAD RECORDS ===\n' +
-      'You have READ-ONLY access to JobTread. You CANNOT create tasks, update tasks, create daily logs, modify jobs, or make ANY changes in JobTread. If the user asks you to create a task, schedule something, or make a change in JobTread, you MUST say: "I can\'t modify JobTread directly — let me hand this off to the JT Entry Specialist. Could you rephrase your request so the system routes it to the right agent?" NEVER claim you have created, updated, or modified anything in JobTread. This is a zero-tolerance rule — fabricating confirmations of actions you did not take causes real business harm.\n\n' +
+      '- get_specifications — Scope/specs for a job\n\n' +
+      'WRITE TOOLS:\n' +
+      '- create_jobtread_task — Create a task (use create_phase_task instead for phase placement)\n' +
+      '- create_phase_task — Create a task within a specific phase (PREFERRED)\n' +
+      '- create_phase — Create a new phase on a job schedule\n' +
+      '- update_task_progress — Mark task progress (0/0.5/1)\n' +
+      '- update_task — Update task name, dates, description\n' +
+      '- update_task_full — Advanced task update with assignees, times\n' +
+      '- delete_task — Delete a task (confirm first!)\n' +
+      '- move_task_to_phase — Move a task between phases\n' +
+      '- apply_standard_template — Apply BKB 9-phase template to a job\n' +
+      '- apply_phase_defaults — Apply standard phases to job with existing tasks\n' +
+      '- create_daily_log — Create a daily log entry\n' +
+      '- update_daily_log — Update an existing daily log\n' +
+      '- delete_daily_log — Delete a daily log (confirm first!)\n' +
+      '- create_comment — Add a comment to any JT entity\n' +
+      '- update_job — Update job details (name, description, specs, close/reopen)\n' +
+      '- update_cost_group — Update a cost group (name, markup, tax)\n\n' +
+      'USE THESE TOOLS when the user asks about tasks, schedules, team workload, documents, budgets, costs, files, or job details. Do NOT answer from context alone — call the tool.\n\n' +
+      'CRITICAL — CONFIRMATION BEFORE WRITE OPERATIONS:\n' +
+      '- For ANY write operation (create, update, delete, move, apply template), you MUST first:\n' +
+      '  1. Use read tools (search_jobs, get_job_schedule, get_job_tasks) to gather needed info\n' +
+      '  2. Present a clear summary of EXACTLY what you plan to do\n' +
+      '  3. Ask the user to confirm or use the @@TASK_CONFIRM@@ block for task creation\n' +
+      '  4. ONLY execute the write tool AFTER the user confirms\n' +
+      '- NEVER call create/update/delete/move/apply tools on the first response. Summarize first and wait.\n' +
+      '- NEVER say you created/updated/deleted something without actually calling the tool. That is hallucination.\n\n' +
+      'TASK NAMING RULES:\n' +
+      '- Task names MUST be SHORT (max 5-8 words). Put details in the DESCRIPTION field.\n' +
+      '- Good: "Schedule fireplace review meeting" Bad: "Setup appointment with Nathan to meet with clients and Estate Chimney to review fireplace installation"\n\n' +
+      'PHASE ASSIGNMENT (CRITICAL — EVERY TASK MUST GO UNDER A PHASE):\n' +
+      '- Every new task MUST be created under one of the 9 standard phases. NEVER create orphan/unorganized tasks.\n' +
+      '- Before creating a task, ALWAYS call get_job_schedule first to see existing phases and their IDs.\n' +
+      '- Choose the phase based on SUBJECT MATTER, NOT action type. A "meeting" is NOT automatically Admin.\n' +
+      '- Phase guide: 1.Admin (internal biz only), 2.Concept (initial design), 3.Design Development (DD drawings/selections), 4.Contract (final plans/engineering/contracts), 5.Pre-Construction (permits/ordering/prep), 6.Production (active construction), 7.Inspections (code/municipal), 8.Punch List (final fixes), 9.Project Completion (closeout)\n' +
+      '- Use create_phase_task (with phase ID as parentGroupId) instead of create_jobtread_task.\n' +
+      '- If the job has no phases, offer to apply the standard template first.\n\n' +
+      'CONFIRMATION FORMAT (CRITICAL — for task creation):\n' +
+      '- When presenting a task for approval, write ONE short sentence then IMMEDIATELY include the block. Do NOT duplicate details in bullet points — the UI renders an editable card.\n' +
+      '- Do NOT write "Shall I proceed?" — the card has Approve and Cancel buttons.\n' +
+      '- Format:\n' +
+      '@@TASK_CONFIRM@@\n' +
+      '{"name":"short task name","phase":"Phase Name","phaseId":"phase-id-from-schedule","description":"detailed description","assignee":"Team Member Name","startDate":"YYYY-MM-DD or empty","endDate":"YYYY-MM-DD or empty"}\n' +
+      '@@END_CONFIRM@@\n' +
+      '- The phaseId must be the actual ID from get_job_schedule results.\n\n' +
+      'EXECUTING AFTER APPROVAL:\n' +
+      '- When user confirms with "Yes, proceed" and includes [APPROVED TASK DATA], MUST call create_phase_task.\n' +
+      '- Field mapping: JSON "name"→tool "name", "phaseId"→"parentGroupId", "description"→"description", "assignee"→"assignTo", "endDate"→"endDate", "startDate"→"startDate".\n' +
+      '- PHASE CHANGE HANDLING: If JSON has "phaseChanged":true and NO phaseId, call get_job_schedule to find the phase ID by name.\n' +
+      '- ALWAYS use create_phase_task with parentGroupId. NEVER use create_jobtread_task for approved tasks.\n' +
+      '- TASK DURATION: ALWAYS set durationDays to 1 unless user explicitly requests otherwise.\n\n' +
+      'TEAM MEMBERS: Nathan King, Terri Dalavai, David Steich, Evan Harrington, John Molnar, Karen Molnar, Chrissy Zajick\n\n' +
+      'BKB STANDARD 9-PHASE SCHEDULE: 1.Admin 2.Concept 3.Design Development 4.Contract 5.Pre-Construction 6.Production 7.Inspections 8.Punch/Closeout 9.Project Closeout\n\n' +
       'DOCUMENT ANALYSIS: Users may attach documents (contracts, change orders, proposals, budgets, vendor estimates, invoices, specs). The document content will appear in the message as "--- ATTACHED DOCUMENT: [filename] ---" blocks. When documents are attached, READ them thoroughly and reference their content when answering questions or drafting communications. Cite specific details from the documents (dollar amounts, dates, scope items, material specs) to show you\'ve analyzed them.\n\n' +
       'MATERIAL SPECIFICATION WRITING (CRITICAL — for vendor estimates, invoices, and material sign-off requests):\n' +
       'When the user uploads a vendor estimate/invoice and asks you to "write a material specification" or "write a spec" or requests a "material sign-off," you MUST extract the actual product details from the attached document and write a proper specification. DO NOT generate generic scope-of-work boilerplate.\n\n' +
@@ -776,21 +839,413 @@ const knowItAll: AgentModule = {
       description: 'Get a grid/Gantt view of all active job schedules.',
       input_schema: { type: 'object', properties: {}, required: [] },
     },
+    {
+      name: 'create_jobtread_task',
+      description: 'Create a new task in JobTread for the selected job/project. Optionally assign to a team member.',
+      input_schema: {
+        type: 'object',
+        properties: {
+          jobId: { type: 'string', description: 'The JobTread Job ID. Use the one from context if available.' },
+          name: { type: 'string', description: 'The task title/name' },
+          description: { type: 'string', description: 'Detailed description of the task' },
+          startDate: { type: 'string', description: 'Start date in YYYY-MM-DD format (optional)' },
+          endDate: { type: 'string', description: 'Due/end date in YYYY-MM-DD format (optional)' },
+          assignTo: { type: 'string', description: 'Name of the team member to assign this task to (optional). Use full or partial name.' },
+        },
+        required: ['jobId', 'name'],
+      },
+    },
+    {
+      name: 'update_task_progress',
+      description: 'Update the progress of a task. 0 = not started, 0.5 = in progress, 1 = complete. Use this to mark tasks done or in progress.',
+      input_schema: {
+        type: 'object',
+        properties: {
+          taskId: { type: 'string', description: 'The task ID to update' },
+          progress: { type: 'number', description: '0 = not started, 0.5 = in progress, 1 = complete' },
+        },
+        required: ['taskId', 'progress'],
+      },
+    },
+    {
+      name: 'update_task',
+      description: 'Update a task\'s details — name, start date, end date (due date), description, or progress. Use this when the user wants to change/reschedule a task date, rename a task, or update any task field.',
+      input_schema: {
+        type: 'object',
+        properties: {
+          taskId: { type: 'string', description: 'The task ID to update. Use get_job_tasks or get_job_schedule first to find the ID.' },
+          name: { type: 'string', description: 'New task name (optional)' },
+          startDate: { type: 'string', description: 'New start date in YYYY-MM-DD format (optional)' },
+          endDate: { type: 'string', description: 'New end/due date in YYYY-MM-DD format (optional)' },
+          description: { type: 'string', description: 'New description (optional)' },
+          progress: { type: 'number', description: '0 = not started, 0.5 = in progress, 1 = complete (optional)' },
+        },
+        required: ['taskId'],
+      },
+    },
+    {
+      name: 'delete_task',
+      description: 'Delete a task from JobTread. ALWAYS confirm with the user before executing this.',
+      input_schema: {
+        type: 'object',
+        properties: {
+          taskId: { type: 'string', description: 'The task ID to delete' },
+        },
+        required: ['taskId'],
+      },
+    },
+    {
+      name: 'create_phase',
+      description: 'Create a new phase (task group) on a job schedule. Phases organize tasks into logical groups like "Design", "Production", etc.',
+      input_schema: {
+        type: 'object',
+        properties: {
+          jobId: { type: 'string', description: 'The JobTread Job ID' },
+          name: { type: 'string', description: 'Phase name (e.g. "Design Development", "Production")' },
+          startDate: { type: 'string', description: 'Phase start date in YYYY-MM-DD format (optional)' },
+        },
+        required: ['jobId', 'name'],
+      },
+    },
+    {
+      name: 'create_phase_task',
+      description: 'Create a task within a specific phase (task group). The task will appear under the named phase.',
+      input_schema: {
+        type: 'object',
+        properties: {
+          jobId: { type: 'string', description: 'The JobTread Job ID' },
+          parentGroupId: { type: 'string', description: 'The phase/task group ID to add the task under' },
+          name: { type: 'string', description: 'Task name' },
+          description: { type: 'string', description: 'Task description (optional)' },
+          startDate: { type: 'string', description: 'Start date in YYYY-MM-DD format (optional)' },
+          endDate: { type: 'string', description: 'Due/end date in YYYY-MM-DD format (optional)' },
+          durationDays: { type: 'number', description: 'Duration in days (optional, default 1)' },
+          assignTo: { type: 'string', description: 'Team member name for assignment (optional)' },
+        },
+        required: ['jobId', 'parentGroupId', 'name'],
+      },
+    },
+    {
+      name: 'apply_standard_template',
+      description: 'Apply the BKB 9-phase standard template to a job. Creates phases: Admin, Concept, Design Development, Contract, Pre-Construction, Production, Inspections, Punch/Closeout, Project Closeout. WARN the user this creates multiple phases and tasks.',
+      input_schema: {
+        type: 'object',
+        properties: {
+          jobId: { type: 'string', description: 'The JobTread Job ID to apply the template to' },
+        },
+        required: ['jobId'],
+      },
+    },
+    {
+      name: 'get_job_documents',
+      description: 'Get all documents (contracts, change orders, etc.) associated with a job.',
+      input_schema: {
+        type: 'object',
+        properties: {
+          jobId: { type: 'string', description: 'The JobTread Job ID' },
+        },
+        required: ['jobId'],
+      },
+    },
+    {
+      name: 'get_job_files',
+      description: 'Get all uploaded files for a job.',
+      input_schema: {
+        type: 'object',
+        properties: {
+          jobId: { type: 'string', description: 'The JobTread Job ID' },
+        },
+        required: ['jobId'],
+      },
+    },
+    {
+      name: 'move_task_to_phase',
+      description: 'Move a task from one phase to another. Note: this deletes and recreates the task under the new phase.',
+      input_schema: {
+        type: 'object',
+        properties: {
+          taskId: { type: 'string', description: 'The task ID to move' },
+          targetPhaseId: { type: 'string', description: 'The target phase/task group ID' },
+          jobId: { type: 'string', description: 'The JobTread Job ID' },
+        },
+        required: ['taskId', 'targetPhaseId', 'jobId'],
+      },
+    },
+    {
+      name: 'get_job_daily_logs',
+      description: 'Get all daily logs for a job. Daily logs track daily job site activity, notes, and crew info.',
+      input_schema: {
+        type: 'object',
+        properties: {
+          jobId: { type: 'string', description: 'The JobTread Job ID' },
+        },
+        required: ['jobId'],
+      },
+    },
+    {
+      name: 'create_daily_log',
+      description: 'Create a new daily log entry for a job. Records daily site activity, notes, and optionally assigns crew members.',
+      input_schema: {
+        type: 'object',
+        properties: {
+          jobId: { type: 'string', description: 'The JobTread Job ID' },
+          date: { type: 'string', description: 'Date in YYYY-MM-DD format. Defaults to today if not specified.' },
+          notes: { type: 'string', description: 'Daily log notes — what happened on site, crew activity, issues, etc.' },
+          assignTo: { type: 'string', description: 'Comma-separated team member names to assign to this log (optional)' },
+          notify: { type: 'boolean', description: 'Whether to notify assigned members (default false)' },
+        },
+        required: ['jobId', 'notes'],
+      },
+    },
+    {
+      name: 'update_daily_log',
+      description: 'Update an existing daily log — change the notes or date.',
+      input_schema: {
+        type: 'object',
+        properties: {
+          logId: { type: 'string', description: 'The daily log ID to update' },
+          notes: { type: 'string', description: 'Updated notes (optional)' },
+          date: { type: 'string', description: 'Updated date in YYYY-MM-DD format (optional)' },
+        },
+        required: ['logId'],
+      },
+    },
+    {
+      name: 'delete_daily_log',
+      description: 'Delete a daily log entry. Always confirm with the user before executing.',
+      input_schema: {
+        type: 'object',
+        properties: {
+          logId: { type: 'string', description: 'The daily log ID to delete' },
+        },
+        required: ['logId'],
+      },
+    },
+    {
+      name: 'create_comment',
+      description: 'Add a comment to any JobTread entity (job, task, document, etc.). Comments support replies and pinning.',
+      input_schema: {
+        type: 'object',
+        properties: {
+          targetId: { type: 'string', description: 'ID of the entity to comment on (job ID, task ID, etc.)' },
+          targetType: { type: 'string', description: 'Type of entity: "job", "task", "document", "costItem"' },
+          message: { type: 'string', description: 'The comment text' },
+          assignTo: { type: 'string', description: 'Comma-separated team member names to notify (optional)' },
+          isPinned: { type: 'boolean', description: 'Pin this comment to the top (optional)' },
+          parentCommentId: { type: 'string', description: 'ID of parent comment if this is a reply (optional)' },
+        },
+        required: ['targetId', 'targetType', 'message'],
+      },
+    },
+    {
+      name: 'get_comments',
+      description: 'Get all comments on a JobTread entity (job, task, document, etc.).',
+      input_schema: {
+        type: 'object',
+        properties: {
+          targetId: { type: 'string', description: 'ID of the entity (job ID, task ID, etc.)' },
+          targetType: { type: 'string', description: 'Type of entity: "job", "task", "document", "costItem"' },
+        },
+        required: ['targetId', 'targetType'],
+      },
+    },
+    {
+      name: 'update_job',
+      description: 'Update a job\'s details — name, description, specifications description, specifications footer, or close/reopen the job.',
+      input_schema: {
+        type: 'object',
+        properties: {
+          jobId: { type: 'string', description: 'The JobTread Job ID' },
+          name: { type: 'string', description: 'New job name (optional)' },
+          description: { type: 'string', description: 'New job description (optional)' },
+          specificationsDescription: { type: 'string', description: 'Job specifications description text (optional)' },
+          specificationsFooter: { type: 'string', description: 'Job specifications footer text (optional)' },
+          closedOn: { type: 'string', description: 'Date to close the job (YYYY-MM-DD) or null to reopen (optional)' },
+        },
+        required: ['jobId'],
+      },
+    },
+    {
+      name: 'get_job_budget',
+      description: 'Get cost items (budget line items) for a job. Use search parameter to filter by keyword for large jobs.',
+      input_schema: {
+        type: 'object',
+        properties: {
+          jobId: { type: 'string', description: 'The JobTread Job ID' },
+          search: { type: 'string', description: 'Optional keyword to filter cost items (e.g. "door", "electric"). Recommended for large jobs.' },
+        },
+        required: ['jobId'],
+      },
+    },
+    {
+      name: 'update_task_full',
+      description: 'Advanced task update — change assignees, time of day, parent phase, and all standard fields. Use this when the user wants to reassign a task or change time-specific details.',
+      input_schema: {
+        type: 'object',
+        properties: {
+          taskId: { type: 'string', description: 'The task ID to update' },
+          name: { type: 'string', description: 'New task name (optional)' },
+          description: { type: 'string', description: 'New description (optional)' },
+          startDate: { type: 'string', description: 'New start date YYYY-MM-DD (optional)' },
+          endDate: { type: 'string', description: 'New end date YYYY-MM-DD (optional)' },
+          startTime: { type: 'string', description: 'Start time HH:MM (optional)' },
+          endTime: { type: 'string', description: 'End time HH:MM (optional)' },
+          progress: { type: 'number', description: '0=not started, 0.5=in progress, 1=complete (optional)' },
+          assignTo: { type: 'string', description: 'Comma-separated team member names to reassign task to (optional). Replaces current assignees.' },
+        },
+        required: ['taskId'],
+      },
+    },
+    // ===== NEW COMPREHENSIVE JT TOOLS =====
+    {
+      name: 'get_job_details',
+      description: 'Get full details for a single job — name, number, status, client, location, description, custom fields, dates, and financial totals.',
+      input_schema: {
+        type: 'object',
+        properties: {
+          jobId: { type: 'string', description: 'The JobTread Job ID' },
+        },
+        required: ['jobId'],
+      },
+    },
+    {
+      name: 'get_members',
+      description: 'Get all team members in the JobTread organization. Returns membership IDs and user names. Use to look up member IDs for assignment.',
+      input_schema: {
+        type: 'object',
+        properties: {},
+        required: [],
+      },
+    },
+    {
+      name: 'get_member_tasks',
+      description: 'Get all open tasks assigned to a specific team member (by membership ID). Use get_members first to find the membership ID.',
+      input_schema: {
+        type: 'object',
+        properties: {
+          membershipId: { type: 'string', description: 'The membership ID of the team member' },
+        },
+        required: ['membershipId'],
+      },
+    },
+    {
+      name: 'get_approved_documents',
+      description: 'Get all approved documents (estimates, change orders, invoices) across all jobs. Useful for financial overviews.',
+      input_schema: {
+        type: 'object',
+        properties: {
+          limit: { type: 'number', description: 'Max documents to return (default 100)' },
+        },
+        required: [],
+      },
+    },
+    {
+      name: 'get_document_content',
+      description: 'Get the full content/line items of a specific document (estimate, change order, invoice). Returns all line items with quantities, costs, prices.',
+      input_schema: {
+        type: 'object',
+        properties: {
+          documentId: { type: 'string', description: 'The document ID' },
+        },
+        required: ['documentId'],
+      },
+    },
+    {
+      name: 'get_cost_codes',
+      description: 'Get all cost codes available in the organization. Cost codes categorize budget items (e.g., "Electrical", "Plumbing").',
+      input_schema: {
+        type: 'object',
+        properties: {},
+        required: [],
+      },
+    },
+    {
+      name: 'get_billable_documents',
+      description: 'Get documents that are ready to be billed or have billing status. Useful for accounts receivable tracking.',
+      input_schema: {
+        type: 'object',
+        properties: {
+          limit: { type: 'number', description: 'Max documents to return (default 100)' },
+        },
+        required: [],
+      },
+    },
+    {
+      name: 'get_time_entries',
+      description: 'Get time entries (labor hours logged) for a specific job. Shows who worked, when, and for how long.',
+      input_schema: {
+        type: 'object',
+        properties: {
+          jobId: { type: 'string', description: 'The JobTread Job ID' },
+        },
+        required: ['jobId'],
+      },
+    },
+    {
+      name: 'get_cost_groups',
+      description: 'Get cost groups (budget categories/sections) for a job. Shows how budget items are organized.',
+      input_schema: {
+        type: 'object',
+        properties: {
+          jobId: { type: 'string', description: 'The JobTread Job ID' },
+        },
+        required: ['jobId'],
+      },
+    },
+    {
+      name: 'update_cost_group',
+      description: 'Update a cost group — change its name, markup percentage, or tax settings. Always confirm before executing.',
+      input_schema: {
+        type: 'object',
+        properties: {
+          groupId: { type: 'string', description: 'The cost group ID to update' },
+          name: { type: 'string', description: 'New name (optional)' },
+          markupPercent: { type: 'number', description: 'New markup percentage (optional)' },
+          isTaxable: { type: 'boolean', description: 'Whether items in this group are taxable (optional)' },
+        },
+        required: ['groupId'],
+      },
+    },
+    {
+      name: 'apply_phase_defaults',
+      description: 'Apply the standard phase template to a job that already has tasks. Creates any missing standard phases and optionally moves orphan tasks into appropriate phases. Always confirm before executing.',
+      input_schema: {
+        type: 'object',
+        properties: {
+          jobId: { type: 'string', description: 'The JobTread Job ID' },
+          moveOrphans: { type: 'boolean', description: 'Whether to auto-move orphan tasks into appropriate phases (default false)' },
+        },
+        required: ['jobId'],
+      },
+    },
   ],
 
   canHandle: (message: string) => {
     const lower = message.toLowerCase();
-    // Documents should always come to Know-it-All for analysis & spec writing
+    // Documents should always come here for analysis & spec writing
     if (/--- ATTACHED DOCUMENT:/i.test(message)) return 0.95;
     // Spec writing from documents or general spec requests
     if (/(write|create|draft|generate).*(spec|specification|material)/i.test(lower)) return 0.92;
-    // Very high for email/message drafting — this is Know-it-All's job
+    // Very high for email/message drafting
     if (/(write|draft|compose|send|create|prepare|put together).*(email|message|letter|response|reply|communication|note to)/i.test(lower)) return 0.95;
     if (/(email|message|letter|response|reply).*(to|for|about).*(client|customer)/i.test(lower)) return 0.95;
+    // Very high for explicit task/JT operations (formerly jt-entry patterns)
+    if (/create.*task|add.*task|schedule.*task|new.*task|make.*task/i.test(lower)) return 0.95;
+    if (/(create|add|update|edit|delete|remove|schedule|assign|change|modify).*(jobtread|job\s*tread|budget|comment|item|phase)/i.test(lower)) return 0.95;
+    if (/(update|change|move|reschedule|push|set|adjust).*(task|date|due|deadline|end date|start date|schedule)/i.test(lower)) return 0.95;
+    if (/mark.*(complete|done|finished|progress)|complete.*task|finish.*task|update.*progress/i.test(lower)) return 0.9;
+    if (/apply.*template|standard.*template|create.*phase|add.*phase/i.test(lower)) return 0.9;
+    if (/(create|add|write|log|new).*(daily.*log|daily.*report|site.*log|field.*report)/i.test(lower)) return 0.95;
+    if (/(add|create|post|write|leave).*(comment|note)/i.test(lower)) return 0.9;
+    if (/(update|change|edit|modify|close|reopen).*(job|project)/i.test(lower)) return 0.9;
+    if (/(reassign|assign.*to|change.*assign)/i.test(lower)) return 0.9;
+    if (/move.*task|delete.*task|remove.*task/i.test(lower)) return 0.85;
     // High for general research/lookup questions
     if (/\?|what|who|when|where|how|tell me|show me|summary|overview|status|history|latest|update|details|information|look up|find out|check on/i.test(lower)) return 0.8;
     // Medium for client/project context
     if (/client|project|job|contact|note|message|communication/i.test(lower)) return 0.5;
+    // Medium for general CRUD verbs
+    if (/create|add|schedule|update|edit|delete|assign|move|apply|change|modify|rename|reschedule/i.test(lower)) return 0.5;
     return 0.3;
   },
 
@@ -1019,6 +1474,469 @@ const knowItAll: AgentModule = {
         const grid = await getGridScheduleData();
         if (!grid) return JSON.stringify({ success: true, message: 'No grid schedule data.' });
         return JSON.stringify({ success: true, grid });
+      }
+
+      if (name === 'create_jobtread_task') {
+        const jobId = input.jobId || ctx.jtJobId;
+        if (!jobId) {
+          return JSON.stringify({ success: false, error: 'No JobTread Job ID available. Use search_jobs to find the right job first.' });
+        }
+
+        let assignedMembershipIds: string[] | undefined;
+        let assignedName = '';
+        if (input.assignTo) {
+          try {
+            const members = await getMembers();
+            const search = input.assignTo.toLowerCase();
+            const match = members.find((m: any) => {
+              const mName = (m.user?.name || m.name || '').toLowerCase();
+              return mName.includes(search) || search.includes(mName.split(' ')[0]);
+            });
+            if (match) {
+              assignedMembershipIds = [match.id];
+              assignedName = match.user?.name || match.name;
+            }
+          } catch (e) { /* ignore lookup errors */ }
+        }
+
+        const result = await createTask({
+          jobId,
+          name: input.name,
+          description: input.description || '',
+          startDate: input.startDate,
+          endDate: input.endDate,
+          assignedMembershipIds,
+        });
+
+        return JSON.stringify({ success: true, result, assignedTo: assignedName || undefined });
+      }
+
+      // ========== UPDATE TASK PROGRESS ==========
+      if (name === 'update_task_progress') {
+        const progress = Math.max(0, Math.min(1, input.progress));
+        const result = await updateTaskProgress(input.taskId, progress);
+        const statusLabel = progress >= 1 ? 'Complete' : progress > 0 ? 'In Progress' : 'Not Started';
+        return JSON.stringify({ success: true, taskId: input.taskId, progress, statusLabel, result });
+      }
+
+      // ========== UPDATE TASK (general) ==========
+      if (name === 'update_task') {
+        const fields: any = {};
+        if (input.name) fields.name = input.name;
+        if (input.startDate) fields.startDate = input.startDate;
+        if (input.endDate) fields.endDate = input.endDate;
+        if (input.description) fields.description = input.description;
+        if (input.progress !== undefined) fields.progress = input.progress;
+        if (Object.keys(fields).length === 0) {
+          return JSON.stringify({ success: false, error: 'No fields to update. Provide at least one of: name, startDate, endDate, description, progress.' });
+        }
+        const result = await updateTask(input.taskId, fields);
+        const changes = Object.entries(fields).map(([k, v]) => k + ': ' + v).join(', ');
+        return JSON.stringify({ success: true, taskId: input.taskId, changes, result });
+      }
+
+      // ========== DELETE TASK ==========
+      if (name === 'delete_task') {
+        const result = await deleteJTTask(input.taskId);
+        return JSON.stringify({ success: true, taskId: input.taskId, message: 'Task deleted successfully.', result });
+      }
+
+      // ========== CREATE PHASE ==========
+      if (name === 'create_phase') {
+        const result = await createPhaseGroup({
+          jobId: input.jobId,
+          name: input.name,
+          startDate: input.startDate,
+        });
+        return JSON.stringify({ success: true, phase: result, message: 'Phase "' + input.name + '" created.' });
+      }
+
+      // ========== CREATE PHASE TASK ==========
+      if (name === 'create_phase_task') {
+        let assignedMembershipIds: string[] | undefined;
+        let assignedName = '';
+        if (input.assignTo) {
+          try {
+            const members = await getMembers();
+            const search = input.assignTo.toLowerCase();
+            const match = members.find((m: any) => {
+              const mName = (m.user?.name || m.name || '').toLowerCase();
+              return mName.includes(search) || search.includes(mName.split(' ')[0]);
+            });
+            if (match) {
+              assignedMembershipIds = [match.id];
+              assignedName = match.user?.name || match.name;
+            }
+          } catch (e) { /* ignore */ }
+        }
+
+        const result = await createPhaseTask({
+          jobId: input.jobId,
+          parentGroupId: input.parentGroupId,
+          name: input.name,
+          description: input.description,
+          startDate: input.startDate,
+          endDate: input.endDate,
+          assignedMembershipIds,
+        });
+        return JSON.stringify({ success: true, task: result, assignedTo: assignedName || undefined, message: 'Task "' + input.name + '" created in phase.' });
+      }
+
+      // ========== APPLY TEMPLATE ==========
+      if (name === 'apply_standard_template') {
+        const result = await applyStandardTemplate(input.jobId);
+        return JSON.stringify({
+          success: true,
+          phasesCreated: result.phasesCreated,
+          tasksCreated: result.tasksCreated,
+          errors: result.errors,
+          message: 'Standard template applied: ' + result.phasesCreated + ' phases and ' + result.tasksCreated + ' tasks created.',
+        });
+      }
+
+      // ========== DOCUMENTS ==========
+      if (name === 'get_job_documents') {
+        const docs = await getDocumentsForJob(input.jobId);
+        if (!docs || docs.length === 0) return JSON.stringify({ success: true, count: 0, message: 'No documents found.' });
+
+        const lines = docs.map((d: any) =>
+          '- ' + (d.name || 'Unnamed') + ' | Type: ' + (d.type || 'N/A') + ' | Status: ' + (d.status || 'N/A') + (d.number ? ' | #' + d.number : '')
+        );
+        return JSON.stringify({ success: true, count: docs.length, documents: lines.join('\n') });
+      }
+
+      // ========== FILES ==========
+      if (name === 'get_job_files') {
+        const files = await getFilesForJob(input.jobId);
+        if (!files || files.length === 0) return JSON.stringify({ success: true, count: 0, message: 'No files found.' });
+
+        const lines = files.map((f: any) =>
+          '- ' + (f.name || 'Unnamed') + ' | Type: ' + (f.type || 'N/A') + (f.url ? ' | URL: ' + f.url : '')
+        );
+        return JSON.stringify({ success: true, count: files.length, files: lines.join('\n') });
+      }
+
+      // ========== MOVE TASK ==========
+      if (name === 'move_task_to_phase') {
+        const result = await moveTaskToPhase({
+          taskId: input.taskId,
+          targetParentId: input.targetPhaseId,
+          jobId: input.jobId,
+        });
+        return JSON.stringify({ success: true, result, message: 'Task moved to new phase.' });
+      }
+
+      // ========== DAILY LOGS ==========
+      if (name === 'get_job_daily_logs') {
+        const logs = await getDailyLogsFromDB(input.jobId);
+        if (!logs || logs.length === 0) return JSON.stringify({ success: true, count: 0, message: 'No daily logs found for this job.' });
+        const lines = logs.map((l: any) => {
+          const assignees = l.assignedMemberships?.nodes?.map((a: any) => a.user?.name || '').filter(Boolean).join(', ');
+          return '- [' + (l.date || 'No date') + '] (ID: ' + l.id + ')' + (assignees ? ' [' + assignees + ']' : '') + '\n  ' + (l.notes || '(no notes)').slice(0, 500);
+        });
+        return JSON.stringify({ success: true, count: logs.length, dailyLogs: lines.join('\n') });
+      }
+
+      if (name === 'create_daily_log') {
+        const jobId = input.jobId || ctx.jtJobId;
+        if (!jobId) return JSON.stringify({ success: false, error: 'No Job ID. Use search_jobs first.' });
+        const date = input.date || new Date().toISOString().split('T')[0];
+
+        let assignees: string[] | undefined;
+        if (input.assignTo) {
+          try {
+            const members = await getMembers();
+            const names = input.assignTo.split(',').map((n: string) => n.trim().toLowerCase());
+            assignees = [];
+            for (const searchName of names) {
+              const match = members.find((m: any) => {
+                const mName = (m.user?.name || '').toLowerCase();
+                return mName.includes(searchName) || searchName.includes(mName.split(' ')[0]);
+              });
+              if (match) assignees.push(match.id);
+            }
+            if (assignees.length === 0) assignees = undefined;
+          } catch (e) { /* ignore */ }
+        }
+
+        const result = await createDailyLogWithCache({ jobId, date, notes: input.notes, assignees, notify: input.notify });
+        return JSON.stringify({ success: true, result, message: 'Daily log created for ' + date + '.' });
+      }
+
+      if (name === 'update_daily_log') {
+        const fields: any = {};
+        if (input.notes) fields.notes = input.notes;
+        if (input.date) fields.date = input.date;
+        if (Object.keys(fields).length === 0) return JSON.stringify({ success: false, error: 'No fields to update.' });
+        const result = await updateDailyLog({ id: input.logId, ...fields });
+        return JSON.stringify({ success: true, result, message: 'Daily log updated.' });
+      }
+
+      if (name === 'delete_daily_log') {
+        await deleteDailyLog(input.logId);
+        return JSON.stringify({ success: true, message: 'Daily log deleted.' });
+      }
+
+      // ========== COMMENTS ==========
+      if (name === 'get_comments') {
+        const comments = await getCommentsFromDB(input.targetId);
+        if (!comments || comments.length === 0) return JSON.stringify({ success: true, count: 0, message: 'No comments found.' });
+        const lines = comments.map((c: any) => {
+          const date = c.createdAt ? new Date(c.createdAt).toLocaleDateString() : '';
+          const pin = c.isPinned ? '📌 ' : '';
+          const reply = c.parentComment?.id ? '  ↳ Reply: ' : '- ';
+          return reply + pin + '[' + date + '] ' + (c.name || 'Unknown') + ': ' + (c.message || '').slice(0, 500) + ' (ID: ' + c.id + ')';
+        });
+        return JSON.stringify({ success: true, count: comments.length, comments: lines.join('\n') });
+      }
+
+      if (name === 'create_comment') {
+        let assignees: string[] | undefined;
+        if (input.assignTo) {
+          try {
+            const members = await getMembers();
+            const names = input.assignTo.split(',').map((n: string) => n.trim().toLowerCase());
+            assignees = [];
+            for (const searchName of names) {
+              const match = members.find((m: any) => {
+                const mName = (m.user?.name || '').toLowerCase();
+                return mName.includes(searchName) || searchName.includes(mName.split(' ')[0]);
+              });
+              if (match) assignees.push(match.id);
+            }
+            if (assignees.length === 0) assignees = undefined;
+          } catch (e) { /* ignore */ }
+        }
+
+        const result = await createCommentWithCache({
+          targetId: input.targetId,
+          targetType: input.targetType,
+          message: input.message,
+          assignees,
+          isPinned: input.isPinned,
+          parentCommentId: input.parentCommentId,
+        });
+        return JSON.stringify({ success: true, result, message: 'Comment added.' });
+      }
+
+      // ========== UPDATE JOB ==========
+      if (name === 'update_job') {
+        const fields: any = {};
+        if (input.name) fields.name = input.name;
+        if (input.description) fields.description = input.description;
+        if (input.specificationsDescription !== undefined) fields.specificationsDescription = input.specificationsDescription;
+        if (input.specificationsFooter !== undefined) fields.specificationsFooter = input.specificationsFooter;
+        if (input.closedOn !== undefined) fields.closedOn = input.closedOn;
+        if (Object.keys(fields).length === 0) return JSON.stringify({ success: false, error: 'No fields to update.' });
+        const result = await updateJob(input.jobId, fields);
+        return JSON.stringify({ success: true, result, message: 'Job updated.' });
+      }
+
+      // ========== BUDGET / COST ITEMS ==========
+      if (name === 'get_job_budget') {
+        const items = await getCostItemsForJob(input.jobId);
+        if (!items || items.length === 0) return JSON.stringify({ success: true, count: 0, message: 'No cost items found.' });
+        const searchTerm = (input.search || '').toLowerCase().trim();
+        let filtered = items;
+        if (searchTerm) {
+          filtered = items.filter((i: any) => {
+            const searchable = [i.name, i.description, i.costCode?.name, i.costGroup?.name].filter(Boolean).join(' ').toLowerCase();
+            return searchable.includes(searchTerm);
+          });
+        }
+        let totalCost = 0, totalPrice = 0;
+        const lines = filtered.slice(0, 75).map((i: any) => {
+          const cost = (i.quantity || 0) * (i.unitCost || 0);
+          const price = (i.quantity || 0) * (i.unitPrice || 0);
+          totalCost += cost;
+          totalPrice += price;
+          const spec = i.isSpecification ? ' [SPEC]' : '';
+          const code = i.costCode ? ' (' + i.costCode.number + ' ' + i.costCode.name + ')' : '';
+          const group = i.costGroup ? ' [' + i.costGroup.name + ']' : '';
+          return '- ' + i.name + spec + code + group + ' | Qty: ' + (i.quantity || 0) + ' | Cost: $' + cost.toFixed(2) + ' | Price: $' + price.toFixed(2);
+        });
+        if (filtered.length > 75) lines.push('... and ' + (filtered.length - 75) + ' more. Use search parameter to filter.');
+        lines.push('');
+        lines.push('SHOWING: ' + Math.min(filtered.length, 75) + ' of ' + items.length + ' total' + (searchTerm ? ' (filtered by "' + input.search + '")' : ''));
+        lines.push('TOTALS' + (searchTerm ? ' (filtered)' : '') + ': Cost $' + totalCost.toFixed(2) + ' | Price $' + totalPrice.toFixed(2) + ' | Margin $' + (totalPrice - totalCost).toFixed(2));
+        return JSON.stringify({ success: true, count: filtered.length, totalItems: items.length, costItems: lines.join('\n') });
+      }
+
+      // ========== JOB DETAILS ==========
+      if (name === 'get_job_details') {
+        const job = await getJob(input.jobId);
+        if (!job) return JSON.stringify({ success: false, error: 'Job not found: ' + input.jobId });
+        return JSON.stringify({ success: true, job });
+      }
+
+      // ========== MEMBERS ==========
+      if (name === 'get_members') {
+        const members = await getMembers();
+        if (!members || members.length === 0) return JSON.stringify({ success: true, count: 0, message: 'No members found.' });
+        const lines = members.map((m: any) => `- ${m.user?.name || 'Unknown'} | Membership ID: ${m.id} | Email: ${m.user?.email || 'N/A'}`);
+        return JSON.stringify({ success: true, count: members.length, members: lines.join('\n') });
+      }
+
+      // ========== MEMBER TASKS ==========
+      if (name === 'get_member_tasks') {
+        const tasks = await getOpenTasksForMember(input.membershipId);
+        if (!tasks || tasks.length === 0) return JSON.stringify({ success: true, count: 0, message: 'No open tasks for this member.' });
+        const lines = tasks.map((t: any) => {
+          const status = t.progress >= 1 ? 'DONE' : t.progress > 0 ? 'IN PROGRESS' : 'NOT STARTED';
+          const job = t.job ? (t.job.name || t.job.id) : 'No job';
+          return `- [${status}] "${t.name}" | Job: ${job} | Due: ${t.endDate || 'No date'}`;
+        });
+        return JSON.stringify({ success: true, count: tasks.length, tasks: lines.join('\n') });
+      }
+
+      // ========== APPROVED DOCUMENTS ==========
+      if (name === 'get_approved_documents') {
+        const docs = await getApprovedDocuments(input.limit || 100);
+        if (!docs || docs.length === 0) return JSON.stringify({ success: true, count: 0, message: 'No approved documents found.' });
+        const lines = (docs as any[]).map((d: any) => {
+          const total = d.total !== undefined ? `$${Number(d.total).toLocaleString()}` : 'N/A';
+          const jobName = d.job?.name || 'Unknown job';
+          return `- "${d.name || 'Untitled'}" | Job: ${jobName} | Type: ${d.type || 'N/A'} | Status: ${d.status || 'N/A'} | Total: ${total} | ID: ${d.id}`;
+        });
+        return JSON.stringify({ success: true, count: docs.length, documents: lines.join('\n') });
+      }
+
+      // ========== DOCUMENT CONTENT ==========
+      if (name === 'get_document_content') {
+        const doc = await getDocumentContent(input.documentId);
+        if (!doc) return JSON.stringify({ success: false, error: 'Document not found or empty.' });
+        return JSON.stringify({ success: true, document: doc });
+      }
+
+      // ========== COST CODES ==========
+      if (name === 'get_cost_codes') {
+        const codes = await getCostCodes();
+        if (!codes || codes.length === 0) return JSON.stringify({ success: true, count: 0, message: 'No cost codes found.' });
+        const lines = (codes as any[]).map((c: any) => `- #${c.number || '?'} ${c.name || 'Unnamed'} | ID: ${c.id}`);
+        return JSON.stringify({ success: true, count: codes.length, costCodes: lines.join('\n') });
+      }
+
+      // ========== BILLABLE DOCUMENTS ==========
+      if (name === 'get_billable_documents') {
+        const docs = await getBillableDocuments(input.limit || 100);
+        if (!docs || docs.length === 0) return JSON.stringify({ success: true, count: 0, message: 'No billable documents found.' });
+        const lines = (docs as any[]).map((d: any) => {
+          const total = d.total !== undefined ? `$${Number(d.total).toLocaleString()}` : 'N/A';
+          const jobName = d.job?.name || 'Unknown job';
+          return `- "${d.name || 'Untitled'}" | Job: ${jobName} | Type: ${d.type || 'N/A'} | Status: ${d.status || 'N/A'} | Total: ${total}`;
+        });
+        return JSON.stringify({ success: true, count: docs.length, documents: lines.join('\n') });
+      }
+
+      // ========== TIME ENTRIES ==========
+      if (name === 'get_time_entries') {
+        const entries = await getTimeEntriesForJob(input.jobId);
+        if (!entries || entries.length === 0) return JSON.stringify({ success: true, count: 0, message: 'No time entries found.' });
+        const lines = (entries as any[]).map((e: any) => {
+          const member = e.membership?.user?.name || 'Unknown';
+          const hours = e.duration ? (e.duration / 60).toFixed(1) + 'h' : 'N/A';
+          return `- ${e.date || 'No date'} | ${member} | ${hours} | ${e.description || '(no description)'}`;
+        });
+        return JSON.stringify({ success: true, count: entries.length, timeEntries: lines.join('\n') });
+      }
+
+      // ========== COST GROUPS ==========
+      if (name === 'get_cost_groups') {
+        const groups = await getCostGroupsForJob(input.jobId);
+        if (!groups || groups.length === 0) return JSON.stringify({ success: true, count: 0, message: 'No cost groups found.' });
+        const lines = (groups as any[]).map((g: any) => {
+          const markup = g.markupPercent !== undefined ? `Markup: ${g.markupPercent}%` : '';
+          const taxable = g.isTaxable ? 'Taxable' : 'Not taxable';
+          const totalCost = g.totalCost !== undefined ? `Cost: $${Number(g.totalCost).toLocaleString()}` : '';
+          const totalPrice = g.totalPrice !== undefined ? `Price: $${Number(g.totalPrice).toLocaleString()}` : '';
+          return `- "${g.name || 'Unnamed'}" (ID: ${g.id}) | ${markup} | ${taxable} | ${totalCost} | ${totalPrice}`;
+        });
+        return JSON.stringify({ success: true, count: groups.length, costGroups: lines.join('\n') });
+      }
+
+      // ========== UPDATE COST GROUP ==========
+      if (name === 'update_cost_group') {
+        const fields: any = {};
+        if (input.name) fields.name = input.name;
+        if (input.markupPercent !== undefined) fields.markupPercent = input.markupPercent;
+        if (input.isTaxable !== undefined) fields.isTaxable = input.isTaxable;
+        if (Object.keys(fields).length === 0) return JSON.stringify({ success: false, error: 'No fields to update.' });
+        const result = await updateCostGroup(input.groupId, fields);
+        return JSON.stringify({ success: true, result, message: 'Cost group updated.' });
+      }
+
+      // ========== SPECIFICATIONS ==========
+      if (name === 'get_specifications') {
+        const specs = await getSpecificationsForJob(input.jobId);
+        if (!specs) return JSON.stringify({ success: true, message: 'No specifications found for this job.' });
+        return JSON.stringify({ success: true, specifications: specs });
+      }
+
+      // ========== EVENTS ==========
+      if (name === 'get_job_events') {
+        const events = await getEventsForJob(input.jobId);
+        if (!events || events.length === 0) return JSON.stringify({ success: true, count: 0, message: 'No events found.' });
+        const lines = (events as any[]).map((e: any) => {
+          const start = e.startDate || 'No date';
+          const end = e.endDate || '';
+          return `- "${e.name || 'Untitled'}" | ${start}${end ? ' → ' + end : ''} | ${e.description || '(no description)'}`;
+        });
+        return JSON.stringify({ success: true, count: events.length, events: lines.join('\n') });
+      }
+
+      // ========== SCHEDULE AUDIT ==========
+      if (name === 'get_schedule_audit') {
+        const audit = await getScheduleAudit();
+        return JSON.stringify({ success: true, audit });
+      }
+
+      // ========== GRID SCHEDULE ==========
+      if (name === 'get_grid_schedule') {
+        const grid = await getGridScheduleData();
+        if (!grid || grid.length === 0) return JSON.stringify({ success: true, count: 0, message: 'No schedule data found.' });
+        const lines = grid.map((j: any) => {
+          const phases = (j.phases || []).map((p: any) => `  📁 ${p.name} (${Math.round((p.progress || 0) * 100)}%)`).join('\n');
+          return `- #${j.number || '?'} ${j.name} | Progress: ${Math.round((j.totalProgress || 0) * 100)}%\n${phases}`;
+        });
+        return JSON.stringify({ success: true, count: grid.length, schedules: lines.join('\n\n') });
+      }
+
+      // ========== APPLY PHASE DEFAULTS ==========
+      if (name === 'apply_phase_defaults') {
+        const result = await applyPhaseDefaults(input.jobId, input.moveOrphans || false);
+        return JSON.stringify({ success: true, result, message: 'Phase defaults applied.' });
+      }
+
+      // ========== UPDATE TASK FULL (advanced) ==========
+      if (name === 'update_task_full') {
+        const fields: any = {};
+        if (input.name) fields.name = input.name;
+        if (input.description) fields.description = input.description;
+        if (input.startDate) fields.startDate = input.startDate;
+        if (input.endDate) fields.endDate = input.endDate;
+        if (input.startTime) fields.startTime = input.startTime;
+        if (input.endTime) fields.endTime = input.endTime;
+        if (input.progress !== undefined) fields.progress = input.progress;
+
+        if (input.assignTo) {
+          try {
+            const members = await getMembers();
+            const names = input.assignTo.split(',').map((n: string) => n.trim().toLowerCase());
+            const ids: string[] = [];
+            for (const searchName of names) {
+              const match = members.find((m: any) => {
+                const mName = (m.user?.name || '').toLowerCase();
+                return mName.includes(searchName) || searchName.includes(mName.split(' ')[0]);
+              });
+              if (match) ids.push(match.id);
+            }
+            if (ids.length > 0) fields.assignedMembershipIds = ids;
+          } catch (e) { /* ignore */ }
+        }
+
+        if (Object.keys(fields).length === 0) return JSON.stringify({ success: false, error: 'No fields to update.' });
+        const result = await updateTaskFull(input.taskId, fields);
+        return JSON.stringify({ success: true, result, message: 'Task updated (advanced).' });
       }
 
       return JSON.stringify({ error: 'Unknown tool: ' + name });

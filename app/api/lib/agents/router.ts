@@ -2,27 +2,20 @@
 import Anthropic from '@anthropic-ai/sdk';
 import { AgentModule, AgentContext, AgentResult } from './types';
 import knowItAll from './know-it-all';
-import jtEntry from './jt-entry';
 import projectDetails from './project-details';
 
 const anthropic = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY });
 
 // Registry of all available agents
+// Know-it-All now handles BOTH read and write JT operations (merged with former JT Entry)
 const AGENTS: AgentModule[] = [
   knowItAll,
-  jtEntry,
   projectDetails,
   // Future: emailKid, designDolly
 ];
 
 const AGENT_MAP: Record<string, AgentModule> = {};
 for (const a of AGENTS) AGENT_MAP[a.name] = a;
-
-// ─── Agent Groups for manual selection ───
-// Group 1: "Know-it-All" — general questions + JobTread task execution
-const KNOW_IT_ALL_GROUP = ['know-it-all', 'jt-entry'];
-// Group 2: "Project Specs" — specifications / scope of work from the URL
-const PROJECT_SPECS_GROUP = ['project-details'];
 
 // Short confirmation phrases that should stick with the previous agent
 const CONFIRMATION_PATTERN = /^(yes|yeah|yep|yup|sure|ok|okay|go ahead|do it|confirmed|proceed|approve|go for it|absolutely|please|please do|that's correct|correct|right|affirmative)\s*[.!]?$/i;
@@ -43,9 +36,6 @@ function selectAgent(message: string, lastAgentName?: string, forcedAgent?: stri
   const trimmed = stripped.trim();
 
   // ── STICKY AGENT: confirmations and short follow-ups always go back to the last agent ──
-  // This check runs BEFORE forced-agent routing so "Yes, proceed" goes back to
-  // jt-entry (which actually has tools) rather than being re-routed to know-it-all
-  // (which would fabricate a confirmation).
   if (lastAgentName && AGENT_MAP[lastAgentName]) {
     if (CONFIRMATION_PATTERN.test(trimmed)) {
       return AGENT_MAP[lastAgentName];
@@ -75,12 +65,8 @@ function selectAgent(message: string, lastAgentName?: string, forcedAgent?: stri
 
   // If a specific agent is forced by the UI selection, use it
   if (forcedAgent) {
-    // "know-it-all" group: route between know-it-all and jt-entry based on intent
+    // "know-it-all" now handles everything (read + write JT + CRM + email + specs)
     if (forcedAgent === 'know-it-all') {
-      // Only override to jt-entry for very explicit task/schedule write operations
-      // Use a high threshold (0.9) so general questions aren't misrouted
-      const jtScore = jtEntry.canHandle(trimmed);
-      if (jtScore >= 0.9) return jtEntry;
       return knowItAll;
     }
     // "project-details" group: always use project-details
