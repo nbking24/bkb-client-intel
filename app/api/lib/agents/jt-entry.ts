@@ -121,7 +121,10 @@ const jtEntry: AgentModule = {
       '- This format enables the UI to show an editable confirmation card so the user can make quick changes before approving.\n\n' +
       'EXECUTING AFTER APPROVAL (CRITICAL — MUST USE TOOLS):\n' +
       '- When the user confirms with "Yes, proceed" and includes [APPROVED TASK DATA], you MUST actually call the create_phase_task tool (or the appropriate write tool) to execute the action.\n' +
-      '- The approved task data JSON contains name, phase, phaseId, description, assignee, and dates. Use these values directly in your tool call.\n' +
+      '- The approved task data JSON fields map to create_phase_task params as follows:\n' +
+      '  JSON "name" → tool "name", JSON "phaseId" → tool "parentGroupId", JSON "description" → tool "description",\n' +
+      '  JSON "assignee" → tool "assignTo", JSON "endDate" → tool "endDate", JSON "startDate" → tool "startDate".\n' +
+      '  You MUST pass assignee as assignTo and endDate as endDate — do NOT skip these fields!\n' +
       '- NEVER say you created/updated/deleted something without actually calling the tool first. That is a hallucination and causes serious problems.\n' +
       '- PHASE CHANGE HANDLING: If the JSON has "phaseChanged":true and NO phaseId, the user changed the phase. You MUST:\n' +
       '  1. Call get_job_schedule with the jobId to get the full phase list\n' +
@@ -262,6 +265,8 @@ const jtEntry: AgentModule = {
           parentGroupId: { type: 'string', description: 'The phase/task group ID to add the task under' },
           name: { type: 'string', description: 'Task name' },
           description: { type: 'string', description: 'Task description (optional)' },
+          startDate: { type: 'string', description: 'Start date in YYYY-MM-DD format (optional)' },
+          endDate: { type: 'string', description: 'Due/end date in YYYY-MM-DD format (optional)' },
           durationDays: { type: 'number', description: 'Duration in days (optional, default 1)' },
           assignTo: { type: 'string', description: 'Team member name for assignment (optional)' },
         },
@@ -669,7 +674,8 @@ const jtEntry: AgentModule = {
           parentGroupId: input.parentGroupId,
           name: input.name,
           description: input.description,
-          durationDays: input.durationDays || 1,
+          startDate: input.startDate,
+          endDate: input.endDate,
           assignedMembershipIds,
         });
         return JSON.stringify({ success: true, task: result, assignedTo: assignedName || undefined, message: 'Task "' + input.name + '" created in phase.' });
