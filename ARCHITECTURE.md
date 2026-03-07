@@ -347,6 +347,18 @@ JT API  ──→ jt_comments, jt_daily_logs (Supabase cache)
 
 All modifications to the codebase should be logged here with date, files changed, and what was done.
 
+### 2026-03-07 — Session: Fix Task Confirmation Card
+
+**Problem:** When JT Entry generated a `@@TASK_CONFIRM@@` block, the server extracted it but: (1) `needsConfirmation` was `false` because the remaining reply text didn't match the regex, and (2) the frontend hook ignored the `taskConfirm` JSON entirely. Result: the user saw a partial message with no card and no Approve/Cancel buttons.
+
+**Changes:**
+- Fixed `app/api/chat/route.ts` — `needsConfirmation` now set to `true` when `taskConfirm` is parsed (`!!taskConfirm`)
+- Added `TaskConfirmData` type to `app/hooks/useAskAgent.ts` + store `data.taskConfirm` in ChatMessage
+- Added `TaskConfirmCard` component to `app/dashboard/ask/page.tsx` (desktop) — renders name, phase, assignee, dates, description
+- Added `TaskConfirmCard` component to `app/m/ask/page.tsx` (mobile) — same data, mobile-optimized layout
+
+**Commit:** `9d85940`
+
 ### 2026-03-06 — Session: Mobile Ask Agent + Shared Hook
 
 **Changes:**
