@@ -39,6 +39,22 @@ import {
   getJobSchedule,
   getMembers,
   getDocumentsForJob,
+  getJob,
+  getOpenTasksForMember,
+  getApprovedDocuments,
+  getDocumentContent,
+  getFilesForJob,
+  getDailyLogsForJob,
+  getCostItemsForJob,
+  getCostGroupsForJob,
+  getCostCodes,
+  getBillableDocuments,
+  getSpecificationsForJob,
+  getEventsForJob,
+  getTimeEntriesForJob,
+  getCommentsForTarget,
+  getScheduleAudit,
+  getGridScheduleData,
 } from '@/app/lib/jobtread';
 import { getBrandVoicePrompt } from '@/app/lib/bkb-brand-voice';
 
@@ -572,15 +588,38 @@ const knowItAll: AgentModule = {
       '   - Bullet points must use - or * list syntax\n' +
       '   - Must be real, parseable markdown (NOT a plain text copy)\n' +
       '   - Include line breaks between sections for readability\n\n' +
-      '=== JOBTREAD READ ACCESS (NEW) ===\n' +
-      'You now have READ-ONLY tools for querying JobTread data:\n' +
-      '- get_all_open_tasks — Get all incomplete tasks across ALL active jobs (with assignees and dates)\n' +
-      '- get_job_tasks — Get all tasks for a specific job\n' +
-      '- get_job_schedule — View the full phase/task hierarchy for a job\n' +
+      '=== JOBTREAD READ ACCESS (23 TOOLS) ===\n' +
+      'You have comprehensive READ-ONLY tools for querying JobTread data:\n' +
+      'JOBS & SEARCH:\n' +
       '- search_jobs — List all active jobs with IDs\n' +
+      '- get_job_details — Full details for a specific job (jobId required)\n' +
+      'TASKS & SCHEDULE:\n' +
+      '- get_all_open_tasks — All incomplete tasks across ALL active jobs\n' +
+      '- get_job_tasks — All tasks for a specific job\n' +
+      '- get_member_tasks — Open tasks for a specific team member (membershipId required)\n' +
+      '- get_job_schedule — Full phase/task hierarchy for a job\n' +
+      '- get_schedule_audit — Schedule health check across all jobs\n' +
+      '- get_grid_schedule — Gantt/grid view of all active job schedules\n' +
+      'TEAM:\n' +
       '- get_members — List all team members with membership IDs\n' +
-      '- get_job_documents — View documents (estimates, COs, invoices) for a job\n' +
-      'USE THESE TOOLS when the user asks about tasks, schedules, team workload, documents, or job details. Do NOT try to answer from context alone — call the tool to get fresh data.\n\n' +
+      'DOCUMENTS & FILES:\n' +
+      '- get_job_documents — Documents (estimates, COs, invoices) for a job\n' +
+      '- get_approved_documents — All approved documents across all jobs\n' +
+      '- get_document_content — Line items and details of a specific document (documentId required)\n' +
+      '- get_job_files — Uploaded files for a job\n' +
+      '- get_billable_documents — Documents ready for billing\n' +
+      'FINANCIAL:\n' +
+      '- get_job_budget — Cost items/budget for a job\n' +
+      '- get_cost_groups — Budget categories/groups for a job\n' +
+      '- get_cost_codes — Organization-wide cost codes\n' +
+      '- get_time_entries — Labor time entries for a job\n' +
+      'ACTIVITY:\n' +
+      '- get_job_daily_logs — Daily logs for a job\n' +
+      '- get_job_comments — Comments/notes for a job\n' +
+      '- get_job_events — Calendar events for a job\n' +
+      'OTHER:\n' +
+      '- get_specifications — Scope/specs for a job\n' +
+      'USE THESE TOOLS when the user asks about tasks, schedules, team workload, documents, budgets, costs, files, or job details. Do NOT try to answer from context alone — call the tool to get fresh data.\n\n' +
       '=== CRITICAL: YOU CANNOT CREATE, UPDATE, OR DELETE JOBTREAD RECORDS ===\n' +
       'You have READ-ONLY access to JobTread. You CANNOT create tasks, update tasks, create daily logs, modify jobs, or make ANY changes in JobTread. If the user asks you to create a task, schedule something, or make a change in JobTread, you MUST say: "I can\'t modify JobTread directly — let me hand this off to the JT Entry Specialist. Could you rephrase your request so the system routes it to the right agent?" NEVER claim you have created, updated, or modified anything in JobTread. This is a zero-tolerance rule — fabricating confirmations of actions you did not take causes real business harm.\n\n' +
       'DOCUMENT ANALYSIS: Users may attach documents (contracts, change orders, proposals, budgets, vendor estimates, invoices, specs). The document content will appear in the message as "--- ATTACHED DOCUMENT: [filename] ---" blocks. When documents are attached, READ them thoroughly and reference their content when answering questions or drafting communications. Cite specific details from the documents (dollar amounts, dates, scope items, material specs) to show you\'ve analyzed them.\n\n' +
@@ -629,63 +668,113 @@ const knowItAll: AgentModule = {
   tools: [
     {
       name: 'get_all_open_tasks',
-      description: 'Get all open (incomplete) tasks across ALL active jobs in JobTread. Returns task name, dates, progress, job name, and assigned team members. Use when the user asks about their tasks, team workload, or open items across projects.',
-      input_schema: {
-        type: 'object',
-        properties: {},
-        required: [],
-      },
+      description: 'Get all open (incomplete) tasks across ALL active jobs in JobTread. Returns task name, dates, progress, job name, and assigned team members.',
+      input_schema: { type: 'object', properties: {}, required: [] },
     },
     {
       name: 'get_job_tasks',
       description: 'Get all tasks for a specific JobTread job. Returns task name, dates, progress, and assignees.',
-      input_schema: {
-        type: 'object',
-        properties: {
-          jobId: { type: 'string', description: 'The JobTread Job ID' },
-        },
-        required: ['jobId'],
-      },
+      input_schema: { type: 'object', properties: { jobId: { type: 'string', description: 'The JobTread Job ID' } }, required: ['jobId'] },
     },
     {
       name: 'get_job_schedule',
-      description: 'Get the full phase/task hierarchy (schedule) for a specific job. Shows phases and their tasks organized in a tree.',
-      input_schema: {
-        type: 'object',
-        properties: {
-          jobId: { type: 'string', description: 'The JobTread Job ID' },
-        },
-        required: ['jobId'],
-      },
+      description: 'Get the full phase/task hierarchy (schedule) for a specific job.',
+      input_schema: { type: 'object', properties: { jobId: { type: 'string', description: 'The JobTread Job ID' } }, required: ['jobId'] },
     },
     {
       name: 'search_jobs',
-      description: 'Search for JobTread jobs. Returns a list of active jobs with ID, number, name, and status.',
-      input_schema: {
-        type: 'object',
-        properties: {},
-        required: [],
-      },
+      description: 'Search for JobTread jobs. Returns active jobs with ID, number, name, and status.',
+      input_schema: { type: 'object', properties: {}, required: [] },
     },
     {
       name: 'get_members',
-      description: 'Get all team members (memberships) in the JobTread organization. Returns membership ID and user name.',
-      input_schema: {
-        type: 'object',
-        properties: {},
-        required: [],
-      },
+      description: 'Get all team members in the JobTread organization with membership IDs.',
+      input_schema: { type: 'object', properties: {}, required: [] },
     },
     {
       name: 'get_job_documents',
-      description: 'Get documents (estimates, change orders, invoices, etc.) for a specific job.',
-      input_schema: {
-        type: 'object',
-        properties: {
-          jobId: { type: 'string', description: 'The JobTread Job ID' },
-        },
-        required: ['jobId'],
-      },
+      description: 'Get documents (estimates, change orders, invoices) for a specific job.',
+      input_schema: { type: 'object', properties: { jobId: { type: 'string', description: 'The JobTread Job ID' } }, required: ['jobId'] },
+    },
+    {
+      name: 'get_job_details',
+      description: 'Get full details for a single job — name, number, status, client, location, description, custom fields, financials.',
+      input_schema: { type: 'object', properties: { jobId: { type: 'string', description: 'The JobTread Job ID' } }, required: ['jobId'] },
+    },
+    {
+      name: 'get_member_tasks',
+      description: 'Get all open tasks for a specific team member (by membership ID). Use get_members first to find the ID.',
+      input_schema: { type: 'object', properties: { membershipId: { type: 'string', description: 'The membership ID' } }, required: ['membershipId'] },
+    },
+    {
+      name: 'get_approved_documents',
+      description: 'Get all approved documents across all jobs (estimates, COs, invoices).',
+      input_schema: { type: 'object', properties: { limit: { type: 'number', description: 'Max docs (default 100)' } }, required: [] },
+    },
+    {
+      name: 'get_document_content',
+      description: 'Get the full line items and content of a specific document (estimate, CO, invoice).',
+      input_schema: { type: 'object', properties: { documentId: { type: 'string', description: 'The document ID' } }, required: ['documentId'] },
+    },
+    {
+      name: 'get_job_files',
+      description: 'Get all uploaded files for a job.',
+      input_schema: { type: 'object', properties: { jobId: { type: 'string', description: 'The JobTread Job ID' } }, required: ['jobId'] },
+    },
+    {
+      name: 'get_job_daily_logs',
+      description: 'Get all daily logs for a job. Daily logs track daily site activity.',
+      input_schema: { type: 'object', properties: { jobId: { type: 'string', description: 'The JobTread Job ID' } }, required: ['jobId'] },
+    },
+    {
+      name: 'get_job_budget',
+      description: 'Get cost items (budget line items) for a job. Use search to filter by keyword.',
+      input_schema: { type: 'object', properties: { jobId: { type: 'string', description: 'The JobTread Job ID' }, search: { type: 'string', description: 'Optional keyword filter' } }, required: ['jobId'] },
+    },
+    {
+      name: 'get_cost_codes',
+      description: 'Get all cost codes in the organization (e.g., Electrical, Plumbing).',
+      input_schema: { type: 'object', properties: {}, required: [] },
+    },
+    {
+      name: 'get_billable_documents',
+      description: 'Get documents ready for billing across all jobs.',
+      input_schema: { type: 'object', properties: { limit: { type: 'number', description: 'Max docs (default 100)' } }, required: [] },
+    },
+    {
+      name: 'get_time_entries',
+      description: 'Get time entries (labor hours) for a specific job.',
+      input_schema: { type: 'object', properties: { jobId: { type: 'string', description: 'The JobTread Job ID' } }, required: ['jobId'] },
+    },
+    {
+      name: 'get_cost_groups',
+      description: 'Get cost groups (budget categories) for a job.',
+      input_schema: { type: 'object', properties: { jobId: { type: 'string', description: 'The JobTread Job ID' } }, required: ['jobId'] },
+    },
+    {
+      name: 'get_specifications',
+      description: 'Get the specifications (scope of work) for a job.',
+      input_schema: { type: 'object', properties: { jobId: { type: 'string', description: 'The JobTread Job ID' } }, required: ['jobId'] },
+    },
+    {
+      name: 'get_job_events',
+      description: 'Get calendar events for a job (meetings, site visits, inspections).',
+      input_schema: { type: 'object', properties: { jobId: { type: 'string', description: 'The JobTread Job ID' } }, required: ['jobId'] },
+    },
+    {
+      name: 'get_job_comments',
+      description: 'Get all comments on a JobTread entity (job, task, document).',
+      input_schema: { type: 'object', properties: { targetId: { type: 'string', description: 'ID of the entity' }, targetType: { type: 'string', description: '"job", "task", "document", "costItem"' } }, required: ['targetId', 'targetType'] },
+    },
+    {
+      name: 'get_schedule_audit',
+      description: 'Audit all active job schedules for issues — orphan tasks, missing dates, etc.',
+      input_schema: { type: 'object', properties: {}, required: [] },
+    },
+    {
+      name: 'get_grid_schedule',
+      description: 'Get a grid/Gantt view of all active job schedules.',
+      input_schema: { type: 'object', properties: {}, required: [] },
     },
   ],
 
@@ -809,6 +898,127 @@ const knowItAll: AgentModule = {
           return `- "${d.name || 'Untitled'}" | Type: ${d.type || 'N/A'} | Status: ${status} | Total: ${total}`;
         });
         return JSON.stringify({ success: true, count: docs.length, documents: lines.join('\n') });
+      }
+
+      if (name === 'get_job_details') {
+        const job = await getJob(input.jobId);
+        if (!job) return JSON.stringify({ success: false, error: 'Job not found: ' + input.jobId });
+        return JSON.stringify({ success: true, job });
+      }
+
+      if (name === 'get_member_tasks') {
+        const tasks = await getOpenTasksForMember(input.membershipId);
+        if (!tasks || tasks.length === 0) return JSON.stringify({ success: true, count: 0, message: 'No open tasks for this member.' });
+        const lines = tasks.map((t: any) => {
+          const status = t.progress >= 1 ? 'DONE' : t.progress > 0 ? 'IN PROGRESS' : 'NOT STARTED';
+          const job = t.job ? (t.job.name || t.job.id) : 'No job';
+          return `- [${status}] "${t.name}" | Job: ${job} | Due: ${t.endDate || 'No date'}`;
+        });
+        return JSON.stringify({ success: true, count: tasks.length, tasks: lines.join('\n') });
+      }
+
+      if (name === 'get_approved_documents') {
+        const docs = await getApprovedDocuments();
+        if (!docs || docs.length === 0) return JSON.stringify({ success: true, count: 0, message: 'No approved documents found.' });
+        const lines = (docs as any[]).map((d: any) => {
+          const total = d.total !== undefined ? `$${Number(d.total).toLocaleString()}` : 'N/A';
+          const job = d.job ? (d.job.name || d.job.id) : 'No job';
+          return `- "${d.name || 'Untitled'}" | Type: ${d.type || 'N/A'} | Total: ${total} | Job: ${job}`;
+        });
+        return JSON.stringify({ success: true, count: docs.length, documents: lines.join('\n') });
+      }
+
+      if (name === 'get_document_content') {
+        const content = await getDocumentContent(input.documentId);
+        if (!content) return JSON.stringify({ success: false, error: 'Document not found or empty.' });
+        return JSON.stringify({ success: true, content });
+      }
+
+      if (name === 'get_job_files') {
+        const files = await getFilesForJob(input.jobId);
+        if (!files || files.length === 0) return JSON.stringify({ success: true, count: 0, message: 'No files found.' });
+        const lines = (files as any[]).map((f: any) => `- "${f.name || 'Untitled'}" | Type: ${f.contentType || 'N/A'} | Uploaded: ${f.createdAt || 'N/A'}`);
+        return JSON.stringify({ success: true, count: files.length, files: lines.join('\n') });
+      }
+
+      if (name === 'get_job_daily_logs') {
+        const logs = await getDailyLogsForJob(input.jobId);
+        if (!logs || logs.length === 0) return JSON.stringify({ success: true, count: 0, message: 'No daily logs found.' });
+        const lines = (logs as any[]).map((l: any) => {
+          const author = l.createdByMembership?.user?.name || 'Unknown';
+          return `- ${l.date || 'No date'} by ${author}: ${l.notes || '(no notes)'}`;
+        });
+        return JSON.stringify({ success: true, count: logs.length, logs: lines.join('\n') });
+      }
+
+      if (name === 'get_job_budget') {
+        const items = await getCostItemsForJob(input.jobId);
+        if (!items || items.length === 0) return JSON.stringify({ success: true, count: 0, message: 'No cost items found.' });
+        return JSON.stringify({ success: true, count: items.length, costItems: items });
+      }
+
+      if (name === 'get_cost_codes') {
+        const codes = await getCostCodes();
+        if (!codes || codes.length === 0) return JSON.stringify({ success: true, count: 0, message: 'No cost codes found.' });
+        const lines = (codes as any[]).map((c: any) => `- ${c.name} (${c.code || 'N/A'}) | ID: ${c.id}`);
+        return JSON.stringify({ success: true, count: codes.length, codes: lines.join('\n') });
+      }
+
+      if (name === 'get_billable_documents') {
+        const docs = await getBillableDocuments();
+        if (!docs || docs.length === 0) return JSON.stringify({ success: true, count: 0, message: 'No billable documents found.' });
+        const lines = (docs as any[]).map((d: any) => {
+          const total = d.total !== undefined ? `$${Number(d.total).toLocaleString()}` : 'N/A';
+          const job = d.job ? (d.job.name || d.job.id) : 'No job';
+          return `- "${d.name || 'Untitled'}" | Total: ${total} | Job: ${job}`;
+        });
+        return JSON.stringify({ success: true, count: docs.length, documents: lines.join('\n') });
+      }
+
+      if (name === 'get_time_entries') {
+        const entries = await getTimeEntriesForJob(input.jobId);
+        if (!entries || entries.length === 0) return JSON.stringify({ success: true, count: 0, message: 'No time entries found.' });
+        return JSON.stringify({ success: true, count: entries.length, entries });
+      }
+
+      if (name === 'get_cost_groups') {
+        const groups = await getCostGroupsForJob(input.jobId);
+        if (!groups || groups.length === 0) return JSON.stringify({ success: true, count: 0, message: 'No cost groups found.' });
+        return JSON.stringify({ success: true, count: groups.length, groups });
+      }
+
+      if (name === 'get_specifications') {
+        const specs = await getSpecificationsForJob(input.jobId);
+        if (!specs || specs.length === 0) return JSON.stringify({ success: true, count: 0, message: 'No specifications found.' });
+        return JSON.stringify({ success: true, count: specs.length, specifications: specs });
+      }
+
+      if (name === 'get_job_events') {
+        const events = await getEventsForJob(input.jobId);
+        if (!events || events.length === 0) return JSON.stringify({ success: true, count: 0, message: 'No events found.' });
+        return JSON.stringify({ success: true, count: events.length, events });
+      }
+
+      if (name === 'get_job_comments') {
+        const comments = await getCommentsForTarget(input.jobId);
+        if (!comments || comments.length === 0) return JSON.stringify({ success: true, count: 0, message: 'No comments found.' });
+        const lines = (comments as any[]).map((c: any) => {
+          const author = c.createdByMembership?.user?.name || 'Unknown';
+          return `- ${c.createdAt || 'No date'} by ${author}: ${c.message || '(no message)'}`;
+        });
+        return JSON.stringify({ success: true, count: comments.length, comments: lines.join('\n') });
+      }
+
+      if (name === 'get_schedule_audit') {
+        const audit = await getScheduleAudit();
+        if (!audit) return JSON.stringify({ success: true, message: 'No schedule audit data.' });
+        return JSON.stringify({ success: true, audit });
+      }
+
+      if (name === 'get_grid_schedule') {
+        const grid = await getGridScheduleData();
+        if (!grid) return JSON.stringify({ success: true, message: 'No grid schedule data.' });
+        return JSON.stringify({ success: true, grid });
       }
 
       return JSON.stringify({ error: 'Unknown tool: ' + name });

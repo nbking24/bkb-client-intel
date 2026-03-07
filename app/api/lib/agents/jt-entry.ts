@@ -14,7 +14,10 @@ import {
   createPhaseGroup,
   createPhaseTask,
   applyStandardTemplate,
+  applyPhaseDefaults,
   getDocumentsForJob,
+  getApprovedDocuments,
+  getDocumentContent,
   getFilesForJob,
   moveTaskToPhase,
   getDailyLogsForJob,
@@ -25,6 +28,16 @@ import {
   getCommentsForTarget,
   updateJob,
   getCostItemsForJob,
+  getCostGroupsForJob,
+  updateCostGroup,
+  getCostCodes,
+  getBillableDocuments,
+  getSpecificationsForJob,
+  getEventsForJob,
+  getTimeEntriesForJob,
+  getOpenTasksForMember,
+  getScheduleAudit,
+  getGridScheduleData,
   getAllOpenTasks,
   // DB-only reads for messages & daily logs (prevents duplication)
   getCommentsFromDB,
@@ -69,7 +82,22 @@ const jtEntry: AgentModule = {
       '20. update_job — Update job details (name, description, specifications, close/reopen).\n' +
       '21. get_job_budget — View cost items (budget line items) for a job.\n' +
       '22. update_task_full — Advanced task update with assignee changes, time of day, etc.\n' +
-      '23. get_all_open_tasks — Get ALL incomplete tasks across ALL active jobs with assignees and dates. Use when the user asks about their tasks across multiple projects or team workload.\n\n' +
+      '23. get_all_open_tasks — Get ALL incomplete tasks across ALL active jobs with assignees and dates.\n' +
+      '24. get_job_details — Full details for a single job (client, location, financials, custom fields).\n' +
+      '25. get_members — List all team members with membership IDs.\n' +
+      '26. get_member_tasks — Get open tasks for a specific team member (by membership ID).\n' +
+      '27. get_approved_documents — Cross-job approved documents (estimates, COs, invoices).\n' +
+      '28. get_document_content — Full line items and content of a specific document.\n' +
+      '29. get_cost_codes — All cost codes in the organization.\n' +
+      '30. get_billable_documents — Documents ready for billing.\n' +
+      '31. get_time_entries — Time/labor entries for a job.\n' +
+      '32. get_cost_groups — Budget category groups for a job.\n' +
+      '33. update_cost_group — Update a cost group (name, markup, tax). Confirm first.\n' +
+      '34. get_specifications — Scope of work / specifications for a job.\n' +
+      '35. get_job_events — Calendar events for a job.\n' +
+      '36. get_schedule_audit — Audit all schedules for issues (orphan tasks, missing dates).\n' +
+      '37. get_grid_schedule — Grid/Gantt view of all active job schedules.\n' +
+      '38. apply_phase_defaults — Apply standard phases to a job with existing tasks. Confirm first.\n\n' +
       'CRITICAL — CONFIRMATION BEFORE EXECUTION:\n' +
       '- For ANY write operation (create, update, delete, move, apply template), you MUST first:\n' +
       '  1. Use read-only tools (search_jobs, get_job_schedule, get_job_tasks) to gather the needed info\n' +
@@ -453,6 +481,168 @@ const jtEntry: AgentModule = {
           assignTo: { type: 'string', description: 'Comma-separated team member names to reassign task to (optional). Replaces current assignees.' },
         },
         required: ['taskId'],
+      },
+    },
+    // ===== NEW COMPREHENSIVE JT TOOLS =====
+    {
+      name: 'get_job_details',
+      description: 'Get full details for a single job — name, number, status, client, location, description, custom fields, dates, and financial totals.',
+      input_schema: {
+        type: 'object',
+        properties: {
+          jobId: { type: 'string', description: 'The JobTread Job ID' },
+        },
+        required: ['jobId'],
+      },
+    },
+    {
+      name: 'get_members',
+      description: 'Get all team members in the JobTread organization. Returns membership IDs and user names. Use to look up member IDs for assignment.',
+      input_schema: {
+        type: 'object',
+        properties: {},
+        required: [],
+      },
+    },
+    {
+      name: 'get_member_tasks',
+      description: 'Get all open tasks assigned to a specific team member (by membership ID). Use get_members first to find the membership ID.',
+      input_schema: {
+        type: 'object',
+        properties: {
+          membershipId: { type: 'string', description: 'The membership ID of the team member' },
+        },
+        required: ['membershipId'],
+      },
+    },
+    {
+      name: 'get_approved_documents',
+      description: 'Get all approved documents (estimates, change orders, invoices) across all jobs. Useful for financial overviews.',
+      input_schema: {
+        type: 'object',
+        properties: {
+          limit: { type: 'number', description: 'Max documents to return (default 100)' },
+        },
+        required: [],
+      },
+    },
+    {
+      name: 'get_document_content',
+      description: 'Get the full content/line items of a specific document (estimate, change order, invoice). Returns all line items with quantities, costs, prices.',
+      input_schema: {
+        type: 'object',
+        properties: {
+          documentId: { type: 'string', description: 'The document ID' },
+        },
+        required: ['documentId'],
+      },
+    },
+    {
+      name: 'get_cost_codes',
+      description: 'Get all cost codes available in the organization. Cost codes categorize budget items (e.g., "Electrical", "Plumbing").',
+      input_schema: {
+        type: 'object',
+        properties: {},
+        required: [],
+      },
+    },
+    {
+      name: 'get_billable_documents',
+      description: 'Get documents that are ready to be billed or have billing status. Useful for accounts receivable tracking.',
+      input_schema: {
+        type: 'object',
+        properties: {
+          limit: { type: 'number', description: 'Max documents to return (default 100)' },
+        },
+        required: [],
+      },
+    },
+    {
+      name: 'get_time_entries',
+      description: 'Get time entries (labor hours logged) for a specific job. Shows who worked, when, and for how long.',
+      input_schema: {
+        type: 'object',
+        properties: {
+          jobId: { type: 'string', description: 'The JobTread Job ID' },
+        },
+        required: ['jobId'],
+      },
+    },
+    {
+      name: 'get_cost_groups',
+      description: 'Get cost groups (budget categories/sections) for a job. Shows how budget items are organized.',
+      input_schema: {
+        type: 'object',
+        properties: {
+          jobId: { type: 'string', description: 'The JobTread Job ID' },
+        },
+        required: ['jobId'],
+      },
+    },
+    {
+      name: 'update_cost_group',
+      description: 'Update a cost group — change its name, markup percentage, or tax settings. Always confirm before executing.',
+      input_schema: {
+        type: 'object',
+        properties: {
+          groupId: { type: 'string', description: 'The cost group ID to update' },
+          name: { type: 'string', description: 'New name (optional)' },
+          markupPercent: { type: 'number', description: 'New markup percentage (optional)' },
+          isTaxable: { type: 'boolean', description: 'Whether items in this group are taxable (optional)' },
+        },
+        required: ['groupId'],
+      },
+    },
+    {
+      name: 'get_specifications',
+      description: 'Get the specifications (scope of work) for a job. Returns the spec description, footer, and all spec line items grouped by cost group.',
+      input_schema: {
+        type: 'object',
+        properties: {
+          jobId: { type: 'string', description: 'The JobTread Job ID' },
+        },
+        required: ['jobId'],
+      },
+    },
+    {
+      name: 'get_job_events',
+      description: 'Get calendar events associated with a job. Shows meetings, site visits, inspections, etc.',
+      input_schema: {
+        type: 'object',
+        properties: {
+          jobId: { type: 'string', description: 'The JobTread Job ID' },
+        },
+        required: ['jobId'],
+      },
+    },
+    {
+      name: 'get_schedule_audit',
+      description: 'Audit all active job schedules for issues — tasks without phases, missing dates, jobs without schedules, etc. Returns a comprehensive health check.',
+      input_schema: {
+        type: 'object',
+        properties: {},
+        required: [],
+      },
+    },
+    {
+      name: 'get_grid_schedule',
+      description: 'Get a grid/Gantt view of all active job schedules. Shows all jobs with their phases and tasks in a timeline format.',
+      input_schema: {
+        type: 'object',
+        properties: {},
+        required: [],
+      },
+    },
+    {
+      name: 'apply_phase_defaults',
+      description: 'Apply the standard phase template to a job that already has tasks. Creates any missing standard phases and optionally moves orphan tasks into appropriate phases. Always confirm before executing.',
+      input_schema: {
+        type: 'object',
+        properties: {
+          jobId: { type: 'string', description: 'The JobTread Job ID' },
+          moveOrphans: { type: 'boolean', description: 'Whether to auto-move orphan tasks into appropriate phases (default false)' },
+        },
+        required: ['jobId'],
       },
     },
   ],
@@ -883,6 +1073,151 @@ const jtEntry: AgentModule = {
         lines.push('SHOWING: ' + Math.min(filtered.length, 75) + ' of ' + items.length + ' total' + (searchTerm ? ' (filtered by "' + input.search + '")' : ''));
         lines.push('TOTALS' + (searchTerm ? ' (filtered)' : '') + ': Cost $' + totalCost.toFixed(2) + ' | Price $' + totalPrice.toFixed(2) + ' | Margin $' + (totalPrice - totalCost).toFixed(2));
         return JSON.stringify({ success: true, count: filtered.length, totalItems: items.length, costItems: lines.join('\n') });
+      }
+
+      // ========== JOB DETAILS ==========
+      if (name === 'get_job_details') {
+        const job = await getJob(input.jobId);
+        if (!job) return JSON.stringify({ success: false, error: 'Job not found: ' + input.jobId });
+        return JSON.stringify({ success: true, job });
+      }
+
+      // ========== MEMBERS ==========
+      if (name === 'get_members') {
+        const members = await getMembers();
+        if (!members || members.length === 0) return JSON.stringify({ success: true, count: 0, message: 'No members found.' });
+        const lines = members.map((m: any) => `- ${m.user?.name || 'Unknown'} | Membership ID: ${m.id} | Email: ${m.user?.email || 'N/A'}`);
+        return JSON.stringify({ success: true, count: members.length, members: lines.join('\n') });
+      }
+
+      // ========== MEMBER TASKS ==========
+      if (name === 'get_member_tasks') {
+        const tasks = await getOpenTasksForMember(input.membershipId);
+        if (!tasks || tasks.length === 0) return JSON.stringify({ success: true, count: 0, message: 'No open tasks for this member.' });
+        const lines = tasks.map((t: any) => {
+          const status = t.progress >= 1 ? 'DONE' : t.progress > 0 ? 'IN PROGRESS' : 'NOT STARTED';
+          const job = t.job ? (t.job.name || t.job.id) : 'No job';
+          return `- [${status}] "${t.name}" | Job: ${job} | Due: ${t.endDate || 'No date'}`;
+        });
+        return JSON.stringify({ success: true, count: tasks.length, tasks: lines.join('\n') });
+      }
+
+      // ========== APPROVED DOCUMENTS ==========
+      if (name === 'get_approved_documents') {
+        const docs = await getApprovedDocuments(input.limit || 100);
+        if (!docs || docs.length === 0) return JSON.stringify({ success: true, count: 0, message: 'No approved documents found.' });
+        const lines = (docs as any[]).map((d: any) => {
+          const total = d.total !== undefined ? `$${Number(d.total).toLocaleString()}` : 'N/A';
+          const jobName = d.job?.name || 'Unknown job';
+          return `- "${d.name || 'Untitled'}" | Job: ${jobName} | Type: ${d.type || 'N/A'} | Status: ${d.status || 'N/A'} | Total: ${total} | ID: ${d.id}`;
+        });
+        return JSON.stringify({ success: true, count: docs.length, documents: lines.join('\n') });
+      }
+
+      // ========== DOCUMENT CONTENT ==========
+      if (name === 'get_document_content') {
+        const doc = await getDocumentContent(input.documentId);
+        if (!doc) return JSON.stringify({ success: false, error: 'Document not found or empty.' });
+        return JSON.stringify({ success: true, document: doc });
+      }
+
+      // ========== COST CODES ==========
+      if (name === 'get_cost_codes') {
+        const codes = await getCostCodes();
+        if (!codes || codes.length === 0) return JSON.stringify({ success: true, count: 0, message: 'No cost codes found.' });
+        const lines = (codes as any[]).map((c: any) => `- #${c.number || '?'} ${c.name || 'Unnamed'} | ID: ${c.id}`);
+        return JSON.stringify({ success: true, count: codes.length, costCodes: lines.join('\n') });
+      }
+
+      // ========== BILLABLE DOCUMENTS ==========
+      if (name === 'get_billable_documents') {
+        const docs = await getBillableDocuments(input.limit || 100);
+        if (!docs || docs.length === 0) return JSON.stringify({ success: true, count: 0, message: 'No billable documents found.' });
+        const lines = (docs as any[]).map((d: any) => {
+          const total = d.total !== undefined ? `$${Number(d.total).toLocaleString()}` : 'N/A';
+          const jobName = d.job?.name || 'Unknown job';
+          return `- "${d.name || 'Untitled'}" | Job: ${jobName} | Type: ${d.type || 'N/A'} | Status: ${d.status || 'N/A'} | Total: ${total}`;
+        });
+        return JSON.stringify({ success: true, count: docs.length, documents: lines.join('\n') });
+      }
+
+      // ========== TIME ENTRIES ==========
+      if (name === 'get_time_entries') {
+        const entries = await getTimeEntriesForJob(input.jobId);
+        if (!entries || entries.length === 0) return JSON.stringify({ success: true, count: 0, message: 'No time entries found.' });
+        const lines = (entries as any[]).map((e: any) => {
+          const member = e.membership?.user?.name || 'Unknown';
+          const hours = e.duration ? (e.duration / 60).toFixed(1) + 'h' : 'N/A';
+          return `- ${e.date || 'No date'} | ${member} | ${hours} | ${e.description || '(no description)'}`;
+        });
+        return JSON.stringify({ success: true, count: entries.length, timeEntries: lines.join('\n') });
+      }
+
+      // ========== COST GROUPS ==========
+      if (name === 'get_cost_groups') {
+        const groups = await getCostGroupsForJob(input.jobId);
+        if (!groups || groups.length === 0) return JSON.stringify({ success: true, count: 0, message: 'No cost groups found.' });
+        const lines = (groups as any[]).map((g: any) => {
+          const markup = g.markupPercent !== undefined ? `Markup: ${g.markupPercent}%` : '';
+          const taxable = g.isTaxable ? 'Taxable' : 'Not taxable';
+          const totalCost = g.totalCost !== undefined ? `Cost: $${Number(g.totalCost).toLocaleString()}` : '';
+          const totalPrice = g.totalPrice !== undefined ? `Price: $${Number(g.totalPrice).toLocaleString()}` : '';
+          return `- "${g.name || 'Unnamed'}" (ID: ${g.id}) | ${markup} | ${taxable} | ${totalCost} | ${totalPrice}`;
+        });
+        return JSON.stringify({ success: true, count: groups.length, costGroups: lines.join('\n') });
+      }
+
+      // ========== UPDATE COST GROUP ==========
+      if (name === 'update_cost_group') {
+        const fields: any = {};
+        if (input.name) fields.name = input.name;
+        if (input.markupPercent !== undefined) fields.markupPercent = input.markupPercent;
+        if (input.isTaxable !== undefined) fields.isTaxable = input.isTaxable;
+        if (Object.keys(fields).length === 0) return JSON.stringify({ success: false, error: 'No fields to update.' });
+        const result = await updateCostGroup(input.groupId, fields);
+        return JSON.stringify({ success: true, result, message: 'Cost group updated.' });
+      }
+
+      // ========== SPECIFICATIONS ==========
+      if (name === 'get_specifications') {
+        const specs = await getSpecificationsForJob(input.jobId);
+        if (!specs) return JSON.stringify({ success: true, message: 'No specifications found for this job.' });
+        return JSON.stringify({ success: true, specifications: specs });
+      }
+
+      // ========== EVENTS ==========
+      if (name === 'get_job_events') {
+        const events = await getEventsForJob(input.jobId);
+        if (!events || events.length === 0) return JSON.stringify({ success: true, count: 0, message: 'No events found.' });
+        const lines = (events as any[]).map((e: any) => {
+          const start = e.startDate || 'No date';
+          const end = e.endDate || '';
+          return `- "${e.name || 'Untitled'}" | ${start}${end ? ' → ' + end : ''} | ${e.description || '(no description)'}`;
+        });
+        return JSON.stringify({ success: true, count: events.length, events: lines.join('\n') });
+      }
+
+      // ========== SCHEDULE AUDIT ==========
+      if (name === 'get_schedule_audit') {
+        const audit = await getScheduleAudit();
+        return JSON.stringify({ success: true, audit });
+      }
+
+      // ========== GRID SCHEDULE ==========
+      if (name === 'get_grid_schedule') {
+        const grid = await getGridScheduleData();
+        if (!grid || grid.length === 0) return JSON.stringify({ success: true, count: 0, message: 'No schedule data found.' });
+        const lines = grid.map((j: any) => {
+          const phases = (j.phases || []).map((p: any) => `  📁 ${p.name} (${Math.round((p.progress || 0) * 100)}%)`).join('\n');
+          return `- #${j.number || '?'} ${j.name} | Progress: ${Math.round((j.totalProgress || 0) * 100)}%\n${phases}`;
+        });
+        return JSON.stringify({ success: true, count: grid.length, schedules: lines.join('\n\n') });
+      }
+
+      // ========== APPLY PHASE DEFAULTS ==========
+      if (name === 'apply_phase_defaults') {
+        const result = await applyPhaseDefaults(input.jobId, input.moveOrphans || false);
+        return JSON.stringify({ success: true, result, message: 'Phase defaults applied.' });
       }
 
       // ========== UPDATE TASK FULL (advanced) ==========
