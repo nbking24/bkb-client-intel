@@ -435,11 +435,36 @@ export function useAskAgent() {
   };
 
   /* ── Confirm / Decline ── */
-  const handleConfirm = async () => {
+  const handleConfirm = async (edits?: Partial<TaskConfirmData>) => {
+    // Grab the taskConfirm data from the last message BEFORE clearing needsConfirmation
+    const lastMsg = messages[messages.length - 1];
+    const taskData = lastMsg?.taskConfirm;
+
     setMessages(prev => prev.map((m, i) =>
       i === prev.length - 1 ? { ...m, needsConfirmation: false } : m
     ));
-    await sendMessage('Yes, proceed.');
+
+    // Build the confirmation message WITH the full task data so the agent
+    // has everything it needs (especially phaseId) to actually execute the tool.
+    let confirmMsg = 'Yes, proceed.';
+    if (edits) {
+      const changes: string[] = [];
+      if (edits.phase) changes.push(`put the task under the "${edits.phase}" phase instead`);
+      if (edits.assignee) changes.push(`assign to ${edits.assignee}`);
+      if (edits.name) changes.push(`rename the task to "${edits.name}"`);
+      if (edits.endDate) changes.push(`set the due date to ${edits.endDate}`);
+      if (changes.length > 0) {
+        confirmMsg = 'Yes, proceed but ' + changes.join(', and ') + '.';
+      }
+    }
+
+    // Include the task data so Claude can call the actual tool
+    if (taskData) {
+      const mergedData = edits ? { ...taskData, ...edits } : taskData;
+      confirmMsg += '\n\n[APPROVED TASK DATA — execute this now using create_phase_task tool]\n' + JSON.stringify(mergedData);
+    }
+
+    await sendMessage(confirmMsg);
   };
 
   const handleDecline = () => {

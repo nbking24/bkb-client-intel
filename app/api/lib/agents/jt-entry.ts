@@ -119,6 +119,12 @@ const jtEntry: AgentModule = {
       '- The phaseId must be the actual ID from get_job_schedule results.\n' +
       '- If no assignee, use "" (empty string). If no dates, use "" (empty string).\n' +
       '- This format enables the UI to show an editable confirmation card so the user can make quick changes before approving.\n\n' +
+      'EXECUTING AFTER APPROVAL (CRITICAL — MUST USE TOOLS):\n' +
+      '- When the user confirms with "Yes, proceed" and includes [APPROVED TASK DATA], you MUST actually call the create_phase_task tool (or the appropriate write tool) to execute the action.\n' +
+      '- The approved task data JSON contains name, phase, phaseId, description, assignee, and dates. Use these values directly in your tool call.\n' +
+      '- NEVER say you created/updated/deleted something without actually calling the tool first. That is a hallucination and causes serious problems.\n' +
+      '- If the user changed the phase in their approval (e.g. "put the task under X phase instead"), call get_job_schedule first to find the correct phaseId for the new phase name, then call create_phase_task with that phaseId.\n' +
+      '- The tool call MUST happen — just saying "I created the task" without a tool call is WRONG.\n\n' +
       'TASK DURATION (CRITICAL):\n' +
       '- ALWAYS set durationDays to 1. Every task should be a 1-day task unless the user explicitly requests a different duration.\n' +
       '- Do NOT calculate multi-day durations based on start/end dates — just use durationDays: 1.\n\n' +

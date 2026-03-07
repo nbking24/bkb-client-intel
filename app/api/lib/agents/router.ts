@@ -27,6 +27,12 @@ const PROJECT_SPECS_GROUP = ['project-details'];
 // Short confirmation phrases that should stick with the previous agent
 const CONFIRMATION_PATTERN = /^(yes|yeah|yep|yup|sure|ok|okay|go ahead|do it|confirmed|proceed|approve|go for it|absolutely|please|please do|that's correct|correct|right|affirmative)\s*[.!]?$/i;
 
+// Matches "Yes, proceed." and similar multi-word confirmations
+const EXTENDED_CONFIRM_PATTERN = /^yes[,.]?\s*(proceed|go ahead|do it|please)[.!]?/i;
+
+// Matches messages that contain approved task data (from the confirmation card)
+const APPROVED_TASK_PATTERN = /\[APPROVED TASK DATA/;
+
 // Follow-up pattern: short messages that look like the user is providing info requested by the last agent
 const FOLLOWUP_PATTERN = /^[^?]{1,80}$/;
 
@@ -42,6 +48,14 @@ function selectAgent(message: string, lastAgentName?: string, forcedAgent?: stri
   // (which would fabricate a confirmation).
   if (lastAgentName && AGENT_MAP[lastAgentName]) {
     if (CONFIRMATION_PATTERN.test(trimmed)) {
+      return AGENT_MAP[lastAgentName];
+    }
+    // "Yes, proceed." or "Yes, proceed but ..." — extended confirmation
+    if (EXTENDED_CONFIRM_PATTERN.test(trimmed)) {
+      return AGENT_MAP[lastAgentName];
+    }
+    // Messages with approved task data always go back to the agent that proposed them
+    if (APPROVED_TASK_PATTERN.test(trimmed)) {
       return AGENT_MAP[lastAgentName];
     }
     // Short follow-ups (< 80 chars, no question mark) stick with the last agent
