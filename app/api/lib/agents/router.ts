@@ -3,7 +3,7 @@ import Anthropic from '@anthropic-ai/sdk';
 import { AgentModule, AgentContext, AgentResult } from './types';
 import knowItAll from './know-it-all';
 import projectDetails from './project-details';
-import { getAllOpenTasks, getActiveJobs } from '@/app/lib/jobtread';
+import { getActiveJobs, getTasksForJob } from '@/app/lib/jobtread';
 
 const anthropic = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY });
 
@@ -105,35 +105,56 @@ async function tryFastPath(msg: string, ctx: AgentContext): Promise<AgentResult 
       /\btask.*\b(open|incomplete|pending|list)\b/i.test(stripped)) {
     console.log('[FAST-PATH] Detected open tasks query');
     try {
-      const tasks = await getAllOpenTasks();
-      if (!tasks || tasks.length === 0) {
-        return { agentName: 'Know it All', reply: 'No open tasks found across any active jobs.', needsConfirmation: false };
+      // Approach: get active jobs, then fetch tasks per job (avoids 413 from org-level task query)
+      const jobs = await getActiveJobs(10);  // Limit to 10 most recent active jobs
+      if (!jobs || jobs.length === 0) {
+        return { agentName: 'Know it All', reply: 'No active jobs found, so no open tasks.', needsConfirmation: false };
       }
 
-      // Group tasks by job for a clean presentation
-      const byJob: Record<string, any[]> = {};
-      for (const t of tasks) {
-        const jobName = t.job?.name || 'Unassigned';
-        if (!byJob[jobName]) byJob[jobName] = [];
-        byJob[jobName].push(t);
+      // Fetch tasks for each job in parallel (max 8 to stay fast)
+      const jobsToQuery = jobs.slice(0, 8);
+      const jobTaskResults = await Promise.all(
+        jobsToQuery.map(async (j) => {
+          try {
+            const tasks = await getTasksForJob(j.id);
+            // Filter to open tasks only (not groups, progress < 1)
+            const openTasks = tasks.filter((t: any) => !t.isGroup && (t.progress === null || t.progress < 1));
+            return { job: j, tasks: openTasks };
+          } catch (err: any) {
+            console.error(`[FAST-PATH] Error fetching tasks for job ${j.name}:`, err?.message);
+            return { job: j, tasks: [] };
+          }
+        })
+      );
+
+      // Flatten and count
+      let totalOpen = 0;
+      const jobsWithTasks = jobTaskResults.filter(r => r.tasks.length > 0);
+      for (const r of jobsWithTasks) totalOpen += r.tasks.length;
+
+      if (totalOpen === 0) {
+        return { agentName: 'Know it All', reply: 'No open tasks found across your active jobs.', needsConfirmation: false };
       }
 
-      let reply = `Here are your **${tasks.length} open tasks** across ${Object.keys(byJob).length} active jobs:\n\n`;
-      for (const [jobName, jobTasks] of Object.entries(byJob)) {
-        reply += `### ${jobName}\n`;
-        for (const t of jobTasks) {
+      let reply = `Here are your **${totalOpen} open tasks** across ${jobsWithTasks.length} active jobs:\n\n`;
+      for (const { job, tasks } of jobsWithTasks) {
+        reply += `### #${job.number} ${job.name}\n`;
+        for (const t of tasks) {
           const pct = Math.round((t.progress || 0) * 100);
-          const assigned = t.assignedMemberships?.nodes?.map((m: any) => m.user?.name || '?').join(', ') || 'Unassigned';
           const due = t.endDate || 'No due date';
-          reply += `- **${t.name}** — ${assigned} | ${pct}% complete | Due: ${due}\n`;
+          reply += `- **${t.name}** — ${pct}% complete | Due: ${due}\n`;
         }
         reply += '\n';
       }
 
+      if (jobs.length > 8) {
+        reply += `\n*Showing tasks from your 8 most recent jobs. ${jobs.length - 8} additional jobs not shown.*`;
+      }
+
       return { agentName: 'Know it All', reply: reply.trim(), needsConfirmation: false };
     } catch (err: any) {
-      console.error('[FAST-PATH] Error fetching tasks:', err?.message);
-      return null; // Fall through to normal path
+      console.error('[FAST-PATH] Error in open tasks:', err?.message);
+      return { agentName: 'Know it All', reply: 'Having trouble fetching tasks right now. Try selecting a specific project first, or ask "what are my active jobs?" to see a list.', needsConfirmation: false };
     }
   }
 
@@ -156,7 +177,7 @@ async function tryFastPath(msg: string, ctx: AgentContext): Promise<AgentResult 
       return { agentName: 'Know it All', reply: reply.trim(), needsConfirmation: false };
     } catch (err: any) {
       console.error('[FAST-PATH] Error fetching jobs:', err?.message);
-      return null;
+      return { agentName: 'Know it All', reply: 'Having trouble fetching jobs right now. Please try again in a moment.', needsConfirmation: false };
     }
   }
 
