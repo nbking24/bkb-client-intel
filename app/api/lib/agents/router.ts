@@ -3,7 +3,7 @@ import Anthropic from '@anthropic-ai/sdk';
 import { AgentModule, AgentContext, AgentResult } from './types';
 import knowItAll from './know-it-all';
 import projectDetails from './project-details';
-import { getActiveJobs, getTasksForJob } from '@/app/lib/jobtread';
+import { getActiveJobs, getTasksForJob, getJobSchedule, getMembers, createPhaseTask, createTask } from '@/app/lib/jobtread';
 
 const anthropic = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY });
 
@@ -184,6 +184,115 @@ async function tryFastPath(msg: string, ctx: AgentContext): Promise<AgentResult 
   return null; // No fast path matched
 }
 
+// ── FAST PATH: Execute confirmed task creation without the full Claude tool loop ──
+// When the user approves a task via the confirmation card, we have all the data needed
+// to create it directly — no Claude reasoning required.
+async function tryTaskCreationFastPath(msg: string, ctx: AgentContext): Promise<AgentResult | null> {
+  // Only trigger on messages with approved task data
+  if (!APPROVED_TASK_PATTERN.test(msg)) return null;
+
+  // Extract the JSON from the message
+  const jsonMatch = msg.match(/\[APPROVED TASK DATA[^\]]*\]\s*([\s\S]*?)$/);
+  if (!jsonMatch) return null;
+
+  let taskData: any;
+  try {
+    taskData = JSON.parse(jsonMatch[1].trim());
+  } catch {
+    console.error('[FAST-TASK] Failed to parse task data JSON');
+    return null; // Fall through to Claude if JSON is malformed
+  }
+
+  console.log('[FAST-TASK] Detected confirmed task creation:', taskData.name, '| phase:', taskData.phase);
+
+  const jobId = ctx.jtJobId;
+  if (!jobId) {
+    return { agentName: 'Know it All', reply: 'I need a project selected to create a task. Please select a project from the dropdown first.', needsConfirmation: false };
+  }
+
+  try {
+    // Step 1: Find the phase ID from the job schedule
+    let parentGroupId: string | null = null;
+    const schedule = await getJobSchedule(jobId);
+    if (schedule?.tasks) {
+      const phaseName = (taskData.phase || '').toLowerCase();
+      // Look for a matching phase (group task) in the schedule
+      const phase = schedule.tasks.find((t: any) =>
+        t.isGroup && t.name.toLowerCase().includes(phaseName)
+      );
+      if (phase) {
+        parentGroupId = phase.id;
+        console.log('[FAST-TASK] Found phase:', phase.name, '| ID:', phase.id);
+      }
+    }
+
+    // Step 2: Find the assignee's membership ID
+    let assignedMembershipIds: string[] | undefined;
+    let assignedName = '';
+    if (taskData.assignee) {
+      try {
+        const members = await getMembers();
+        const search = taskData.assignee.toLowerCase();
+        const match = members.find((m: any) => {
+          const mName = (m.user?.name || '').toLowerCase();
+          return mName.includes(search) || search.includes(mName.split(' ')[0]);
+        });
+        if (match) {
+          assignedMembershipIds = [match.id];
+          assignedName = match.user?.name || '';
+          console.log('[FAST-TASK] Found assignee:', assignedName, '| ID:', match.id);
+        }
+      } catch { /* ignore member lookup failures */ }
+    }
+
+    // Step 3: Create the task
+    let result: any;
+    let warning = '';
+    if (parentGroupId) {
+      result = await createPhaseTask({
+        jobId,
+        parentGroupId,
+        name: taskData.name,
+        description: taskData.description,
+        startDate: taskData.startDate,
+        endDate: taskData.endDate,
+        assignedMembershipIds,
+      });
+      if (result.warning) warning = '\n\n⚠️ ' + result.warning;
+    } else {
+      // No phase found — create at job level
+      result = await createTask({
+        jobId,
+        name: taskData.name,
+        description: taskData.description,
+        startDate: taskData.startDate,
+        endDate: taskData.endDate,
+        assignedMembershipIds,
+      });
+      if (taskData.phase) {
+        warning = `\n\n⚠️ The "${taskData.phase}" phase wasn't found on this project, so the task was created at the job level. You can drag it into the correct phase in JobTread.`;
+      }
+    }
+
+    console.log('[FAST-TASK] Task created:', result?.id, result?.name);
+
+    // Build success reply
+    let reply = `✅ Task created successfully!\n\n`;
+    reply += `**${taskData.name}**\n`;
+    if (taskData.phase && parentGroupId) reply += `📁 Phase: ${taskData.phase}\n`;
+    if (assignedName) reply += `👤 Assigned to: ${assignedName}\n`;
+    if (taskData.startDate) reply += `📅 Start: ${taskData.startDate}\n`;
+    if (taskData.endDate) reply += `📅 Due: ${taskData.endDate}\n`;
+    if (taskData.description) reply += `📝 ${taskData.description}\n`;
+    reply += warning;
+
+    return { agentName: 'Know it All', reply: reply.trim(), needsConfirmation: false };
+  } catch (err: any) {
+    console.error('[FAST-TASK] Error creating task:', err?.message);
+    return { agentName: 'Know it All', reply: 'Sorry, I ran into an error creating the task: ' + (err?.message || 'Unknown error') + '. Please try again.', needsConfirmation: false };
+  }
+}
+
 export async function routeMessage(
   messages: Array<{ role: string; content: string }>,
   ctx: AgentContext,
@@ -192,9 +301,13 @@ export async function routeMessage(
 ): Promise<AgentResult> {
   const lastMsg = messages[messages.length - 1]?.content || '';
 
-  // ── TRY FAST PATH FIRST (bypasses Claude tool loop for simple data queries) ──
+  // ── TRY FAST PATHS FIRST (bypasses Claude tool loop) ──
   const fastResult = await tryFastPath(lastMsg, ctx);
   if (fastResult) return fastResult;
+
+  // Fast-path for confirmed task creation (after user approves via confirmation card)
+  const taskResult = await tryTaskCreationFastPath(lastMsg, ctx);
+  if (taskResult) return taskResult;
 
   // Select the best agent for this message
   const agent = selectAgent(lastMsg, lastAgent, forcedAgent);
