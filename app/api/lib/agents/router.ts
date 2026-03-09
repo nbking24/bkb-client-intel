@@ -148,9 +148,14 @@ export async function routeMessage(
 
   let response = await anthropic.messages.create(createParams);
 
-  // Handle tool use loop (max 5 iterations)
+  // Handle tool use loop (max 3 iterations to stay within Vercel timeout)
   let iterations = 0;
-  while (response.stop_reason === 'tool_use' && iterations < 5) {
+  const routeStart = Date.now();
+  while (response.stop_reason === 'tool_use' && iterations < 3) {
+    // Safety: if we've used more than 90 seconds, break out to avoid Vercel timeout
+    if (Date.now() - routeStart > 90_000) {
+      break;
+    }
     iterations++;
 
     claudeMessages.push({ role: 'assistant', content: response.content });
@@ -178,7 +183,7 @@ export async function routeMessage(
     });
   }
 
-  // Extract text from response
+  // Extract text from response (collect from ALL content blocks, including partial tool-use responses)
   let reply = '';
   for (const block of response.content) {
     if (block.type === 'text') {
@@ -186,7 +191,12 @@ export async function routeMessage(
     }
   }
 
-  if (!reply) reply = 'No response generated.';
+  // If we broke out of the loop early (time limit), append a note
+  if (response.stop_reason === 'tool_use' && reply) {
+    reply += '\n\n*(Response was truncated due to processing time. Try a more specific query or select a project first.)*';
+  }
+
+  if (!reply) reply = 'No response generated. The query may have been too broad — try selecting a specific project or asking a more targeted question.';
 
   // Detect if the agent is asking for confirmation
   const needsConfirmation = /shall i proceed|should i proceed|want me to proceed|confirm.*proceed|go ahead\?|want me to go ahead|ready to execute|want me to update|want me to create|want me to delete|want me to apply|want me to move/i.test(reply);

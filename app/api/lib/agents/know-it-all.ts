@@ -651,6 +651,13 @@ const knowItAll: AgentModule = {
       '- update_job — Update job details (name, description, specs, close/reopen)\n' +
       '- update_cost_group — Update a cost group (name, markup, tax)\n\n' +
       'USE THESE TOOLS when the user asks about tasks, schedules, team workload, documents, budgets, costs, files, or job details. Do NOT answer from context alone — call the tool.\n\n' +
+      '=== TOOL USAGE EFFICIENCY (CRITICAL — READ THIS) ===\n' +
+      'You operate under a strict time budget. Each tool call + response takes 15-25 seconds. ALWAYS prefer the SINGLE most efficient tool:\n' +
+      '- "list my open tasks" / "what tasks are open" / "show all tasks" → use get_all_open_tasks (ONE call, returns everything). NEVER loop through individual jobs.\n' +
+      '- "what active jobs do we have" → use search_jobs with status=active (ONE call). NEVER loop through jobs individually.\n' +
+      '- "tasks for [person]" → use get_member_tasks (ONE call). First get_members if you need the membership ID.\n' +
+      '- NEVER make more than 2 tool calls for a simple query. If a single tool exists for the question, use it.\n' +
+      '- When you call a tool, go STRAIGHT to presenting results. Do not add intermediate text like "Let me check..." — just call the tool and present the results.\n\n' +
       'CRITICAL — CONFIRMATION BEFORE WRITE OPERATIONS:\n' +
       '- For ANY write operation (create, update, delete, move, apply template), you MUST first:\n' +
       '  1. Use read tools (search_jobs, get_job_schedule, get_job_tasks) to gather needed info\n' +
