@@ -146,7 +146,23 @@ export async function routeMessage(
     createParams.tools = agent.tools;
   }
 
-  let response = await anthropic.messages.create(createParams);
+  console.log('[ROUTER] System prompt length:', systemPrompt.length, 'chars');
+  console.log('[ROUTER] Tools count:', agent.tools.length);
+  console.log('[ROUTER] Messages count:', claudeMessages.length);
+
+  let response: any;
+  try {
+    response = await anthropic.messages.create(createParams);
+  } catch (initErr: any) {
+    console.error('[ROUTER] Initial API call failed:', initErr?.message);
+    return {
+      agentName: agent.name,
+      reply: 'Sorry, the AI service returned an error: ' + (initErr?.message || 'Unknown error').substring(0, 200),
+      needsConfirmation: false,
+    };
+  }
+
+  console.log('[ROUTER] Initial response: stop_reason=', response.stop_reason, 'blocks=', response.content?.map((b: any) => b.type).join(','), 'usage=', JSON.stringify(response.usage));
 
   // Handle tool use loop (max 3 iterations to stay within Vercel timeout)
   let iterations = 0;
@@ -154,6 +170,7 @@ export async function routeMessage(
   while (response.stop_reason === 'tool_use' && iterations < 3) {
     // Safety: if we've used more than 90 seconds, break out to avoid Vercel timeout
     if (Date.now() - routeStart > 90_000) {
+      console.log('[ROUTER] Breaking tool loop: 90s safety limit');
       break;
     }
     iterations++;
@@ -163,7 +180,9 @@ export async function routeMessage(
     const toolResults: any[] = [];
     for (const block of response.content) {
       if (block.type === 'tool_use') {
+        console.log('[ROUTER] Calling tool:', block.name);
         const result = await agent.executeTool(block.name, block.input, ctx);
+        console.log('[ROUTER] Tool result length:', result?.length || 0);
         toolResults.push({
           type: 'tool_result',
           tool_use_id: block.id,
@@ -189,9 +208,10 @@ export async function routeMessage(
         tools: agent.tools.length > 0 ? agent.tools : undefined,
         messages: claudeMessages,
       });
+      console.log('[ROUTER] Loop', iterations, 'response: stop_reason=', response.stop_reason, 'blocks=', response.content?.map((b: any) => b.type).join(','), 'usage=', JSON.stringify(response.usage));
     } catch (apiErr: any) {
       // If the API rejects due to size, return what we have so far
-      console.error('Anthropic API error in tool loop:', apiErr?.message);
+      console.error('[ROUTER] API error in tool loop iteration', iterations, ':', apiErr?.message);
       const toolData = toolResults.map(tr => tr.content).join('\n');
       return {
         agentName: agent.name,
@@ -208,6 +228,8 @@ export async function routeMessage(
       reply += block.text;
     }
   }
+
+  console.log('[ROUTER] Final reply length:', reply.length, 'stop_reason:', response.stop_reason);
 
   // If we broke out of the loop early (time limit), append a note
   if (response.stop_reason === 'tool_use' && reply) {
