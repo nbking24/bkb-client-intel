@@ -3,6 +3,7 @@ import Anthropic from '@anthropic-ai/sdk';
 import { AgentModule, AgentContext, AgentResult } from './types';
 import knowItAll from './know-it-all';
 import projectDetails from './project-details';
+import { getAllOpenTasks, getActiveJobs } from '@/app/lib/jobtread';
 
 const anthropic = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY });
 
@@ -93,6 +94,75 @@ function selectAgent(message: string, lastAgentName?: string, forcedAgent?: stri
   return best;
 }
 
+// ── FAST PATH: Handle simple data queries without the full Claude tool loop ──
+// These queries are common, predictable, and don't need 39 tools + Claude reasoning.
+// We fetch the data, then ask Claude (with NO tools) to format a nice response.
+async function tryFastPath(msg: string, ctx: AgentContext): Promise<AgentResult | null> {
+  const stripped = msg.replace(/^\[Context:.*?\]\s*/s, '').trim().toLowerCase();
+
+  // Pattern: "list open tasks", "show my tasks", "what are my open tasks", etc.
+  if (/\b(list|show|give|what|get)\b.*\b(open|incomplete|pending|my)\b.*\btask/i.test(stripped) ||
+      /\btask.*\b(open|incomplete|pending|list)\b/i.test(stripped)) {
+    console.log('[FAST-PATH] Detected open tasks query');
+    try {
+      const tasks = await getAllOpenTasks();
+      if (!tasks || tasks.length === 0) {
+        return { agentName: 'Know it All', reply: 'No open tasks found across any active jobs.', needsConfirmation: false };
+      }
+
+      // Group tasks by job for a clean presentation
+      const byJob: Record<string, any[]> = {};
+      for (const t of tasks) {
+        const jobName = t.job?.name || 'Unassigned';
+        if (!byJob[jobName]) byJob[jobName] = [];
+        byJob[jobName].push(t);
+      }
+
+      let reply = `Here are your **${tasks.length} open tasks** across ${Object.keys(byJob).length} active jobs:\n\n`;
+      for (const [jobName, jobTasks] of Object.entries(byJob)) {
+        reply += `### ${jobName}\n`;
+        for (const t of jobTasks) {
+          const pct = Math.round((t.progress || 0) * 100);
+          const assigned = t.assignedMemberships?.nodes?.map((m: any) => m.user?.name || '?').join(', ') || 'Unassigned';
+          const due = t.endDate || 'No due date';
+          reply += `- **${t.name}** — ${assigned} | ${pct}% complete | Due: ${due}\n`;
+        }
+        reply += '\n';
+      }
+
+      return { agentName: 'Know it All', reply: reply.trim(), needsConfirmation: false };
+    } catch (err: any) {
+      console.error('[FAST-PATH] Error fetching tasks:', err?.message);
+      return null; // Fall through to normal path
+    }
+  }
+
+  // Pattern: "what active jobs", "list our jobs", "show active projects"
+  if (/\b(list|show|what|get)\b.*\b(active|current|our)\b.*\b(job|project)/i.test(stripped) ||
+      /\b(job|project)s?\b.*\b(active|current|do we have)\b/i.test(stripped)) {
+    console.log('[FAST-PATH] Detected active jobs query');
+    try {
+      const jobs = await getActiveJobs();
+      if (!jobs || jobs.length === 0) {
+        return { agentName: 'Know it All', reply: 'No active jobs found.', needsConfirmation: false };
+      }
+
+      let reply = `Here are your **${jobs.length} active jobs**:\n\n`;
+      for (const j of jobs) {
+        const client = j.clientName || 'No client';
+        reply += `- **#${j.number} ${j.name}** — ${client}\n`;
+      }
+
+      return { agentName: 'Know it All', reply: reply.trim(), needsConfirmation: false };
+    } catch (err: any) {
+      console.error('[FAST-PATH] Error fetching jobs:', err?.message);
+      return null;
+    }
+  }
+
+  return null; // No fast path matched
+}
+
 export async function routeMessage(
   messages: Array<{ role: string; content: string }>,
   ctx: AgentContext,
@@ -100,6 +170,10 @@ export async function routeMessage(
   forcedAgent?: string
 ): Promise<AgentResult> {
   const lastMsg = messages[messages.length - 1]?.content || '';
+
+  // ── TRY FAST PATH FIRST (bypasses Claude tool loop for simple data queries) ──
+  const fastResult = await tryFastPath(lastMsg, ctx);
+  if (fastResult) return fastResult;
 
   // Select the best agent for this message
   const agent = selectAgent(lastMsg, lastAgent, forcedAgent);
