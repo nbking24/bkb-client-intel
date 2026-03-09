@@ -1157,13 +1157,14 @@ const knowItAll: AgentModule = {
       if (name === 'get_all_open_tasks') {
         const tasks = await getAllOpenTasks();
         if (!tasks || tasks.length === 0) return JSON.stringify({ success: true, count: 0, message: 'No open tasks found.' });
+        // Compact format to reduce token count
         const lines = tasks.map((t: any) => {
-          const status = t.progress >= 1 ? 'DONE' : t.progress > 0 ? 'IN PROGRESS' : 'NOT STARTED';
-          const assigned = t.assignedMemberships?.nodes?.map((m: any) => m.user?.name || m.id).join(', ') || 'Unassigned';
-          const job = t.job ? (t.job.name || t.job.id) : 'No job';
-          return `- [${status}] "${t.name}" | Job: ${job} | Assigned: ${assigned} | Due: ${t.endDate || 'No date'} | Start: ${t.startDate || 'No date'}`;
+          const pct = Math.round((t.progress || 0) * 100);
+          const assigned = t.assignedMemberships?.nodes?.map((m: any) => m.user?.name || '?').join('/') || '-';
+          const job = t.job?.name || '-';
+          return `${t.name} | ${job} | ${assigned} | ${pct}% | ${t.endDate || '-'}`;
         });
-        return JSON.stringify({ success: true, count: tasks.length, tasks: lines.join('\n') });
+        return JSON.stringify({ count: tasks.length, tasks: lines.join('\n') });
       }
 
       if (name === 'get_job_tasks') {

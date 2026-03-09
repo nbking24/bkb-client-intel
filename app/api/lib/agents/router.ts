@@ -172,15 +172,33 @@ export async function routeMessage(
       }
     }
 
+    // Truncate oversized tool results to prevent "request too large" errors
+    for (const tr of toolResults) {
+      if (typeof tr.content === 'string' && tr.content.length > 12000) {
+        tr.content = tr.content.substring(0, 12000) + '\n...(truncated — too many results to show all)';
+      }
+    }
+
     claudeMessages.push({ role: 'user', content: toolResults });
 
-    response = await anthropic.messages.create({
-      model: 'claude-sonnet-4-20250514',
-      max_tokens: 4096,
-      system: systemPrompt,
-      tools: agent.tools.length > 0 ? agent.tools : undefined,
-      messages: claudeMessages,
-    });
+    try {
+      response = await anthropic.messages.create({
+        model: 'claude-sonnet-4-20250514',
+        max_tokens: 4096,
+        system: systemPrompt,
+        tools: agent.tools.length > 0 ? agent.tools : undefined,
+        messages: claudeMessages,
+      });
+    } catch (apiErr: any) {
+      // If the API rejects due to size, return what we have so far
+      console.error('Anthropic API error in tool loop:', apiErr?.message);
+      const toolData = toolResults.map(tr => tr.content).join('\n');
+      return {
+        agentName: agent.name,
+        reply: 'Here is the raw data from your query (the response was too large to format fully):\n\n' + toolData.substring(0, 8000),
+        needsConfirmation: false,
+      };
+    }
   }
 
   // Extract text from response (collect from ALL content blocks, including partial tool-use responses)

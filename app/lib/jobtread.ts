@@ -235,13 +235,12 @@ export async function getOpenTasksForMember(membershipId: string): Promise<JTTas
 export async function getAllOpenTasks(): Promise<JTTask[]> {
   const result = await orgQuery('tasks', {
     $: {
-      size: 100,
+      size: 50,
       where: ['progress', '<', 1],
     },
     nodes: {
       id: {},
       name: {},
-      description: {},
       startDate: {},
       endDate: {},
       progress: {},
