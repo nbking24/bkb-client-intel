@@ -254,7 +254,7 @@ const projectDetails: AgentModule = {
     'Answers questions about project specifications, scope of work, materials, documents, and project details.',
   icon: '📋',
 
-  systemPrompt: (ctx: AgentContext) => {
+  systemPrompt: (ctx: AgentContext, _userMessage?: string) => {
     return (
       'You are the Project Details agent for Brett King Builder (BKB). You answer questions about ' +
       'project specifications, scope of work, materials, documents, change orders, and project details.\n\n' +

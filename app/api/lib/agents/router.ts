@@ -132,7 +132,7 @@ export async function routeMessage(
     claudeMessages[lastIdx].content = claudeMessages[lastIdx].content + contextBlock;
   }
 
-  const systemPrompt = agent.systemPrompt(ctx);
+  const systemPrompt = agent.systemPrompt(ctx, lastMsg);
 
   // Call Claude (with tools if agent has them)
   const createParams: any = {

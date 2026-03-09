@@ -52,7 +52,7 @@ export interface AgentModule {
   name: string;
   description: string;
   icon: string;
-  systemPrompt: (ctx: AgentContext) => string;
+  systemPrompt: (ctx: AgentContext, userMessage?: string) => string;
   tools: Anthropic.Tool[];
   canHandle: (message: string) => number; // 0-1 confidence
   fetchContext: (ctx: AgentContext) => Promise<string>;
