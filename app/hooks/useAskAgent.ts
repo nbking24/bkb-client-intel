@@ -334,8 +334,24 @@ export function useAskAgent() {
       });
 
       if (!response.ok) {
-        const errData = await response.json().catch(() => ({ error: 'Request failed' }));
-        throw new Error(errData.error || `HTTP ${response.status}`);
+        // Try JSON first, then fall back to text to show real error (e.g. Vercel timeout)
+        let errorMsg = `HTTP ${response.status}`;
+        try {
+          const errData = await response.json();
+          errorMsg = errData.error || errorMsg;
+        } catch {
+          try {
+            const text = await response.text();
+            if (text.includes('FUNCTION_INVOCATION_TIMEOUT')) {
+              errorMsg = 'Request timed out — the query took too long. Try a more specific question (e.g. select a project first).';
+            } else {
+              errorMsg = text.substring(0, 200) || 'Request failed';
+            }
+          } catch {
+            errorMsg = 'Request failed';
+          }
+        }
+        throw new Error(errorMsg);
       }
 
       const data = await response.json();
