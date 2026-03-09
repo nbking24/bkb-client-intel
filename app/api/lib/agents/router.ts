@@ -98,6 +98,9 @@ function selectAgent(message: string, lastAgentName?: string, forcedAgent?: stri
 // These queries are common, predictable, and don't need 39 tools + Claude reasoning.
 // We fetch the data, then ask Claude (with NO tools) to format a nice response.
 async function tryFastPath(msg: string, ctx: AgentContext): Promise<AgentResult | null> {
+  // Never match on approved task data messages — those go to tryTaskCreationFastPath
+  if (APPROVED_TASK_PATTERN.test(msg)) return null;
+
   const stripped = msg.replace(/^\[Context:.*?\]\s*/s, '').trim().toLowerCase();
 
   // Pattern: "list open tasks", "show my tasks", "what are my open tasks", etc.
@@ -276,15 +279,12 @@ async function tryTaskCreationFastPath(msg: string, ctx: AgentContext): Promise<
 
     console.log('[FAST-TASK] Task created:', result?.id, result?.name);
 
-    // Build success reply
-    let reply = `✅ Task created successfully!\n\n`;
-    reply += `**${taskData.name}**\n`;
-    if (taskData.phase && parentGroupId) reply += `📁 Phase: ${taskData.phase}\n`;
-    if (assignedName) reply += `👤 Assigned to: ${assignedName}\n`;
-    if (taskData.startDate) reply += `📅 Start: ${taskData.startDate}\n`;
-    if (taskData.endDate) reply += `📅 Due: ${taskData.endDate}\n`;
-    if (taskData.description) reply += `📝 ${taskData.description}\n`;
-    reply += warning;
+    // Build simple success reply
+    const parts = [`✅ **${taskData.name}** created`];
+    if (assignedName) parts.push(`assigned to ${assignedName}`);
+    if (taskData.endDate) parts.push(`due ${taskData.endDate}`);
+    let reply = parts.join(', ') + '.';
+    if (warning) reply += warning;
 
     return { agentName: 'Know it All', reply: reply.trim(), needsConfirmation: false };
   } catch (err: any) {
