@@ -937,28 +937,6 @@ const knowItAll: AgentModule = {
       },
     },
     {
-      name: 'get_job_documents',
-      description: 'Get all documents (contracts, change orders, etc.) associated with a job.',
-      input_schema: {
-        type: 'object',
-        properties: {
-          jobId: { type: 'string', description: 'The JobTread Job ID' },
-        },
-        required: ['jobId'],
-      },
-    },
-    {
-      name: 'get_job_files',
-      description: 'Get all uploaded files for a job.',
-      input_schema: {
-        type: 'object',
-        properties: {
-          jobId: { type: 'string', description: 'The JobTread Job ID' },
-        },
-        required: ['jobId'],
-      },
-    },
-    {
       name: 'move_task_to_phase',
       description: 'Move a task from one phase to another. Note: this deletes and recreates the task under the new phase.',
       input_schema: {
@@ -969,17 +947,6 @@ const knowItAll: AgentModule = {
           jobId: { type: 'string', description: 'The JobTread Job ID' },
         },
         required: ['taskId', 'targetPhaseId', 'jobId'],
-      },
-    },
-    {
-      name: 'get_job_daily_logs',
-      description: 'Get all daily logs for a job. Daily logs track daily job site activity, notes, and crew info.',
-      input_schema: {
-        type: 'object',
-        properties: {
-          jobId: { type: 'string', description: 'The JobTread Job ID' },
-        },
-        required: ['jobId'],
       },
     },
     {
@@ -1066,18 +1033,6 @@ const knowItAll: AgentModule = {
       },
     },
     {
-      name: 'get_job_budget',
-      description: 'Get cost items (budget line items) for a job. Use search parameter to filter by keyword for large jobs.',
-      input_schema: {
-        type: 'object',
-        properties: {
-          jobId: { type: 'string', description: 'The JobTread Job ID' },
-          search: { type: 'string', description: 'Optional keyword to filter cost items (e.g. "door", "electric"). Recommended for large jobs.' },
-        },
-        required: ['jobId'],
-      },
-    },
-    {
       name: 'update_task_full',
       description: 'Advanced task update — change assignees, time of day, parent phase, and all standard fields. Use this when the user wants to reassign a task or change time-specific details.',
       input_schema: {
@@ -1094,102 +1049,6 @@ const knowItAll: AgentModule = {
           assignTo: { type: 'string', description: 'Comma-separated team member names to reassign task to (optional). Replaces current assignees.' },
         },
         required: ['taskId'],
-      },
-    },
-    // ===== NEW COMPREHENSIVE JT TOOLS =====
-    {
-      name: 'get_job_details',
-      description: 'Get full details for a single job — name, number, status, client, location, description, custom fields, dates, and financial totals.',
-      input_schema: {
-        type: 'object',
-        properties: {
-          jobId: { type: 'string', description: 'The JobTread Job ID' },
-        },
-        required: ['jobId'],
-      },
-    },
-    {
-      name: 'get_members',
-      description: 'Get all team members in the JobTread organization. Returns membership IDs and user names. Use to look up member IDs for assignment.',
-      input_schema: {
-        type: 'object',
-        properties: {},
-        required: [],
-      },
-    },
-    {
-      name: 'get_member_tasks',
-      description: 'Get all open tasks assigned to a specific team member (by membership ID). Use get_members first to find the membership ID.',
-      input_schema: {
-        type: 'object',
-        properties: {
-          membershipId: { type: 'string', description: 'The membership ID of the team member' },
-        },
-        required: ['membershipId'],
-      },
-    },
-    {
-      name: 'get_approved_documents',
-      description: 'Get all approved documents (estimates, change orders, invoices) across all jobs. Useful for financial overviews.',
-      input_schema: {
-        type: 'object',
-        properties: {
-          limit: { type: 'number', description: 'Max documents to return (default 100)' },
-        },
-        required: [],
-      },
-    },
-    {
-      name: 'get_document_content',
-      description: 'Get the full content/line items of a specific document (estimate, change order, invoice). Returns all line items with quantities, costs, prices.',
-      input_schema: {
-        type: 'object',
-        properties: {
-          documentId: { type: 'string', description: 'The document ID' },
-        },
-        required: ['documentId'],
-      },
-    },
-    {
-      name: 'get_cost_codes',
-      description: 'Get all cost codes available in the organization. Cost codes categorize budget items (e.g., "Electrical", "Plumbing").',
-      input_schema: {
-        type: 'object',
-        properties: {},
-        required: [],
-      },
-    },
-    {
-      name: 'get_billable_documents',
-      description: 'Get documents that are ready to be billed or have billing status. Useful for accounts receivable tracking.',
-      input_schema: {
-        type: 'object',
-        properties: {
-          limit: { type: 'number', description: 'Max documents to return (default 100)' },
-        },
-        required: [],
-      },
-    },
-    {
-      name: 'get_time_entries',
-      description: 'Get time entries (labor hours logged) for a specific job. Shows who worked, when, and for how long.',
-      input_schema: {
-        type: 'object',
-        properties: {
-          jobId: { type: 'string', description: 'The JobTread Job ID' },
-        },
-        required: ['jobId'],
-      },
-    },
-    {
-      name: 'get_cost_groups',
-      description: 'Get cost groups (budget categories/sections) for a job. Shows how budget items are organized.',
-      input_schema: {
-        type: 'object',
-        properties: {
-          jobId: { type: 'string', description: 'The JobTread Job ID' },
-        },
-        required: ['jobId'],
       },
     },
     {
