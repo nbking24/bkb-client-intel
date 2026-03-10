@@ -228,6 +228,174 @@ export async function createAppointment(params: {
 }
 
 // ============================================================
+// GHL → JOBTREAD MEETING SYNC
+// ============================================================
+
+import { getActiveJobs, createTask, getJobSchedule } from './jobtread';
+import { findContactByName } from './contact-mapper';
+
+/** Prefix used to identify GHL-synced tasks in JobTread */
+const GHL_TASK_PREFIX = '📅 ';
+
+/**
+ * Sync GHL calendar appointments → JobTread tasks.
+ *
+ * For each GHL appointment with a contact:
+ *   1. Resolve the contact name to a JT job (via client name matching)
+ *   2. Check if a task already exists for that appointment (by title + date)
+ *   3. Create a JT task if it doesn't exist
+ *
+ * Returns a summary of what was synced.
+ */
+export async function syncGHLMeetingsToJT(params?: {
+  daysAhead?: number;
+  dryRun?: boolean;
+}): Promise<{
+  synced: number;
+  skipped: number;
+  errors: number;
+  details: string[];
+}> {
+  const daysAhead = params?.daysAhead ?? 30;
+  const dryRun = params?.dryRun ?? false;
+
+  const now = new Date();
+  const startTime = now.toISOString();
+  const end = new Date(now.getTime() + daysAhead * 24 * 60 * 60 * 1000);
+  const endTime = end.toISOString();
+
+  const details: string[] = [];
+  let synced = 0;
+  let skipped = 0;
+  let errors = 0;
+
+  try {
+    // 1. Fetch GHL events for the date range
+    const events = await getCalendarEvents({ startTime, endTime });
+    if (!events || events.length === 0) {
+      details.push('No GHL appointments found in date range.');
+      return { synced, skipped, errors, details };
+    }
+    details.push(`Found ${events.length} GHL appointment(s) in next ${daysAhead} days.`);
+
+    // 2. Fetch active JT jobs and build client name → job mapping
+    const activeJobs = await getActiveJobs(50);
+    const clientJobMap = new Map<string, { id: string; name: string; number: string }>();
+    for (const job of activeJobs) {
+      if (job.clientName) {
+        clientJobMap.set(job.clientName.toLowerCase().trim(), {
+          id: job.id,
+          name: job.name,
+          number: job.number,
+        });
+      }
+    }
+
+    // 3. Process each event
+    for (const event of events) {
+      try {
+        const title = event.title || event.name || 'Untitled Meeting';
+        const contactName = event.contact
+          ? `${event.contact.firstName || ''} ${event.contact.lastName || ''}`.trim() || event.contact.name || ''
+          : '';
+        const eventStart = event.startTime ? new Date(event.startTime) : null;
+        const eventEnd = event.endTime ? new Date(event.endTime) : null;
+
+        if (!contactName) {
+          skipped++;
+          details.push(`⏭ "${title}" — no contact attached, skipped.`);
+          continue;
+        }
+
+        // Find matching JT job by client name
+        let matchedJob: { id: string; name: string; number: string } | null = null;
+
+        // Direct match first
+        const directKey = contactName.toLowerCase().trim();
+        if (clientJobMap.has(directKey)) {
+          matchedJob = clientJobMap.get(directKey)!;
+        } else {
+          // Try partial match (last name match)
+          const lastNameParts = contactName.split(/\s+/);
+          const lastName = lastNameParts[lastNameParts.length - 1]?.toLowerCase();
+          if (lastName) {
+            clientJobMap.forEach((job, clientKey) => {
+              if (!matchedJob && clientKey.includes(lastName)) {
+                matchedJob = job;
+              }
+            });
+          }
+        }
+
+        if (!matchedJob) {
+          skipped++;
+          details.push(`⏭ "${title}" for ${contactName} — no matching JT job found.`);
+          continue;
+        }
+
+        // Format task name and date
+        const dateStr = eventStart
+          ? eventStart.toLocaleDateString('en-US', { timeZone: 'America/New_York', month: 'short', day: 'numeric' })
+          : '';
+        const timeStr = eventStart
+          ? eventStart.toLocaleTimeString('en-US', { timeZone: 'America/New_York', hour: 'numeric', minute: '2-digit' })
+          : '';
+        const taskName = `${GHL_TASK_PREFIX}${title}${dateStr ? ` — ${dateStr}` : ''}${timeStr ? ` at ${timeStr}` : ''}`;
+
+        // Check for existing task with same name on this job (avoid duplicates)
+        const schedule = await getJobSchedule(matchedJob.id);
+        const allTasks = [
+          ...(schedule?.phases || []).flatMap((p: any) => p.childTasks?.nodes || []),
+          ...(schedule?.orphanTasks || []),
+        ];
+        const duplicate = allTasks.some((t: any) =>
+          t.name && t.name.startsWith(GHL_TASK_PREFIX) && t.name.includes(title.substring(0, 30))
+          && t.startDate === (eventStart ? eventStart.toISOString().split('T')[0] : null)
+        );
+
+        if (duplicate) {
+          skipped++;
+          details.push(`⏭ "${title}" on ${dateStr} — already exists in ${matchedJob.name}.`);
+          continue;
+        }
+
+        // Create the task
+        if (!dryRun) {
+          const startDate = eventStart ? eventStart.toISOString().split('T')[0] : undefined;
+          const endDate = eventEnd ? eventEnd.toISOString().split('T')[0] : startDate;
+          const description = [
+            `GHL Meeting: ${title}`,
+            `Contact: ${contactName}`,
+            eventStart ? `Time: ${timeStr}` : '',
+            event.notes ? `Notes: ${event.notes}` : '',
+            `(Auto-synced from GoHighLevel)`,
+          ].filter(Boolean).join('\n');
+
+          await createTask({
+            jobId: matchedJob.id,
+            name: taskName,
+            description,
+            startDate,
+            endDate,
+          });
+        }
+
+        synced++;
+        details.push(`✅ "${title}" → ${matchedJob.name} (#${matchedJob.number}) on ${dateStr}${dryRun ? ' [DRY RUN]' : ''}`);
+      } catch (err: any) {
+        errors++;
+        details.push(`❌ Error processing event: ${err.message}`);
+      }
+    }
+  } catch (err: any) {
+    errors++;
+    details.push(`❌ Sync failed: ${err.message}`);
+  }
+
+  return { synced, skipped, errors, details };
+}
+
+// ============================================================
 // CROSS-REFERENCE FIELDS
 // ============================================================
 

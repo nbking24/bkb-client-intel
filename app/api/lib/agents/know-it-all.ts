@@ -32,7 +32,7 @@ import {
   getMessageById,
   getEmailById,
 } from '../ghl';
-import { getCalendarEvents as getGHLCalendarEvents, getCalendars as getGHLCalendars } from '@/app/lib/ghl';
+import { getCalendarEvents as getGHLCalendarEvents, getCalendars as getGHLCalendars, syncGHLMeetingsToJT } from '@/app/lib/ghl';
 import { getActiveJobs } from '../jobtread';
 import {
   getAllOpenTasks,
@@ -618,7 +618,10 @@ const knowItAll: AgentModule = {
       '  1. ALWAYS call get_ghl_calendar for client-facing appointments\n' +
       '  2. Call get_job_schedule or get_all_open_tasks for construction task deadlines\n' +
       '  3. Present BOTH sources clearly labeled (GHL Appointments + JT Tasks)\n' +
-      'For date ranges, use Eastern Time (ET). Default range if not specified: today through 14 days out.\n\n';
+      'For date ranges, use Eastern Time (ET). Default range if not specified: today through 14 days out.\n' +
+      'MEETING SYNC: Use sync_ghl_meetings_to_jt to push GHL appointments into JobTread as tasks.\n' +
+      'This runs automatically each morning at 5 AM, but can also be triggered on-demand.\n' +
+      'Synced tasks are prefixed with 📅 and include meeting details in the description.\n\n';
 
     // Task creation rules (always needed for write operations)
     const taskRules =
@@ -783,6 +786,18 @@ const knowItAll: AgentModule = {
       name: 'get_ghl_calendars_list',
       description: 'List all available calendars in GHL. Use this to find calendar IDs when filtering events.',
       input_schema: { type: 'object', properties: {}, required: [] },
+    },
+    {
+      name: 'sync_ghl_meetings_to_jt',
+      description: 'Sync GHL client meetings/appointments into JobTread as tasks. Pulls upcoming GHL appointments, matches contacts to active JT jobs by client name, and creates tasks for any new meetings. Use when asked to "sync meetings", "push meetings to JobTread", or "update JT with GHL appointments". Also runs automatically each morning via cron.',
+      input_schema: {
+        type: 'object',
+        properties: {
+          daysAhead: { type: 'number', description: 'How many days ahead to sync (default: 30)' },
+          dryRun: { type: 'boolean', description: 'If true, shows what would be synced without actually creating tasks' },
+        },
+        required: [],
+      },
     },
     {
       name: 'create_jobtread_task',
@@ -1041,7 +1056,7 @@ const knowItAll: AgentModule = {
     if (/apply.*template|standard.*template|create.*phase|add.*phase/i.test(lower)) return 0.9;
     if (/(create|add|write|log|new).*(daily.*log|daily.*report|site.*log|field.*report)/i.test(lower)) return 0.95;
     // Calendar, meetings, appointments — always use Know-it-All for GHL calendar access
-    if (/\b(meeting|appointment|consult|site visit|calendar|what.*coming up|what.*scheduled|schedule.*this week|schedule.*today|schedule.*tomorrow|client.*schedule)\b/i.test(lower)) return 0.9;
+    if (/\b(meeting|appointment|consult|site visit|calendar|what.*coming up|what.*scheduled|schedule.*this week|schedule.*today|schedule.*tomorrow|client.*schedule|sync.*meeting|push.*meeting|sync.*calendar)\b/i.test(lower)) return 0.9;
     if (/(add|create|post|write|leave).*(comment|note)/i.test(lower)) return 0.9;
     if (/(update|change|edit|modify|close|reopen).*(job|project)/i.test(lower)) return 0.9;
     if (/(reassign|assign.*to|change.*assign)/i.test(lower)) return 0.9;
@@ -1760,6 +1775,25 @@ const knowItAll: AgentModule = {
           return JSON.stringify({ success: true, count: calendars.length, calendars: lines.join('\n') });
         } catch (err: any) {
           return JSON.stringify({ success: false, error: err?.message || 'Failed to fetch GHL calendars' });
+        }
+      }
+
+      // ========== GHL → JT MEETING SYNC ==========
+      if (name === 'sync_ghl_meetings_to_jt') {
+        try {
+          const result = await syncGHLMeetingsToJT({
+            daysAhead: input.daysAhead || 30,
+            dryRun: input.dryRun || false,
+          });
+          return JSON.stringify({
+            success: true,
+            synced: result.synced,
+            skipped: result.skipped,
+            errors: result.errors,
+            details: result.details.join('\n'),
+          });
+        } catch (err: any) {
+          return JSON.stringify({ success: false, error: err?.message || 'Meeting sync failed' });
         }
       }
 

@@ -379,6 +379,22 @@ JT API  ──→ jt_comments, jt_daily_logs (Supabase cache)
 
 All modifications to the codebase should be logged here with date, files changed, and what was done.
 
+### 2026-03-10 — Session: GHL → JobTread Meeting Sync
+
+**Problem:** Client meetings entered in GHL (the source of truth) were not reflected in JobTread schedules. Team members looking at JT tasks wouldn't see upcoming client appointments, creating visibility gaps.
+
+**Solution:** Built bidirectional sync infrastructure:
+1. New `syncGHLMeetingsToJT()` function in GHL service layer — pulls GHL appointments, maps contacts to active JT jobs by client name, creates JT tasks for new meetings (with duplicate detection)
+2. Added Phase 3 to daily cron sync (5 AM) — automatically syncs GHL meetings to JT each morning
+3. New `sync_ghl_meetings_to_jt` agent tool — allows on-demand sync from the Ask Agent ("sync my meetings to JobTread")
+4. Synced tasks are prefixed with 📅 and include meeting details (time, contact, notes) in the description
+
+**Changes:**
+- `app/lib/ghl.ts` — Added `syncGHLMeetingsToJT()` with contact→job mapping, duplicate detection, and dry-run support
+- `app/api/cron/sync-incremental/route.ts` — Added Phase 3 for GHL meeting sync after existing message/note sync
+- `app/api/lib/agents/know-it-all.ts` — Added `sync_ghl_meetings_to_jt` tool definition and handler, updated system prompt with sync info, expanded canHandle() for sync queries
+- `ARCHITECTURE.md` — Updated changelog
+
 ### 2026-03-10 — Session: Add GHL Calendar Access to Ask Agent
 
 **Problem:** The Ask Agent only had access to JobTread schedules (construction tasks/milestones) but not GoHighLevel (GHL) calendar events. Client meetings, consultations, and site visits are entered in GHL, which is the source of truth for client-facing appointments. When users asked about "my schedule" or "upcoming meetings," the agent could only show JT tasks.

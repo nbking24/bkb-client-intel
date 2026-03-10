@@ -11,7 +11,7 @@
 
 import { NextRequest, NextResponse } from 'next/server';
 import { getActiveJobs, getCommentsForTarget, getDailyLogsForJob } from '../../../lib/jobtread';
-import { searchContacts, searchConversations, getAllConversationMessages, getContactNotes } from '../../../lib/ghl';
+import { searchContacts, searchConversations, getAllConversationMessages, getContactNotes, syncGHLMeetingsToJT } from '../../../lib/ghl';
 import { writeCache, clearCacheForEntity, createSyncState, updateSyncState } from '../../../lib/cache';
 
 export const maxDuration = 60;
@@ -39,6 +39,7 @@ export async function GET(request: NextRequest) {
 
   let jtJobsSynced = 0;
   let ghlContactsSynced = 0;
+  let ghlMeetingsSynced = 0;
   let totalItems = 0;
   let errors = 0;
   const errorDetails: string[] = [];
@@ -156,6 +157,22 @@ export async function GET(request: NextRequest) {
       }
     }
 
+    // ─── PHASE 3: GHL → JT Meeting Sync ───
+    if (Date.now() - startTime < MAX_SYNC_TIME_MS) {
+      try {
+        const syncResult = await syncGHLMeetingsToJT({ daysAhead: 30 });
+        ghlMeetingsSynced = syncResult.synced;
+        totalItems += syncResult.synced;
+        if (syncResult.errors > 0) {
+          errors += syncResult.errors;
+          errorDetails.push(`GHL meeting sync: ${syncResult.errors} errors`);
+        }
+      } catch (err: any) {
+        errors++;
+        errorDetails.push(`GHL meeting sync failed: ${err.message}`);
+      }
+    }
+
     const duration = Math.round((Date.now() - startTime) / 1000);
 
     if (syncId) {
@@ -172,6 +189,7 @@ export async function GET(request: NextRequest) {
       duration: `${duration}s`,
       jtJobsSynced,
       ghlContactsSynced,
+      ghlMeetingsSynced,
       totalItems,
       errors,
       errorDetails: errorDetails.slice(0, 5),
