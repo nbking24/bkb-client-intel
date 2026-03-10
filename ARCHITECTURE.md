@@ -379,6 +379,19 @@ JT API  ──→ jt_comments, jt_daily_logs (Supabase cache)
 
 All modifications to the codebase should be logged here with date, files changed, and what was done.
 
+### 2026-03-10 — Session: Fix Ask Agent Verbosity + Tool Loop Exhaustion
+
+**Problem:** The Ask Agent would ask unnecessary clarifying questions on simple read queries (e.g., "Is there a task for Terri...?" would get back "Would you like me to set up the schedule structure first, or do you want to create specific tasks...?" instead of a direct answer). The agent also hit "No response generated" errors because the tool loop limit (3 iterations) was too tight for queries requiring multiple lookups. Additionally, the `needsConfirmation` regex was too broad, catching casual suggestions like "want me to create" as formal write confirmations.
+
+**Solution:** Three targeted fixes:
+1. Added explicit RESPONSE STYLE rules to the Know-it-All system prompt: answer read queries directly, no walls of text, no offering multiple options on lookups
+2. Increased tool loop iterations from 3 to 5 (the 90-second safety timer is the real guard against Vercel timeouts)
+3. Tightened `needsConfirmation` regex to only match explicit "shall/should I proceed?" patterns, not casual offers — the `@@TASK_CONFIRM@@` flow already handles structured confirmations separately
+
+**Changes:**
+- `app/api/lib/agents/know-it-all.ts` — Added RESPONSE STYLE section to system prompt: direct answers for reads, concise 2-4 sentence lookups, no "Would you like me to..." on simple queries
+- `app/api/lib/agents/router.ts` — Increased `iterations < 3` to `iterations < 5`; tightened `needsConfirmation` regex to avoid false positives from casual suggestions
+
 ### 2026-03-07 — Session: Merge JT Entry into Know-it-All (Unified Ask Agent)
 
 **Problem:** The two-agent architecture (Know-it-All for reads, JT Entry for writes) caused routing confusion. When a user asked to create tasks, Know-it-All had the read tools to look up data but no write tools to execute, causing a tool-use loop that exhausted all 5 iterations and returned "No response generated." The split also meant confirmations could get lost when routing switched between agents.

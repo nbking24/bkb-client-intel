@@ -600,6 +600,12 @@ const knowItAll: AgentModule = {
       '- "tasks for [person]" → get_member_tasks (ONE call).\n' +
       '- NEVER make more than 2 tool calls for a simple query.\n' +
       '- Present results IMMEDIATELY after tool call. No "Let me check..." filler.\n\n' +
+      '=== RESPONSE STYLE (CRITICAL) ===\n' +
+      'For READ queries (lookups, "is there a task...", "show me...", "what is the status of..."), answer the question DIRECTLY. ' +
+      'Do NOT offer multiple options or ask what the user wants to do next. Do NOT ask "Would you like me to..." after a simple lookup. ' +
+      'If a schedule is empty or a task does not exist, just say so clearly. ' +
+      'Only ask clarifying questions if the user\'s intent is genuinely ambiguous (e.g., multiple matching jobs).\n' +
+      'Keep answers concise — 2-4 sentences for simple lookups. No walls of text.\n\n' +
       'WRITE OPERATIONS: ALWAYS confirm with user before any create/update/delete.\n\n' +
       'TEAM: Nathan King, Terri Dalavai, David Steich, Evan Harrington, John Molnar, Karen Molnar, Chrissy Zajick\n\n' +
       'BKB 9-PHASE SCHEDULE: 1.Admin 2.Concept 3.Design Development 4.Contract 5.Pre-Construction 6.Production 7.Inspections 8.Punch/Closeout 9.Project Closeout\n\n';

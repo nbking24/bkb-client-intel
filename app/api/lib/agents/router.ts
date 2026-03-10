@@ -372,10 +372,10 @@ export async function routeMessage(
 
   console.log('[ROUTER] Initial response: stop_reason=', response.stop_reason, 'blocks=', response.content?.map((b: any) => b.type).join(','), 'usage=', JSON.stringify(response.usage));
 
-  // Handle tool use loop (max 3 iterations to stay within Vercel timeout)
+  // Handle tool use loop (max 5 iterations — 90s safety timer is the real guard)
   let iterations = 0;
   const routeStart = Date.now();
-  while (response.stop_reason === 'tool_use' && iterations < 3) {
+  while (response.stop_reason === 'tool_use' && iterations < 5) {
     // Safety: if we've used more than 90 seconds, break out to avoid Vercel timeout
     if (Date.now() - routeStart > 90_000) {
       console.log('[ROUTER] Breaking tool loop: 90s safety limit');
@@ -446,8 +446,10 @@ export async function routeMessage(
 
   if (!reply) reply = 'No response generated. The query may have been too broad — try selecting a specific project or asking a more targeted question.';
 
-  // Detect if the agent is asking for confirmation
-  const needsConfirmation = /shall i proceed|should i proceed|want me to proceed|confirm.*proceed|go ahead\?|want me to go ahead|ready to execute|want me to update|want me to create|want me to delete|want me to apply|want me to move/i.test(reply);
+  // Detect if the agent is asking for confirmation (only for write operations, not casual suggestions)
+  // The @@TASK_CONFIRM@@ flow already sets needsConfirmation via taskConfirm in chat/route.ts
+  // This regex catches non-structured confirmation requests for other write ops
+  const needsConfirmation = /shall i proceed\??|should i proceed\??|want me to proceed\??|confirm.*proceed|go ahead\?|ready to execute/i.test(reply);
 
   return {
     agentName: agent.name,
