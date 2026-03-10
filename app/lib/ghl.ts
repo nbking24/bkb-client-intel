@@ -163,6 +163,18 @@ export async function createContactNote(contactId: string, body: string) {
 // CALENDAR
 // ============================================================
 
+/**
+ * List all calendars in the GHL location.
+ */
+export async function getCalendars() {
+  const data = await ghlFetch(`/calendars/?locationId=${GHL_LOC()}`);
+  return data.calendars || [];
+}
+
+/**
+ * Get calendar events/appointments within a date range.
+ * All times should be ISO-8601 / epoch milliseconds.
+ */
 export async function getCalendarEvents(params: {
   startTime: string;
   endTime: string;
@@ -174,6 +186,45 @@ export async function getCalendarEvents(params: {
   if (params.calendarId) url += `&calendarId=${params.calendarId}`;
   const data = await ghlFetch(url);
   return data.events || [];
+}
+
+/**
+ * Get a single appointment by its event ID.
+ */
+export async function getAppointment(eventId: string) {
+  const data = await ghlFetch(`/calendars/events/appointments/${eventId}`);
+  return data;
+}
+
+/**
+ * Create an appointment in GHL.
+ */
+export async function createAppointment(params: {
+  calendarId: string;
+  contactId: string;
+  startTime: string;
+  endTime: string;
+  title?: string;
+  notes?: string;
+  address?: string;
+  status?: string;
+}) {
+  const body: any = {
+    calendarId: params.calendarId,
+    locationId: GHL_LOC(),
+    contactId: params.contactId,
+    startTime: params.startTime,
+    endTime: params.endTime,
+    status: params.status || 'confirmed',
+  };
+  if (params.title) body.title = params.title;
+  if (params.notes) body.notes = params.notes;
+  if (params.address) body.address = params.address;
+
+  return ghlFetch('/calendars/events/appointments', {
+    method: 'POST',
+    body: JSON.stringify(body),
+  });
 }
 
 // ============================================================

@@ -379,6 +379,21 @@ JT API  ──→ jt_comments, jt_daily_logs (Supabase cache)
 
 All modifications to the codebase should be logged here with date, files changed, and what was done.
 
+### 2026-03-10 — Session: Add GHL Calendar Access to Ask Agent
+
+**Problem:** The Ask Agent only had access to JobTread schedules (construction tasks/milestones) but not GoHighLevel (GHL) calendar events. Client meetings, consultations, and site visits are entered in GHL, which is the source of truth for client-facing appointments. When users asked about "my schedule" or "upcoming meetings," the agent could only show JT tasks.
+
+**Solution:** Added GHL calendar read tools to the Know-it-All agent:
+1. New `get_ghl_calendar` tool fetches appointments from GHL within a date range
+2. New `get_ghl_calendars_list` tool lists available GHL calendars
+3. Updated system prompt with SCHEDULE & CALENDAR rules: GHL = client meetings (source of truth), JT = construction tasks
+4. Agent now presents both sources when asked about schedules
+
+**Changes:**
+- `app/lib/ghl.ts` — Added `getCalendars()`, `getAppointment()`, and `createAppointment()` functions to GHL service layer
+- `app/api/lib/agents/know-it-all.ts` — Added GHL calendar imports, 2 new tool definitions (`get_ghl_calendar`, `get_ghl_calendars_list`), tool execution handlers, SCHEDULE & CALENDAR section in system prompt, canHandle() boost for meeting/appointment queries
+- `ARCHITECTURE.md` — Updated changelog
+
 ### 2026-03-10 — Session: Fix Ask Agent Verbosity + Tool Loop Exhaustion
 
 **Problem:** The Ask Agent would ask unnecessary clarifying questions on simple read queries (e.g., "Is there a task for Terri...?" would get back "Would you like me to set up the schedule structure first, or do you want to create specific tasks...?" instead of a direct answer). The agent also hit "No response generated" errors because the tool loop limit (3 iterations) was too tight for queries requiring multiple lookups. Additionally, the `needsConfirmation` regex was too broad, catching casual suggestions like "want me to create" as formal write confirmations.

@@ -32,6 +32,7 @@ import {
   getMessageById,
   getEmailById,
 } from '../ghl';
+import { getCalendarEvents as getGHLCalendarEvents, getCalendars as getGHLCalendars } from '@/app/lib/ghl';
 import { getActiveJobs } from '../jobtread';
 import {
   getAllOpenTasks,
@@ -608,7 +609,16 @@ const knowItAll: AgentModule = {
       'Keep answers concise — 2-4 sentences for simple lookups. No walls of text.\n\n' +
       'WRITE OPERATIONS: ALWAYS confirm with user before any create/update/delete.\n\n' +
       'TEAM: Nathan King, Terri Dalavai, David Steich, Evan Harrington, John Molnar, Karen Molnar, Chrissy Zajick\n\n' +
-      'BKB 9-PHASE SCHEDULE: 1.Admin 2.Concept 3.Design Development 4.Contract 5.Pre-Construction 6.Production 7.Inspections 8.Punch/Closeout 9.Project Closeout\n\n';
+      'BKB 9-PHASE SCHEDULE: 1.Admin 2.Concept 3.Design Development 4.Contract 5.Pre-Construction 6.Production 7.Inspections 8.Punch/Closeout 9.Project Closeout\n\n' +
+      '=== SCHEDULE & CALENDAR (CRITICAL) ===\n' +
+      'TWO calendars exist: JobTread (construction tasks/milestones) and GHL/GoHighLevel (client meetings/appointments).\n' +
+      'GHL is the SOURCE OF TRUTH for client meetings, consultations, site visits, and appointments.\n' +
+      'JobTread schedule tracks construction tasks, phases, and crew work — NOT client meetings.\n' +
+      'When asked about "schedule", "meetings", "appointments", "what\'s coming up", or "client calendar":\n' +
+      '  1. ALWAYS call get_ghl_calendar for client-facing appointments\n' +
+      '  2. Call get_job_schedule or get_all_open_tasks for construction task deadlines\n' +
+      '  3. Present BOTH sources clearly labeled (GHL Appointments + JT Tasks)\n' +
+      'For date ranges, use Eastern Time (ET). Default range if not specified: today through 14 days out.\n\n';
 
     // Task creation rules (always needed for write operations)
     const taskRules =
@@ -754,6 +764,24 @@ const knowItAll: AgentModule = {
     {
       name: 'get_grid_schedule',
       description: 'Get a grid/Gantt view of all active job schedules.',
+      input_schema: { type: 'object', properties: {}, required: [] },
+    },
+    {
+      name: 'get_ghl_calendar',
+      description: 'Get client meetings and appointments from GoHighLevel (GHL) CRM calendar. This is the SOURCE OF TRUTH for client meetings, consultations, and site visits. Use this for any schedule/calendar/meeting/appointment question. Dates should be ISO-8601 format (e.g. 2026-03-10T00:00:00-05:00).',
+      input_schema: {
+        type: 'object',
+        properties: {
+          startTime: { type: 'string', description: 'Start of date range in ISO-8601 format (e.g. 2026-03-10T00:00:00-05:00)' },
+          endTime: { type: 'string', description: 'End of date range in ISO-8601 format (e.g. 2026-03-17T23:59:59-05:00)' },
+          calendarId: { type: 'string', description: 'Optional: filter to a specific calendar ID' },
+        },
+        required: ['startTime', 'endTime'],
+      },
+    },
+    {
+      name: 'get_ghl_calendars_list',
+      description: 'List all available calendars in GHL. Use this to find calendar IDs when filtering events.',
       input_schema: { type: 'object', properties: {}, required: [] },
     },
     {
@@ -1012,6 +1040,8 @@ const knowItAll: AgentModule = {
     if (/mark.*(complete|done|finished|progress)|complete.*task|finish.*task|update.*progress/i.test(lower)) return 0.9;
     if (/apply.*template|standard.*template|create.*phase|add.*phase/i.test(lower)) return 0.9;
     if (/(create|add|write|log|new).*(daily.*log|daily.*report|site.*log|field.*report)/i.test(lower)) return 0.95;
+    // Calendar, meetings, appointments — always use Know-it-All for GHL calendar access
+    if (/\b(meeting|appointment|consult|site visit|calendar|what.*coming up|what.*scheduled|schedule.*this week|schedule.*today|schedule.*tomorrow|client.*schedule)\b/i.test(lower)) return 0.9;
     if (/(add|create|post|write|leave).*(comment|note)/i.test(lower)) return 0.9;
     if (/(update|change|edit|modify|close|reopen).*(job|project)/i.test(lower)) return 0.9;
     if (/(reassign|assign.*to|change.*assign)/i.test(lower)) return 0.9;
@@ -1691,6 +1721,46 @@ const knowItAll: AgentModule = {
           return `- #${j.number || '?'} ${j.name} | Progress: ${Math.round((j.totalProgress || 0) * 100)}%\n${phases}`;
         });
         return JSON.stringify({ success: true, count: grid.length, schedules: lines.join('\n\n') });
+      }
+
+      // ========== GHL CALENDAR ==========
+      if (name === 'get_ghl_calendar') {
+        try {
+          const events = await getGHLCalendarEvents({
+            startTime: input.startTime,
+            endTime: input.endTime,
+            calendarId: input.calendarId,
+          });
+          if (!events || events.length === 0) {
+            return JSON.stringify({ success: true, count: 0, message: 'No appointments found in that date range.' });
+          }
+          const lines = events.map((e: any) => {
+            const title = e.title || e.name || 'Untitled';
+            const start = e.startTime ? new Date(e.startTime).toLocaleString('en-US', { timeZone: 'America/New_York' }) : '?';
+            const end = e.endTime ? new Date(e.endTime).toLocaleString('en-US', { timeZone: 'America/New_York' }) : '?';
+            const contact = e.contact ? `${e.contact.name || ''} ${e.contact.email || ''}`.trim() : (e.contactId || 'No contact');
+            const status = e.status || e.appointmentStatus || '';
+            const cal = e.calendarId || '';
+            const notes = e.notes || '';
+            return `• ${title} | ${start} → ${end} | Contact: ${contact} | Status: ${status}${notes ? ' | Notes: ' + notes.substring(0, 200) : ''}`;
+          });
+          return JSON.stringify({ success: true, count: events.length, appointments: lines.join('\n') });
+        } catch (err: any) {
+          return JSON.stringify({ success: false, error: err?.message || 'Failed to fetch GHL calendar events' });
+        }
+      }
+
+      if (name === 'get_ghl_calendars_list') {
+        try {
+          const calendars = await getGHLCalendars();
+          if (!calendars || calendars.length === 0) {
+            return JSON.stringify({ success: true, count: 0, message: 'No calendars found.' });
+          }
+          const lines = calendars.map((c: any) => `• ${c.name || 'Unnamed'} | ID: ${c.id} | Type: ${c.calendarType || c.type || '?'}`);
+          return JSON.stringify({ success: true, count: calendars.length, calendars: lines.join('\n') });
+        } catch (err: any) {
+          return JSON.stringify({ success: false, error: err?.message || 'Failed to fetch GHL calendars' });
+        }
       }
 
       // ========== APPLY PHASE DEFAULTS ==========
