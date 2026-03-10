@@ -180,10 +180,12 @@ export async function getCalendarEvents(params: {
   endTime: string;
   userId?: string;
   calendarId?: string;
+  groupId?: string;
 }) {
-  let url = `/calendars/events?locationId=${GHL_LOC()}&startTime=${params.startTime}&endTime=${params.endTime}`;
+  let url = `/calendars/events?locationId=${GHL_LOC()}&startTime=${encodeURIComponent(params.startTime)}&endTime=${encodeURIComponent(params.endTime)}`;
   if (params.userId) url += `&userId=${params.userId}`;
   if (params.calendarId) url += `&calendarId=${params.calendarId}`;
+  if (params.groupId) url += `&groupId=${params.groupId}`;
   const data = await ghlFetch(url);
   return data.events || [];
 }
@@ -270,10 +272,34 @@ export async function syncGHLMeetingsToJT(params?: {
   let errors = 0;
 
   try {
-    // 1. Fetch GHL events for the date range
-    const events = await getCalendarEvents({ startTime, endTime });
-    if (!events || events.length === 0) {
-      details.push('No GHL appointments found in date range.');
+    // 1. Fetch all GHL calendars, then query events for each
+    //    GHL API requires calendarId (or userId/groupId) — can't query all at once
+    const calendars = await getCalendars();
+    if (!calendars || calendars.length === 0) {
+      details.push('No GHL calendars found.');
+      return { synced, skipped, errors, details };
+    }
+    details.push(`Found ${calendars.length} GHL calendar(s). Checking for appointments...`);
+
+    const events: any[] = [];
+    for (const cal of calendars) {
+      try {
+        const calEvents = await getCalendarEvents({
+          startTime,
+          endTime,
+          calendarId: cal.id,
+        });
+        if (calEvents && calEvents.length > 0) {
+          events.push(...calEvents);
+        }
+      } catch (calErr: any) {
+        // Some calendars may not support event queries — skip silently
+        details.push(`⚠️ Calendar "${cal.name || cal.id}" query failed: ${calErr.message?.substring(0, 100)}`);
+      }
+    }
+
+    if (events.length === 0) {
+      details.push('No GHL appointments found in date range across any calendar.');
       return { synced, skipped, errors, details };
     }
     details.push(`Found ${events.length} GHL appointment(s) in next ${daysAhead} days.`);
