@@ -1090,20 +1090,35 @@ const knowItAll: AgentModule = {
       if (name === 'get_job_schedule') {
         const schedule = await getJobSchedule(input.jobId);
         if (!schedule) return JSON.stringify({ success: true, message: 'No schedule found.' });
-        // Format the schedule tree
-        const formatNode = (node: any, depth = 0): string => {
-          const indent = '  '.repeat(depth);
-          const status = node.progress >= 1 ? 'DONE' : node.progress > 0 ? 'IN PROGRESS' : 'NOT STARTED';
-          let line = `${indent}- [${status}] "${node.name}"`;
-          if (node.endDate) line += ` | Due: ${node.endDate}`;
-          if (node.startDate) line += ` | Start: ${node.startDate}`;
-          if (node.children && node.children.length > 0) {
-            line += '\n' + node.children.map((c: any) => formatNode(c, depth + 1)).join('\n');
+        // Format the schedule tree using phases → childTasks.nodes hierarchy
+        const lines: string[] = [];
+        lines.push('Job: #' + (schedule.number || '?') + ' ' + schedule.name);
+        lines.push('Overall Progress: ' + Math.round((schedule.totalProgress || 0) * 100) + '%');
+
+        for (const phase of schedule.phases || []) {
+          lines.push('');
+          const phaseStatus = phase.progress >= 1 ? 'DONE' : phase.progress > 0 ? 'IN PROGRESS' : 'NOT STARTED';
+          lines.push(`[${phaseStatus}] Phase: "${phase.name}" (ID: ${phase.id}) — ${Math.round((phase.progress || 0) * 100)}% complete`);
+          const phaseTasks = phase.childTasks?.nodes || [];
+          const taskList = Array.isArray(phaseTasks) ? phaseTasks : [];
+          for (const task of taskList) {
+            const status = task.progress >= 1 ? 'DONE' : task.progress > 0 ? 'IN PROGRESS' : 'NOT STARTED';
+            const dates = [task.startDate, task.endDate].filter(Boolean).join(' → ');
+            lines.push(`  - [${status}] "${task.name}" (ID: ${task.id})${dates ? ' (' + dates + ')' : ''}`);
           }
-          return line;
-        };
-        const tree = Array.isArray(schedule) ? schedule : (schedule.children || [schedule]);
-        const lines = tree.map((n: any) => formatNode(n));
+        }
+
+        // Show orphan tasks (tasks not in any phase)
+        if (schedule.orphanTasks && schedule.orphanTasks.length > 0) {
+          lines.push('');
+          lines.push('Tasks Not In Any Phase:');
+          for (const task of schedule.orphanTasks) {
+            const status = task.progress >= 1 ? 'DONE' : task.progress > 0 ? 'IN PROGRESS' : 'NOT STARTED';
+            const dates = [task.startDate, task.endDate].filter(Boolean).join(' → ');
+            lines.push(`  - [${status}] "${task.name}" (ID: ${task.id})${dates ? ' (' + dates + ')' : ''}`);
+          }
+        }
+
         return JSON.stringify({ success: true, schedule: lines.join('\n') });
       }
 
