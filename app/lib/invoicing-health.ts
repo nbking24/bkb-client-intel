@@ -516,9 +516,6 @@ export async function buildInvoicingContext(): Promise<InvoicingFullContext> {
   );
 
   // 3. Classify each job by its native priceType field from JobTread
-  // HEURISTIC: Check if the job has "Billing Items Pending" cost group
-  // or if it has vendor bills — those tend to be Cost Plus.
-  // Better heuristic: just check the documents.
 
   const extendedJobs: Array<{
     job: ExtendedJob;

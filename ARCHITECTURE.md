@@ -51,6 +51,7 @@ app/
 │   │   ├── audit/page.tsx            # Audit — misplaced/orphan task analysis
 │   │   ├── setup/page.tsx            # Survey-based schedule setup wizard
 │   │   └── OrphanTaskPanel.tsx       # Orphan task reassignment component
+│   ├── invoicing/page.tsx             # Invoicing Health Dashboard (status-grouped, collapsible)
 │   └── spec-writer/
 │       ├── page.tsx                  # Quick Spec Writer (upload + generate)
 │       └── contract/page.tsx         # Contract Spec Builder (cost-item based)
@@ -89,14 +90,17 @@ app/
 │   │       ├── questions/route.ts   # Contract Q&A generation
 │   │       └── save/route.ts        # Save spec to JT cost group
 │   ├── dashboard/
+│   │   ├── invoicing/route.ts       # Invoicing health data endpoint (cached)
 │   │   ├── projects/route.ts        # Active projects list
 │   │   ├── tasks/route.ts           # Task list with urgency
 │   │   ├── schedule/route.ts        # Schedule multi-view endpoint
 │   │   └── schedule-setup/route.ts  # Survey-based schedule builder
 │   ├── agent/
-│   │   └── design-manager/route.ts  # Design Manager analysis + actions
+│   │   ├── design-manager/route.ts  # Design Manager analysis + actions
+│   │   └── invoicing/route.ts       # Invoicing health Claude analysis
 │   ├── cron/
 │   │   ├── design-agent/route.ts    # Daily 6 AM — design analysis
+│   │   ├── invoicing-health/route.ts # Daily 1 AM EST — invoicing data refresh
 │   │   └── sync-incremental/route.ts # Daily 5 AM — incremental sync
 │   ├── contacts/route.ts            # Contact search
 │   ├── notes/route.ts               # Create contact notes (chunked)
@@ -105,6 +109,7 @@ app/
 │   ├── debug/route.ts               # Environment health check
 │   └── jobtread-test/route.ts       # PAVE API diagnostic
 └── lib/
+    ├── invoicing-health.ts           # Invoicing health analysis (priceType, status grouping)
     ├── bkb-spec-guide.ts            # BKB 23-category spec system + prompts
     ├── bkb-standards.ts             # Standard construction practices
     ├── bkb-brand-voice.ts           # Brand voice + email writing guide
@@ -334,7 +339,7 @@ JT API  ──→ jt_comments, jt_daily_logs (Supabase cache)
 
 - All API routes: **60 second timeout**
 - `/api/chat`: **1024 MB memory** (agent processing)
-- Cron: design-agent at 6 AM UTC, sync-incremental at 5 AM UTC
+- Cron: design-agent at 6 AM UTC, sync-incremental at 5 AM UTC, invoicing-health at 6 AM UTC (1 AM EST)
 - Auto-deploy on push to `main`
 
 ---
@@ -406,6 +411,45 @@ All modifications to the codebase should be logged here with date, files changed
 - `vercel.json` — Added invoicing-health cron schedule (0 6 * * * = 1 AM EST)
 - `BUILD_PLAN_INVOICING_HEALTH.md` — **NEW** Build plan document for session continuity
 - `ARCHITECTURE.md` — Updated changelog
+
+### 2026-03-11 — Fix: Use Native priceType Field for Job Classification
+
+**Problem:** The invoicing dashboard was misclassifying most jobs as Cost-Plus when they were actually Fixed-Price. The original heuristic checked for "Billing Items Pending" cost groups and vendor bills to determine price type — this was unreliable and got the majority of jobs wrong (only ~3 Fixed-Price vs ~47 Cost-Plus, when the real split is ~27/23).
+
+**Root Cause:** JobTread has a native `priceType` field on the job entity (values: `"fixed"` or `"costPlus"`) that was not being queried. This field is NOT a custom field — it's a first-class PAVE API field available on every job.
+
+**Solution:** Replaced the ~100-line heuristic with a simple mapping of the native `priceType` field.
+
+**Changes:**
+- `app/lib/jobtread.ts` — Added `priceType?: string | null` to `JTJob` interface, added `priceType: {}` to the PAVE query in `getActiveJobs()`, mapped `priceType` in return object
+- `app/lib/invoicing-health.ts` — Replaced heuristic classification block with native priceType mapping (`"fixed"` → Fixed-Price, `"costPlus"` → Cost-Plus), removed ~100 lines of dead heuristic code and unused `getJobPriceType()` function
+
+**Commits:** `e30244a`
+
+### 2026-03-11 — Feature: Group Jobs by Status Category with Collapsible Sections
+
+**Problem:** The invoicing dashboard listed all jobs in a flat grid. Nathan needed jobs grouped by their project lifecycle stage (based on the custom "Status" field in JobTread) with the ability to collapse/expand each group.
+
+**Solution:** Added status category grouping with collapsible sub-sections to both the Contract and Cost-Plus job panels.
+
+**Status Categories (mapped from JT custom "Status" field):**
+- In-Design = `"5. Design Phase"`
+- Ready = `"10. Ready"`
+- In-Production = `"6. In Production"`
+- Final Billing = `"7. Final Billing"`
+- Other = anything not matching above (auto-filtered if empty)
+
+**Key Implementation Details:**
+- Generic `groupJobsByStatus<T>()` helper works with any job type (Contract, CostPlus, Billable) as long as it has `customStatus`
+- `SubSectionHeader` component with job count badge and expand/collapse toggle
+- In-Production and Final Billing default to expanded; In-Design and Ready default to collapsed
+- Empty categories are automatically hidden
+
+**Changes:**
+- `app/lib/invoicing-health.ts` — Added `customStatus: string | null` to `ContractJobHealth`, `CostPlusJobHealth`, and `BillableItemsSummary` interfaces; populated from `job.customStatus` in all three analysis functions
+- `app/dashboard/invoicing/page.tsx` — Added `STATUS_CATEGORIES` constant, `getStatusCategory()` and `groupJobsByStatus()` helpers, `SubSectionHeader` component, sub-section expand/collapse state management; replaced flat job grids with grouped collapsible views in both Contract and Cost-Plus sections
+
+**Commits:** `fb284b3`
 
 ### 2026-03-10 — Session: GHL → JobTread Meeting Sync
 
