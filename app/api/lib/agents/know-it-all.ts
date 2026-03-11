@@ -625,13 +625,21 @@ const knowItAll: AgentModule = {
 
     // Task creation rules (always needed for write operations)
     const taskRules =
+      '=== TASK CREATION (MANDATORY CONFIRMATION — NO EXCEPTIONS) ===\n' +
       'TASK NAMING: Max 5-8 words. Details go in description.\n' +
-      'PHASE ASSIGNMENT: Every task MUST go under a phase. Call get_job_schedule first. Use create_phase_task with parentGroupId.\n' +
-      'CONFIRMATION FORMAT for task creation:\n' +
+      'PHASE ASSIGNMENT: Every task MUST go under a phase. Call get_job_schedule first to get phase IDs.\n\n' +
+      'CRITICAL RULE: You MUST NEVER call create_phase_task or create_jobtread_task directly.\n' +
+      'ALWAYS output a @@TASK_CONFIRM@@ block FIRST and STOP. Wait for user approval.\n' +
+      'The user will see an editable confirmation card where they can change the phase, assignee, dates, etc.\n' +
+      'Only after receiving [APPROVED TASK DATA] should the task be created.\n\n' +
+      'STEP 1 — Look up the schedule: Call get_job_schedule to find available phases and their IDs.\n' +
+      'STEP 2 — Output the confirmation block (then STOP — do NOT call any create tool):\n' +
       '@@TASK_CONFIRM@@\n' +
       '{"name":"short name","phase":"Phase Name","phaseId":"id","description":"details","assignee":"Name","startDate":"YYYY-MM-DD","endDate":"YYYY-MM-DD"}\n' +
       '@@END_CONFIRM@@\n' +
-      'After approval with [APPROVED TASK DATA], call create_phase_task. Map: name→name, phaseId→parentGroupId, assignee→assignTo. Set durationDays=1.\n\n';
+      'STEP 3 — After the user approves with [APPROVED TASK DATA], call create_phase_task.\n' +
+      'Field mapping: name→name, phaseId→parentGroupId, assignee→assignTo. Set durationDays=1.\n\n' +
+      'VIOLATIONS: If you call create_phase_task or create_jobtread_task without [APPROVED TASK DATA] in the conversation, the tool will REJECT the call.\n\n';
 
     // Email/writing rules — ONLY included for email-related queries
     const emailRules = isEmailQuery ? (

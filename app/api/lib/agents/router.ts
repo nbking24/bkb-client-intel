@@ -389,6 +389,26 @@ export async function routeMessage(
     for (const block of response.content) {
       if (block.type === 'tool_use') {
         console.log('[ROUTER] Calling tool:', block.name);
+
+        // GUARDRAIL: Block direct task creation without user approval
+        if (block.name === 'create_phase_task' || block.name === 'create_jobtread_task') {
+          const hasApproval = claudeMessages.some(
+            (m: any) => m.role === 'user' && typeof m.content === 'string' && m.content.includes('[APPROVED TASK DATA')
+          );
+          if (!hasApproval) {
+            console.log('[ROUTER] BLOCKED:', block.name, '— no [APPROVED TASK DATA] found in conversation');
+            toolResults.push({
+              type: 'tool_result',
+              tool_use_id: block.id,
+              content: JSON.stringify({
+                success: false,
+                error: 'TASK CREATION BLOCKED: You must output a @@TASK_CONFIRM@@ block first and wait for user approval. Do NOT call create_phase_task or create_jobtread_task directly. Output the confirmation block now with the task details so the user can review and approve.',
+              }),
+            });
+            continue;
+          }
+        }
+
         const result = await agent.executeTool(block.name, block.input, ctx);
         console.log('[ROUTER] Tool result length:', result?.length || 0);
         toolResults.push({
