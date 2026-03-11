@@ -26,6 +26,10 @@
                                     "schedule": "0 6 * * *"
                     },
                     {
+                                    "path": "/api/cron/invoicing-health",
+                                    "schedule": "0 6 * * *"
+                    },
+                    {
                                     "path": "/api/cron/sync-incremental",
                                     "schedule": "0 5 * * *"
                     }

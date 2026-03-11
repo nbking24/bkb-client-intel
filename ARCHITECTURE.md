@@ -4,7 +4,7 @@
 >
 > **Nathan:** If starting a new conversation, mention this doc or say "review the architecture doc" so the assistant knows to read it first.
 
-**Last updated:** 2026-03-07
+**Last updated:** 2026-03-11
 **Repo:** `github.com/nbking24/bkb-client-intel`
 **Deploy:** Vercel (auto-deploy on push to `main`)
 **Live URL:** `https://bkb-client-intel.vercel.app`
@@ -378,6 +378,34 @@ JT API  ──→ jt_comments, jt_daily_logs (Supabase cache)
 ## 13. Changelog
 
 All modifications to the codebase should be logged here with date, files changed, and what was done.
+
+### 2026-03-11 — Session: Invoicing Health Dashboard + Agent
+
+**Problem:** No centralized view of invoicing health across all open JobTread projects. Terry (office manager) and Nathan had to manually check each job for overdue milestones, unbilled cost-plus work, and pending billable items. The three invoicing profiles (Fixed-Price, Cost Plus, Billable Labor) each had different billing cadences and triggers, making it easy to miss billing windows.
+
+**Solution:** Built a full Invoicing Health Dashboard with agent-powered analysis:
+1. Core data layer (`invoicing-health.ts`) — queries JT for all active jobs, classifies them by Price Type (Fixed-Price vs Cost-Plus), analyzes invoicing health for each profile
+2. Dashboard API (`/api/dashboard/invoicing`) — serves cached or fresh invoicing health data with Supabase caching
+3. Dashboard UI (`/dashboard/invoicing/page.tsx`) — summary cards, contract job progress, cost-plus billing cadence indicators, billable items panel with expand/collapse
+4. Agent analysis endpoint (`/api/agent/invoicing`) — runs Claude analysis on invoicing data, generates prioritized recommendations
+5. Daily cron job (`/api/cron/invoicing-health`) — runs at 1 AM EST to refresh cached data
+
+**Key Data Points:**
+- Fixed-Price jobs: milestone tracking via `$` prefix schedule tasks, draft/approved invoices
+- Cost Plus jobs: 14-day billing cadence, days-since-last-invoice indicator, unbilled costs/hours
+- Billable items: Cost Code 23 ("Miscellaneous/Billable Labor"), billable time entries
+- Health levels: healthy → warning → overdue → critical
+
+**Changes:**
+- `app/lib/invoicing-health.ts` — **NEW** Core invoicing health analysis logic
+- `app/api/dashboard/invoicing/route.ts` — **NEW** Dashboard data endpoint with Supabase caching
+- `app/dashboard/invoicing/page.tsx` — **NEW** Invoicing health dashboard UI
+- `app/api/agent/invoicing/route.ts` — **NEW** Claude-powered agent analysis endpoint
+- `app/api/cron/invoicing-health/route.ts` — **NEW** Daily 1 AM cron job
+- `app/dashboard/layout.tsx` — Added "Invoicing" nav item with DollarSign icon
+- `vercel.json` — Added invoicing-health cron schedule (0 6 * * * = 1 AM EST)
+- `BUILD_PLAN_INVOICING_HEALTH.md` — **NEW** Build plan document for session continuity
+- `ARCHITECTURE.md` — Updated changelog
 
 ### 2026-03-10 — Session: GHL → JobTread Meeting Sync
 
