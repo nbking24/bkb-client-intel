@@ -208,7 +208,25 @@ async function tryTaskCreationFastPath(msg: string, ctx: AgentContext): Promise<
 
   console.log('[FAST-TASK] Detected confirmed task creation:', taskData.name, '| phase:', taskData.phase);
 
-  const jobId = ctx.jtJobId;
+  // Resolve jobId: context first, then taskData.jobId from the confirmation block
+  let jobId = ctx.jtJobId || taskData.jobId;
+  if (!jobId) {
+    // Last resort: search active jobs by name from the confirmation data or conversation
+    try {
+      const activeJobs = await getActiveJobs();
+      const taskPhase = (taskData.phase || '').toLowerCase();
+      // Look for job name in the full message text (the user's original request is in conversation)
+      const allJobs = activeJobs || [];
+      for (const job of allJobs) {
+        const jName = (job.name || '').toLowerCase();
+        if (msg.toLowerCase().includes(jName) || (taskData.projectName && jName.includes(taskData.projectName.toLowerCase()))) {
+          jobId = job.id;
+          console.log('[FAST-TASK] Resolved jobId from active jobs:', job.name, '| ID:', job.id);
+          break;
+        }
+      }
+    } catch { /* non-fatal */ }
+  }
   if (!jobId) {
     return { agentName: 'Know it All', reply: 'I need a project selected to create a task. Please select a project from the dropdown first.', needsConfirmation: false };
   }

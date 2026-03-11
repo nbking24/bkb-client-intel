@@ -7,7 +7,7 @@ interface Contact { id: string; name: string; email?: string; phone?: string; }
 interface Opportunity { id: string; name: string; status: string; pipelineName: string; stageName: string; monetaryValue: number; jtJobId: string; }
 interface ChatMsg { id: string; role: "user" | "assistant"; content: string; ts: number; agent?: string; }
 interface Tpl { id: string; title: string; prompt: string; icon: string; }
-interface TaskConfirmation { name: string; phase: string; phaseId: string; description: string; assignee: string; startDate: string; endDate: string; msgId: string; }
+interface TaskConfirmation { name: string; phase: string; phaseId: string; jobId: string; description: string; assignee: string; startDate: string; endDate: string; msgId: string; }
 type MeetingType = "" | "Client Meeting" | "Internal" | "Trade" | "Other";
 type Tab = "notes" | "chat";
 
@@ -21,7 +21,7 @@ function parseTaskConfirmation(content: string, msgId: string): TaskConfirmation
   if (!match) return null;
   try {
     const data = JSON.parse(match[1].trim());
-    return { name: data.name || "", phase: data.phase || "", phaseId: data.phaseId || "", description: data.description || "", assignee: data.assignee || "", startDate: data.startDate || "", endDate: data.endDate || "", msgId };
+    return { name: data.name || "", phase: data.phase || "", phaseId: data.phaseId || "", jobId: data.jobId || "", description: data.description || "", assignee: data.assignee || "", startDate: data.startDate || "", endDate: data.endDate || "", msgId };
   } catch { return null; }
 }
 
@@ -336,6 +336,7 @@ export default function Home() {
     const taskData: Record<string, any> = {
       name: data.name,
       phase: data.phase,
+      jobId: data.jobId || "",
       description: data.description || "",
       assignee: data.assignee || "",
       startDate: data.startDate || "",

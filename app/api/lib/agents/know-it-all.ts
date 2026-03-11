@@ -635,8 +635,9 @@ const knowItAll: AgentModule = {
       'STEP 1 — Look up the schedule: Call get_job_schedule to find available phases and their IDs.\n' +
       'STEP 2 — Output the confirmation block (then STOP — do NOT call any create tool):\n' +
       '@@TASK_CONFIRM@@\n' +
-      '{"name":"short name","phase":"Phase Name","phaseId":"id","description":"details","assignee":"Name","startDate":"YYYY-MM-DD","endDate":"YYYY-MM-DD"}\n' +
+      '{"name":"short name","phase":"Phase Name","phaseId":"id","jobId":"the-job-id","description":"details","assignee":"Name","startDate":"YYYY-MM-DD","endDate":"YYYY-MM-DD"}\n' +
       '@@END_CONFIRM@@\n' +
+      'IMPORTANT: Always include the jobId from the get_job_schedule call in the confirmation block.\n' +
       'STEP 3 — After the user approves with [APPROVED TASK DATA], call create_phase_task.\n' +
       'Field mapping: name→name, phaseId→parentGroupId, assignee→assignTo. Set durationDays=1.\n\n' +
       'VIOLATIONS: If you call create_phase_task or create_jobtread_task without [APPROVED TASK DATA] in the conversation, the tool will REJECT the call.\n\n';
