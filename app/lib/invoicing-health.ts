@@ -61,6 +61,7 @@ export interface ContractJobHealth {
   jobName: string;
   jobNumber: string;
   clientName: string;
+  customStatus: string | null;
   priceType: string;
   totalContractValue: number;
   invoicedToDate: number;
@@ -96,6 +97,7 @@ export interface CostPlusJobHealth {
   jobName: string;
   jobNumber: string;
   clientName: string;
+  customStatus: string | null;
   lastInvoiceDate: string | null;
   daysSinceLastInvoice: number | null;
   unbilledCosts: number;
@@ -112,6 +114,7 @@ export interface BillableItemsSummary {
   jobName: string;
   jobNumber: string;
   clientName: string;
+  customStatus: string | null;
   priceType: string;
   uninvoicedItems: BillableItem[];
   uninvoicedHours: BillableHourEntry[];
@@ -291,6 +294,7 @@ async function analyzeContractJob(
     jobName: job.name,
     jobNumber: job.number,
     clientName: job.clientName || '',
+    customStatus: job.customStatus || null,
     priceType: job.priceType,
     totalContractValue,
     invoicedToDate,
@@ -394,6 +398,7 @@ async function analyzeCostPlusJob(
     jobName: job.name,
     jobNumber: job.number,
     clientName: job.clientName || '',
+    customStatus: job.customStatus || null,
     lastInvoiceDate,
     daysSinceLastInvoice,
     unbilledCosts,
@@ -473,6 +478,7 @@ function findBillableItems(
     jobName: job.name,
     jobNumber: job.number,
     clientName: job.clientName || '',
+    customStatus: job.customStatus || null,
     priceType: job.priceType,
     uninvoicedItems,
     uninvoicedHours: billableTimeEntries,

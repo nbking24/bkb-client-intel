@@ -45,6 +45,7 @@ interface ContractJobHealth {
   jobName: string;
   jobNumber: string;
   clientName: string;
+  customStatus: string | null;
   priceType: string;
   totalContractValue: number;
   invoicedToDate: number;
@@ -62,6 +63,7 @@ interface CostPlusJobHealth {
   jobName: string;
   jobNumber: string;
   clientName: string;
+  customStatus: string | null;
   lastInvoiceDate: string | null;
   daysSinceLastInvoice: number | null;
   unbilledCosts: number;
@@ -98,6 +100,7 @@ interface BillableItemsSummary {
   jobName: string;
   jobNumber: string;
   clientName: string;
+  customStatus: string | null;
   priceType: string;
   uninvoicedItems: BillableItem[];
   uninvoicedHours: BillableHourEntry[];
@@ -136,6 +139,39 @@ const CARD_STYLE = {
   border: '1px solid rgba(205,162,116,0.08)',
   borderRadius: '12px',
 };
+
+// Status categories — maps JT custom "Status" values to dashboard groupings
+const STATUS_CATEGORIES = [
+  { key: 'in-design', label: 'In-Design', statusValue: '5. Design Phase' },
+  { key: 'ready', label: 'Ready', statusValue: '10. Ready' },
+  { key: 'in-production', label: 'In-Production', statusValue: '6. In Production' },
+  { key: 'final-billing', label: 'Final Billing', statusValue: '7. Final Billing' },
+  { key: 'other', label: 'Other', statusValue: null },
+] as const;
+
+type StatusCategoryKey = typeof STATUS_CATEGORIES[number]['key'];
+
+function getStatusCategory(customStatus: string | null): StatusCategoryKey {
+  if (!customStatus) return 'other';
+  const match = STATUS_CATEGORIES.find((c) => c.statusValue === customStatus);
+  return match ? match.key : 'other';
+}
+
+function groupJobsByStatus<T extends { customStatus: string | null }>(
+  jobs: T[]
+): Array<{ category: typeof STATUS_CATEGORIES[number]; jobs: T[] }> {
+  const groups = STATUS_CATEGORIES.map((cat) => ({
+    category: cat,
+    jobs: jobs.filter((j) => {
+      if (cat.key === 'other') {
+        return !STATUS_CATEGORIES.slice(0, -1).some((c) => c.statusValue === j.customStatus);
+      }
+      return j.customStatus === cat.statusValue;
+    }),
+  }));
+  // Only return groups that have jobs
+  return groups.filter((g) => g.jobs.length > 0);
+}
 
 // ============================================================
 // Helper Components
@@ -217,6 +253,40 @@ function SectionHeader({
         ) : (
           <ChevronRight size={16} style={{ color: '#8a8078' }} />
         )}
+      </span>
+    </button>
+  );
+}
+
+function SubSectionHeader({
+  title,
+  count,
+  expanded,
+  onToggle,
+}: {
+  title: string;
+  count: number;
+  expanded: boolean;
+  onToggle: () => void;
+}) {
+  return (
+    <button
+      onClick={onToggle}
+      className="w-full flex items-center gap-2 py-2 px-3 text-left hover:bg-white/[0.02] rounded-lg transition-colors"
+    >
+      {expanded ? (
+        <ChevronDown size={14} style={{ color: '#8a8078' }} />
+      ) : (
+        <ChevronRight size={14} style={{ color: '#8a8078' }} />
+      )}
+      <span className="text-sm font-medium" style={{ color: '#c4b5a3' }}>
+        {title}
+      </span>
+      <span
+        className="px-1.5 py-0.5 rounded text-[10px] font-medium"
+        style={{ background: 'rgba(205,162,116,0.08)', color: '#8a8078' }}
+      >
+        {count}
       </span>
     </button>
   );
@@ -544,6 +614,26 @@ export default function InvoicingDashboard() {
   const [costPlusExpanded, setCostPlusExpanded] = useState(true);
   const [billableExpanded, setBillableExpanded] = useState(true);
 
+  // Sub-section (status category) expand/collapse — keyed by "section-category"
+  const [subSections, setSubSections] = useState<Record<string, boolean>>({});
+
+  function isSubExpanded(section: string, category: string): boolean {
+    const key = `${section}-${category}`;
+    // Default: expanded for in-production and final-billing, collapsed for others
+    if (subSections[key] === undefined) {
+      return category === 'in-production' || category === 'final-billing';
+    }
+    return subSections[key];
+  }
+
+  function toggleSub(section: string, category: string) {
+    const key = `${section}-${category}`;
+    setSubSections((prev) => ({
+      ...prev,
+      [key]: !isSubExpanded(section, category),
+    }));
+  }
+
   async function fetchReport(refresh = false) {
     try {
       if (refresh) setRefreshing(true);
@@ -686,7 +776,7 @@ export default function InvoicingDashboard() {
       {/* Agent Recommendations */}
       <AgentSection report={report} />
 
-      {/* Contract Jobs */}
+      {/* Contract Jobs — grouped by status category */}
       {report.contractJobs.length > 0 && (
         <div>
           <SectionHeader
@@ -697,16 +787,30 @@ export default function InvoicingDashboard() {
             onToggle={() => setContractExpanded(!contractExpanded)}
           />
           {contractExpanded && (
-            <div className="grid gap-3 md:grid-cols-2">
-              {report.contractJobs.map((job) => (
-                <ContractJobCard key={job.jobId} job={job} />
+            <div className="space-y-2 ml-1">
+              {groupJobsByStatus(report.contractJobs).map(({ category, jobs }) => (
+                <div key={category.key}>
+                  <SubSectionHeader
+                    title={category.label}
+                    count={jobs.length}
+                    expanded={isSubExpanded('contract', category.key)}
+                    onToggle={() => toggleSub('contract', category.key)}
+                  />
+                  {isSubExpanded('contract', category.key) && (
+                    <div className="grid gap-3 md:grid-cols-2 pl-6 pb-2">
+                      {jobs.map((job) => (
+                        <ContractJobCard key={job.jobId} job={job} />
+                      ))}
+                    </div>
+                  )}
+                </div>
               ))}
             </div>
           )}
         </div>
       )}
 
-      {/* Cost Plus Jobs */}
+      {/* Cost Plus Jobs — grouped by status category */}
       {report.costPlusJobs.length > 0 && (
         <div>
           <SectionHeader
@@ -717,9 +821,23 @@ export default function InvoicingDashboard() {
             onToggle={() => setCostPlusExpanded(!costPlusExpanded)}
           />
           {costPlusExpanded && (
-            <div className="grid gap-3 md:grid-cols-2">
-              {report.costPlusJobs.map((job) => (
-                <CostPlusJobCard key={job.jobId} job={job} />
+            <div className="space-y-2 ml-1">
+              {groupJobsByStatus(report.costPlusJobs).map(({ category, jobs }) => (
+                <div key={category.key}>
+                  <SubSectionHeader
+                    title={category.label}
+                    count={jobs.length}
+                    expanded={isSubExpanded('costplus', category.key)}
+                    onToggle={() => toggleSub('costplus', category.key)}
+                  />
+                  {isSubExpanded('costplus', category.key) && (
+                    <div className="grid gap-3 md:grid-cols-2 pl-6 pb-2">
+                      {jobs.map((job) => (
+                        <CostPlusJobCard key={job.jobId} job={job} />
+                      ))}
+                    </div>
+                  )}
+                </div>
               ))}
             </div>
           )}
