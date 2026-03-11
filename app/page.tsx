@@ -162,7 +162,7 @@ function TaskConfirmCard({ data, onChange, onApprove, onCancel, busy }: {
         <div className="grid grid-cols-2 gap-3">
           <div>
             <label style={labelStyle}>Phase</label>
-            <select value={data.phase} onChange={e => onChange({ ...data, phase: e.target.value })} style={{ ...fieldStyle, appearance: "none" as const }}>
+            <select value={data.phase} onChange={e => onChange({ ...data, phase: e.target.value, phaseId: "" })} style={{ ...fieldStyle, appearance: "none" as const }}>
               {PHASES.map(p => <option key={p} value={p}>{p}</option>)}
             </select>
           </div>
@@ -323,17 +323,35 @@ export default function Home() {
   };
 
   const approveTask = async (data: TaskConfirmation) => {
-    const details = [
-      "Yes, proceed with these details:",
-      "Task: " + data.name,
-      "Phase: " + data.phase,
-      data.description ? "Description: " + data.description : "",
-      data.assignee ? "Assignee: " + data.assignee : "Assignee: none",
-      data.startDate ? "Start: " + data.startDate : "",
-      data.endDate ? "Due: " + data.endDate : "",
-    ].filter(Boolean).join("\n");
+    // Build human-readable summary
+    const changes: string[] = [];
+    if (data.phase) changes.push(`Phase: ${data.phase}`);
+    if (data.assignee) changes.push(`Assignee: ${data.assignee}`);
+    if (data.startDate) changes.push(`Start: ${data.startDate}`);
+    if (data.endDate) changes.push(`Due: ${data.endDate}`);
+    let confirmMsg = "Yes, proceed with these details:";
+    if (changes.length > 0) confirmMsg += "\n" + changes.join(", ");
+
+    // Build structured task data for fast-path execution
+    const taskData: Record<string, any> = {
+      name: data.name,
+      phase: data.phase,
+      description: data.description || "",
+      assignee: data.assignee || "",
+      startDate: data.startDate || "",
+      endDate: data.endDate || "",
+    };
+    // Include phaseId if it still matches the original phase; otherwise mark as changed
+    if (data.phaseId) {
+      taskData.phaseId = data.phaseId;
+    } else {
+      taskData.phaseChanged = true;
+    }
+
+    confirmMsg += "\n\n[APPROVED TASK DATA — execute this now using create_phase_task tool]\n" + JSON.stringify(taskData);
+
     setPendingConfirm(null);
-    await sendChat(details);
+    await sendChat(confirmMsg);
   };
 
   const cancelTask = () => {
