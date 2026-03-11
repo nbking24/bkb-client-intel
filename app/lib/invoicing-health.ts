@@ -174,61 +174,15 @@ function daysSinceDate(todayStr: string, pastDateStr: string): number {
 }
 
 // ============================================================
-// 1. Classify Jobs by Price Type
-// ============================================================
-
-function getJobPriceType(job: JTJob): string {
-  // Look in customFieldValues for "Price Type"
-  // The getActiveJobs function already extracts customFieldValues
-  // but we need to access the raw data. We'll check the job object.
-  // Since getActiveJobs strips custom fields except Status, we'll
-  // need to check via a separate mechanism or extend getActiveJobs.
-  // For now, we fetch this in the main function.
-  return 'unknown';
-}
-
-// ============================================================
-// 2. Fetch Extended Job Data (with Price Type custom field)
+// 1. Extended Job Type (adds resolved priceType label)
 // ============================================================
 
 interface ExtendedJob extends JTJob {
-  priceType: string; // "Fixed-Price", "Cost-Plus", or unknown
-}
-
-export async function getActiveJobsWithPriceType(): Promise<ExtendedJob[]> {
-  const jobs = await getActiveJobs(50);
-
-  // getActiveJobs already fetches customFieldValues, but only extracts "Status".
-  // We need to re-fetch to get "Price Type". Instead of modifying getActiveJobs,
-  // we'll do a lightweight query for just custom fields.
-  // Actually, looking at the getActiveJobs code, it fetches ALL customFieldValues
-  // but only extracts the Status field. The raw data is lost after mapping.
-  // We need to extend this. For now, let's fetch price type separately per job
-  // using getDocumentsForJob pattern — or better, let's use a PAVE query.
-
-  // For efficiency, we'll query all jobs with their custom fields in one shot.
-  // The getActiveJobs already does this but drops the data. Let's use a parallel
-  // approach: for each job, we already have the ID, so we can batch-check.
-
-  // OPTIMIZATION: Use the MCP tool jobtread_get_job_details which returns custom fields,
-  // but since we're in the lib layer, we'll use the PAVE API directly.
-  // Actually the simplest approach: modify the return to include all custom fields.
-
-  // For now, use a pragmatic approach: fetch all active jobs, then for each,
-  // check their documents to infer price type from the document patterns.
-  // OR: just re-query with a dedicated PAVE call that returns Price Type.
-
-  // Let's use the most efficient approach: a single org-level query for all active jobs
-  // with their custom field values, extracting Price Type.
-
-  return jobs.map((job) => ({
-    ...job,
-    priceType: 'unknown', // Will be resolved below
-  }));
+  priceType: string; // "Fixed-Price", "Cost-Plus", or the raw PAVE value
 }
 
 // ============================================================
-// 3. Analyze Contract (Fixed-Price) Job Invoicing Health
+// 2. Analyze Contract (Fixed-Price) Job Invoicing Health
 // ============================================================
 
 async function analyzeContractJob(
@@ -534,26 +488,10 @@ function findBillableItems(
 export async function buildInvoicingContext(): Promise<InvoicingFullContext> {
   const todayStr = getTodayDateString();
 
-  // 1. Get all active jobs
+  // 1. Get all active jobs (now includes native priceType field from PAVE API)
   const rawJobs = await getActiveJobs(50);
 
-  // 2. For each job, fetch documents, cost items, time entries, and custom fields in parallel
-  // We need Price Type custom field — getActiveJobs already fetches customFieldValues
-  // but only extracts Status. We need to re-query or modify.
-  // WORKAROUND: Use the MCP tool pattern — call getDocumentsForJob which is lightweight.
-  // Actually, let's use a PAVE batch approach.
-
-  // For now, we'll fetch Price Type from the job's documents heuristic AND
-  // accept that the user will need to tag jobs. We'll use the JT custom field.
-  // Since getActiveJobs drops custom field data, we need a parallel fetch.
-
-  // Actually, looking at getActiveJobs more carefully — it fetches customFieldValues
-  // but only extracts 'Status'. The raw nodes ARE fetched but mapped away.
-  // The cleanest fix: we query custom fields separately for all jobs at once.
-
-  // Let's use a practical approach: extend the active jobs query inline.
-  // We'll re-use the pave function pattern from jobtread.ts.
-
+  // 2. For each job, fetch documents, cost items, and time entries in parallel
   const jobContexts = await Promise.all(
     rawJobs.map(async (job) => {
       try {
@@ -571,19 +509,7 @@ export async function buildInvoicingContext(): Promise<InvoicingFullContext> {
     })
   );
 
-  // 3. Determine Price Type for each job
-  // Since we can't easily get the custom field from the current data,
-  // we'll use a heuristic based on what documents exist.
-  // If a job has approved customerOrders (estimates), it's likely Fixed-Price.
-  // This will be enhanced once we add Price Type to getActiveJobs.
-
-  // Actually, let's just do a quick PAVE query to get Price Type for all jobs.
-  // We have the pave function available. Let's use it.
-  // Wait — pave is not exported from jobtread.ts. We need to either:
-  // a) Export it, or b) Use a different approach.
-  // Let's just query each job's custom fields using getJob (which returns custom fields).
-  // But that's N queries. For MVP, let's use a heuristic and add proper support later.
-
+  // 3. Classify each job by its native priceType field from JobTread
   // HEURISTIC: Check if the job has "Billing Items Pending" cost group
   // or if it has vendor bills — those tend to be Cost Plus.
   // Better heuristic: just check the documents.
@@ -594,28 +520,17 @@ export async function buildInvoicingContext(): Promise<InvoicingFullContext> {
     costItems: JTCostItem[];
     timeEntries: JTTimeEntry[];
   }> = jobContexts.map(({ job, documents, costItems, timeEntries }) => {
-    // Detect price type from cost group names and document patterns
+    // Use the native priceType field from JobTread PAVE API
+    // Values: "fixed" = Fixed-Price, "costPlus" = Cost-Plus
     let priceType = 'unknown';
 
-    // Check for "Billing Items Pending" cost group — indicates Cost Plus
-    const hasBillingPending = costItems.some(
-      (item) =>
-        item.costGroup?.name?.toLowerCase().includes('billing items') ||
-        item.costGroup?.parentCostGroup?.name?.toLowerCase().includes('billing items')
-    );
-
-    // Check for vendor bills — common in Cost Plus
-    const hasVendorBills = documents.some((d) => d.type === 'vendorBill');
-
-    // Check for customerOrders (estimates) — common in Fixed-Price
-    const hasEstimates = documents.some(
-      (d) => d.type === 'customerOrder' && d.status === 'approved'
-    );
-
-    if (hasBillingPending || hasVendorBills) {
-      priceType = 'Cost-Plus';
-    } else if (hasEstimates) {
+    if (job.priceType === 'fixed') {
       priceType = 'Fixed-Price';
+    } else if (job.priceType === 'costPlus') {
+      priceType = 'Cost-Plus';
+    } else if (job.priceType) {
+      // Handle any other future values
+      priceType = job.priceType;
     }
 
     return {

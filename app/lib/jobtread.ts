@@ -81,6 +81,7 @@ export interface JTJob {
   locationName?: string;
   customStatus?: string | null;       // JT custom "Status" field value
   statusCategory?: StatusCategoryKey | null;  // Derived category for dashboard grouping
+  priceType?: string | null;          // Native JT field: "fixed", "costPlus", etc.
 }
 
 export async function getActiveJobs(limit = 50): Promise<JTJob[]> {
@@ -96,6 +97,7 @@ export async function getActiveJobs(limit = 50): Promise<JTJob[]> {
       status: {},
       createdAt: {},
       closedOn: {},
+      priceType: {},
       location: {
         id: {},
         name: {},
@@ -127,6 +129,7 @@ export async function getActiveJobs(limit = 50): Promise<JTJob[]> {
       locationName: j.location?.name || '',
       customStatus,
       statusCategory: getStatusCategory(customStatus),
+      priceType: j.priceType || null,
     };
   });
 }
