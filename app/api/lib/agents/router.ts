@@ -190,7 +190,7 @@ async function tryFastPath(msg: string, ctx: AgentContext): Promise<AgentResult 
 // ── FAST PATH: Execute confirmed task creation without the full Claude tool loop ──
 // When the user approves a task via the confirmation card, we have all the data needed
 // to create it directly — no Claude reasoning required.
-async function tryTaskCreationFastPath(msg: string, ctx: AgentContext): Promise<AgentResult | null> {
+async function tryTaskCreationFastPath(msg: string, ctx: AgentContext, messages?: Array<{ role: string; content: string }>): Promise<AgentResult | null> {
   // Only trigger on messages with approved task data
   if (!APPROVED_TASK_PATTERN.test(msg)) return null;
 
@@ -211,17 +211,17 @@ async function tryTaskCreationFastPath(msg: string, ctx: AgentContext): Promise<
   // Resolve jobId: context first, then taskData.jobId from the confirmation block
   let jobId = ctx.jtJobId || taskData.jobId;
   if (!jobId) {
-    // Last resort: search active jobs by name from the confirmation data or conversation
+    // Last resort: search active jobs by name mentioned in the full conversation history
     try {
       const activeJobs = await getActiveJobs();
-      const taskPhase = (taskData.phase || '').toLowerCase();
-      // Look for job name in the full message text (the user's original request is in conversation)
       const allJobs = activeJobs || [];
+      // Collect all conversation text to search for job names
+      const allText = (messages || []).map(m => m.content).join(' ').toLowerCase();
       for (const job of allJobs) {
         const jName = (job.name || '').toLowerCase();
-        if (msg.toLowerCase().includes(jName) || (taskData.projectName && jName.includes(taskData.projectName.toLowerCase()))) {
+        if (jName && allText.includes(jName)) {
           jobId = job.id;
-          console.log('[FAST-TASK] Resolved jobId from active jobs:', job.name, '| ID:', job.id);
+          console.log('[FAST-TASK] Resolved jobId from conversation context:', job.name, '| ID:', job.id);
           break;
         }
       }
@@ -331,7 +331,7 @@ export async function routeMessage(
   if (fastResult) return fastResult;
 
   // Fast-path for confirmed task creation (after user approves via confirmation card)
-  const taskResult = await tryTaskCreationFastPath(lastMsg, ctx);
+  const taskResult = await tryTaskCreationFastPath(lastMsg, ctx, messages);
   if (taskResult) return taskResult;
 
   // Select the best agent for this message
