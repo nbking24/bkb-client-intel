@@ -214,18 +214,25 @@ async function tryTaskCreationFastPath(msg: string, ctx: AgentContext): Promise<
   }
 
   try {
-    // Step 1: Find the phase ID from the job schedule
+    // Step 1: Find the phase ID — use phaseId from approved data first, fall back to name lookup
     let parentGroupId: string | null = null;
-    const schedule = await getJobSchedule(jobId);
-    if (schedule?.tasks) {
-      const phaseName = (taskData.phase || '').toLowerCase();
-      // Look for a matching phase (group task) in the schedule
-      const phase = schedule.tasks.find((t: any) =>
-        t.isGroup && t.name.toLowerCase().includes(phaseName)
-      );
-      if (phase) {
-        parentGroupId = phase.id;
-        console.log('[FAST-TASK] Found phase:', phase.name, '| ID:', phase.id);
+
+    if (taskData.phaseId && !taskData.phaseChanged) {
+      // User didn't change the phase — use the phaseId directly from confirmation data
+      parentGroupId = taskData.phaseId;
+      console.log('[FAST-TASK] Using phaseId from approved data:', parentGroupId);
+    } else {
+      // Phase was changed or no phaseId — look up by name from the job schedule
+      const schedule = await getJobSchedule(jobId);
+      if (schedule?.phases) {
+        const phaseName = (taskData.phase || '').toLowerCase();
+        const phase = schedule.phases.find((t: any) =>
+          t.isGroup && t.name.toLowerCase().includes(phaseName)
+        );
+        if (phase) {
+          parentGroupId = phase.id;
+          console.log('[FAST-TASK] Found phase by name:', phase.name, '| ID:', phase.id);
+        }
       }
     }
 
