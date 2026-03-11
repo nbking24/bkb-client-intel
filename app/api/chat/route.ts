@@ -31,14 +31,16 @@ export async function POST(req: NextRequest) {
     // Try to resolve jtJobId from the message context if not explicitly provided
     let resolvedJtJobId = jtJobId || undefined;
     if (!resolvedJtJobId) {
-      // Check if the latest message contains a job context hint (injected by frontend)
-      const lastMsg = messages[messages.length - 1]?.content || '';
-      const jobIdMatch = lastMsg.match(/\[Context:.*?ID:\s*([A-Za-z0-9]+)/);
-      if (jobIdMatch) {
-        resolvedJtJobId = jobIdMatch[1];
-      } else {
-        // Try to find a job name mentioned in the message by checking against known jobs
-        const jobNameMatch = lastMsg.match(/\[Context:.*?job "([^"]+)"/);
+      // Search ALL messages (not just the last one) for job context hints
+      // This is important because follow-up messages (e.g. task approval) won't have the context
+      for (let i = messages.length - 1; i >= 0 && !resolvedJtJobId; i--) {
+        const msgContent = messages[i]?.content || '';
+        const jobIdMatch = msgContent.match(/\[Context:.*?ID:\s*([A-Za-z0-9]+)/);
+        if (jobIdMatch) {
+          resolvedJtJobId = jobIdMatch[1];
+          break;
+        }
+        const jobNameMatch = msgContent.match(/\[Context:.*?job "([^"]+)"/);
         if (jobNameMatch) {
           try {
             const found = await findJTJobByName(jobNameMatch[1]);

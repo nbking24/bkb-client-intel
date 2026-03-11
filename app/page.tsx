@@ -312,7 +312,7 @@ export default function Home() {
       setMsgs(p => [...p, { id: newMsgId, role: "assistant", content: d.reply, ts: Date.now(), agent: d.agent }]);
       // Use API-provided taskConfirm (server-side parsed), fallback to client-side parsing
       if (d.taskConfirm) {
-        setPendingConfirm({ name: d.taskConfirm.name || "", phase: d.taskConfirm.phase || "", phaseId: d.taskConfirm.phaseId || "", description: d.taskConfirm.description || "", assignee: d.taskConfirm.assignee || "", startDate: d.taskConfirm.startDate || "", endDate: d.taskConfirm.endDate || "", msgId: newMsgId });
+        setPendingConfirm({ name: d.taskConfirm.name || "", phase: d.taskConfirm.phase || "", phaseId: d.taskConfirm.phaseId || "", jobId: d.taskConfirm.jobId || "", description: d.taskConfirm.description || "", assignee: d.taskConfirm.assignee || "", startDate: d.taskConfirm.startDate || "", endDate: d.taskConfirm.endDate || "", msgId: newMsgId });
       } else {
         const confirm = parseTaskConfirmation(d.reply, newMsgId);
         if (confirm) setPendingConfirm(confirm);

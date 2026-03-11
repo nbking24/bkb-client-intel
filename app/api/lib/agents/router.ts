@@ -4,6 +4,7 @@ import { AgentModule, AgentContext, AgentResult } from './types';
 import knowItAll from './know-it-all';
 import projectDetails from './project-details';
 import { getActiveJobs, getTasksForJob, getJobSchedule, getMembers, createPhaseTask, createTask } from '@/app/lib/jobtread';
+import { findJTJobByName } from '@/app/api/lib/supabase';
 
 const anthropic = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY });
 
@@ -211,21 +212,46 @@ async function tryTaskCreationFastPath(msg: string, ctx: AgentContext, messages?
   // Resolve jobId: context first, then taskData.jobId from the confirmation block
   let jobId = ctx.jtJobId || taskData.jobId;
   if (!jobId) {
-    // Last resort: search active jobs by name mentioned in the full conversation history
-    try {
-      const activeJobs = await getActiveJobs();
-      const allJobs = activeJobs || [];
-      // Collect all conversation text to search for job names
-      const allText = (messages || []).map(m => m.content).join(' ').toLowerCase();
-      for (const job of allJobs) {
-        const jName = (job.name || '').toLowerCase();
-        if (jName && allText.includes(jName)) {
-          jobId = job.id;
-          console.log('[FAST-TASK] Resolved jobId from conversation context:', job.name, '| ID:', job.id);
-          break;
-        }
+    console.log('[FAST-TASK] No jobId from context or taskData, searching conversation...');
+    const allText = (messages || []).map(m => m.content).join(' ');
+
+    // Strategy 1: Try Supabase fuzzy search with key terms from conversation
+    // Extract potential job names — look for common patterns like "on the X project", "for X", etc.
+    const jobNamePatterns = [
+      /(?:on|for|in)\s+(?:the\s+)?([A-Z][A-Za-z]+(?:\s+[A-Z][A-Za-z]+)*)\s+(?:project|job)/gi,
+      /(?:project|job)\s+(?:called\s+|named\s+)?["']?([A-Z][A-Za-z]+(?:\s+[A-Za-z]+)*)["']?/gi,
+    ];
+    for (const pattern of jobNamePatterns) {
+      let match;
+      while ((match = pattern.exec(allText)) !== null) {
+        try {
+          const found = await findJTJobByName(match[1].trim());
+          if (found) {
+            jobId = found.id;
+            console.log('[FAST-TASK] Resolved jobId via Supabase:', found.name, '| ID:', found.id);
+            break;
+          }
+        } catch { /* non-fatal */ }
       }
-    } catch { /* non-fatal */ }
+      if (jobId) break;
+    }
+
+    // Strategy 2: Search active jobs by name mentioned anywhere in the conversation
+    if (!jobId) {
+      try {
+        const activeJobs = await getActiveJobs();
+        const allJobs = activeJobs || [];
+        const lowerText = allText.toLowerCase();
+        for (const job of allJobs) {
+          const jName = (job.name || '').toLowerCase();
+          if (jName && lowerText.includes(jName)) {
+            jobId = job.id;
+            console.log('[FAST-TASK] Resolved jobId from active jobs:', job.name, '| ID:', job.id);
+            break;
+          }
+        }
+      } catch (e) { console.error('[FAST-TASK] getActiveJobs failed:', e); }
+    }
   }
   if (!jobId) {
     return { agentName: 'Know it All', reply: 'I need a project selected to create a task. Please select a project from the dropdown first.', needsConfirmation: false };
