@@ -388,6 +388,14 @@ function ContractJobCard({ job }: { job: ContractJobHealth }) {
             {job.unbilledLaborHours ?? 0}h
           </span>
         </span>
+        {job.pendingInvoices && job.pendingInvoices.length > 0 && (() => {
+          const unpaidTotal = job.pendingInvoices.reduce((sum, inv) => sum + inv.amount, 0);
+          return (
+            <span style={{ color: '#8a8078' }}>
+              Unpaid: <span style={{ color: '#eab308' }}>${unpaidTotal.toLocaleString()}</span>
+            </span>
+          );
+        })()}
       </div>
 
       {/* Compact alert rows — only show if there are issues */}
