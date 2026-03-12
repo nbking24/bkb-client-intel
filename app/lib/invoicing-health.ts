@@ -775,14 +775,16 @@ export async function buildInvoicingContext(): Promise<InvoicingFullContext> {
       globalAlerts.push(...cpHealth.alerts.map((a) => `[${job.name}] ${a}`));
     }
 
-    // Billable items — check ALL jobs regardless of type
-    const billable = findBillableItems(job, costItems, timeEntries);
-    if (billable) {
-      billableItems.push(billable);
-      if (billable.totalUninvoicedAmount > ALERT_THRESHOLDS.unbilledAmountThreshold) {
-        globalAlerts.push(
-          `[${job.name}] $${billable.totalUninvoicedAmount.toLocaleString()} in uninvoiced billable items`
-        );
+    // Billable items — only for non-contract jobs (contract jobs handle CC23 in analyzeContractJob)
+    if (job.priceType !== 'Fixed-Price') {
+      const billable = findBillableItems(job, costItems, timeEntries);
+      if (billable) {
+        billableItems.push(billable);
+        if (billable.totalUninvoicedAmount > ALERT_THRESHOLDS.unbilledAmountThreshold) {
+          globalAlerts.push(
+            `[${job.name}] $${billable.totalUninvoicedAmount.toLocaleString()} in uninvoiced billable items`
+          );
+        }
       }
     }
   }
