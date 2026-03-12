@@ -364,11 +364,11 @@ async function analyzeContractJob(
   const uninvoicedBillableAmount = Math.max(0, cc23BillCosts - cc23InvoicedCosts);
 
   // Calculate unbilled labor hours for contract jobs:
-  // 1. Find all time entries with type "Billable" and sum their hours
+  // 1. Find all time entries tagged to Cost Code 23 (Miscellaneous/Billable) and sum their hours
   // 2. Subtract hours that have been billed on change order invoices
   //    (CC23 labor items on customer invoices)
   const billableTimeEntries = timeEntries.filter(
-    (entry) => entry.type === 'Billable'
+    (entry) => entry.costItem?.costCode?.number === BILLABLE_COST_CODE_NUMBER
   );
   const totalBillableHours = billableTimeEntries.reduce((sum, entry) => {
     if (entry.startedAt && entry.endedAt) {

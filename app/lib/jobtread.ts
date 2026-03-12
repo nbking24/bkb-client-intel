@@ -1548,7 +1548,7 @@ export interface JTTimeEntry {
   notes: string;
   type: string;
   user?: { id: string; name: string };
-  costItem?: { id: string; name: string } | null;
+  costItem?: { id: string; name: string; costCode?: { number: string; name: string } | null } | null;
 }
 
 export async function getTimeEntriesForJob(jobId: string, limit = 100): Promise<JTTimeEntry[]> {
@@ -1560,7 +1560,7 @@ export async function getTimeEntriesForJob(jobId: string, limit = 100): Promise<
       notes: {},
       type: {},
       user: { id: {}, name: {} },
-      costItem: { id: {}, name: {} },
+      costItem: { id: {}, name: {}, costCode: { number: {}, name: {} } },
     },
   };
 
