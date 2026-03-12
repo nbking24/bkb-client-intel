@@ -14,9 +14,9 @@ import {
   getActiveJobs,
   getDocumentsForJob,
   getCostItemsForJobLite,
-  getDocumentCostItemsForJob,
   getTimeEntriesForJob,
   getJobSchedule,
+  getDocumentCostItemsById,
   type JTJob,
   type JTDocument,
   type JTCostItem,
@@ -217,7 +217,6 @@ async function analyzeContractJob(
   costItems: JTCostItem[],
   timeEntries: JTTimeEntry[],
   todayStr: string,
-  documentCostItems: JTCostItem[] = []
 ): Promise<ContractJobHealth> {
   const alerts: string[] = [];
 
@@ -328,9 +327,26 @@ async function analyzeContractJob(
   const unmatchedDraftInvoices = draftInvoiceInfos.filter((d) => !d.isLinkedToTask);
 
   // Calculate billable items (Cost Code 23) for this contract job
-  // Use documentCostItems (items on vendor bills, invoices, etc.) — NOT budget-level costItems
-  // Sum CC23 items on vendor bills (actual costs incurred) minus CC23 on customer invoices (already billed)
-  const docCC23 = documentCostItems.filter(
+  // Fetch document-level cost items from vendor bills and customer invoices individually
+  // (Can't use a single nested query — it causes 413 errors on PAVE)
+  const vendorBills = documents.filter((d) => d.type === 'vendorBill');
+  const customerInvoicesForCC23 = documents.filter((d) => d.type === 'customerInvoice');
+  const relevantDocs = [...vendorBills, ...customerInvoicesForCC23];
+
+  // Fetch cost items for each relevant document individually (small queries, no 413 risk)
+  const docCostItemResults = await Promise.all(
+    relevantDocs.map(async (doc) => {
+      try {
+        const items = await getDocumentCostItemsById(doc.id);
+        return items.map((item) => ({ ...item, document: { id: doc.id, name: doc.name || '', type: doc.type } }));
+      } catch {
+        return [] as JTCostItem[];
+      }
+    })
+  );
+  const allDocCostItems = docCostItemResults.flat();
+
+  const docCC23 = allDocCostItems.filter(
     (item) => item.costCode?.number === BILLABLE_COST_CODE_NUMBER
   );
   const cc23OnBills = docCC23.filter(
@@ -673,7 +689,6 @@ export async function buildInvoicingContext(): Promise<InvoicingFullContext> {
     job: JTJob;
     documents: JTDocument[];
     costItems: JTCostItem[];
-    documentCostItems: JTCostItem[];
     timeEntries: JTTimeEntry[];
   }> = [];
 
@@ -682,10 +697,9 @@ export async function buildInvoicingContext(): Promise<InvoicingFullContext> {
     const batchResults = await Promise.all(
       batch.map(async (job) => {
         try {
-          const [documents, costItems, documentCostItems, timeEntries] = await Promise.all([
+          const [documents, costItems, timeEntries] = await Promise.all([
             getDocumentsForJob(job.id),
             getCostItemsForJobLite(job.id, 200),
-            getDocumentCostItemsForJob(job.id),
             getTimeEntriesForJob(job.id, 100),
           ]);
 
@@ -693,10 +707,10 @@ export async function buildInvoicingContext(): Promise<InvoicingFullContext> {
             console.warn(`[InvoicingHealth] WARNING: All data empty for job ${job.name} (${job.id}) — possible API issue`);
           }
 
-          return { job, documents, costItems, documentCostItems, timeEntries };
+          return { job, documents, costItems, timeEntries };
         } catch (err: any) {
           console.error(`[InvoicingHealth] FAILED to fetch data for job ${job.name} (${job.id}): ${err?.message || err}`);
-          return { job, documents: [] as JTDocument[], costItems: [] as JTCostItem[], documentCostItems: [] as JTCostItem[], timeEntries: [] as JTTimeEntry[] };
+          return { job, documents: [] as JTDocument[], costItems: [] as JTCostItem[], timeEntries: [] as JTTimeEntry[] };
         }
       })
     );
@@ -706,7 +720,6 @@ export async function buildInvoicingContext(): Promise<InvoicingFullContext> {
   console.log(`[InvoicingHealth] Fetched data for ${jobContexts.length} jobs — ` +
     `docs: ${jobContexts.reduce((s, j) => s + j.documents.length, 0)}, ` +
     `costItems: ${jobContexts.reduce((s, j) => s + j.costItems.length, 0)}, ` +
-    `docCostItems: ${jobContexts.reduce((s, j) => s + j.documentCostItems.length, 0)}, ` +
     `timeEntries: ${jobContexts.reduce((s, j) => s + j.timeEntries.length, 0)}`);
 
   // 3. Classify each job by its native priceType field from JobTread
@@ -715,9 +728,8 @@ export async function buildInvoicingContext(): Promise<InvoicingFullContext> {
     job: ExtendedJob;
     documents: JTDocument[];
     costItems: JTCostItem[];
-    documentCostItems: JTCostItem[];
     timeEntries: JTTimeEntry[];
-  }> = jobContexts.map(({ job, documents, costItems, documentCostItems, timeEntries }) => {
+  }> = jobContexts.map(({ job, documents, costItems, timeEntries }) => {
     // Use the native priceType field from JobTread PAVE API
     // Values: "fixed" = Fixed-Price, "costPlus" = Cost-Plus
     let priceType = 'unknown';
@@ -735,7 +747,6 @@ export async function buildInvoicingContext(): Promise<InvoicingFullContext> {
       job: { ...job, priceType } as ExtendedJob,
       documents,
       costItems,
-      documentCostItems,
       timeEntries,
     };
   });
@@ -746,10 +757,10 @@ export async function buildInvoicingContext(): Promise<InvoicingFullContext> {
   const billableItems: BillableItemsSummary[] = [];
   const globalAlerts: string[] = [];
 
-  for (const { job, documents, costItems, documentCostItems, timeEntries } of extendedJobs) {
+  for (const { job, documents, costItems, timeEntries } of extendedJobs) {
     // Contract (Fixed-Price) analysis
     if (job.priceType === 'Fixed-Price') {
-      const contractHealth = await analyzeContractJob(job, documents, costItems, timeEntries, todayStr, documentCostItems);
+      const contractHealth = await analyzeContractJob(job, documents, costItems, timeEntries, todayStr);
       contractJobs.push(contractHealth);
       globalAlerts.push(...contractHealth.alerts.map((a) => `[${job.name}] ${a}`));
     }

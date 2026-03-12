@@ -1763,6 +1763,32 @@ export async function getDocumentCostItemsForJob(jobId: string): Promise<JTCostI
   return allItems;
 }
 
+/**
+ * Fetch cost items for a single document by its ID.
+ * This is a lightweight query (one document at a time) that avoids 413 errors.
+ */
+export async function getDocumentCostItemsById(documentId: string): Promise<JTCostItem[]> {
+  const data = await pave({
+    document: {
+      $: { id: documentId },
+      costItems: {
+        $: { size: 50 },
+        nodes: {
+          id: {},
+          name: {},
+          cost: {},
+          price: {},
+          quantity: {},
+          costCode: { number: {}, name: {} },
+        },
+      },
+    },
+  });
+
+  const items = (data as any)?.document?.costItems?.nodes || [];
+  return items as JTCostItem[];
+}
+
 export async function getCostItemsForJob(jobId: string, limit = 500): Promise<JTCostItem[]> {
   // Paginate through all cost items (jobs can have 200+ items)
   // Page size 50 to avoid 413 errors when customFieldValues are included
