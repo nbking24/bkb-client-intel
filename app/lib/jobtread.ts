@@ -900,6 +900,7 @@ export async function moveTaskToPhase(params: {
 export interface JTDocument {
   id: string;
   name: string;
+  subject: string | null;
   status: string;
   type: string;
   description: string;
@@ -918,6 +919,7 @@ export async function getDocumentsForJob(jobId: string): Promise<JTDocument[]> {
         nodes: {
           id: {},
           name: {},
+          subject: {},
           status: {},
           type: {},
           description: {},

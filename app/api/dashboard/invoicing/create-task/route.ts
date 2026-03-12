@@ -15,7 +15,7 @@ const IN_PRODUCTION_GROUP_NAME = 'In Production';
 
 export async function POST(req: NextRequest) {
   try {
-    const { jobId, documentName } = await req.json();
+    const { jobId, documentName, documentSubject } = await req.json();
 
     if (!jobId || !documentName) {
       return NextResponse.json(
@@ -52,8 +52,9 @@ export async function POST(req: NextRequest) {
       inProductionGroupId = created.id;
     }
 
-    // 2. Build the task name: "$ <documentName>"
-    const taskName = `$ ${documentName}`;
+    // 2. Build the task name: "$ - (Subject)" or "$ - (Invoice)" if no subject
+    const label = documentSubject || documentName;
+    const taskName = `$ - (${label})`;
 
     // Check if a task with this name already exists
     const existingTask = allTasks.find(

@@ -98,6 +98,7 @@ export interface MilestoneInfo {
 export interface DraftInvoiceInfo {
   documentId: string;
   documentName: string;
+  documentSubject: string | null;
   amount: number;
   createdAt: string;
   isLinkedToTask: boolean;
@@ -271,18 +272,25 @@ async function analyzeContractJob(
   const nextMilestone = upcomingMilestones.length > 0 ? upcomingMilestones[0] : null;
 
   // Draft invoice tracking — check for unmatched drafts (no matching $ schedule task)
-  const dollarTaskNames = paymentTasks
+  // Task names follow the format "$ - (Subject)" — extract the label inside parens for matching
+  const dollarTaskLabels = paymentTasks
     .filter((t) => t.taskName?.startsWith('$'))
-    .map((t) => t.taskName?.substring(1).trim().toLowerCase() || '');
+    .map((t) => {
+      const raw = t.taskName?.substring(1).trim().toLowerCase() || '';
+      // Extract content inside parentheses if present: "- (Some Subject)" → "some subject"
+      const parenMatch = raw.match(/\(([^)]+)\)/);
+      return parenMatch ? parenMatch[1].trim() : raw;
+    });
 
   const draftInvoiceInfos: DraftInvoiceInfo[] = draftInvoices.map((d) => {
-    const draftNameLower = (d.name || '').trim().toLowerCase();
-    const hasMatchingTask = dollarTaskNames.some((taskName) =>
-      taskName === draftNameLower || draftNameLower.includes(taskName) || taskName.includes(draftNameLower)
+    const subjectLower = (d.subject || d.name || '').trim().toLowerCase();
+    const hasMatchingTask = dollarTaskLabels.some((taskLabel) =>
+      taskLabel === subjectLower || subjectLower.includes(taskLabel) || taskLabel.includes(subjectLower)
     );
     return {
       documentId: d.id,
       documentName: d.name,
+      documentSubject: d.subject || null,
       amount: 0,
       createdAt: d.createdAt,
       isLinkedToTask: hasMatchingTask,

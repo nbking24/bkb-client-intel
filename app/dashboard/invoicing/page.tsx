@@ -37,6 +37,7 @@ interface MilestoneInfo {
 interface DraftInvoiceInfo {
   documentId: string;
   documentName: string;
+  documentSubject: string | null;
   amount: number;
   createdAt: string;
   isLinkedToTask: boolean;
@@ -277,7 +278,7 @@ function CreateTaskRow({ jobId, draft }: { jobId: string; draft: DraftInvoiceInf
       const res = await fetch('/api/dashboard/invoicing/create-task', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ jobId, documentName: draft.documentName }),
+        body: JSON.stringify({ jobId, documentName: draft.documentName, documentSubject: draft.documentSubject }),
       });
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || 'Failed');
@@ -292,7 +293,7 @@ function CreateTaskRow({ jobId, draft }: { jobId: string; draft: DraftInvoiceInf
   return (
     <div className="flex items-center gap-1.5 text-[11px] py-0.5" style={{ color: '#eab308' }}>
       <AlertCircle size={10} className="flex-shrink-0" />
-      <span className="truncate">{draft.documentName} — missing $ task</span>
+      <span className="truncate">{draft.documentSubject || draft.documentName} — missing $ task</span>
       {status === 'idle' && (
         <button
           onClick={handleCreate}
