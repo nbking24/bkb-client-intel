@@ -79,6 +79,7 @@ export interface ContractJobHealth {
   approachingMilestones: MilestoneInfo[];
   unmatchedDraftInvoices: DraftInvoiceInfo[];
   draftInvoices: DraftInvoiceInfo[];
+  pendingInvoices: PendingInvoiceInfo[];
   uninvoicedBillableAmount: number;
   unbilledLaborHours: number;
   health: InvoicingHealth;
@@ -102,6 +103,15 @@ export interface DraftInvoiceInfo {
   amount: number;
   createdAt: string;
   isLinkedToTask: boolean;
+}
+
+export interface PendingInvoiceInfo {
+  documentId: string;
+  documentSubject: string | null;
+  documentNumber: string;
+  amount: number;
+  createdAt: string;
+  daysPending: number;
 }
 
 export interface CostPlusJobHealth {
@@ -216,6 +226,22 @@ async function analyzeContractJob(
   const customerInvoices = documents.filter((d) => d.type === 'customerInvoice');
   const approvedInvoices = customerInvoices.filter((d) => d.status === 'approved');
   const draftInvoices = customerInvoices.filter((d) => d.status === 'draft');
+  const pendingInvoicesDocs = customerInvoices.filter((d) => d.status === 'pending');
+
+  // Build pending invoice info (sent but not yet paid)
+  const today = new Date(todayStr);
+  const pendingInvoices: PendingInvoiceInfo[] = pendingInvoicesDocs.map((d) => {
+    const created = new Date(d.createdAt);
+    const daysPending = Math.floor((today.getTime() - created.getTime()) / (1000 * 60 * 60 * 24));
+    return {
+      documentId: d.id,
+      documentSubject: d.subject || null,
+      documentNumber: d.number,
+      amount: d.price || 0,
+      createdAt: d.createdAt,
+      daysPending,
+    };
+  });
 
   // Get estimates for total contract value
   const estimates = documents.filter(
@@ -344,15 +370,13 @@ async function analyzeContractJob(
   let health: InvoicingHealth = 'healthy';
 
   // CRITICAL: milestone 14+ days past due
+  // (Individual overdue milestones shown with name/date in the UI — no summary alert needed)
   if (overdueMilestones.length > 0) {
     const worstOverdue = Math.max(...overdueMilestones.map((m) => Math.abs(m.daysUntilDue ?? 0)));
     if (worstOverdue > 14) {
       health = 'critical';
-      alerts.push(`${overdueMilestones.length} payment milestone${overdueMilestones.length > 1 ? 's' : ''} overdue — worst: ${worstOverdue} days`);
     } else {
-      // OVERDUE: milestone 1–14 days past due
       health = 'overdue';
-      alerts.push(`${overdueMilestones.length} payment milestone${overdueMilestones.length > 1 ? 's' : ''} overdue`);
     }
   }
 
@@ -417,6 +441,7 @@ async function analyzeContractJob(
     approachingMilestones,
     unmatchedDraftInvoices,
     draftInvoices: draftInvoiceInfos,
+    pendingInvoices,
     uninvoicedBillableAmount,
     unbilledLaborHours: roundedLaborHours,
     health,

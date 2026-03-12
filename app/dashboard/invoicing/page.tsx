@@ -5,7 +5,7 @@ import {
   DollarSign, AlertTriangle, Clock, CheckCircle2,
   RefreshCw, Loader2, FileText, TrendingUp,
   Calendar, AlertCircle, ChevronDown, ChevronRight,
-  Search, X, Plus, Check,
+  Search, X, Plus, Check, Send,
 } from 'lucide-react';
 
 // ============================================================
@@ -43,6 +43,15 @@ interface DraftInvoiceInfo {
   isLinkedToTask: boolean;
 }
 
+interface PendingInvoiceInfo {
+  documentId: string;
+  documentSubject: string | null;
+  documentNumber: string;
+  amount: number;
+  createdAt: string;
+  daysPending: number;
+}
+
 interface ContractJobHealth {
   jobId: string;
   jobName: string;
@@ -59,6 +68,7 @@ interface ContractJobHealth {
   approachingMilestones: MilestoneInfo[];
   unmatchedDraftInvoices: DraftInvoiceInfo[];
   draftInvoices: DraftInvoiceInfo[];
+  pendingInvoices: PendingInvoiceInfo[];
   uninvoicedBillableAmount: number;
   unbilledLaborHours: number;
   health: InvoicingHealth;
@@ -381,12 +391,14 @@ function ContractJobCard({ job }: { job: ContractJobHealth }) {
         </div>
       )}
 
-      {job.overdueMilestones.length > 0 && (
-        <div className="flex items-center gap-1 text-[11px] py-0.5" style={{ color: '#ef4444' }}>
+      {job.overdueMilestones.length > 0 && job.overdueMilestones.map((m) => (
+        <div key={m.taskId} className="flex items-center gap-1.5 text-[11px] py-0.5" style={{ color: '#ef4444' }}>
           <AlertTriangle size={10} className="flex-shrink-0" />
-          {job.overdueMilestones.map((m) => `${m.taskName} (${Math.abs(m.daysUntilDue ?? 0)}d)`).join(', ')}
+          <span className="truncate">
+            {m.taskName} — due {formatDate(m.endDate)} ({Math.abs(m.daysUntilDue ?? 0)}d overdue)
+          </span>
         </div>
-      )}
+      ))}
 
       {job.unmatchedDraftInvoices && job.unmatchedDraftInvoices.length > 0 && (
         <div className="py-0.5">
@@ -395,6 +407,17 @@ function ContractJobCard({ job }: { job: ContractJobHealth }) {
           ))}
         </div>
       )}
+
+      {job.pendingInvoices && job.pendingInvoices.length > 0 && job.pendingInvoices.map((inv) => (
+        <div key={inv.documentId} className="flex items-center gap-1.5 text-[11px] py-0.5" style={{ color: '#8a8078' }}>
+          <Send size={9} className="flex-shrink-0" />
+          <span className="truncate">
+            Invoice #{inv.documentNumber}{inv.documentSubject ? ` — ${inv.documentSubject}` : ''}
+            {inv.amount > 0 ? ` ($${inv.amount.toLocaleString()})` : ''}
+            {' '}— sent {inv.daysPending}d ago, awaiting payment
+          </span>
+        </div>
+      ))}
 
       {job.nextMilestone && (!job.approachingMilestones || !job.approachingMilestones.some(m => m.taskId === job.nextMilestone?.taskId)) && (
         <div className="text-[11px] py-0.5" style={{ color: '#8a8078' }}>
