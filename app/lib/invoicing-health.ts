@@ -498,8 +498,8 @@ async function analyzeCostPlusJob(
   const unbilledCosts = Math.max(0, totalJobCosts - totalCostsBilled);
   const unbilledAmount = unbilledCosts;
 
-  // Calculate unbilled hours from time entries
-  const unbilledHours = timeEntries.reduce((sum, entry) => {
+  // Calculate unbilled hours: total time entries vs labor hours billed on invoices
+  const totalHours = timeEntries.reduce((sum, entry) => {
     if (entry.startedAt && entry.endedAt) {
       const start = new Date(entry.startedAt).getTime();
       const end = new Date(entry.endedAt).getTime();
@@ -507,6 +507,10 @@ async function analyzeCostPlusJob(
     }
     return sum;
   }, 0);
+  const billedLaborHours = costItemsOnInvoices
+    .filter((item) => item.costType?.name?.toLowerCase().includes('labor'))
+    .reduce((sum, item) => sum + (item.quantity || 0), 0);
+  const unbilledHours = Math.max(0, totalHours - billedLaborHours);
 
   // Total invoiced (actual dollar amounts from approved + pending invoices)
   const pendingInvoices = customerInvoices.filter((d) => d.status === 'pending');
