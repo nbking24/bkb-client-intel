@@ -708,8 +708,9 @@ export default function InvoicingDashboard() {
           <p className="text-xs mt-1" style={{ color: '#8a8078' }}>
             {report._cached
               ? `Cached ${formatDateTime(report._cachedAt || report.generatedAt)}`
-              : `Updated ${formatDateTime(report.generatedAt)}`
+              : `Fresh ${formatDateTime(report.generatedAt)}`
             }
+            {report._analysisTimeMs ? ` (${(report._analysisTimeMs / 1000).toFixed(1)}s)` : ''}
           </p>
         </div>
         <button
@@ -719,7 +720,7 @@ export default function InvoicingDashboard() {
           style={{ border: '1px solid rgba(205,162,116,0.2)', color: '#CDA274' }}
         >
           <RefreshCw size={14} className={refreshing ? 'animate-spin' : ''} />
-          {refreshing ? 'Refreshing...' : 'Refresh'}
+          {refreshing ? 'Running fresh analysis...' : 'Refresh'}
         </button>
       </div>
 
