@@ -270,6 +270,12 @@ function formatDate(d: string | null) {
   return date.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
 }
 
+function formatDateTime(d: string | null) {
+  if (!d) return '—';
+  const date = new Date(d);
+  return date.toLocaleString('en-US', { month: 'short', day: 'numeric', year: 'numeric', hour: 'numeric', minute: '2-digit' });
+}
+
 function formatCurrency(amount: number) {
   return new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD', minimumFractionDigits: 0 }).format(amount);
 }
@@ -702,8 +708,8 @@ export default function InvoicingDashboard() {
           </h1>
           <p className="text-xs mt-1" style={{ color: '#8a8078' }}>
             {report._cached
-              ? `Cached ${formatDate(report._cachedAt || report.generatedAt)}`
-              : `Updated ${formatDate(report.generatedAt)}`
+              ? `Cached ${formatDateTime(report._cachedAt || report.generatedAt)}`
+              : `Updated ${formatDateTime(report.generatedAt)}`
             }
           </p>
         </div>
