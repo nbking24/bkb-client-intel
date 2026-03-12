@@ -495,7 +495,7 @@ function CostPlusJobCard({ job }: { job: CostPlusJobHealth }) {
           Hours: <span style={{ color: job.unbilledHours > 0 ? '#eab308' : '#e8e0d8' }}>{job.unbilledHours}h</span>
         </span>
         <span style={{ color: '#8a8078' }}>
-          Inv: <span style={{ color: '#e8e0d8' }}>{job.invoiceCount}</span>
+          Billed: <span style={{ color: '#e8e0d8' }}>{formatCurrency(job.totalInvoiced)}</span>
         </span>
       </div>
 

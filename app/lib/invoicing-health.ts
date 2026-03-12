@@ -481,18 +481,22 @@ async function analyzeCostPlusJob(
     }
   }
 
-  // Calculate unbilled costs from cost items not on an invoice
-  // Use `cost` and `price` fields (extended amounts from PAVE API) which correctly
-  // reflect accumulated time entries, instead of qty * unit values.
-  const unbilledItems = costItems.filter((item) => !item.document);
-  const unbilledCosts = unbilledItems.reduce(
-    (sum, item) => sum + (item.cost || 0),
-    0
+  // Calculate unbilled costs: total job costs incurred vs costs billed on customer invoices
+  // Costs incurred = items on vendor bills + unattached budget items (real expenses)
+  const costItemsIncurred = costItems.filter(
+    (item) => item.document?.type === 'vendorBill' || !item.document
   );
-  const unbilledAmount = unbilledItems.reduce(
-    (sum, item) => sum + (item.price || 0),
-    0
+  const totalJobCosts = costItemsIncurred.reduce(
+    (sum, item) => sum + (item.cost || 0), 0
   );
+  const costItemsOnInvoices = costItems.filter(
+    (item) => item.document?.type === 'customerInvoice'
+  );
+  const totalCostsBilled = costItemsOnInvoices.reduce(
+    (sum, item) => sum + (item.cost || 0), 0
+  );
+  const unbilledCosts = Math.max(0, totalJobCosts - totalCostsBilled);
+  const unbilledAmount = unbilledCosts;
 
   // Calculate unbilled hours from time entries
   const unbilledHours = timeEntries.reduce((sum, entry) => {
@@ -504,8 +508,11 @@ async function analyzeCostPlusJob(
     return sum;
   }, 0);
 
-  // Total invoiced
-  const totalInvoiced = approvedInvoices.length; // Enhance with actual amounts later
+  // Total invoiced (actual dollar amounts from approved + pending invoices)
+  const pendingInvoices = customerInvoices.filter((d) => d.status === 'pending');
+  const totalInvoiced = [...approvedInvoices, ...pendingInvoices].reduce(
+    (sum, d) => sum + (d.price || 0), 0
+  );
 
   // Determine health
   let health: InvoicingHealth = 'healthy';
