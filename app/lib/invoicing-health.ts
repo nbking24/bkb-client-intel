@@ -376,9 +376,11 @@ async function analyzeContractJob(
   // 1. Find all time entries tagged to Cost Code 23 (Miscellaneous/Billable) and sum their hours
   // 2. Subtract hours that have been billed on change order invoices
   //    (CC23 labor items on customer invoices)
+  // Time entries only need cost code 23 — the cost item may still carry a
+  // legacy name (e.g. "23 Miscellaneous/billable Labor") so we skip the
+  // name-prefix check here (vendor bills & invoices still require it).
   const billableTimeEntries = timeEntries.filter(
-    (entry) => entry.costItem?.costCode?.number === BILLABLE_COST_CODE_NUMBER &&
-      entry.costItem?.name?.startsWith(BILLABLE_NAME_PREFIX)
+    (entry) => entry.costItem?.costCode?.number === BILLABLE_COST_CODE_NUMBER
   );
   const totalBillableHours = billableTimeEntries.reduce((sum, entry) => {
     if (entry.startedAt && entry.endedAt) {
