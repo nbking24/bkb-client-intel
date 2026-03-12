@@ -37,7 +37,13 @@ const ALERT_THRESHOLDS = {
   costPlusOverdueDays: 14,       // Days since last invoice before alert
   costPlusWarningDays: 10,       // Days since last invoice before warning
   milestoneOverdueDays: 0,       // Schedule task past due with no invoice
-  unbilledAmountThreshold: 100,  // Minimum $ to flag as unbilled
+  unbilledAmountThreshold: 100,  // Minimum $ to flag as unbilled (cost-plus)
+  // Contract (Fixed-Price) billable thresholds
+  contractBillableWarning: 200,  // $ uninvoiced billable items → warning
+  contractBillableOverdue: 800,  // $ uninvoiced billable items → overdue
+  contractLaborWarning: 1,       // Hours unbilled labor → warning
+  contractLaborOverdue: 3,       // Hours unbilled labor → overdue
+  contractMilestoneApproachingDays: 2, // $ task due within N days → warning
 } as const;
 
 // ============================================================
@@ -69,7 +75,11 @@ export interface ContractJobHealth {
   scheduleProgress: number;
   nextMilestone: MilestoneInfo | null;
   overdueMilestones: MilestoneInfo[];
+  approachingMilestones: MilestoneInfo[];
+  unmatchedDraftInvoices: DraftInvoiceInfo[];
   draftInvoices: DraftInvoiceInfo[];
+  uninvoicedBillableAmount: number;
+  unbilledLaborHours: number;
   health: InvoicingHealth;
   alerts: string[];
 }
@@ -191,6 +201,8 @@ interface ExtendedJob extends JTJob {
 async function analyzeContractJob(
   job: ExtendedJob,
   documents: JTDocument[],
+  costItems: JTCostItem[],
+  timeEntries: JTTimeEntry[],
   todayStr: string
 ): Promise<ContractJobHealth> {
   const alerts: string[] = [];
@@ -208,11 +220,6 @@ async function analyzeContractJob(
     (d) => d.type === 'customerOrder' && d.status === 'approved'
   );
 
-  // Calculate contract value from approved estimates
-  // We'd need document content for line item totals. For now, use a heuristic:
-  // sum of all approved customerOrder documents (we need getDocumentContent for amounts)
-  // For MVP, we'll track document count and flag issues.
-
   // Find payment-related schedule tasks (tasks with $ prefix)
   const paymentTasks: MilestoneInfo[] = [];
   if (schedule) {
@@ -225,7 +232,6 @@ async function analyzeContractJob(
 
     // Also include orphan tasks
     const orphanTasks = schedule.orphanTasks || [];
-
     const allTasksFlat = [...allTasks, ...orphanTasks];
 
     for (const task of allTasksFlat) {
@@ -240,7 +246,7 @@ async function analyzeContractJob(
           endDate: task.endDate,
           daysUntilDue,
           isOverdue: daysUntilDue !== null && daysUntilDue < 0 && (task.progress ?? 0) < 1,
-          linkedInvoiceId: null, // Would need cross-reference
+          linkedInvoiceId: null,
           amount: null,
         });
       }
@@ -250,6 +256,12 @@ async function analyzeContractJob(
   // Find overdue milestones
   const overdueMilestones = paymentTasks.filter((m) => m.isOverdue);
 
+  // Find milestones approaching (due within N days, not overdue, not complete)
+  const approachingMilestones = paymentTasks.filter(
+    (m) => !m.isOverdue && m.daysUntilDue !== null &&
+      m.daysUntilDue >= 0 && m.daysUntilDue <= ALERT_THRESHOLDS.contractMilestoneApproachingDays
+  );
+
   // Find next upcoming milestone
   const upcomingMilestones = paymentTasks
     .filter((m) => !m.isOverdue && m.daysUntilDue !== null && m.daysUntilDue >= 0)
@@ -257,31 +269,111 @@ async function analyzeContractJob(
 
   const nextMilestone = upcomingMilestones.length > 0 ? upcomingMilestones[0] : null;
 
-  // Draft invoice tracking
-  const draftInvoiceInfos: DraftInvoiceInfo[] = draftInvoices.map((d) => ({
-    documentId: d.id,
-    documentName: d.name,
-    amount: 0, // Would need getDocumentContent
-    createdAt: d.createdAt,
-    isLinkedToTask: false, // Would need cross-reference
-  }));
+  // Draft invoice tracking — check for unmatched drafts (no matching $ schedule task)
+  const dollarTaskNames = paymentTasks
+    .filter((t) => t.taskName?.startsWith('$'))
+    .map((t) => t.taskName?.substring(1).trim().toLowerCase() || '');
 
-  // Determine health
+  const draftInvoiceInfos: DraftInvoiceInfo[] = draftInvoices.map((d) => {
+    const draftNameLower = (d.name || '').trim().toLowerCase();
+    const hasMatchingTask = dollarTaskNames.some((taskName) =>
+      taskName === draftNameLower || draftNameLower.includes(taskName) || taskName.includes(draftNameLower)
+    );
+    return {
+      documentId: d.id,
+      documentName: d.name,
+      amount: 0,
+      createdAt: d.createdAt,
+      isLinkedToTask: hasMatchingTask,
+    };
+  });
+
+  const unmatchedDraftInvoices = draftInvoiceInfos.filter((d) => !d.isLinkedToTask);
+
+  // Calculate billable items (Cost Code 23) for this contract job
+  const billableCostItems = costItems.filter(
+    (item) => item.costCode?.number === BILLABLE_COST_CODE_NUMBER
+  );
+  const uninvoicedBillableItems = billableCostItems.filter((item) => !item.document);
+  const uninvoicedBillableAmount = uninvoicedBillableItems.reduce(
+    (sum, item) => sum + (item.quantity * item.unitPrice), 0
+  );
+
+  // Calculate unbilled labor hours (time entries linked to Cost Code 23 items)
+  const unbilledLaborHours = timeEntries
+    .filter((entry) => {
+      if (entry.costItem) {
+        return billableCostItems.some((ci) => ci.id === entry.costItem?.id);
+      }
+      return false;
+    })
+    .reduce((sum, entry) => {
+      if (entry.startedAt && entry.endedAt) {
+        const start = new Date(entry.startedAt).getTime();
+        const end = new Date(entry.endedAt).getTime();
+        return sum + (end - start) / (1000 * 60 * 60);
+      }
+      return sum;
+    }, 0);
+
+  const roundedLaborHours = Math.round(unbilledLaborHours * 10) / 10;
+
+  // ============================================================
+  // Determine health — priority: critical > overdue > warning
+  // ============================================================
   let health: InvoicingHealth = 'healthy';
 
+  // CRITICAL: milestone 14+ days past due
   if (overdueMilestones.length > 0) {
     const worstOverdue = Math.max(...overdueMilestones.map((m) => Math.abs(m.daysUntilDue ?? 0)));
     if (worstOverdue > 14) {
       health = 'critical';
       alerts.push(`${overdueMilestones.length} payment milestone${overdueMilestones.length > 1 ? 's' : ''} overdue — worst: ${worstOverdue} days`);
     } else {
+      // OVERDUE: milestone 1–14 days past due
       health = 'overdue';
       alerts.push(`${overdueMilestones.length} payment milestone${overdueMilestones.length > 1 ? 's' : ''} overdue`);
     }
   }
 
-  if (draftInvoices.length > 0) {
-    alerts.push(`${draftInvoices.length} draft invoice${draftInvoices.length > 1 ? 's' : ''} pending`);
+  // OVERDUE: billable items > $800
+  if (uninvoicedBillableAmount > ALERT_THRESHOLDS.contractBillableOverdue) {
+    alerts.push(`$${uninvoicedBillableAmount.toLocaleString()} in uninvoiced billable items`);
+    if (health !== 'critical' && health !== 'overdue') health = 'overdue';
+  }
+
+  // OVERDUE: unbilled labor > 3 hrs
+  if (roundedLaborHours > ALERT_THRESHOLDS.contractLaborOverdue) {
+    alerts.push(`${roundedLaborHours} unbilled labor hours`);
+    if (health !== 'critical' && health !== 'overdue') health = 'overdue';
+  }
+
+  // WARNING: milestone approaching (due within 2 days)
+  if (approachingMilestones.length > 0 && health === 'healthy') {
+    health = 'warning';
+    for (const m of approachingMilestones) {
+      const dueLabel = m.daysUntilDue === 0 ? 'due today' : `due in ${m.daysUntilDue} day${m.daysUntilDue === 1 ? '' : 's'}`;
+      alerts.push(`${m.taskName} — ${dueLabel}`);
+    }
+  }
+
+  // WARNING: draft invoice with no matching $ schedule task
+  if (unmatchedDraftInvoices.length > 0 && health === 'healthy') {
+    health = 'warning';
+    alerts.push(`${unmatchedDraftInvoices.length} draft invoice${unmatchedDraftInvoices.length > 1 ? 's' : ''} with no matching $ schedule task`);
+  }
+
+  // WARNING: billable items > $200 (but not already overdue from > $800)
+  if (uninvoicedBillableAmount > ALERT_THRESHOLDS.contractBillableWarning &&
+      uninvoicedBillableAmount <= ALERT_THRESHOLDS.contractBillableOverdue) {
+    alerts.push(`$${uninvoicedBillableAmount.toLocaleString()} in uninvoiced billable items`);
+    if (health === 'healthy') health = 'warning';
+  }
+
+  // WARNING: unbilled labor > 1 hr (but not already overdue from > 3 hrs)
+  if (roundedLaborHours > ALERT_THRESHOLDS.contractLaborWarning &&
+      roundedLaborHours <= ALERT_THRESHOLDS.contractLaborOverdue) {
+    alerts.push(`${roundedLaborHours} unbilled labor hours`);
     if (health === 'healthy') health = 'warning';
   }
 
@@ -302,7 +394,11 @@ async function analyzeContractJob(
     scheduleProgress: schedule?.totalProgress ?? 0,
     nextMilestone,
     overdueMilestones,
+    approachingMilestones,
+    unmatchedDraftInvoices,
     draftInvoices: draftInvoiceInfos,
+    uninvoicedBillableAmount,
+    unbilledLaborHours: roundedLaborHours,
     health,
     alerts,
   };
@@ -378,10 +474,6 @@ async function analyzeCostPlusJob(
       health = 'warning';
       alerts.push(`${daysSinceLastInvoice} days since last invoice — billing due soon`);
     }
-  } else if (approvedInvoices.length === 0) {
-    // No invoices at all
-    health = 'warning';
-    alerts.push('No invoices sent yet for this cost-plus job');
   }
 
   if (unbilledAmount > ALERT_THRESHOLDS.unbilledAmountThreshold) {
@@ -553,7 +645,7 @@ export async function buildInvoicingContext(): Promise<InvoicingFullContext> {
   for (const { job, documents, costItems, timeEntries } of extendedJobs) {
     // Contract (Fixed-Price) analysis
     if (job.priceType === 'Fixed-Price') {
-      const contractHealth = await analyzeContractJob(job, documents, todayStr);
+      const contractHealth = await analyzeContractJob(job, documents, costItems, timeEntries, todayStr);
       contractJobs.push(contractHealth);
       globalAlerts.push(...contractHealth.alerts.map((a) => `[${job.name}] ${a}`));
     }

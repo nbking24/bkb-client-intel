@@ -4,7 +4,7 @@
 >
 > **Nathan:** If starting a new conversation, mention this doc or say "review the architecture doc" so the assistant knows to read it first.
 
-**Last updated:** 2026-03-11
+**Last updated:** 2026-03-12
 **Repo:** `github.com/nbking24/bkb-client-intel`
 **Deploy:** Vercel (auto-deploy on push to `main`)
 **Live URL:** `https://bkb-client-intel.vercel.app`
@@ -383,6 +383,49 @@ JT API  ──→ jt_comments, jt_daily_logs (Supabase cache)
 ## 13. Changelog
 
 All modifications to the codebase should be logged here with date, files changed, and what was done.
+
+### 2026-03-12 — Revision: Invoicing Health Threshold Overhaul
+
+**Problem:** The original invoicing health thresholds were too simplistic. Contract (Fixed-Price) jobs only tracked milestone due dates and draft invoices — they had no visibility into billable items (Cost Code 23) or billable labor hours accumulating without being invoiced. Draft invoices alone were triggering Warning status, which was noise. Cost-Plus jobs flagged "no invoices ever sent" as a Warning, which wasn't useful for new jobs. Additionally, there was no early warning when a payment milestone was approaching.
+
+**Solution:** Comprehensive threshold revision for both Contract and Cost-Plus job types.
+
+**Contract (Fixed-Price) — New Thresholds:**
+
+| Condition | Status |
+|-----------|--------|
+| No issues across all checks | Healthy |
+| Draft invoice exists with no matching `$` schedule task | Warning |
+| `$` milestone task due within 2 days | Warning |
+| Uninvoiced billable items (Cost Code 23) > $200 | Warning |
+| Unbilled labor hours > 1 hr | Warning |
+| Uninvoiced billable items (Cost Code 23) > $800 | Overdue |
+| Unbilled labor hours > 3 hrs | Overdue |
+| `$` milestone task 1–14 days past due | Overdue |
+| `$` milestone task 14+ days past due | Critical |
+
+**Contract — What Changed:**
+- **Removed:** Draft invoices alone no longer trigger Warning
+- **Added:** Draft invoice with no matching `$` schedule task → Warning (name-based fuzzy matching between draft invoice name and `$` task name minus the `$` prefix)
+- **Added:** `$` milestone approaching (due within 2 days) → Warning
+- **Added:** Billable items (Cost Code 23 cost items not on a document) → Warning at $200, Overdue at $800
+- **Added:** Billable labor (time entries linked to Cost Code 23 items) → Warning at 1 hr, Overdue at 3 hrs
+- **Added:** `uninvoicedBillableAmount` and `unbilledLaborHours` fields to `ContractJobHealth` interface
+- **Added:** `approachingMilestones` and `unmatchedDraftInvoices` fields to `ContractJobHealth` interface
+
+**Cost-Plus — What Changed:**
+- **Removed:** "No invoices ever sent" no longer triggers Warning (was noise for new jobs)
+- All other thresholds unchanged (10d warning, 14d overdue, 28d critical, $100 unbilled)
+
+**Implementation Details:**
+- `analyzeContractJob()` now accepts `costItems` and `timeEntries` parameters (previously only had `documents`)
+- Billable items use same Cost Code 23 filtering as the existing `findBillableItems()` function
+- Draft-to-task matching: compares draft invoice name (case-insensitive) against `$` task names with the `$` prefix stripped, using contains matching in both directions
+- New `ALERT_THRESHOLDS` constants: `contractBillableWarning: 200`, `contractBillableOverdue: 800`, `contractLaborWarning: 1`, `contractLaborOverdue: 3`, `contractMilestoneApproachingDays: 2`
+
+**Changes:**
+- `app/lib/invoicing-health.ts` — Added 5 new threshold constants, 4 new fields to `ContractJobHealth` interface, rewrote `analyzeContractJob()` with new parameters and health logic (billable items, labor hours, approaching milestones, unmatched draft detection), removed "no invoices ever sent" Warning from `analyzeCostPlusJob()`
+- `app/dashboard/invoicing/page.tsx` — Updated `ContractJobHealth` interface with 4 new fields, replaced 2-column invoice stats grid with 3-column grid (Approved Inv., Billable Items, Billable Labor), added approaching milestone display with yellow Clock icon, added unmatched draft invoice display, conditional Next Milestone display (hidden if already shown as approaching)
 
 ### 2026-03-11 — Session: Invoicing Health Dashboard + Agent
 

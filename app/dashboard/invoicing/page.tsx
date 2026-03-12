@@ -53,7 +53,11 @@ interface ContractJobHealth {
   scheduleProgress: number;
   nextMilestone: MilestoneInfo | null;
   overdueMilestones: MilestoneInfo[];
+  approachingMilestones: MilestoneInfo[];
+  unmatchedDraftInvoices: DraftInvoiceInfo[];
   draftInvoices: DraftInvoiceInfo[];
+  uninvoicedBillableAmount: number;
+  unbilledLaborHours: number;
   health: InvoicingHealth;
   alerts: string[];
 }
@@ -340,22 +344,43 @@ function ContractJobCard({ job }: { job: ContractJobHealth }) {
         </div>
       </div>
 
-      {/* Invoice stats */}
-      <div className="grid grid-cols-2 gap-3 mb-3">
+      {/* Invoice & billable stats */}
+      <div className="grid grid-cols-3 gap-3 mb-3">
         <div className="text-xs">
-          <span style={{ color: '#8a8078' }}>Approved Invoices</span>
+          <span style={{ color: '#8a8078' }}>Approved Inv.</span>
           <div className="text-sm font-medium" style={{ color: '#e8e0d8' }}>{job.invoicedToDate}</div>
         </div>
         <div className="text-xs">
-          <span style={{ color: '#8a8078' }}>Draft Invoices</span>
-          <div className="text-sm font-medium" style={{ color: job.draftInvoices.length > 0 ? '#eab308' : '#e8e0d8' }}>
-            {job.draftInvoices.length}
+          <span style={{ color: '#8a8078' }}>Billable Items</span>
+          <div className="text-sm font-medium" style={{ color: job.uninvoicedBillableAmount > 200 ? '#f97316' : '#e8e0d8' }}>
+            ${job.uninvoicedBillableAmount?.toLocaleString() ?? '0'}
+          </div>
+        </div>
+        <div className="text-xs">
+          <span style={{ color: '#8a8078' }}>Billable Labor</span>
+          <div className="text-sm font-medium" style={{ color: job.unbilledLaborHours > 1 ? '#f97316' : '#e8e0d8' }}>
+            {job.unbilledLaborHours ?? 0}h
           </div>
         </div>
       </div>
 
+      {/* Approaching milestones */}
+      {job.approachingMilestones && job.approachingMilestones.length > 0 && (
+        <div className="p-2 rounded-lg text-xs mb-2" style={{ background: 'rgba(234,179,8,0.08)' }}>
+          <div className="flex items-center gap-1 mb-1" style={{ color: '#eab308' }}>
+            <Clock size={12} />
+            <span className="font-medium">Milestone Approaching</span>
+          </div>
+          {job.approachingMilestones.map((m) => (
+            <div key={m.taskId} style={{ color: '#eab308' }}>
+              {m.taskName} — {m.daysUntilDue === 0 ? 'due today' : `due in ${m.daysUntilDue}d`}
+            </div>
+          ))}
+        </div>
+      )}
+
       {/* Next milestone */}
-      {job.nextMilestone && (
+      {job.nextMilestone && (!job.approachingMilestones || !job.approachingMilestones.some(m => m.taskId === job.nextMilestone?.taskId)) && (
         <div className="p-2 rounded-lg text-xs" style={{ background: '#1a1a1a' }}>
           <span style={{ color: '#8a8078' }}>Next Milestone:</span>{' '}
           <span style={{ color: '#e8e0d8' }}>{job.nextMilestone.taskName}</span>
@@ -375,6 +400,21 @@ function ContractJobCard({ job }: { job: ContractJobHealth }) {
           {job.overdueMilestones.map((m) => (
             <div key={m.taskId} style={{ color: '#ef4444' }}>
               {m.taskName} — {Math.abs(m.daysUntilDue ?? 0)}d overdue
+            </div>
+          ))}
+        </div>
+      )}
+
+      {/* Unmatched draft invoices */}
+      {job.unmatchedDraftInvoices && job.unmatchedDraftInvoices.length > 0 && (
+        <div className="mt-2 p-2 rounded-lg text-xs" style={{ background: 'rgba(234,179,8,0.08)' }}>
+          <div className="flex items-center gap-1 mb-1" style={{ color: '#eab308' }}>
+            <AlertCircle size={12} />
+            <span className="font-medium">Drafts Missing $ Task</span>
+          </div>
+          {job.unmatchedDraftInvoices.map((d) => (
+            <div key={d.documentId} style={{ color: '#eab308' }}>
+              {d.documentName}
             </div>
           ))}
         </div>
