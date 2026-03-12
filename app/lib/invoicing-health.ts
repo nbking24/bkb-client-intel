@@ -378,9 +378,9 @@ async function analyzeContractJob(
   }
 
   // WARNING: draft invoice with no matching $ schedule task
+  // (Individual unmatched invoices shown via CreateTaskRow — no summary alert needed)
   if (unmatchedDraftInvoices.length > 0 && health === 'healthy') {
     health = 'warning';
-    alerts.push(`${unmatchedDraftInvoices.length} draft invoice${unmatchedDraftInvoices.length > 1 ? 's' : ''} with no matching $ schedule task`);
   }
 
   // WARNING: billable items > $200 (but not already overdue from > $800)
