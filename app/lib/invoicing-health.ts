@@ -326,41 +326,42 @@ async function analyzeContractJob(
   const unmatchedDraftInvoices = draftInvoiceInfos.filter((d) => !d.isLinkedToTask);
 
   // Calculate billable items (Cost Code 23) for this contract job
-  // Approach: compare CC23 costs on vendor bills vs CC23 costs on customer invoices.
-  // The difference = costs incurred but not yet billed to the customer.
+  // Sum ALL CC23 items that are NOT on a customer invoice
   const billableCostItems = costItems.filter(
     (item) => item.costCode?.number === BILLABLE_COST_CODE_NUMBER
   );
-  const cc23OnBills = billableCostItems.filter(
-    (item) => item.document?.type === 'vendorBill'
+  const cc23NotInvoiced = billableCostItems.filter(
+    (item) => item.document?.type !== 'customerInvoice'
   );
+  const uninvoicedBillableAmount = cc23NotInvoiced.reduce(
+    (sum, item) => sum + (item.cost || 0), 0
+  );
+
+  // Calculate unbilled labor hours for contract jobs:
+  // 1. Find all time entries with type "Billable" and sum their hours
+  // 2. Subtract hours that have been billed on change order invoices
+  //    (CC23 labor items on customer invoices)
+  const billableTimeEntries = timeEntries.filter(
+    (entry) => entry.type === 'Billable'
+  );
+  const totalBillableHours = billableTimeEntries.reduce((sum, entry) => {
+    if (entry.startedAt && entry.endedAt) {
+      const start = new Date(entry.startedAt).getTime();
+      const end = new Date(entry.endedAt).getTime();
+      return sum + (end - start) / (1000 * 60 * 60);
+    }
+    return sum;
+  }, 0);
+
+  // CC23 labor items on customer invoices represent hours already billed
   const cc23OnInvoices = billableCostItems.filter(
     (item) => item.document?.type === 'customerInvoice'
   );
-  const cc23BillCosts = cc23OnBills.reduce(
-    (sum, item) => sum + (item.cost || 0), 0
-  );
-  const cc23InvoicedCosts = cc23OnInvoices.reduce(
-    (sum, item) => sum + (item.cost || 0), 0
-  );
-  const uninvoicedBillableAmount = Math.max(0, cc23BillCosts - cc23InvoicedCosts);
+  const billedLaborHours = cc23OnInvoices.reduce((sum, item) => {
+    return sum + (item.quantity || 0);
+  }, 0);
 
-  // Calculate unbilled labor hours (time entries linked to Cost Code 23 items)
-  const unbilledLaborHours = timeEntries
-    .filter((entry) => {
-      if (entry.costItem) {
-        return billableCostItems.some((ci) => ci.id === entry.costItem?.id);
-      }
-      return false;
-    })
-    .reduce((sum, entry) => {
-      if (entry.startedAt && entry.endedAt) {
-        const start = new Date(entry.startedAt).getTime();
-        const end = new Date(entry.endedAt).getTime();
-        return sum + (end - start) / (1000 * 60 * 60);
-      }
-      return sum;
-    }, 0);
+  const unbilledLaborHours = Math.max(0, totalBillableHours - billedLaborHours);
 
   const roundedLaborHours = Math.round(unbilledLaborHours * 10) / 10;
 
