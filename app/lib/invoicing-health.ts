@@ -327,25 +327,21 @@ async function analyzeContractJob(
   const unmatchedDraftInvoices = draftInvoiceInfos.filter((d) => !d.isLinkedToTask);
 
   // Calculate billable items (Cost Code 23) for this contract job
-  // Budget-level CC23 cost items represent the total billable costs (materials, subs, labor).
-  // Customer invoice CC23 items represent what's already been billed to the client.
-  // Uninvoiced = budget costs - invoiced costs.
+  // Vendor bills with CC23 items = actual costs incurred (materials, subs, labor)
+  // Customer invoices with CC23 items = amounts already billed to client
+  // Uninvoiced = vendor bill costs - invoiced costs
 
-  // 1. Total CC23 costs from the BUDGET (covers all billable items: labor, materials, subs)
-  const budgetCC23 = costItems.filter(
-    (item) => item.costCode?.number === BILLABLE_COST_CODE_NUMBER
-  );
-  const totalCC23BudgetCost = budgetCC23.reduce(
-    (sum, item) => sum + (item.cost || 0), 0
-  );
-
-  // 2. CC23 costs already invoiced to the customer (from non-draft customer invoices)
+  // Fetch document-level cost items from vendor bills and non-draft customer invoices
+  // (Can't use a single nested query — it causes 413 errors on PAVE)
+  const vendorBills = documents.filter((d) => d.type === 'vendorBill');
   const customerInvoicesForCC23 = documents.filter(
     (d) => d.type === 'customerInvoice' && d.status !== 'draft'
   );
-  // Fetch cost items from each customer invoice individually (avoids 413 errors)
-  const invoiceCostItemResults = await Promise.all(
-    customerInvoicesForCC23.map(async (doc) => {
+  const relevantDocs = [...vendorBills, ...customerInvoicesForCC23];
+
+  // Fetch cost items for each relevant document individually (small queries, no 413 risk)
+  const docCostItemResults = await Promise.all(
+    relevantDocs.map(async (doc) => {
       try {
         const items = await getDocumentCostItemsById(doc.id);
         return items.map((item) => ({ ...item, document: { id: doc.id, name: doc.name || '', type: doc.type } }));
@@ -354,15 +350,24 @@ async function analyzeContractJob(
       }
     })
   );
-  const allInvoiceCostItems = invoiceCostItemResults.flat();
-  const cc23OnInvoices = allInvoiceCostItems.filter(
+  const allDocCostItems = docCostItemResults.flat();
+
+  const docCC23 = allDocCostItems.filter(
     (item) => item.costCode?.number === BILLABLE_COST_CODE_NUMBER
+  );
+  const cc23OnBills = docCC23.filter(
+    (item) => item.document?.type === 'vendorBill'
+  );
+  const cc23OnInvoices = docCC23.filter(
+    (item) => item.document?.type === 'customerInvoice'
+  );
+  const cc23BillCosts = cc23OnBills.reduce(
+    (sum, item) => sum + (item.cost || 0), 0
   );
   const cc23InvoicedCosts = cc23OnInvoices.reduce(
     (sum, item) => sum + (item.cost || 0), 0
   );
-
-  const uninvoicedBillableAmount = Math.max(0, totalCC23BudgetCost - cc23InvoicedCosts);
+  const uninvoicedBillableAmount = Math.max(0, cc23BillCosts - cc23InvoicedCosts);
 
   // Calculate unbilled labor hours for contract jobs:
   // 1. Find all time entries tagged to Cost Code 23 (Miscellaneous/Billable) and sum their hours
