@@ -330,7 +330,10 @@ async function analyzeContractJob(
   // Fetch document-level cost items from vendor bills and customer invoices individually
   // (Can't use a single nested query — it causes 413 errors on PAVE)
   const vendorBills = documents.filter((d) => d.type === 'vendorBill');
-  const customerInvoicesForCC23 = documents.filter((d) => d.type === 'customerInvoice');
+  // Only count approved/pending invoices as "billed" — drafts haven't been sent yet
+  const customerInvoicesForCC23 = documents.filter(
+    (d) => d.type === 'customerInvoice' && d.status !== 'draft'
+  );
   const relevantDocs = [...vendorBills, ...customerInvoicesForCC23];
 
   // Fetch cost items for each relevant document individually (small queries, no 413 risk)
