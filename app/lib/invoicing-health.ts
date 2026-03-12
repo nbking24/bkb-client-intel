@@ -29,6 +29,8 @@ import {
 
 /** Cost Code 23 — "23 Billable" (labor hours), "23 Billable Materials", "23 Billable Subs" (costs) */
 const BILLABLE_COST_CODE_NUMBER = '23';
+/** Name prefix filter — only items whose name starts with "23 Billable" are counted */
+const BILLABLE_NAME_PREFIX = '23 Billable';
 
 /** Cost Plus jobs should be invoiced every 14 days */
 const COST_PLUS_BILLING_CADENCE_DAYS = 14;
@@ -353,7 +355,8 @@ async function analyzeContractJob(
   const allDocCostItems = docCostItemResults.flat();
 
   const docCC23 = allDocCostItems.filter(
-    (item) => item.costCode?.number === BILLABLE_COST_CODE_NUMBER
+    (item) => item.costCode?.number === BILLABLE_COST_CODE_NUMBER &&
+      item.name?.startsWith(BILLABLE_NAME_PREFIX)
   );
   const cc23OnBills = docCC23.filter(
     (item) => item.document?.type === 'vendorBill'
@@ -374,7 +377,8 @@ async function analyzeContractJob(
   // 2. Subtract hours that have been billed on change order invoices
   //    (CC23 labor items on customer invoices)
   const billableTimeEntries = timeEntries.filter(
-    (entry) => entry.costItem?.costCode?.number === BILLABLE_COST_CODE_NUMBER
+    (entry) => entry.costItem?.costCode?.number === BILLABLE_COST_CODE_NUMBER &&
+      entry.costItem?.name?.startsWith(BILLABLE_NAME_PREFIX)
   );
   const totalBillableHours = billableTimeEntries.reduce((sum, entry) => {
     if (entry.startedAt && entry.endedAt) {
@@ -601,9 +605,10 @@ function findBillableItems(
   costItems: JTCostItem[],
   timeEntries: JTTimeEntry[]
 ): BillableItemsSummary | null {
-  // Find cost items with cost code 23 (Billable Labor)
+  // Find cost items with cost code 23 AND name starting with "23 Billable"
   const billableCostItems = costItems.filter(
-    (item) => item.costCode?.number === BILLABLE_COST_CODE_NUMBER
+    (item) => item.costCode?.number === BILLABLE_COST_CODE_NUMBER &&
+      item.name?.startsWith(BILLABLE_NAME_PREFIX)
   );
 
   // Compare CC23 costs on vendor bills vs customer invoices.
