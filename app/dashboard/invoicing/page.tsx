@@ -354,19 +354,19 @@ function ContractJobCard({ job }: { job: ContractJobHealth }) {
       </div>
       <div className="flex items-center justify-between mb-2">
         <span className="text-[11px]" style={{ color: '#8a8078' }}>
-          {job.clientName} • #{job.jobNumber}
+          {formatCurrency(job.invoicedToDate)} / {formatCurrency(job.totalContractValue)}
         </span>
         <span className="text-[11px]" style={{ color: '#8a8078' }}>
-          {Math.round(job.scheduleProgress * 100)}% complete
+          {Math.round(job.invoicedPercent)}% invoiced
         </span>
       </div>
 
-      {/* Compact progress bar */}
+      {/* Compact progress bar — invoiced % of contract */}
       <div className="h-1.5 rounded-full overflow-hidden mb-2" style={{ background: '#1a1a1a' }}>
         <div
           className="h-full rounded-full"
           style={{
-            width: `${Math.round(job.scheduleProgress * 100)}%`,
+            width: `${Math.min(100, Math.round(job.invoicedPercent))}%`,
             background: 'linear-gradient(90deg, #CDA274, #C9A84C)',
           }}
         />
@@ -459,7 +459,7 @@ function CostPlusJobCard({ job }: { job: CostPlusJobHealth }) {
       </div>
       <div className="flex items-center justify-between mb-2">
         <span className="text-[11px]" style={{ color: '#8a8078' }}>
-          {job.clientName} • #{job.jobNumber}
+          {formatCurrency(job.totalInvoiced)} invoiced • {formatCurrency(job.unbilledAmount)} unbilled
         </span>
         <span className="text-[11px]" style={{ color: daysColor }}>
           {job.daysSinceLastInvoice !== null ? `${job.daysSinceLastInvoice}d since invoice` : 'No invoices'}
