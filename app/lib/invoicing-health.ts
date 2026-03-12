@@ -292,16 +292,24 @@ async function analyzeContractJob(
   const unmatchedDraftInvoices = draftInvoiceInfos.filter((d) => !d.isLinkedToTask);
 
   // Calculate billable items (Cost Code 23) for this contract job
+  // Approach: compare CC23 costs on vendor bills vs CC23 costs on customer invoices.
+  // The difference = costs incurred but not yet billed to the customer.
   const billableCostItems = costItems.filter(
     (item) => item.costCode?.number === BILLABLE_COST_CODE_NUMBER
   );
-  const uninvoicedBillableItems = billableCostItems.filter((item) => !item.document);
-  // Use the `price` field (extended price from PAVE API) which correctly
-  // reflects accumulated time entries, instead of qty * unitPrice (which is 0
-  // for hour-tracking items where quantity is null).
-  const uninvoicedBillableAmount = uninvoicedBillableItems.reduce(
-    (sum, item) => sum + (item.price || 0), 0
+  const cc23OnBills = billableCostItems.filter(
+    (item) => item.document?.type === 'vendorBill'
   );
+  const cc23OnInvoices = billableCostItems.filter(
+    (item) => item.document?.type === 'customerInvoice'
+  );
+  const cc23BillCosts = cc23OnBills.reduce(
+    (sum, item) => sum + (item.cost || 0), 0
+  );
+  const cc23InvoicedCosts = cc23OnInvoices.reduce(
+    (sum, item) => sum + (item.cost || 0), 0
+  );
+  const uninvoicedBillableAmount = Math.max(0, cc23BillCosts - cc23InvoicedCosts);
 
   // Calculate unbilled labor hours (time entries linked to Cost Code 23 items)
   const unbilledLaborHours = timeEntries
@@ -523,28 +531,37 @@ function findBillableItems(
     (item) => item.costCode?.number === BILLABLE_COST_CODE_NUMBER
   );
 
-  // Filter to uninvoiced items (not linked to a document)
-  // Use `price` field (extended price from PAVE API) which correctly reflects
-  // accumulated time entries, instead of qty * unitPrice.
-  const uninvoicedItems: BillableItem[] = billableCostItems
-    .filter((item) => !item.document)
-    .map((item) => ({
-      costItemId: item.id,
-      name: item.name,
-      quantity: item.quantity,
-      unitPrice: item.unitPrice,
-      totalPrice: item.price || 0,
-      costGroupName: item.costGroup?.name || 'Ungrouped',
-      onDocument: false,
-      documentName: null,
-    }));
+  // Compare CC23 costs on vendor bills vs customer invoices.
+  // Unbilled = costs on bills that haven't been invoiced to the customer.
+  const cc23OnBills = billableCostItems.filter(
+    (item) => item.document?.type === 'vendorBill'
+  );
+  const cc23OnInvoices = billableCostItems.filter(
+    (item) => item.document?.type === 'customerInvoice'
+  );
+  const cc23BillCosts = cc23OnBills.reduce(
+    (sum, item) => sum + (item.cost || 0), 0
+  );
+  const cc23InvoicedCosts = cc23OnInvoices.reduce(
+    (sum, item) => sum + (item.cost || 0), 0
+  );
+  const totalUninvoicedAmount = Math.max(0, cc23BillCosts - cc23InvoicedCosts);
+
+  // Build uninvoiced items list from bills not yet invoiced
+  const uninvoicedItems: BillableItem[] = cc23OnBills.map((item) => ({
+    costItemId: item.id,
+    name: item.name,
+    quantity: item.quantity,
+    unitPrice: item.unitCost,
+    totalPrice: item.cost || 0,
+    costGroupName: item.costGroup?.name || 'Ungrouped',
+    onDocument: true,
+    documentName: item.document?.name || 'Bill',
+  }));
 
   // Find billable time entries (type = "work" with costItem referencing billable code)
-  // Note: JT time entries have a type field. We filter for entries that appear
-  // to be billable based on the costItem association.
   const billableTimeEntries: BillableHourEntry[] = timeEntries
     .filter((entry) => {
-      // Check if the time entry's cost item is in our billable list
       if (entry.costItem) {
         return billableCostItems.some((ci) => ci.id === entry.costItem?.id);
       }
@@ -566,10 +583,9 @@ function findBillableItems(
       };
     });
 
-  const totalUninvoicedAmount = uninvoicedItems.reduce((sum, item) => sum + item.totalPrice, 0);
   const totalUninvoicedHours = billableTimeEntries.reduce((sum, entry) => sum + entry.hours, 0);
 
-  if (uninvoicedItems.length === 0 && billableTimeEntries.length === 0) {
+  if (cc23OnBills.length === 0 && billableTimeEntries.length === 0) {
     return null; // No billable items for this job
   }
 
