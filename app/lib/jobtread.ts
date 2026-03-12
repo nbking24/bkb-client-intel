@@ -1634,6 +1634,10 @@ export interface JTCostItem {
   quantity: number;
   unitCost: number;
   unitPrice: number;
+  /** Extended cost (qty × unitCost, or accumulated from time entries) */
+  cost: number;
+  /** Extended price (qty × unitPrice, or accumulated from time entries) */
+  price: number;
   isSpecification: boolean;
   costCode?: { id: string; name: string; number: string } | null;
   costGroup?: { id: string; name: string; description?: string; files?: JTCostItemFile[]; parentCostGroup?: { id: string; name: string; description?: string; files?: JTCostItemFile[] } | null } | null;
@@ -1671,6 +1675,8 @@ export async function getCostItemsForJob(jobId: string, limit = 500): Promise<JT
             quantity: {},
             unitCost: {},
             unitPrice: {},
+            cost: {},
+            price: {},
             isSpecification: {},
             costCode: { id: {}, name: {}, number: {} },
             costGroup: { id: {}, name: {}, description: {}, files: { nodes: { id: {}, name: {}, url: {} } }, parentCostGroup: { id: {}, name: {}, description: {}, files: { nodes: { id: {}, name: {}, url: {} } } } },

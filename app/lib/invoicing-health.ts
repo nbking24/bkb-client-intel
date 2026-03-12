@@ -296,8 +296,11 @@ async function analyzeContractJob(
     (item) => item.costCode?.number === BILLABLE_COST_CODE_NUMBER
   );
   const uninvoicedBillableItems = billableCostItems.filter((item) => !item.document);
+  // Use the `price` field (extended price from PAVE API) which correctly
+  // reflects accumulated time entries, instead of qty * unitPrice (which is 0
+  // for hour-tracking items where quantity is null).
   const uninvoicedBillableAmount = uninvoicedBillableItems.reduce(
-    (sum, item) => sum + (item.quantity * item.unitPrice), 0
+    (sum, item) => sum + (item.price || 0), 0
   );
 
   // Calculate unbilled labor hours (time entries linked to Cost Code 23 items)
@@ -438,13 +441,15 @@ async function analyzeCostPlusJob(
   }
 
   // Calculate unbilled costs from cost items not on an invoice
+  // Use `cost` and `price` fields (extended amounts from PAVE API) which correctly
+  // reflect accumulated time entries, instead of qty * unit values.
   const unbilledItems = costItems.filter((item) => !item.document);
   const unbilledCosts = unbilledItems.reduce(
-    (sum, item) => sum + (item.quantity * item.unitCost),
+    (sum, item) => sum + (item.cost || 0),
     0
   );
   const unbilledAmount = unbilledItems.reduce(
-    (sum, item) => sum + (item.quantity * item.unitPrice),
+    (sum, item) => sum + (item.price || 0),
     0
   );
 
@@ -519,6 +524,8 @@ function findBillableItems(
   );
 
   // Filter to uninvoiced items (not linked to a document)
+  // Use `price` field (extended price from PAVE API) which correctly reflects
+  // accumulated time entries, instead of qty * unitPrice.
   const uninvoicedItems: BillableItem[] = billableCostItems
     .filter((item) => !item.document)
     .map((item) => ({
@@ -526,7 +533,7 @@ function findBillableItems(
       name: item.name,
       quantity: item.quantity,
       unitPrice: item.unitPrice,
-      totalPrice: item.quantity * item.unitPrice,
+      totalPrice: item.price || 0,
       costGroupName: item.costGroup?.name || 'Ungrouped',
       onDocument: false,
       documentName: null,
