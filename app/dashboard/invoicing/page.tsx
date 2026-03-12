@@ -351,16 +351,16 @@ function ContractJobCard({ job }: { job: ContractJobHealth }) {
           {job.clientName} • #{job.jobNumber}
         </span>
         <span className="text-[11px]" style={{ color: '#8a8078' }}>
-          {Math.round(job.scheduleProgress * 100)}% complete
+          {Math.min(100, Math.round(job.invoicedPercent))}% invoiced
         </span>
       </div>
 
-      {/* Compact progress bar */}
+      {/* Invoiced progress bar */}
       <div className="h-1.5 rounded-full overflow-hidden mb-2" style={{ background: '#1a1a1a' }}>
         <div
           className="h-full rounded-full"
           style={{
-            width: `${Math.round(job.scheduleProgress * 100)}%`,
+            width: `${Math.min(100, Math.round(job.invoicedPercent))}%`,
             background: 'linear-gradient(90deg, #CDA274, #C9A84C)',
           }}
         />
@@ -369,7 +369,8 @@ function ContractJobCard({ job }: { job: ContractJobHealth }) {
       {/* Inline stats row */}
       <div className="flex items-center gap-3 text-[11px] mb-1.5">
         <span style={{ color: '#8a8078' }}>
-          Inv: <span style={{ color: '#e8e0d8' }}>{job.invoicedToDate}</span>
+          Inv: <span style={{ color: '#e8e0d8' }}>${job.invoicedToDate.toLocaleString()}</span>
+          {job.totalContractValue > 0 && <span> / ${job.totalContractValue.toLocaleString()}</span>}
         </span>
         <span style={{ color: '#8a8078' }}>
           Billable: <span style={{ color: job.uninvoicedBillableAmount > 200 ? '#f97316' : '#e8e0d8' }}>
