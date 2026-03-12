@@ -481,12 +481,12 @@ async function analyzeCostPlusJob(
     }
   }
 
-  // Calculate unbilled costs: total job costs incurred vs costs billed on customer invoices
-  // Costs incurred = items on vendor bills + unattached budget items (real expenses)
-  const costItemsIncurred = costItems.filter(
-    (item) => item.document?.type === 'vendorBill' || !item.document
+  // Calculate unbilled costs: actual costs incurred (vendor bills only) vs costs billed on invoices
+  // Only vendor bills represent real money spent — unattached budget items are just estimates
+  const costItemsOnBills = costItems.filter(
+    (item) => item.document?.type === 'vendorBill'
   );
-  const totalJobCosts = costItemsIncurred.reduce(
+  const totalJobCosts = costItemsOnBills.reduce(
     (sum, item) => sum + (item.cost || 0), 0
   );
   const costItemsOnInvoices = costItems.filter(
