@@ -1702,6 +1702,67 @@ export async function getCostItemsForJobLite(jobId: string, limit = 200): Promis
   return allItems;
 }
 
+/**
+ * Fetch cost items that live on DOCUMENTS (vendor bills, customer invoices, etc.)
+ * for a given job. job.costItems only returns budget-level items, but vendor bill
+ * line items and invoice line items are document-level cost items.
+ * Returns a flat array with each item's parent document type included.
+ */
+export async function getDocumentCostItemsForJob(jobId: string): Promise<JTCostItem[]> {
+  const PAGE_SIZE = 50; // keep document page small to avoid 413
+  let allItems: JTCostItem[] = [];
+  let nextPage: string | null = null;
+
+  for (let page = 0; page < 5; page++) {
+    const pageParams: Record<string, unknown> = { size: PAGE_SIZE };
+    if (nextPage) pageParams.page = nextPage;
+
+    const data = await pave({
+      job: {
+        $: { id: jobId },
+        documents: {
+          $: pageParams,
+          nextPage: {},
+          nodes: {
+            id: {},
+            type: {},
+            costItems: {
+              $: { size: 50 },
+              nodes: {
+                id: {},
+                name: {},
+                cost: {},
+                price: {},
+                quantity: {},
+                costCode: { number: {}, name: {} },
+                costType: { id: {}, name: {} },
+              },
+            },
+          },
+        },
+      },
+    });
+
+    const docsPage = (data as any)?.job?.documents;
+    const docs = docsPage?.nodes || [];
+
+    for (const doc of docs) {
+      const docItems = doc.costItems?.nodes || [];
+      for (const item of docItems) {
+        allItems.push({
+          ...item,
+          document: { id: doc.id, name: '', type: doc.type },
+        });
+      }
+    }
+
+    nextPage = docsPage?.nextPage || null;
+    if (!nextPage || docs.length < PAGE_SIZE) break;
+  }
+
+  return allItems;
+}
+
 export async function getCostItemsForJob(jobId: string, limit = 500): Promise<JTCostItem[]> {
   // Paginate through all cost items (jobs can have 200+ items)
   // Page size 50 to avoid 413 errors when customFieldValues are included
