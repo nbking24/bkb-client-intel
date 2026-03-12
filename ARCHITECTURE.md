@@ -384,6 +384,29 @@ JT API  ──→ jt_comments, jt_daily_logs (Supabase cache)
 
 All modifications to the codebase should be logged here with date, files changed, and what was done.
 
+### 2026-03-12 — UI: Health-Priority Sorting, Condensed Cards, Search
+
+**Problem:** Jobs were grouped by status category (In-Design, Ready, In-Production, Final Billing) with collapsible sub-sections, which meant critical/overdue jobs could be buried inside collapsed groups. Job cards were also too tall, requiring excessive scrolling. No search functionality existed.
+
+**Solution:** Three UI improvements to `app/dashboard/invoicing/page.tsx`:
+
+1. **Health-priority sorting** — Jobs now sort by health severity (critical → overdue → warning → healthy) instead of status category. Removed `groupJobsByStatus()` sub-section grouping and `SubSectionHeader` component. Added `HEALTH_PRIORITY` lookup and `sortByHealthPriority()` helper.
+
+2. **Condensed job cards** — Both `ContractJobCard` and `CostPlusJobCard` redesigned with:
+   - Reduced padding (`p-4` → `px-3 py-2.5`)
+   - Inline stats row instead of 3-column grid
+   - Thinner progress bars (`h-2` → `h-1.5`)
+   - Alert rows condensed to single-line `text-[11px]` with inline icons
+   - Removed nested background boxes for stats
+
+3. **Search box** — Added a search input that filters all three sections (contract, cost-plus, billable items) by job name, number, or client name. Real-time filtering with clear button.
+
+**Files changed:**
+- `app/dashboard/invoicing/page.tsx` — All three changes above
+- `ARCHITECTURE.md` — Updated changelog
+
+---
+
 ### 2026-03-12 — Revision: Invoicing Health Threshold Overhaul
 
 **Problem:** The original invoicing health thresholds were too simplistic. Contract (Fixed-Price) jobs only tracked milestone due dates and draft invoices — they had no visibility into billable items (Cost Code 23) or billable labor hours accumulating without being invoiced. Draft invoices alone were triggering Warning status, which was noise. Cost-Plus jobs flagged "no invoices ever sent" as a Warning, which wasn't useful for new jobs. Additionally, there was no early warning when a payment milestone was approaching.

@@ -5,6 +5,7 @@ import {
   DollarSign, AlertTriangle, Clock, CheckCircle2,
   RefreshCw, Loader2, FileText, TrendingUp,
   Calendar, AlertCircle, ChevronDown, ChevronRight,
+  Search, X,
 } from 'lucide-react';
 
 // ============================================================
@@ -144,7 +145,19 @@ const CARD_STYLE = {
   borderRadius: '12px',
 };
 
-// Status categories — maps JT custom "Status" values to dashboard groupings
+// Health priority order for sorting — critical jobs surface first
+const HEALTH_PRIORITY: Record<InvoicingHealth, number> = {
+  critical: 0,
+  overdue: 1,
+  warning: 2,
+  healthy: 3,
+};
+
+function sortByHealthPriority<T extends { health: InvoicingHealth }>(jobs: T[]): T[] {
+  return [...jobs].sort((a, b) => HEALTH_PRIORITY[a.health] - HEALTH_PRIORITY[b.health]);
+}
+
+// Status categories — maps JT custom "Status" values to dashboard groupings (kept for reference)
 const STATUS_CATEGORIES = [
   { key: 'in-design', label: 'In-Design', statusValue: '5. Design Phase' },
   { key: 'ready', label: 'Ready', statusValue: '10. Ready' },
@@ -152,30 +165,6 @@ const STATUS_CATEGORIES = [
   { key: 'final-billing', label: 'Final Billing', statusValue: '7. Final Billing' },
   { key: 'other', label: 'Other', statusValue: null },
 ] as const;
-
-type StatusCategoryKey = typeof STATUS_CATEGORIES[number]['key'];
-
-function getStatusCategory(customStatus: string | null): StatusCategoryKey {
-  if (!customStatus) return 'other';
-  const match = STATUS_CATEGORIES.find((c) => c.statusValue === customStatus);
-  return match ? match.key : 'other';
-}
-
-function groupJobsByStatus<T extends { customStatus: string | null }>(
-  jobs: T[]
-): Array<{ category: typeof STATUS_CATEGORIES[number]; jobs: T[] }> {
-  const groups = STATUS_CATEGORIES.map((cat) => ({
-    category: cat,
-    jobs: jobs.filter((j) => {
-      if (cat.key === 'other') {
-        return !STATUS_CATEGORIES.slice(0, -1).some((c) => c.statusValue === j.customStatus);
-      }
-      return j.customStatus === cat.statusValue;
-    }),
-  }));
-  // Only return groups that have jobs
-  return groups.filter((g) => g.jobs.length > 0);
-}
 
 // ============================================================
 // Helper Components
@@ -262,39 +251,6 @@ function SectionHeader({
   );
 }
 
-function SubSectionHeader({
-  title,
-  count,
-  expanded,
-  onToggle,
-}: {
-  title: string;
-  count: number;
-  expanded: boolean;
-  onToggle: () => void;
-}) {
-  return (
-    <button
-      onClick={onToggle}
-      className="w-full flex items-center gap-2 py-2 px-3 text-left hover:bg-white/[0.02] rounded-lg transition-colors"
-    >
-      {expanded ? (
-        <ChevronDown size={14} style={{ color: '#8a8078' }} />
-      ) : (
-        <ChevronRight size={14} style={{ color: '#8a8078' }} />
-      )}
-      <span className="text-sm font-medium" style={{ color: '#c4b5a3' }}>
-        {title}
-      </span>
-      <span
-        className="px-1.5 py-0.5 rounded text-[10px] font-medium"
-        style={{ background: 'rgba(205,162,116,0.08)', color: '#8a8078' }}
-      >
-        {count}
-      </span>
-    </button>
-  );
-}
 
 function formatDate(d: string | null) {
   if (!d) return '—';
@@ -312,125 +268,86 @@ function formatCurrency(amount: number) {
 
 function ContractJobCard({ job }: { job: ContractJobHealth }) {
   return (
-    <div className="p-4 rounded-xl" style={CARD_STYLE}>
-      <div className="flex items-start justify-between mb-3">
-        <div className="flex-1 min-w-0">
-          <div className="flex items-center gap-2">
-            <span className="text-sm font-semibold truncate" style={{ color: '#e8e0d8' }}>
-              {job.jobName}
-            </span>
-            <HealthBadge health={job.health} />
-          </div>
-          <span className="text-xs" style={{ color: '#8a8078' }}>
-            {job.clientName} • #{job.jobNumber}
-          </span>
-        </div>
+    <div className="px-3 py-2.5 rounded-lg" style={CARD_STYLE}>
+      {/* Header row: name + badge + key stats inline */}
+      <div className="flex items-center gap-2 mb-1.5">
+        <span className="text-sm font-semibold truncate flex-1 min-w-0" style={{ color: '#e8e0d8' }}>
+          {job.jobName}
+        </span>
+        <HealthBadge health={job.health} />
+      </div>
+      <div className="flex items-center justify-between mb-2">
+        <span className="text-[11px]" style={{ color: '#8a8078' }}>
+          {job.clientName} • #{job.jobNumber}
+        </span>
+        <span className="text-[11px]" style={{ color: '#8a8078' }}>
+          {Math.round(job.scheduleProgress * 100)}% complete
+        </span>
       </div>
 
-      {/* Progress bar */}
-      <div className="mb-3">
-        <div className="flex justify-between text-xs mb-1" style={{ color: '#8a8078' }}>
-          <span>Schedule Progress</span>
-          <span>{Math.round(job.scheduleProgress * 100)}%</span>
-        </div>
-        <div className="h-2 rounded-full overflow-hidden" style={{ background: '#1a1a1a' }}>
-          <div
-            className="h-full rounded-full transition-all"
-            style={{
-              width: `${Math.round(job.scheduleProgress * 100)}%`,
-              background: 'linear-gradient(90deg, #CDA274, #C9A84C)',
-            }}
-          />
-        </div>
+      {/* Compact progress bar */}
+      <div className="h-1.5 rounded-full overflow-hidden mb-2" style={{ background: '#1a1a1a' }}>
+        <div
+          className="h-full rounded-full"
+          style={{
+            width: `${Math.round(job.scheduleProgress * 100)}%`,
+            background: 'linear-gradient(90deg, #CDA274, #C9A84C)',
+          }}
+        />
       </div>
 
-      {/* Invoice & billable stats */}
-      <div className="grid grid-cols-3 gap-3 mb-3">
-        <div className="text-xs">
-          <span style={{ color: '#8a8078' }}>Approved Inv.</span>
-          <div className="text-sm font-medium" style={{ color: '#e8e0d8' }}>{job.invoicedToDate}</div>
-        </div>
-        <div className="text-xs">
-          <span style={{ color: '#8a8078' }}>Billable Items</span>
-          <div className="text-sm font-medium" style={{ color: job.uninvoicedBillableAmount > 200 ? '#f97316' : '#e8e0d8' }}>
+      {/* Inline stats row */}
+      <div className="flex items-center gap-3 text-[11px] mb-1.5">
+        <span style={{ color: '#8a8078' }}>
+          Inv: <span style={{ color: '#e8e0d8' }}>{job.invoicedToDate}</span>
+        </span>
+        <span style={{ color: '#8a8078' }}>
+          Billable: <span style={{ color: job.uninvoicedBillableAmount > 200 ? '#f97316' : '#e8e0d8' }}>
             ${job.uninvoicedBillableAmount?.toLocaleString() ?? '0'}
-          </div>
-        </div>
-        <div className="text-xs">
-          <span style={{ color: '#8a8078' }}>Billable Labor</span>
-          <div className="text-sm font-medium" style={{ color: job.unbilledLaborHours > 1 ? '#f97316' : '#e8e0d8' }}>
+          </span>
+        </span>
+        <span style={{ color: '#8a8078' }}>
+          Labor: <span style={{ color: job.unbilledLaborHours > 1 ? '#f97316' : '#e8e0d8' }}>
             {job.unbilledLaborHours ?? 0}h
-          </div>
-        </div>
+          </span>
+        </span>
       </div>
 
-      {/* Approaching milestones */}
+      {/* Compact alert rows — only show if there are issues */}
       {job.approachingMilestones && job.approachingMilestones.length > 0 && (
-        <div className="p-2 rounded-lg text-xs mb-2" style={{ background: 'rgba(234,179,8,0.08)' }}>
-          <div className="flex items-center gap-1 mb-1" style={{ color: '#eab308' }}>
-            <Clock size={12} />
-            <span className="font-medium">Milestone Approaching</span>
-          </div>
-          {job.approachingMilestones.map((m) => (
-            <div key={m.taskId} style={{ color: '#eab308' }}>
-              {m.taskName} — {m.daysUntilDue === 0 ? 'due today' : `due in ${m.daysUntilDue}d`}
-            </div>
-          ))}
+        <div className="flex items-center gap-1 text-[11px] py-0.5" style={{ color: '#eab308' }}>
+          <Clock size={10} className="flex-shrink-0" />
+          {job.approachingMilestones.map((m) => m.taskName).join(', ')} — approaching
         </div>
       )}
 
-      {/* Next milestone */}
-      {job.nextMilestone && (!job.approachingMilestones || !job.approachingMilestones.some(m => m.taskId === job.nextMilestone?.taskId)) && (
-        <div className="p-2 rounded-lg text-xs" style={{ background: '#1a1a1a' }}>
-          <span style={{ color: '#8a8078' }}>Next Milestone:</span>{' '}
-          <span style={{ color: '#e8e0d8' }}>{job.nextMilestone.taskName}</span>
-          {job.nextMilestone.endDate && (
-            <span style={{ color: '#8a8078' }}> — {formatDate(job.nextMilestone.endDate)}</span>
-          )}
-        </div>
-      )}
-
-      {/* Overdue milestones */}
       {job.overdueMilestones.length > 0 && (
-        <div className="mt-2 p-2 rounded-lg text-xs" style={{ background: 'rgba(239,68,68,0.08)' }}>
-          <div className="flex items-center gap-1 mb-1" style={{ color: '#ef4444' }}>
-            <AlertTriangle size={12} />
-            <span className="font-medium">Overdue Milestones</span>
-          </div>
-          {job.overdueMilestones.map((m) => (
-            <div key={m.taskId} style={{ color: '#ef4444' }}>
-              {m.taskName} — {Math.abs(m.daysUntilDue ?? 0)}d overdue
-            </div>
-          ))}
+        <div className="flex items-center gap-1 text-[11px] py-0.5" style={{ color: '#ef4444' }}>
+          <AlertTriangle size={10} className="flex-shrink-0" />
+          {job.overdueMilestones.map((m) => `${m.taskName} (${Math.abs(m.daysUntilDue ?? 0)}d)`).join(', ')}
         </div>
       )}
 
-      {/* Unmatched draft invoices */}
       {job.unmatchedDraftInvoices && job.unmatchedDraftInvoices.length > 0 && (
-        <div className="mt-2 p-2 rounded-lg text-xs" style={{ background: 'rgba(234,179,8,0.08)' }}>
-          <div className="flex items-center gap-1 mb-1" style={{ color: '#eab308' }}>
-            <AlertCircle size={12} />
-            <span className="font-medium">Drafts Missing $ Task</span>
-          </div>
-          {job.unmatchedDraftInvoices.map((d) => (
-            <div key={d.documentId} style={{ color: '#eab308' }}>
-              {d.documentName}
-            </div>
-          ))}
+        <div className="flex items-center gap-1 text-[11px] py-0.5" style={{ color: '#eab308' }}>
+          <AlertCircle size={10} className="flex-shrink-0" />
+          Drafts missing $ task: {job.unmatchedDraftInvoices.map((d) => d.documentName).join(', ')}
         </div>
       )}
 
-      {/* Alerts */}
-      {job.alerts.length > 0 && (
-        <div className="mt-2 space-y-1">
-          {job.alerts.map((alert, i) => (
-            <div key={i} className="flex items-start gap-1.5 text-xs" style={{ color: '#f97316' }}>
-              <AlertCircle size={12} className="mt-0.5 flex-shrink-0" />
-              <span>{alert}</span>
-            </div>
-          ))}
+      {job.nextMilestone && (!job.approachingMilestones || !job.approachingMilestones.some(m => m.taskId === job.nextMilestone?.taskId)) && (
+        <div className="text-[11px] py-0.5" style={{ color: '#8a8078' }}>
+          Next: {job.nextMilestone.taskName}
+          {job.nextMilestone.endDate && ` — ${formatDate(job.nextMilestone.endDate)}`}
         </div>
       )}
+
+      {job.alerts.length > 0 && job.alerts.map((alert, i) => (
+        <div key={i} className="flex items-center gap-1 text-[11px] py-0.5" style={{ color: '#f97316' }}>
+          <AlertCircle size={10} className="flex-shrink-0" />
+          {alert}
+        </div>
+      ))}
     </div>
   );
 }
@@ -440,91 +357,55 @@ function ContractJobCard({ job }: { job: ContractJobHealth }) {
 // ============================================================
 
 function CostPlusJobCard({ job }: { job: CostPlusJobHealth }) {
+  const daysColor = (job.daysSinceLastInvoice ?? 0) > 14 ? '#ef4444' : (job.daysSinceLastInvoice ?? 0) > 10 ? '#eab308' : '#22c55e';
   return (
-    <div className="p-4 rounded-xl" style={CARD_STYLE}>
-      <div className="flex items-start justify-between mb-3">
-        <div className="flex-1 min-w-0">
-          <div className="flex items-center gap-2">
-            <span className="text-sm font-semibold truncate" style={{ color: '#e8e0d8' }}>
-              {job.jobName}
-            </span>
-            <HealthBadge health={job.health} />
-          </div>
-          <span className="text-xs" style={{ color: '#8a8078' }}>
-            {job.clientName} • #{job.jobNumber}
-          </span>
-        </div>
+    <div className="px-3 py-2.5 rounded-lg" style={CARD_STYLE}>
+      {/* Header row */}
+      <div className="flex items-center gap-2 mb-1.5">
+        <span className="text-sm font-semibold truncate flex-1 min-w-0" style={{ color: '#e8e0d8' }}>
+          {job.jobName}
+        </span>
+        <HealthBadge health={job.health} />
+      </div>
+      <div className="flex items-center justify-between mb-2">
+        <span className="text-[11px]" style={{ color: '#8a8078' }}>
+          {job.clientName} • #{job.jobNumber}
+        </span>
+        <span className="text-[11px]" style={{ color: daysColor }}>
+          {job.daysSinceLastInvoice !== null ? `${job.daysSinceLastInvoice}d since invoice` : 'No invoices'}
+        </span>
       </div>
 
-      {/* Billing cadence indicator */}
-      <div className="mb-3">
-        <div className="flex justify-between text-xs mb-1" style={{ color: '#8a8078' }}>
-          <span>Days Since Last Invoice</span>
-          <span style={{ color: (job.daysSinceLastInvoice ?? 0) > 14 ? '#ef4444' : (job.daysSinceLastInvoice ?? 0) > 10 ? '#eab308' : '#22c55e' }}>
-            {job.daysSinceLastInvoice !== null ? `${job.daysSinceLastInvoice}d` : 'Never'}
-          </span>
-        </div>
-        <div className="h-2 rounded-full overflow-hidden" style={{ background: '#1a1a1a' }}>
-          <div
-            className="h-full rounded-full transition-all"
-            style={{
-              width: `${Math.min(100, ((job.daysSinceLastInvoice ?? 0) / 28) * 100)}%`,
-              background:
-                (job.daysSinceLastInvoice ?? 0) > 14
-                  ? '#ef4444'
-                  : (job.daysSinceLastInvoice ?? 0) > 10
-                  ? '#eab308'
-                  : '#22c55e',
-            }}
-          />
-        </div>
-        <div className="flex justify-between text-[10px] mt-0.5" style={{ color: '#666' }}>
-          <span>0d</span>
-          <span>14d cadence</span>
-          <span>28d</span>
-        </div>
+      {/* Compact cadence bar */}
+      <div className="h-1.5 rounded-full overflow-hidden mb-2" style={{ background: '#1a1a1a' }}>
+        <div
+          className="h-full rounded-full"
+          style={{
+            width: `${Math.min(100, ((job.daysSinceLastInvoice ?? 0) / 28) * 100)}%`,
+            background: daysColor,
+          }}
+        />
       </div>
 
-      {/* Stats */}
-      <div className="grid grid-cols-3 gap-2 mb-3">
-        <div className="text-center p-2 rounded-lg" style={{ background: '#1a1a1a' }}>
-          <div className="text-xs" style={{ color: '#8a8078' }}>Unbilled $</div>
-          <div className="text-sm font-bold" style={{ color: job.unbilledAmount > 0 ? '#eab308' : '#e8e0d8' }}>
-            {formatCurrency(job.unbilledAmount)}
-          </div>
-        </div>
-        <div className="text-center p-2 rounded-lg" style={{ background: '#1a1a1a' }}>
-          <div className="text-xs" style={{ color: '#8a8078' }}>Unbilled Hrs</div>
-          <div className="text-sm font-bold" style={{ color: job.unbilledHours > 0 ? '#eab308' : '#e8e0d8' }}>
-            {job.unbilledHours}h
-          </div>
-        </div>
-        <div className="text-center p-2 rounded-lg" style={{ background: '#1a1a1a' }}>
-          <div className="text-xs" style={{ color: '#8a8078' }}>Invoices</div>
-          <div className="text-sm font-bold" style={{ color: '#e8e0d8' }}>
-            {job.invoiceCount}
-          </div>
-        </div>
+      {/* Inline stats */}
+      <div className="flex items-center gap-3 text-[11px] mb-1">
+        <span style={{ color: '#8a8078' }}>
+          Unbilled: <span style={{ color: job.unbilledAmount > 0 ? '#eab308' : '#e8e0d8' }}>{formatCurrency(job.unbilledAmount)}</span>
+        </span>
+        <span style={{ color: '#8a8078' }}>
+          Hours: <span style={{ color: job.unbilledHours > 0 ? '#eab308' : '#e8e0d8' }}>{job.unbilledHours}h</span>
+        </span>
+        <span style={{ color: '#8a8078' }}>
+          Inv: <span style={{ color: '#e8e0d8' }}>{job.invoiceCount}</span>
+        </span>
       </div>
 
-      {/* Last invoice date */}
-      {job.lastInvoiceDate && (
-        <div className="text-xs" style={{ color: '#8a8078' }}>
-          Last invoice: {formatDate(job.lastInvoiceDate)}
+      {job.alerts.length > 0 && job.alerts.map((alert, i) => (
+        <div key={i} className="flex items-center gap-1 text-[11px] py-0.5" style={{ color: '#f97316' }}>
+          <AlertCircle size={10} className="flex-shrink-0" />
+          {alert}
         </div>
-      )}
-
-      {/* Alerts */}
-      {job.alerts.length > 0 && (
-        <div className="mt-2 space-y-1">
-          {job.alerts.map((alert, i) => (
-            <div key={i} className="flex items-start gap-1.5 text-xs" style={{ color: '#f97316' }}>
-              <AlertCircle size={12} className="mt-0.5 flex-shrink-0" />
-              <span>{alert}</span>
-            </div>
-          ))}
-        </div>
-      )}
+      ))}
     </div>
   );
 }
@@ -648,30 +529,22 @@ export default function InvoicingDashboard() {
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [error, setError] = useState('');
+  const [searchQuery, setSearchQuery] = useState('');
 
   // Sections expand/collapse
   const [contractExpanded, setContractExpanded] = useState(true);
   const [costPlusExpanded, setCostPlusExpanded] = useState(true);
   const [billableExpanded, setBillableExpanded] = useState(true);
 
-  // Sub-section (status category) expand/collapse — keyed by "section-category"
-  const [subSections, setSubSections] = useState<Record<string, boolean>>({});
-
-  function isSubExpanded(section: string, category: string): boolean {
-    const key = `${section}-${category}`;
-    // Default: expanded for in-production and final-billing, collapsed for others
-    if (subSections[key] === undefined) {
-      return category === 'in-production' || category === 'final-billing';
-    }
-    return subSections[key];
-  }
-
-  function toggleSub(section: string, category: string) {
-    const key = `${section}-${category}`;
-    setSubSections((prev) => ({
-      ...prev,
-      [key]: !isSubExpanded(section, category),
-    }));
+  // Search filter helper
+  function matchesSearch<T extends { jobName: string; jobNumber: string; clientName: string }>(job: T): boolean {
+    if (!searchQuery.trim()) return true;
+    const q = searchQuery.toLowerCase();
+    return (
+      job.jobName.toLowerCase().includes(q) ||
+      job.jobNumber.toLowerCase().includes(q) ||
+      job.clientName.toLowerCase().includes(q)
+    );
   }
 
   async function fetchReport(refresh = false) {
@@ -789,6 +662,31 @@ export default function InvoicingDashboard() {
         />
       </div>
 
+      {/* Search Box */}
+      <div className="relative">
+        <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2" style={{ color: '#8a8078' }} />
+        <input
+          type="text"
+          placeholder="Search jobs by name, number, or client..."
+          value={searchQuery}
+          onChange={(e) => setSearchQuery(e.target.value)}
+          className="w-full pl-9 pr-8 py-2 rounded-lg text-sm outline-none"
+          style={{
+            background: '#1a1a1a',
+            border: '1px solid rgba(205,162,116,0.15)',
+            color: '#e8e0d8',
+          }}
+        />
+        {searchQuery && (
+          <button
+            onClick={() => setSearchQuery('')}
+            className="absolute right-3 top-1/2 -translate-y-1/2 hover:opacity-80"
+          >
+            <X size={14} style={{ color: '#8a8078' }} />
+          </button>
+        )}
+      </div>
+
       {/* Global Alerts */}
       {report.alerts.length > 0 && (
         <div className="p-4 rounded-xl" style={{ ...CARD_STYLE, border: '1px solid rgba(239,68,68,0.2)' }}>
@@ -816,93 +714,74 @@ export default function InvoicingDashboard() {
       {/* Agent Recommendations */}
       <AgentSection report={report} />
 
-      {/* Contract Jobs — grouped by status category */}
-      {report.contractJobs.length > 0 && (
-        <div>
-          <SectionHeader
-            title="Contract (Fixed-Price) Jobs"
-            count={report.contractJobs.length}
-            icon={FileText}
-            expanded={contractExpanded}
-            onToggle={() => setContractExpanded(!contractExpanded)}
-          />
-          {contractExpanded && (
-            <div className="space-y-2 ml-1">
-              {groupJobsByStatus(report.contractJobs).map(({ category, jobs }) => (
-                <div key={category.key}>
-                  <SubSectionHeader
-                    title={category.label}
-                    count={jobs.length}
-                    expanded={isSubExpanded('contract', category.key)}
-                    onToggle={() => toggleSub('contract', category.key)}
-                  />
-                  {isSubExpanded('contract', category.key) && (
-                    <div className="grid gap-3 md:grid-cols-2 pl-6 pb-2">
-                      {jobs.map((job) => (
-                        <ContractJobCard key={job.jobId} job={job} />
-                      ))}
-                    </div>
-                  )}
-                </div>
-              ))}
-            </div>
-          )}
-        </div>
-      )}
+      {/* Contract Jobs — sorted by health priority */}
+      {report.contractJobs.length > 0 && (() => {
+        const filtered = sortByHealthPriority(report.contractJobs.filter(matchesSearch));
+        return filtered.length > 0 ? (
+          <div>
+            <SectionHeader
+              title="Contract (Fixed-Price) Jobs"
+              count={filtered.length}
+              icon={FileText}
+              expanded={contractExpanded}
+              onToggle={() => setContractExpanded(!contractExpanded)}
+            />
+            {contractExpanded && (
+              <div className="grid gap-2 md:grid-cols-2 lg:grid-cols-3 ml-1">
+                {filtered.map((job) => (
+                  <ContractJobCard key={job.jobId} job={job} />
+                ))}
+              </div>
+            )}
+          </div>
+        ) : null;
+      })()}
 
-      {/* Cost Plus Jobs — grouped by status category */}
-      {report.costPlusJobs.length > 0 && (
-        <div>
-          <SectionHeader
-            title="Cost Plus Jobs"
-            count={report.costPlusJobs.length}
-            icon={Clock}
-            expanded={costPlusExpanded}
-            onToggle={() => setCostPlusExpanded(!costPlusExpanded)}
-          />
-          {costPlusExpanded && (
-            <div className="space-y-2 ml-1">
-              {groupJobsByStatus(report.costPlusJobs).map(({ category, jobs }) => (
-                <div key={category.key}>
-                  <SubSectionHeader
-                    title={category.label}
-                    count={jobs.length}
-                    expanded={isSubExpanded('costplus', category.key)}
-                    onToggle={() => toggleSub('costplus', category.key)}
-                  />
-                  {isSubExpanded('costplus', category.key) && (
-                    <div className="grid gap-3 md:grid-cols-2 pl-6 pb-2">
-                      {jobs.map((job) => (
-                        <CostPlusJobCard key={job.jobId} job={job} />
-                      ))}
-                    </div>
-                  )}
-                </div>
-              ))}
-            </div>
-          )}
-        </div>
-      )}
+      {/* Cost Plus Jobs — sorted by health priority */}
+      {report.costPlusJobs.length > 0 && (() => {
+        const filtered = sortByHealthPriority(report.costPlusJobs.filter(matchesSearch));
+        return filtered.length > 0 ? (
+          <div>
+            <SectionHeader
+              title="Cost Plus Jobs"
+              count={filtered.length}
+              icon={Clock}
+              expanded={costPlusExpanded}
+              onToggle={() => setCostPlusExpanded(!costPlusExpanded)}
+            />
+            {costPlusExpanded && (
+              <div className="grid gap-2 md:grid-cols-2 lg:grid-cols-3 ml-1">
+                {filtered.map((job) => (
+                  <CostPlusJobCard key={job.jobId} job={job} />
+                ))}
+              </div>
+            )}
+          </div>
+        ) : null;
+      })()}
 
       {/* Billable Items */}
-      {report.billableItems.length > 0 && (
-        <div>
-          <SectionHeader
-            title="Billable Items Pending"
-            count={report.billableItems.length}
-            icon={DollarSign}
-            expanded={billableExpanded}
-            onToggle={() => setBillableExpanded(!billableExpanded)}
-          />
-          {billableExpanded && (
-            <div className="space-y-3">
-              {report.billableItems.map((summary) => (
-                <BillableItemsCard key={summary.jobId} summary={summary} />
-              ))}
-            </div>
-          )}
-        </div>
-      )}
+      {report.billableItems.length > 0 && (() => {
+        const filtered = report.billableItems.filter(matchesSearch);
+        return filtered.length > 0 ? (
+          <div>
+            <SectionHeader
+              title="Billable Items Pending"
+              count={filtered.length}
+              icon={DollarSign}
+              expanded={billableExpanded}
+              onToggle={() => setBillableExpanded(!billableExpanded)}
+            />
+            {billableExpanded && (
+              <div className="space-y-2">
+                {filtered.map((summary) => (
+                  <BillableItemsCard key={summary.jobId} summary={summary} />
+                ))}
+              </div>
+            )}
+          </div>
+        ) : null;
+      })()}
 
       {/* Empty state */}
       {report.contractJobs.length === 0 && report.costPlusJobs.length === 0 && report.billableItems.length === 0 && (
