@@ -20,6 +20,7 @@ interface InvoicingSummaryStats {
   costPlusJobs: number;
   totalAlerts: number;
   totalUnbilledAmount: number;
+  totalUnbilledHours: number;
   overallHealth: InvoicingHealth;
 }
 
@@ -634,7 +635,7 @@ export default function InvoicingDashboard() {
       </div>
 
       {/* Summary Cards */}
-      <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+      <div className="grid grid-cols-2 md:grid-cols-5 gap-3">
         <StatCard
           icon={FileText}
           label="Open Jobs"
@@ -650,9 +651,16 @@ export default function InvoicingDashboard() {
         />
         <StatCard
           icon={DollarSign}
-          label="Unbilled Total"
+          label="Unbilled Items"
           value={formatCurrency(summary.totalUnbilledAmount)}
+          subtext="Cost Code 23 only"
           color={summary.totalUnbilledAmount > 0 ? '#eab308' : '#22c55e'}
+        />
+        <StatCard
+          icon={Clock}
+          label="Unbilled Hours"
+          value={`${summary.totalUnbilledHours ?? 0}h`}
+          color={(summary.totalUnbilledHours ?? 0) > 0 ? '#eab308' : '#22c55e'}
         />
         <StatCard
           icon={CheckCircle2}

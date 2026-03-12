@@ -58,7 +58,8 @@ export interface InvoicingSummaryStats {
   contractJobs: number;
   costPlusJobs: number;
   totalAlerts: number;
-  totalUnbilledAmount: number;
+  totalUnbilledAmount: number;   // Only Cost Code 23 billable items (not all cost-plus unbilled)
+  totalUnbilledHours: number;    // Sum of unbilled labor hours across all jobs
   overallHealth: InvoicingHealth;
 }
 
@@ -673,9 +674,15 @@ export async function buildInvoicingContext(): Promise<InvoicingFullContext> {
   const totalAlerts = contractJobs.reduce((sum, j) => sum + j.alerts.length, 0) +
     costPlusJobs.reduce((sum, j) => sum + j.alerts.length, 0);
 
+  // Only count Cost Code 23 billable items (contract uninvoiced + billable items pending)
   const totalUnbilledAmount =
-    costPlusJobs.reduce((sum, j) => sum + j.unbilledAmount, 0) +
+    contractJobs.reduce((sum, j) => sum + j.uninvoicedBillableAmount, 0) +
     billableItems.reduce((sum, j) => sum + j.totalUninvoicedAmount, 0);
+
+  // Sum unbilled labor hours from both job types
+  const totalUnbilledHours =
+    contractJobs.reduce((sum, j) => sum + j.unbilledLaborHours, 0) +
+    costPlusJobs.reduce((sum, j) => sum + j.unbilledHours, 0);
 
   // Overall health: worst of all jobs
   let overallHealth: InvoicingHealth = 'healthy';
@@ -695,6 +702,7 @@ export async function buildInvoicingContext(): Promise<InvoicingFullContext> {
       costPlusJobs: costPlusJobs.length,
       totalAlerts,
       totalUnbilledAmount,
+      totalUnbilledHours: Math.round(totalUnbilledHours * 10) / 10,
       overallHealth,
     },
     contractJobs,
