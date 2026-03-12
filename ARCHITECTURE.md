@@ -378,11 +378,52 @@ JT API  ──→ jt_comments, jt_daily_logs (Supabase cache)
 
 9. **Tool param names don't match JSON keys**: The confirmation card JSON uses `assignee` but the tool expects `assignTo`. Similarly `phaseId` maps to `parentGroupId`. The Know-it-All system prompt has an explicit mapping table — if you modify the tool schema, update the mapping too.
 
+10. **PAVE 413 errors are silent killers**: When a PAVE query is too large (too many nested fields/collections), it returns HTTP 413. If this happens inside `Promise.all`, ALL parallel calls fail and return empty arrays. The dashboard silently shows zeros everywhere with no visible error. **Rule: NEVER add a new PAVE query to an existing Promise.all without testing it in isolation first. Keep nested collection queries small (one document at a time, not bulk).**
+
+11. **Budget-level ≠ Document-level cost items**: `job.costItems` (via `getCostItemsForJobLite`) returns ONLY budget/estimate line items. Vendor bill line items, invoice line items, and PO line items are separate **document-level** items accessible only via `document.costItems` (via `getDocumentCostItemsById`). If you need actual costs incurred or amounts billed, you MUST query document-level items. The deprecated `getDocumentCostItemsForJob()` tried to bulk-fetch these but caused 413 errors — do NOT use it.
+
+12. **Contract vs Cost-Plus logic must stay separate**: Changes to `analyzeContractJob()` must NOT affect `analyzeCostPlusJob()` or vice versa. They interpret the same data differently — contract jobs only count `type === 'Billable'` time entries and CC23 costs; cost-plus jobs count ALL time entries and ALL vendor bill costs. Nathan has explicitly warned about this multiple times.
+
 ---
 
 ## 13. Changelog
 
 All modifications to the codebase should be logged here with date, files changed, and what was done.
+
+### 2026-03-12 — Fix: Contract Job Billable Costs & Labor Hours (413 Error Recovery)
+
+**Problem:** Contract (Fixed-Price) jobs were showing $0 for billable costs and 0 hours for billable labor. Two separate issues needed solving:
+
+1. **Billable labor hours** — The dashboard was counting ALL time entries, but contract jobs need to count only entries with `type === 'Billable'` (not `type === 'Standard'`). Standard hours are part of the contract; Billable hours need separate invoicing.
+
+2. **Billable costs ($0)** — The `getCostItemsForJobLite()` function returns **budget-level** cost items only. CC23 costs on vendor bills (e.g., $254.50 + $100.00 = $354.50 on the Sines project) are **document-level** cost items that don't appear in `job.costItems`. A new approach was needed to fetch document-level items.
+
+**Failed approaches (important for future reference):**
+- ❌ **Attempt 1** (`a661920`): Changed to "vendor bill costs minus invoice costs" using budget-level `costItems` — still $0 because vendor bill line items aren't in `job.costItems`
+- ❌ **Attempt 2** (`0307e88`): Created `getDocumentCostItemsForJob()` with nested query `job.documents.costItems` (50 docs × 50 items) — caused **413 Request Entity Too Large** errors. Since this was inside `Promise.all` with the other 3 API calls, ALL parallel calls failed, returning empty arrays. This broke the ENTIRE dashboard (all jobs showed zeros for everything).
+
+**Final solution** (`bd452c7`):
+- Removed `getDocumentCostItemsForJob` from the main batch fetch entirely (reverted to 3 parallel calls: documents, costItems, timeEntries)
+- Added `getDocumentCostItemsById(documentId)` — fetches cost items for a single document (tiny query, no 413 risk)
+- Inside `analyzeContractJob()` only, identifies vendor bills and customer invoices from the already-fetched `documents` array, then fetches each document's cost items individually
+- Filters for CC23 items, sums vendor bill costs minus customer invoice costs = uninvoiced billable amount
+- For labor hours: filters time entries by `type === 'Billable'`, sums hours, subtracts CC23 customer invoice quantities (hours already billed)
+
+**Key architectural lesson — Budget-level vs Document-level cost items:**
+- `job.costItems` (via `getCostItemsForJobLite`) = budget/estimate line items only
+- `document.costItems` (via `getDocumentCostItemsById`) = vendor bill, invoice, PO line items
+- To get actual costs incurred or billed, MUST query document-level items
+- NEVER use a nested `job.documents.costItems` bulk query — it causes 413 errors
+
+**Verified on Sines project:** $354.50 uninvoiced billable costs (Bill #14: $254.50 + Bill #22: $100.00), 3.9 unbilled labor hours (Cole Kleindienst, 1 Billable entry of 3h 52m)
+
+**Changes:**
+- `app/lib/jobtread.ts` — Added `getDocumentCostItemsById()` function for per-document cost item queries
+- `app/lib/invoicing-health.ts` — Removed `getDocumentCostItemsForJob` from imports and main batch fetch; reverted to 3 parallel calls; updated `analyzeContractJob()` to fetch CC23 document cost items internally per-document; labor hours now filter by `type === 'Billable'`
+
+**Commits:** `1172770` → `a661920` → `0307e88` (broken) → `bd452c7` (final fix)
+
+---
 
 ### 2026-03-12 — UI: Health-Priority Sorting, Condensed Cards, Search
 
