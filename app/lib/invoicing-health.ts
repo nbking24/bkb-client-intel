@@ -657,23 +657,41 @@ export async function buildInvoicingContext(): Promise<InvoicingFullContext> {
   // 1. Get all active jobs (now includes native priceType field from PAVE API)
   const rawJobs = await getActiveJobs(50);
 
-  // 2. For each job, fetch documents, cost items, and time entries in parallel
-  const jobContexts = await Promise.all(
-    rawJobs.map(async (job) => {
-      try {
-        const [documents, costItems, timeEntries] = await Promise.all([
-          getDocumentsForJob(job.id),
-          getCostItemsForJob(job.id, 200), // Smaller limit for invoicing — don't need specs
-          getTimeEntriesForJob(job.id, 100),
-        ]);
+  // 2. For each job, fetch documents, cost items, and time entries
+  //    Use batched concurrency (5 jobs at a time) to avoid overwhelming the PAVE API
+  const BATCH_SIZE = 5;
+  const jobContexts: Array<{
+    job: JTJob;
+    documents: JTDocument[];
+    costItems: JTCostItem[];
+    timeEntries: JTTimeEntry[];
+  }> = [];
 
-        return { job, documents, costItems, timeEntries };
-      } catch (err) {
-        console.error(`[InvoicingHealth] Failed to fetch data for job ${job.name}:`, err);
-        return { job, documents: [] as JTDocument[], costItems: [] as JTCostItem[], timeEntries: [] as JTTimeEntry[] };
-      }
-    })
-  );
+  for (let i = 0; i < rawJobs.length; i += BATCH_SIZE) {
+    const batch = rawJobs.slice(i, i + BATCH_SIZE);
+    const batchResults = await Promise.all(
+      batch.map(async (job) => {
+        try {
+          const [documents, costItems, timeEntries] = await Promise.all([
+            getDocumentsForJob(job.id),
+            getCostItemsForJob(job.id, 200),
+            getTimeEntriesForJob(job.id, 100),
+          ]);
+
+          return { job, documents, costItems, timeEntries };
+        } catch (err) {
+          console.error(`[InvoicingHealth] Failed to fetch data for job ${job.name} (${job.id}):`, err);
+          return { job, documents: [] as JTDocument[], costItems: [] as JTCostItem[], timeEntries: [] as JTTimeEntry[] };
+        }
+      })
+    );
+    jobContexts.push(...batchResults);
+  }
+
+  console.log(`[InvoicingHealth] Fetched data for ${jobContexts.length} jobs — ` +
+    `docs: ${jobContexts.reduce((s, j) => s + j.documents.length, 0)}, ` +
+    `costItems: ${jobContexts.reduce((s, j) => s + j.costItems.length, 0)}, ` +
+    `timeEntries: ${jobContexts.reduce((s, j) => s + j.timeEntries.length, 0)}`);
 
   // 3. Classify each job by its native priceType field from JobTread
 
