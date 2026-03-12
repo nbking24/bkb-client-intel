@@ -27,7 +27,7 @@ import {
 // Constants
 // ============================================================
 
-/** Cost Code 23 = "Miscellaneous/Billable Labor" */
+/** Cost Code 23 — "23 Billable" (labor hours), "23 Billable Materials", "23 Billable Subs" (costs) */
 const BILLABLE_COST_CODE_NUMBER = '23';
 
 /** Cost Plus jobs should be invoiced every 14 days */
