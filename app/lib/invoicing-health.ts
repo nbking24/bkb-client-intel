@@ -326,16 +326,23 @@ async function analyzeContractJob(
   const unmatchedDraftInvoices = draftInvoiceInfos.filter((d) => !d.isLinkedToTask);
 
   // Calculate billable items (Cost Code 23) for this contract job
-  // Sum ALL CC23 items that are NOT on a customer invoice
+  // Sum CC23 items on vendor bills (actual costs incurred) minus CC23 on customer invoices (already billed)
   const billableCostItems = costItems.filter(
     (item) => item.costCode?.number === BILLABLE_COST_CODE_NUMBER
   );
-  const cc23NotInvoiced = billableCostItems.filter(
-    (item) => item.document?.type !== 'customerInvoice'
+  const cc23OnBills = billableCostItems.filter(
+    (item) => item.document?.type === 'vendorBill'
   );
-  const uninvoicedBillableAmount = cc23NotInvoiced.reduce(
+  const cc23OnInvoices = billableCostItems.filter(
+    (item) => item.document?.type === 'customerInvoice'
+  );
+  const cc23BillCosts = cc23OnBills.reduce(
     (sum, item) => sum + (item.cost || 0), 0
   );
+  const cc23InvoicedCosts = cc23OnInvoices.reduce(
+    (sum, item) => sum + (item.cost || 0), 0
+  );
+  const uninvoicedBillableAmount = Math.max(0, cc23BillCosts - cc23InvoicedCosts);
 
   // Calculate unbilled labor hours for contract jobs:
   // 1. Find all time entries with type "Billable" and sum their hours
@@ -354,9 +361,7 @@ async function analyzeContractJob(
   }, 0);
 
   // CC23 labor items on customer invoices represent hours already billed
-  const cc23OnInvoices = billableCostItems.filter(
-    (item) => item.document?.type === 'customerInvoice'
-  );
+  // (cc23OnInvoices already computed above for billable costs)
   const billedLaborHours = cc23OnInvoices.reduce((sum, item) => {
     return sum + (item.quantity || 0);
   }, 0);
