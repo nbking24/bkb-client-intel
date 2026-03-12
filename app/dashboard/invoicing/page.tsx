@@ -5,7 +5,7 @@ import {
   DollarSign, AlertTriangle, Clock, CheckCircle2,
   RefreshCw, Loader2, FileText, TrendingUp,
   Calendar, AlertCircle, ChevronDown, ChevronRight,
-  Search, X,
+  Search, X, Plus, Check,
 } from 'lucide-react';
 
 // ============================================================
@@ -264,6 +264,64 @@ function formatCurrency(amount: number) {
 }
 
 // ============================================================
+// Create $ Task Button for Unmatched Draft Invoices
+// ============================================================
+
+function CreateTaskRow({ jobId, draft }: { jobId: string; draft: DraftInvoiceInfo }) {
+  const [status, setStatus] = useState<'idle' | 'loading' | 'done' | 'error'>('idle');
+  const [message, setMessage] = useState('');
+
+  const handleCreate = async () => {
+    setStatus('loading');
+    try {
+      const res = await fetch('/api/dashboard/invoicing/create-task', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ jobId, documentName: draft.documentName }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || 'Failed');
+      setStatus('done');
+      setMessage(data.alreadyExists ? 'Already exists' : 'Created');
+    } catch (err: any) {
+      setStatus('error');
+      setMessage(err.message || 'Failed');
+    }
+  };
+
+  return (
+    <div className="flex items-center gap-1.5 text-[11px] py-0.5" style={{ color: '#eab308' }}>
+      <AlertCircle size={10} className="flex-shrink-0" />
+      <span className="truncate">{draft.documentName} — missing $ task</span>
+      {status === 'idle' && (
+        <button
+          onClick={handleCreate}
+          className="flex items-center gap-0.5 px-1.5 py-0.5 rounded text-[10px] font-medium ml-auto flex-shrink-0 transition-colors"
+          style={{ background: '#3b3028', color: '#e8e0d8', border: '1px solid #4a3f35' }}
+          onMouseEnter={(e) => { e.currentTarget.style.background = '#4a3f35'; }}
+          onMouseLeave={(e) => { e.currentTarget.style.background = '#3b3028'; }}
+        >
+          <Plus size={9} /> Create
+        </button>
+      )}
+      {status === 'loading' && (
+        <Loader2 size={10} className="ml-auto flex-shrink-0 animate-spin" style={{ color: '#8a8078' }} />
+      )}
+      {status === 'done' && (
+        <span className="flex items-center gap-0.5 ml-auto flex-shrink-0 text-[10px]" style={{ color: '#22c55e' }}>
+          <Check size={9} /> {message}
+        </span>
+      )}
+      {status === 'error' && (
+        <span className="ml-auto flex-shrink-0 text-[10px]" style={{ color: '#ef4444' }}>
+          {message}
+        </span>
+      )}
+    </div>
+  );
+}
+
+// ============================================================
 // Contract Jobs Section
 // ============================================================
 
@@ -330,9 +388,10 @@ function ContractJobCard({ job }: { job: ContractJobHealth }) {
       )}
 
       {job.unmatchedDraftInvoices && job.unmatchedDraftInvoices.length > 0 && (
-        <div className="flex items-center gap-1 text-[11px] py-0.5" style={{ color: '#eab308' }}>
-          <AlertCircle size={10} className="flex-shrink-0" />
-          Drafts missing $ task: {job.unmatchedDraftInvoices.map((d) => d.documentName).join(', ')}
+        <div className="py-0.5">
+          {job.unmatchedDraftInvoices.map((d) => (
+            <CreateTaskRow key={d.documentId} jobId={job.jobId} draft={d} />
+          ))}
         </div>
       )}
 
