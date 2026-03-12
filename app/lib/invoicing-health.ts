@@ -678,9 +678,13 @@ export async function buildInvoicingContext(): Promise<InvoicingFullContext> {
             getTimeEntriesForJob(job.id, 100),
           ]);
 
+          if (documents.length === 0 && costItems.length === 0 && timeEntries.length === 0) {
+            console.warn(`[InvoicingHealth] WARNING: All data empty for job ${job.name} (${job.id}) — possible API issue`);
+          }
+
           return { job, documents, costItems, timeEntries };
-        } catch (err) {
-          console.error(`[InvoicingHealth] Failed to fetch data for job ${job.name} (${job.id}):`, err);
+        } catch (err: any) {
+          console.error(`[InvoicingHealth] FAILED to fetch data for job ${job.name} (${job.id}): ${err?.message || err}`);
           return { job, documents: [] as JTDocument[], costItems: [] as JTCostItem[], timeEntries: [] as JTTimeEntry[] };
         }
       })
