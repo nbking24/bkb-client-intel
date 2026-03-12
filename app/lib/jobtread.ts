@@ -1656,6 +1656,52 @@ export interface JTCostItem {
   vendor?: string | null;
 }
 
+/**
+ * Lightweight cost item fetch for invoicing — only the fields needed
+ * for billing analysis. Avoids 413 errors from oversized queries.
+ */
+export async function getCostItemsForJobLite(jobId: string, limit = 200): Promise<JTCostItem[]> {
+  const PAGE_SIZE = 100;
+  let allItems: any[] = [];
+  let nextPage: string | null = null;
+  const maxPages = Math.ceil(limit / PAGE_SIZE);
+
+  for (let page = 0; page < maxPages; page++) {
+    const pageParams: Record<string, unknown> = { size: PAGE_SIZE };
+    if (nextPage) pageParams.page = nextPage;
+
+    const data = await pave({
+      job: {
+        $: { id: jobId },
+        costItems: {
+          $: pageParams,
+          nextPage: {},
+          nodes: {
+            id: {},
+            name: {},
+            quantity: {},
+            unitCost: {},
+            unitPrice: {},
+            cost: {},
+            price: {},
+            costType: { id: {}, name: {} },
+            costCode: { id: {}, name: {}, number: {} },
+            document: { id: {}, name: {}, type: {} },
+          },
+        },
+      },
+    });
+
+    const costItemPage = (data as any)?.job?.costItems;
+    const nodes = costItemPage?.nodes || [];
+    allItems = allItems.concat(nodes);
+    nextPage = costItemPage?.nextPage || null;
+    if (!nextPage || nodes.length < PAGE_SIZE) break;
+  }
+
+  return allItems;
+}
+
 export async function getCostItemsForJob(jobId: string, limit = 500): Promise<JTCostItem[]> {
   // Paginate through all cost items (jobs can have 200+ items)
   // Page size 50 to avoid 413 errors when customFieldValues are included

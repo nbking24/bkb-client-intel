@@ -1,5 +1,5 @@
 import { NextResponse } from 'next/server';
-import { getDocumentsForJob, getCostItemsForJob, getTimeEntriesForJob } from '@/app/lib/jobtread';
+import { getDocumentsForJob, getCostItemsForJobLite, getTimeEntriesForJob } from '@/app/lib/jobtread';
 
 export const runtime = 'nodejs';
 
@@ -11,7 +11,7 @@ export async function GET() {
     const start = Date.now();
     const [documents, costItems, timeEntries] = await Promise.all([
       getDocumentsForJob(testJobId),
-      getCostItemsForJob(testJobId, 50),
+      getCostItemsForJobLite(testJobId, 50),
       getTimeEntriesForJob(testJobId, 50),
     ]);
     const elapsed = Date.now() - start;
@@ -23,7 +23,7 @@ export async function GET() {
       costItems: costItems.length,
       timeEntries: timeEntries.length,
       sampleDoc: documents[0] || null,
-      sampleCostItem: costItems[0] ? { id: costItems[0].id, name: costItems[0].name, document: costItems[0].document } : null,
+      sampleCostItem: costItems[0] ? { id: costItems[0].id, name: costItems[0].name, cost: costItems[0].cost, document: costItems[0].document } : null,
       envKeyLength: (process.env.JOBTREAD_API_KEY || '').length,
     });
   } catch (err: any) {

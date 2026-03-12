@@ -13,7 +13,7 @@
 import {
   getActiveJobs,
   getDocumentsForJob,
-  getCostItemsForJob,
+  getCostItemsForJobLite,
   getTimeEntriesForJob,
   getJobSchedule,
   type JTJob,
@@ -674,7 +674,7 @@ export async function buildInvoicingContext(): Promise<InvoicingFullContext> {
         try {
           const [documents, costItems, timeEntries] = await Promise.all([
             getDocumentsForJob(job.id),
-            getCostItemsForJob(job.id, 200),
+            getCostItemsForJobLite(job.id, 200),
             getTimeEntriesForJob(job.id, 100),
           ]);
 
