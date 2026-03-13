@@ -650,6 +650,44 @@ function BillableItemsCard({ summary }: { summary: BillableItemsSummary }) {
 // Agent Recommendations Section
 // ============================================================
 
+const VISIBLE_ALERTS = 5;
+
+function GlobalAlertsSection({ alerts }: { alerts: string[] }) {
+  const [expanded, setExpanded] = useState(false);
+  const hasMore = alerts.length > VISIBLE_ALERTS;
+  const visibleAlerts = expanded ? alerts : alerts.slice(0, VISIBLE_ALERTS);
+
+  return (
+    <div className="p-4 rounded-xl" style={{ ...CARD_STYLE, border: '1px solid rgba(239,68,68,0.2)' }}>
+      <div className="flex items-center gap-2 mb-2">
+        <AlertTriangle size={16} style={{ color: '#ef4444' }} />
+        <span className="text-sm font-semibold" style={{ color: '#ef4444' }}>
+          Active Alerts ({alerts.length})
+        </span>
+      </div>
+      <div className="space-y-1">
+        {visibleAlerts.map((alert, i) => (
+          <div key={i} className="text-xs" style={{ color: '#f97316' }}>
+            {alert}
+          </div>
+        ))}
+        {hasMore && (
+          <button
+            onClick={() => setExpanded(!expanded)}
+            className="flex items-center gap-1 text-xs mt-1"
+            style={{ color: '#8a8078', background: 'none', border: 'none', cursor: 'pointer', padding: 0 }}
+          >
+            {expanded ? <ChevronDown size={12} /> : <ChevronRight size={12} />}
+            {expanded ? 'Show less' : `+${alerts.length - VISIBLE_ALERTS} more alerts`}
+          </button>
+        )}
+      </div>
+    </div>
+  );
+}
+
+// ============================================================
+
 function AgentSection({ report }: { report: InvoicingReport }) {
   if (!report.agentSummary && (!report.agentRecommendations || report.agentRecommendations.length === 0)) {
     return null;
@@ -871,26 +909,7 @@ export default function InvoicingDashboard() {
 
       {/* Global Alerts */}
       {report.alerts.length > 0 && (
-        <div className="p-4 rounded-xl" style={{ ...CARD_STYLE, border: '1px solid rgba(239,68,68,0.2)' }}>
-          <div className="flex items-center gap-2 mb-2">
-            <AlertTriangle size={16} style={{ color: '#ef4444' }} />
-            <span className="text-sm font-semibold" style={{ color: '#ef4444' }}>
-              Active Alerts ({report.alerts.length})
-            </span>
-          </div>
-          <div className="space-y-1">
-            {report.alerts.slice(0, 10).map((alert, i) => (
-              <div key={i} className="text-xs" style={{ color: '#f97316' }}>
-                {alert}
-              </div>
-            ))}
-            {report.alerts.length > 10 && (
-              <div className="text-xs" style={{ color: '#8a8078' }}>
-                +{report.alerts.length - 10} more alerts
-              </div>
-            )}
-          </div>
-        </div>
+        <GlobalAlertsSection alerts={report.alerts} />
       )}
 
       {/* Agent Recommendations */}
