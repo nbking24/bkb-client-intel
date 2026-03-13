@@ -629,9 +629,12 @@ async function analyzeCostPlusJob(
   ];
 
   // Determine health
+  // If there are no unbilled costs AND no unbilled hours, the project is healthy
+  // regardless of how long since the last invoice — there's nothing to bill.
   let health: InvoicingHealth = 'healthy';
+  const hasUnbilledWork = unbilledCosts > 0 || unbilledHours > 0;
 
-  if (daysSinceLastInvoice !== null) {
+  if (hasUnbilledWork && daysSinceLastInvoice !== null) {
     if (daysSinceLastInvoice > COST_PLUS_BILLING_CADENCE_DAYS * 2) {
       health = 'critical';
       alerts.push(`${daysSinceLastInvoice} days since last invoice — over 2x billing cadence`);
@@ -644,7 +647,7 @@ async function analyzeCostPlusJob(
     }
   }
 
-  if (unbilledAmount > ALERT_THRESHOLDS.unbilledAmountThreshold) {
+  if (hasUnbilledWork && unbilledAmount > ALERT_THRESHOLDS.unbilledAmountThreshold) {
     alerts.push(`$${unbilledAmount.toLocaleString()} in unbilled costs`);
     if (health === 'healthy') health = 'warning';
   }
