@@ -523,7 +523,8 @@ function ContractJobCard({ job }: { job: ContractJobHealth }) {
 // ============================================================
 
 function CostPlusJobCard({ job }: { job: CostPlusJobHealth }) {
-  const daysColor = (job.daysSinceLastInvoice ?? 0) > 14 ? '#ef4444' : (job.daysSinceLastInvoice ?? 0) > 10 ? '#eab308' : '#22c55e';
+  const hasUnbilledWork = job.unbilledCosts > 0 || job.unbilledHours > 0;
+  const daysColor = !hasUnbilledWork ? '#8a8078' : (job.daysSinceLastInvoice ?? 0) > 14 ? '#ef4444' : (job.daysSinceLastInvoice ?? 0) > 10 ? '#eab308' : '#22c55e';
   const unpaidTotal = (job.releasedInvoices || [])
     .filter((inv) => inv.status === 'open')
     .reduce((sum, inv) => sum + inv.amount, 0);
