@@ -52,6 +52,16 @@ interface PendingInvoiceInfo {
   daysPending: number;
 }
 
+interface ReleasedInvoiceInfo {
+  documentId: string;
+  documentName: string;
+  documentSubject: string | null;
+  documentNumber: string;
+  amount: number;
+  createdAt: string;
+  status: 'paid' | 'open';
+}
+
 interface ContractJobHealth {
   jobId: string;
   jobName: string;
@@ -68,6 +78,7 @@ interface ContractJobHealth {
   approachingMilestones: MilestoneInfo[];
   unmatchedDraftInvoices: DraftInvoiceInfo[];
   draftInvoices: DraftInvoiceInfo[];
+  releasedInvoices: ReleasedInvoiceInfo[];
   pendingInvoices: PendingInvoiceInfo[];
   uninvoicedBillableAmount: number;
   unbilledLaborHours: number;
@@ -88,6 +99,8 @@ interface CostPlusJobHealth {
   unbilledAmount: number;
   invoiceCount: number;
   totalInvoiced: number;
+  draftInvoices: DraftInvoiceInfo[];
+  releasedInvoices: ReleasedInvoiceInfo[];
   health: InvoicingHealth;
   alerts: string[];
 }
@@ -343,6 +356,60 @@ function CreateTaskRow({ jobId, draft }: { jobId: string; draft: DraftInvoiceInf
 }
 
 // ============================================================
+// Collapsible Draft Invoices List
+// ============================================================
+
+function InvoiceDetails({ drafts, released }: { drafts: DraftInvoiceInfo[]; released: ReleasedInvoiceInfo[] }) {
+  const [expanded, setExpanded] = useState(false);
+  const hasDrafts = drafts && drafts.length > 0;
+  const hasReleased = released && released.length > 0;
+  if (!hasDrafts && !hasReleased) return null;
+
+  const totalCount = (drafts?.length || 0) + (released?.length || 0);
+
+  return (
+    <div className="mt-1">
+      <button
+        onClick={() => setExpanded(!expanded)}
+        className="flex items-center gap-1 text-[11px] hover:opacity-80 transition-opacity"
+        style={{ color: '#CDA274' }}
+      >
+        {expanded ? <ChevronDown size={10} /> : <Plus size={10} />}
+        <FileText size={10} />
+        <span>Invoices ({totalCount})</span>
+      </button>
+      {expanded && (
+        <div className="ml-4 mt-1 space-y-0.5">
+          {hasDrafts && drafts.map((d) => (
+            <div key={d.documentId} className="text-[11px] flex justify-between" style={{ color: '#8a8078' }}>
+              <span className="truncate mr-2">
+                <span className="inline-block w-[38px] text-[10px] rounded px-1 mr-1" style={{ background: '#3a322b', color: '#CDA274' }}>Draft</span>
+                {d.documentSubject || d.documentName}
+              </span>
+              <span className="flex-shrink-0">{formatCurrency(d.amount)}</span>
+            </div>
+          ))}
+          {hasReleased && released.map((d) => (
+            <div key={d.documentId} className="text-[11px] flex justify-between" style={{ color: '#8a8078' }}>
+              <span className="truncate mr-2">
+                <span
+                  className="inline-block w-[38px] text-center text-[10px] rounded px-1 mr-1"
+                  style={{ background: d.status === 'paid' ? '#1a2e1a' : '#2e2a1a', color: d.status === 'paid' ? '#4ade80' : '#eab308' }}
+                >
+                  {d.status === 'paid' ? 'Paid' : 'Open'}
+                </span>
+                {d.documentSubject || d.documentName}
+              </span>
+              <span className="flex-shrink-0">{formatCurrency(d.amount)}</span>
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ============================================================
 // Contract Jobs Section
 // ============================================================
 
@@ -439,6 +506,8 @@ function ContractJobCard({ job }: { job: ContractJobHealth }) {
           {alert}
         </div>
       ))}
+
+      <InvoiceDetails drafts={job.draftInvoices} released={job.releasedInvoices} />
     </div>
   );
 }
@@ -497,6 +566,8 @@ function CostPlusJobCard({ job }: { job: CostPlusJobHealth }) {
           {alert}
         </div>
       ))}
+
+      <InvoiceDetails drafts={job.draftInvoices} released={job.releasedInvoices} />
     </div>
   );
 }

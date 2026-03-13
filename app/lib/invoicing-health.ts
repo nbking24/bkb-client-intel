@@ -82,6 +82,7 @@ export interface ContractJobHealth {
   approachingMilestones: MilestoneInfo[];
   unmatchedDraftInvoices: DraftInvoiceInfo[];
   draftInvoices: DraftInvoiceInfo[];
+  releasedInvoices: ReleasedInvoiceInfo[];
   pendingInvoices: PendingInvoiceInfo[];
   uninvoicedBillableAmount: number;
   unbilledLaborHours: number;
@@ -117,6 +118,16 @@ export interface PendingInvoiceInfo {
   daysPending: number;
 }
 
+export interface ReleasedInvoiceInfo {
+  documentId: string;
+  documentName: string;
+  documentSubject: string | null;
+  documentNumber: string;
+  amount: number;
+  createdAt: string;
+  status: 'paid' | 'open';
+}
+
 export interface CostPlusJobHealth {
   jobId: string;
   jobName: string;
@@ -130,6 +141,8 @@ export interface CostPlusJobHealth {
   unbilledAmount: number;
   invoiceCount: number;
   totalInvoiced: number;
+  draftInvoices: DraftInvoiceInfo[];
+  releasedInvoices: ReleasedInvoiceInfo[];
   health: InvoicingHealth;
   alerts: string[];
 }
@@ -465,6 +478,28 @@ async function analyzeContractJob(
   const invoicedToDate = [...approvedInvoices, ...pendingInvoicesDocs]
     .reduce((sum, d) => sum + (d.price || 0), 0);
 
+  // Released invoices (paid + open) for collapsible detail list
+  const releasedInvoiceInfos: ReleasedInvoiceInfo[] = [
+    ...approvedInvoices.map((d) => ({
+      documentId: d.id,
+      documentName: d.name || '',
+      documentSubject: d.subject || null,
+      documentNumber: d.number || '',
+      amount: d.price || 0,
+      createdAt: d.createdAt,
+      status: 'paid' as const,
+    })),
+    ...pendingInvoicesDocs.map((d) => ({
+      documentId: d.id,
+      documentName: d.name || '',
+      documentSubject: d.subject || null,
+      documentNumber: d.number || '',
+      amount: d.price || 0,
+      createdAt: d.createdAt,
+      status: 'open' as const,
+    })),
+  ];
+
   return {
     jobId: job.id,
     jobName: job.name,
@@ -481,6 +516,7 @@ async function analyzeContractJob(
     approachingMilestones,
     unmatchedDraftInvoices,
     draftInvoices: draftInvoiceInfos,
+    releasedInvoices: releasedInvoiceInfos,
     pendingInvoices,
     uninvoicedBillableAmount,
     unbilledLaborHours: roundedLaborHours,
@@ -552,11 +588,44 @@ async function analyzeCostPlusJob(
     .reduce((sum, item) => sum + (item.quantity || 0), 0);
   const unbilledHours = Math.max(0, totalHours - billedLaborHours);
 
+  // Draft invoices
+  const draftInvoices = customerInvoices.filter((d) => d.status === 'draft');
+  const draftInvoiceInfos: DraftInvoiceInfo[] = draftInvoices.map((d) => ({
+    documentId: d.id,
+    documentName: d.name,
+    documentSubject: d.subject || null,
+    amount: d.price || 0,
+    createdAt: d.createdAt,
+    isLinkedToTask: false,
+  }));
+
   // Total invoiced (actual dollar amounts from approved + pending invoices)
   const pendingInvoices = customerInvoices.filter((d) => d.status === 'pending');
   const totalInvoiced = [...approvedInvoices, ...pendingInvoices].reduce(
     (sum, d) => sum + (d.price || 0), 0
   );
+
+  // Released invoices (paid + open) for collapsible detail list
+  const releasedInvoiceInfos: ReleasedInvoiceInfo[] = [
+    ...approvedInvoices.map((d) => ({
+      documentId: d.id,
+      documentName: d.name || '',
+      documentSubject: d.subject || null,
+      documentNumber: d.number || '',
+      amount: d.price || 0,
+      createdAt: d.createdAt,
+      status: 'paid' as const,
+    })),
+    ...pendingInvoices.map((d) => ({
+      documentId: d.id,
+      documentName: d.name || '',
+      documentSubject: d.subject || null,
+      documentNumber: d.number || '',
+      amount: d.price || 0,
+      createdAt: d.createdAt,
+      status: 'open' as const,
+    })),
+  ];
 
   // Determine health
   let health: InvoicingHealth = 'healthy';
@@ -596,6 +665,8 @@ async function analyzeCostPlusJob(
     unbilledAmount,
     invoiceCount: approvedInvoices.length,
     totalInvoiced,
+    draftInvoices: draftInvoiceInfos,
+    releasedInvoices: releasedInvoiceInfos,
     health,
     alerts,
   };
