@@ -458,9 +458,12 @@ async function analyzeContractJob(
     if (health === 'healthy') health = 'warning';
   }
 
-  // Calculate invoiced amounts (count-based for MVP, enhance with actual amounts later)
-  const invoicedToDate = approvedInvoices.length;
-  const totalContractValue = estimates.length; // Placeholder — enhance with actual amounts
+  // Calculate invoiced amounts from document prices
+  // totalContractValue = sum of all approved customer orders (estimates)
+  const totalContractValue = estimates.reduce((sum, d) => sum + (d.price || 0), 0);
+  // invoicedToDate = sum of approved (paid) + pending (sent/open) customer invoices
+  const invoicedToDate = [...approvedInvoices, ...pendingInvoicesDocs]
+    .reduce((sum, d) => sum + (d.price || 0), 0);
 
   return {
     jobId: job.id,
