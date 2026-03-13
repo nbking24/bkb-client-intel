@@ -414,6 +414,9 @@ function InvoiceDetails({ drafts, released }: { drafts: DraftInvoiceInfo[]; rele
 // ============================================================
 
 function ContractJobCard({ job }: { job: ContractJobHealth }) {
+  const unpaidTotal = (job.releasedInvoices || [])
+    .filter((inv) => inv.status === 'open')
+    .reduce((sum, inv) => sum + inv.amount, 0);
   return (
     <div className="px-3 py-2.5 rounded-lg" style={CARD_STYLE}>
       {/* Header row: name + badge + key stats inline */}
@@ -426,6 +429,9 @@ function ContractJobCard({ job }: { job: ContractJobHealth }) {
       <div className="flex items-center justify-between mb-2">
         <span className="text-[11px]" style={{ color: '#8a8078' }}>
           {formatCurrencyExact(job.invoicedToDate)} / {formatCurrencyExact(job.totalContractValue)}
+          {unpaidTotal > 0 && (
+            <span style={{ color: '#eab308' }}> • {formatCurrency(unpaidTotal)} unpaid</span>
+          )}
         </span>
         <span className="text-[11px]" style={{ color: '#8a8078' }}>
           {Math.round(job.invoicedPercent)}% invoiced
@@ -518,6 +524,9 @@ function ContractJobCard({ job }: { job: ContractJobHealth }) {
 
 function CostPlusJobCard({ job }: { job: CostPlusJobHealth }) {
   const daysColor = (job.daysSinceLastInvoice ?? 0) > 14 ? '#ef4444' : (job.daysSinceLastInvoice ?? 0) > 10 ? '#eab308' : '#22c55e';
+  const unpaidTotal = (job.releasedInvoices || [])
+    .filter((inv) => inv.status === 'open')
+    .reduce((sum, inv) => sum + inv.amount, 0);
   return (
     <div className="px-3 py-2.5 rounded-lg" style={CARD_STYLE}>
       {/* Header row */}
@@ -530,6 +539,9 @@ function CostPlusJobCard({ job }: { job: CostPlusJobHealth }) {
       <div className="flex items-center justify-between mb-2">
         <span className="text-[11px]" style={{ color: '#8a8078' }}>
           {formatCurrency(job.totalInvoiced)} invoiced • {formatCurrency(job.unbilledAmount)} unbilled
+          {unpaidTotal > 0 && (
+            <span style={{ color: '#eab308' }}> • {formatCurrency(unpaidTotal)} unpaid</span>
+          )}
         </span>
         <span className="text-[11px]" style={{ color: daysColor }}>
           {job.daysSinceLastInvoice !== null ? `${job.daysSinceLastInvoice}d since invoice` : 'No invoices'}
