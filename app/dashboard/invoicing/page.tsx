@@ -375,11 +375,8 @@ function ContractJobCard({ job }: { job: ContractJobHealth }) {
       {/* Inline stats row */}
       <div className="flex items-center gap-3 text-[11px] mb-1.5">
         <span style={{ color: '#8a8078' }}>
-          Inv: <span style={{ color: '#e8e0d8' }}>{job.invoicedToDate}</span>
-        </span>
-        <span style={{ color: '#8a8078' }}>
           Billable: <span style={{ color: job.uninvoicedBillableAmount > 200 ? '#f97316' : '#e8e0d8' }}>
-            ${job.uninvoicedBillableAmount?.toLocaleString() ?? '0'}
+            {formatCurrency(job.uninvoicedBillableAmount ?? 0)}
           </span>
         </span>
         <span style={{ color: '#8a8078' }}>
