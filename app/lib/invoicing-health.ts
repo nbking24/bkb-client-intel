@@ -380,9 +380,10 @@ async function analyzeContractJob(
   const cc23BillCosts = cc23OnBills.reduce(
     (sum, item) => sum + (item.cost || 0), 0
   );
-  const cc23InvoicedCosts = cc23OnInvoices.reduce(
-    (sum, item) => sum + (item.cost || 0), 0
-  );
+  // Only Materials & Subs on invoices reduce billable costs — Labor does not.
+  const cc23InvoicedCosts = cc23OnInvoices
+    .filter((item) => !item.name?.toLowerCase().includes('labor'))
+    .reduce((sum, item) => sum + (item.cost || 0), 0);
   const uninvoicedBillableAmount = Math.max(0, cc23BillCosts - cc23InvoicedCosts);
 
   // Calculate unbilled labor hours for contract jobs:
@@ -698,9 +699,10 @@ function findBillableItems(
   const cc23BillCosts = cc23OnBills.reduce(
     (sum, item) => sum + (item.cost || 0), 0
   );
-  const cc23InvoicedCosts = cc23OnInvoices.reduce(
-    (sum, item) => sum + (item.cost || 0), 0
-  );
+  // Only Materials & Subs on invoices reduce billable costs — Labor does not.
+  const cc23InvoicedCosts = cc23OnInvoices
+    .filter((item) => !item.name?.toLowerCase().includes('labor'))
+    .reduce((sum, item) => sum + (item.cost || 0), 0);
   const totalUninvoicedAmount = Math.max(0, cc23BillCosts - cc23InvoicedCosts);
 
   // Build uninvoiced items list from bills not yet invoiced
