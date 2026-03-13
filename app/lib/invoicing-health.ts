@@ -404,11 +404,11 @@ async function analyzeContractJob(
     return sum;
   }, 0);
 
-  // CC23 labor items on customer invoices represent hours already billed
-  // (cc23OnInvoices already computed above for billable costs)
-  const billedLaborHours = cc23OnInvoices.reduce((sum, item) => {
-    return sum + (item.quantity || 0);
-  }, 0);
+  // Only CC23 *Labor* items on customer invoices represent hours already billed.
+  // Materials and Subs quantities must NOT reduce billable hours.
+  const billedLaborHours = cc23OnInvoices
+    .filter((item) => item.name?.toLowerCase().includes('labor'))
+    .reduce((sum, item) => sum + (item.quantity || 0), 0);
 
   const unbilledLaborHours = Math.max(0, totalBillableHours - billedLaborHours);
 
