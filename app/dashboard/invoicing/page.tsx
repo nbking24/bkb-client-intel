@@ -280,6 +280,10 @@ function formatCurrency(amount: number) {
   return new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD', minimumFractionDigits: 0 }).format(amount);
 }
 
+function formatCurrencyExact(amount: number) {
+  return new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD', minimumFractionDigits: 2 }).format(amount);
+}
+
 // ============================================================
 // Create $ Task Button for Unmatched Draft Invoices
 // ============================================================
@@ -354,7 +358,7 @@ function ContractJobCard({ job }: { job: ContractJobHealth }) {
       </div>
       <div className="flex items-center justify-between mb-2">
         <span className="text-[11px]" style={{ color: '#8a8078' }}>
-          {formatCurrency(job.invoicedToDate)} / {formatCurrency(job.totalContractValue)}
+          {formatCurrencyExact(job.invoicedToDate)} / {formatCurrencyExact(job.totalContractValue)}
         </span>
         <span className="text-[11px]" style={{ color: '#8a8078' }}>
           {Math.round(job.invoicedPercent)}% invoiced
