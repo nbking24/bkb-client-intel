@@ -4,7 +4,7 @@
 >
 > **Nathan:** If starting a new conversation, mention this doc or say "review the architecture doc" so the assistant knows to read it first.
 
-**Last updated:** 2026-03-12
+**Last updated:** 2026-03-13
 **Repo:** `github.com/nbking24/bkb-client-intel`
 **Deploy:** Vercel (auto-deploy on push to `main`)
 **Live URL:** `https://bkb-client-intel.vercel.app`
@@ -51,7 +51,7 @@ app/
 │   │   ├── audit/page.tsx            # Audit — misplaced/orphan task analysis
 │   │   ├── setup/page.tsx            # Survey-based schedule setup wizard
 │   │   └── OrphanTaskPanel.tsx       # Orphan task reassignment component
-│   ├── invoicing/page.tsx             # Invoicing Health Dashboard (status-grouped, collapsible)
+│   ├── invoicing/page.tsx             # Invoicing Health Dashboard (health-sorted cards, invoice details)
 │   └── spec-writer/
 │       ├── page.tsx                  # Quick Spec Writer (upload + generate)
 │       └── contract/page.tsx         # Contract Spec Builder (cost-item based)
@@ -90,7 +90,9 @@ app/
 │   │       ├── questions/route.ts   # Contract Q&A generation
 │   │       └── save/route.ts        # Save spec to JT cost group
 │   ├── dashboard/
-│   │   ├── invoicing/route.ts       # Invoicing health data endpoint (cached)
+│   │   ├── invoicing/
+│   │   │   ├── route.ts             # Invoicing health data endpoint (cached)
+│   │   │   └── create-task/route.ts # Create $ schedule task for unmatched draft invoices
 │   │   ├── projects/route.ts        # Active projects list
 │   │   ├── tasks/route.ts           # Task list with urgency
 │   │   ├── schedule/route.ts        # Schedule multi-view endpoint
@@ -109,7 +111,7 @@ app/
 │   ├── debug/route.ts               # Environment health check
 │   └── jobtread-test/route.ts       # PAVE API diagnostic
 └── lib/
-    ├── invoicing-health.ts           # Invoicing health analysis (priceType, status grouping)
+    ├── invoicing-health.ts           # Invoicing health analysis (contract + cost-plus, CC23 billable, released invoices)
     ├── bkb-spec-guide.ts            # BKB 23-category spec system + prompts
     ├── bkb-standards.ts             # Standard construction practices
     ├── bkb-brand-voice.ts           # Brand voice + email writing guide
@@ -236,9 +238,93 @@ Both the desktop (`/dashboard/ask`) and mobile (`/m/ask`) pages import from `app
 
 ---
 
-## 6. Database (Supabase)
+## 6. Invoicing Health Dashboard
 
-### 6.1 Core Tables
+The Invoicing Health Dashboard (`/dashboard/invoicing`) provides a centralized view of invoicing health across all active JobTread projects. It has a backend analysis layer, cached API endpoint, agent-powered recommendations, and a rich frontend with project cards.
+
+### 6.1 Architecture
+
+```
+Daily 1 AM EST cron ──→ /api/cron/invoicing-health ──→ buildInvoicingContext() ──→ Supabase cache
+                                                                                          ↓
+User visits dashboard ──→ /api/dashboard/invoicing?cached=true ──→ reads Supabase cache ──→ UI
+User clicks Refresh   ──→ /api/dashboard/invoicing?refresh=true ──→ fresh buildInvoicingContext() ──→ UI + cache
+```
+
+### 6.2 Data Layer (`app/lib/invoicing-health.ts`)
+
+Core analysis function `buildInvoicingContext()` fetches all active jobs via PAVE API, classifies by native `priceType` field (`fixed` → Fixed-Price, `costPlus` → Cost-Plus), then runs type-specific analyzers:
+
+**analyzeContractJob()** — Fixed-Price jobs:
+- Milestone tracking via `$` prefix schedule tasks (approaching, overdue)
+- Draft invoice ↔ `$` task matching (fuzzy name match, extracts parenthesized labels)
+- Uninvoiced billable items (CC23 on vendor bills minus CC23 on customer invoices)
+- Unbilled labor hours (CC23 time entries minus CC23 invoice quantities)
+- Released invoices (approved → paid, pending → open) with amounts
+- Health thresholds: milestone overdue (14d+ = critical), billable items ($200 warning / $800 overdue), labor hours (1h warning / 3h overdue)
+
+**analyzeCostPlusJob()** — Cost-Plus jobs:
+- Billing cadence tracking (days since last invoice, 14-day target)
+- Unbilled costs (vendor bill costs minus invoiced costs)
+- Unbilled hours (total time entries minus invoiced labor hours)
+- Released invoices (approved → paid, pending → open) with amounts
+- Health thresholds: 10d warning, 14d overdue, 28d critical, $100 unbilled
+
+**findBillableItems()** — CC23 billable items panel (non-contract jobs only)
+
+### 6.3 Frontend (`app/dashboard/invoicing/page.tsx`)
+
+**Summary row:** 5 stat cards (Open Jobs, Alerts, Unbilled Items, Unbilled Hours, Overall Health)
+
+**Search:** Real-time filter by job name, number, or client name across all sections
+
+**Contract (Fixed-Price) Job Cards:**
+- Header: job name + health badge (healthy/warning/overdue/critical)
+- Subtitle: invoiced / contract total + unpaid amount (yellow, if any) + invoiced %
+- Progress bar: invoiced % of contract value
+- Inline stats: Billable items amount + unbilled labor hours
+- Alerts: approaching milestones, overdue milestones, unmatched drafts (with Create Task button), pending invoices awaiting payment
+- Collapsible invoice details: Draft (amber) / Paid (green) / Open (yellow) badges
+
+**Cost Plus Job Cards:**
+- Header: job name + health badge
+- Subtitle: total invoiced + unbilled amount + unpaid amount (yellow, if any) + days since last invoice
+- Progress bar: days since last invoice (colored by cadence health)
+- Inline stats: unbilled costs + unbilled hours + total billed
+- Alerts: billing cadence warnings
+- Collapsible invoice details: Draft / Paid / Open badges
+
+**Billable Items Section:** Expandable cards per job showing uninvoiced CC23 items and hours
+
+**Agent Section:** Claude-generated summary and prioritized recommendations (from cached agent analysis)
+
+### 6.4 Key Types
+
+| Type | Purpose |
+|------|---------|
+| `ContractJobHealth` | Full health data for a Fixed-Price job (milestones, drafts, released invoices, CC23 billable, labor) |
+| `CostPlusJobHealth` | Full health data for a Cost-Plus job (cadence, unbilled costs/hours, released invoices) |
+| `ReleasedInvoiceInfo` | Paid or open invoice with status, amount, name, number |
+| `DraftInvoiceInfo` | Draft invoice with task-matching flag |
+| `PendingInvoiceInfo` | Sent but unpaid invoice with days pending |
+| `MilestoneInfo` | `$` schedule task with due date, overdue flag |
+| `BillableItemsSummary` | CC23 uninvoiced items and hours per job |
+
+### 6.5 API Endpoints
+
+| Endpoint | Purpose |
+|----------|---------|
+| `GET /api/dashboard/invoicing?cached=true` | Serve cached invoicing data from Supabase |
+| `GET /api/dashboard/invoicing?refresh=true` | Run fresh analysis, update cache, return data |
+| `POST /api/dashboard/invoicing/create-task` | Create `$` schedule task for unmatched draft invoice |
+| `POST /api/agent/invoicing` | Run Claude analysis on invoicing data |
+| `GET /api/cron/invoicing-health` | Daily 1 AM EST cron to refresh cache |
+
+---
+
+## 7. Database (Supabase)
+
+### 7.1 Core Tables
 
 | Table | Purpose |
 |-------|---------|
@@ -248,7 +334,7 @@ Both the desktop (`/dashboard/ask`) and mobile (`/m/ask`) pages import from `app
 | `blockers` | Project impediments |
 | `notifications` | User alerts (info, warning, urgent) |
 
-### 6.2 Cache Tables (synced from APIs)
+### 7.2 Cache Tables (synced from APIs)
 
 | Table | Source | Why Cached |
 |-------|--------|-----------|
@@ -257,7 +343,7 @@ Both the desktop (`/dashboard/ask`) and mobile (`/m/ask`) pages import from `app
 | `ghl_messages` | GHL | Conversation threads exceed 40-item cap |
 | `ghl_notes` | GHL | Notes exceed pagination |
 
-### 6.3 Platform Feature Tables
+### 7.3 Platform Feature Tables
 
 | Table | Purpose |
 |-------|---------|
@@ -268,7 +354,7 @@ Both the desktop (`/dashboard/ask`) and mobile (`/m/ask`) pages import from `app
 | `sync_log` | Audit trail of sync operations |
 | `sync_state` | Active sync tracking with retry |
 
-### 6.4 Document Intelligence (Future)
+### 7.4 Document Intelligence (Future)
 
 | Table | Purpose |
 |-------|---------|
@@ -277,17 +363,17 @@ Both the desktop (`/dashboard/ask`) and mobile (`/m/ask`) pages import from `app
 
 ---
 
-## 7. Sync Pipeline
+## 8. Sync Pipeline
 
-### 7.1 Automatic Sync
+### 8.1 Automatic Sync
 - **Daily 5 AM**: `/api/cron/sync-incremental` syncs all active JT jobs + GHL contacts
 - **Daily 6 AM**: `/api/cron/design-agent` runs Design Manager analysis
 
-### 7.2 Manual Sync
+### 8.2 Manual Sync
 - **Force Sync button**: In Ask Agent UI header, calls `/api/sync/force`
 - **Per-entity**: `/api/sync/job/[jobId]` or `/api/sync/ghl/[contactId]`
 
-### 7.3 Data Flow
+### 8.3 Data Flow
 ```
 GHL API ──→ ghl_messages, ghl_notes (Supabase cache)
 JT API  ──→ jt_comments, jt_daily_logs (Supabase cache)
@@ -298,25 +384,25 @@ JT API  ──→ jt_comments, jt_daily_logs (Supabase cache)
 
 ---
 
-## 8. External Integrations
+## 9. External Integrations
 
-### 8.1 Go High Level (GHL)
+### 9.1 Go High Level (GHL)
 - Base URL: `https://services.leadconnectorhq.com`
 - Contacts, conversations, messages, notes, tasks, opportunities, pipelines
 - Two service files: `app/api/lib/ghl.ts` (API routes) and `app/lib/ghl.ts` (expanded)
 
-### 8.2 JobTread
+### 9.2 JobTread
 - Base URL: `https://api.jobtread.com/pave`
 - Jobs, tasks, cost items, documents, comments, daily logs, members
 - Two service files: `app/api/lib/jobtread.ts` (API routes) and `app/lib/jobtread.ts` (expanded)
 
-### 8.3 Anthropic Claude
+### 9.3 Anthropic Claude
 - Used by: all agents, spec writers, design manager, query endpoint
 - Model selection varies by endpoint
 
 ---
 
-## 9. Environment Variables
+## 10. Environment Variables
 
 | Variable | Purpose |
 |----------|---------|
@@ -335,7 +421,7 @@ JT API  ──→ jt_comments, jt_daily_logs (Supabase cache)
 
 ---
 
-## 10. Vercel Config
+## 11. Vercel Config
 
 - All API routes: **60 second timeout**
 - `/api/chat`: **1024 MB memory** (agent processing)
@@ -344,7 +430,7 @@ JT API  ──→ jt_comments, jt_daily_logs (Supabase cache)
 
 ---
 
-## 11. Team Members
+## 12. Team Members
 
 | Name | Role | Notes |
 |------|------|-------|
@@ -358,7 +444,7 @@ JT API  ──→ jt_comments, jt_daily_logs (Supabase cache)
 
 ---
 
-## 12. Known Gotchas & Warnings
+## 13. Known Gotchas & Warnings
 
 1. **Agent routing**: With two agents (Know-it-All + Project Details), routing is simpler but still score-based. Check both agents when modifying `canHandle()` scores.
 
@@ -386,9 +472,67 @@ JT API  ──→ jt_comments, jt_daily_logs (Supabase cache)
 
 ---
 
-## 13. Changelog
+## 14. Changelog
 
 All modifications to the codebase should be logged here with date, files changed, and what was done.
+
+### 2026-03-13 — Feature: Unpaid Invoice Total on Project Cards
+
+**Problem:** No at-a-glance visibility into how much money is outstanding (invoiced but not yet paid) per project. Users had to expand the invoice details list to mentally sum open invoices.
+
+**Solution:** Added an inline "• $X,XXX unpaid" indicator in yellow (`#eab308`) to the subtitle row of both Contract and Cost Plus cards. Only appears when open (pending) invoices exist — keeps cards clean when everything is paid.
+
+**Implementation:** Computes `unpaidTotal` from `releasedInvoices.filter(status === 'open')` at render time in both card components.
+
+**Changes:**
+- `app/dashboard/invoicing/page.tsx` — Added `unpaidTotal` calculation and conditional display to both `ContractJobCard` and `CostPlusJobCard`
+
+**Commits:** `6646b67`
+
+---
+
+### 2026-03-12 — Feature: Collapsible Invoice Details (Draft + Paid + Open)
+
+**Problem:** Project cards showed draft invoices but had no visibility into released invoices (paid or open/pending). Nathan requested a collapsible list showing all invoices with status badges, without making the cards too large.
+
+**Solution:** Built a combined `InvoiceDetails` component replacing the previous `DraftInvoicesList`. Features:
+- Single collapsible "Invoices (N)" toggle per card, collapsed by default
+- Color-coded status badges: Draft (amber `#CDA274` on `#3a322b`), Paid (green `#4ade80` on `#1a2e1a`), Open (yellow `#eab308` on `#2e2a1a`)
+- Shows invoice subject/name and amount for each invoice
+- Added to both Contract and Cost Plus card types
+
+**Backend changes:**
+- Added `ReleasedInvoiceInfo` interface with `status: 'paid' | 'open'` field
+- Added `releasedInvoices: ReleasedInvoiceInfo[]` to both `ContractJobHealth` and `CostPlusJobHealth`
+- In `analyzeContractJob()`: builds `releasedInvoiceInfos` from approved (→paid) and pending (→open) customer invoices
+- In `analyzeCostPlusJob()`: identical released invoice gathering
+
+**Frontend changes:**
+- Added `ReleasedInvoiceInfo` interface and `releasedInvoices` field to both frontend interfaces
+- Replaced `DraftInvoicesList` with `InvoiceDetails` component combining drafts + released invoices
+- Added `InvoiceDetails` to both `ContractJobCard` and `CostPlusJobCard`
+
+**Changes:**
+- `app/lib/invoicing-health.ts` — Added `ReleasedInvoiceInfo` interface, `releasedInvoices` to both job health interfaces, populated in both analyzer functions
+- `app/dashboard/invoicing/page.tsx` — Added `ReleasedInvoiceInfo` interface, updated both job health interfaces, new `InvoiceDetails` component, replaced `DraftInvoicesList` usage
+
+**Commits:** `7265a64`
+
+---
+
+### 2026-03-12 — Feature: Collapsible Draft Invoice List + Create $ Task Button
+
+**Problem:** Draft invoices were mentioned in alerts but weren't individually visible on cards. Nathan needed to see each draft invoice and have the ability to create matching `$` schedule tasks directly from the card when a draft had no matching task.
+
+**Solution:** Two additions:
+1. `DraftInvoicesList` — collapsible list showing each draft invoice with name and amount
+2. `CreateTaskRow` — inline button on unmatched draft invoices that calls `/api/dashboard/invoicing/create-task` to create a `$` schedule task in JobTread. Shows loading/success/error states. Includes duplicate detection.
+
+**Changes:**
+- `app/dashboard/invoicing/page.tsx` — Added `DraftInvoicesList` and `CreateTaskRow` components, added to `ContractJobCard`
+- `app/api/dashboard/invoicing/create-task/route.ts` — **NEW** API endpoint for creating `$` schedule tasks from draft invoices
+
+---
 
 ### 2026-03-12 — Fix: Contract Job Billable Costs & Labor Hours (413 Error Recovery)
 
