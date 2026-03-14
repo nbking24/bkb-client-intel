@@ -1009,7 +1009,7 @@ export async function getDocumentsForJob(jobId: string): Promise<JTDocument[]> {
  * Lightweight query: get just document IDs, names, and statuses for a job.
  * Much smaller payload than getDocumentsForJob — used for filtering cost items by approval status.
  */
-export async function getDocumentStatusesForJob(jobId: string): Promise<Array<{ id: string; name: string; status: string; type: string }>> {
+export async function getDocumentStatusesForJob(jobId: string): Promise<Array<{ id: string; name: string; number: string; status: string; type: string }>> {
   const data = await pave({
     job: {
       $: { id: jobId },
@@ -1018,6 +1018,7 @@ export async function getDocumentStatusesForJob(jobId: string): Promise<Array<{ 
         nodes: {
           id: {},
           name: {},
+          number: {},
           status: {},
           type: {},
         },
@@ -1784,7 +1785,7 @@ export async function getCostItemsForJobLite(jobId: string, limit = 200): Promis
             price: {},
             costType: { id: {}, name: {} },
             costCode: { id: {}, name: {}, number: {} },
-            document: { id: {}, name: {}, type: {} },
+            document: { id: {}, name: {}, number: {}, type: {} },
           },
         },
       },
@@ -1919,7 +1920,7 @@ export async function getCostItemsForJob(jobId: string, limit = 500): Promise<JT
             costCode: { id: {}, name: {}, number: {} },
             costGroup: { id: {}, name: {}, description: {}, files: { nodes: { id: {}, name: {}, url: {} } }, parentCostGroup: { id: {}, name: {}, description: {}, files: { nodes: { id: {}, name: {}, url: {} } } } },
             files: { nodes: { id: {}, name: {}, url: {} } },
-            document: { id: {}, name: {}, type: {} },
+            document: { id: {}, name: {}, number: {}, type: {} },
             customFieldValues: { nodes: { value: {}, customField: { name: {} } } },
           },
         },
@@ -2000,7 +2001,7 @@ export async function getCostItemsLightForJob(jobId: string, limit = 200): Promi
               parentCostGroup: { id: {}, name: {}, description: {} },
             },
             files: { nodes: { id: {}, name: {}, url: {} } },
-            document: { id: {}, name: {}, type: {} },
+            document: { id: {}, name: {}, number: {}, type: {} },
           },
         },
       },

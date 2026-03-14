@@ -516,7 +516,11 @@ const projectDetails: AgentModule = {
         const approvedDocIds = new Set<string>();
         const docNameMap = new Map<string, string>();
         for (const doc of docStatuses) {
-          docNameMap.set(doc.id, doc.name || doc.type || 'Document');
+          // Build a clear document label including number (e.g. "Change Order #6", "Construction Contract #1")
+          const docNum = (doc as any).number;
+          const baseName = doc.name || doc.type || 'Document';
+          const docLabel = docNum ? `${baseName} #${docNum}` : baseName;
+          docNameMap.set(doc.id, docLabel);
           if (doc.status === 'approved') {
             approvedDocIds.add(doc.id);
           }
@@ -544,11 +548,12 @@ const projectDetails: AgentModule = {
           });
         }
 
-        // Inject document name into each item for context
+        // Inject document name (with number) into each item for context
         for (const item of costItems) {
           const docId = item.document?.id;
           if (docId) {
             (item as any).documentName = docNameMap.get(docId) || item.document?.name || 'Approved Document';
+            (item as any).documentNumber = item.document?.number || '';
             (item as any).documentType = item.document?.type || '';
           }
         }
