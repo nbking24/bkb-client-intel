@@ -146,7 +146,7 @@ function formatCostItemsWithHierarchy(
 
   // Format output
   const lines: string[] = [];
-  lines.push('SPECIFICATIONS (' + filtered.length + ' items' + (searchTerm ? ' matching "' + searchTerm + '"' : '') + ')');
+  lines.push('APPROVED SPECIFICATIONS (' + filtered.length + ' items from signed contracts/COs' + (searchTerm ? ', matching "' + searchTerm + '"' : '') + ')');
   lines.push('');
 
   for (const [areaName, groupMap] of areaMap) {
@@ -198,6 +198,10 @@ function formatCostItemsWithHierarchy(
             ? item.description.slice(0, 600) + '...'
             : item.description;
           lines.push('    ' + desc);
+        }
+        // Document source (contract or change order)
+        if ((item as any).documentName) {
+          lines.push('    [Doc: ' + (item as any).documentName + ']');
         }
         // Custom fields: Status, Vendor, Internal Notes
         const customParts: string[] = [];
@@ -251,77 +255,60 @@ function formatCostItemsWithHierarchy(
 const projectDetails: AgentModule = {
   name: 'project-details',
   description:
-    'Answers questions about project specifications, scope of work, materials, documents, and project details.',
+    'Answers questions about approved contract specs, scope of work, change orders, materials, and project details. Only uses data from approved documents.',
   icon: '📋',
 
   systemPrompt: (ctx: AgentContext, _userMessage?: string) => {
     return (
-      'You are the Project Details agent for Brett King Builder (BKB). You answer questions about ' +
-      'project specifications, scope of work, materials, documents, change orders, and project details.\n\n' +
-      'You have access to the full specifications data for each job, which includes:\n' +
-      '- Project documents (contracts, change orders, permits, plan sets)\n' +
-      '- Scope of work items grouped by AREA/LOCATION and then by COST GROUP (trade category)\n' +
-      '- Material specifications and descriptions\n' +
-      '- Cost codes and cost groups\n' +
-      '- File attachments (PDFs, images, drawings) linked to specification items\n\n' +
+      'You are the Specs agent for Brett King Builder (BKB). Your purpose is to answer the BKB team\'s questions ' +
+      'about what is in the CONTRACT and CHANGE ORDERS — what was planned, approved, and agreed upon with the client.\n\n' +
+
+      'DATA SOURCE — APPROVED DOCUMENTS ONLY:\n' +
+      'You ONLY have access to items from APPROVED contracts and change orders. This is intentional.\n' +
+      '- Items come from signed/approved customer orders (estimates) and change orders.\n' +
+      '- Unapproved budget items, drafts, and pending estimates are EXCLUDED.\n' +
+      '- Each item shows which document it belongs to (e.g. "[Doc: Wooley Estimate]" or "[Doc: CO #2 - Kitchen Add]").\n' +
+      '- When answering, you can reference which document (contract or change order) an item came from.\n\n' +
 
       'CRITICAL HIERARCHY RULES:\n' +
-      'The specifications are organized in a hierarchy that you MUST respect in your answers:\n' +
-      '  1. AREA / LOCATION (e.g. "Exterior / General", "Covered Barn Roof", "Kitchen", "Master Bath")\n' +
-      '     These define WHERE the work is being done. May include an [Area Note: ...] with area-level details.\n' +
-      '  2. COST GROUP (e.g. "07 Siding & Exterior Trim", "09 Drywall & Painting")\n' +
-      '     These define the TRADE CATEGORY. May include a [Group Specification: ...] with critical scope notes.\n' +
+      'Items are organized in a hierarchy that you MUST respect:\n' +
+      '  1. AREA / LOCATION (e.g. "Exterior / General", "Kitchen", "Master Bath")\n' +
+      '     Defines WHERE the work is being done. May include [Area Note: ...] with area-level details.\n' +
+      '  2. COST GROUP (e.g. "07 Siding & Exterior Trim", "10 Plumbing")\n' +
+      '     Defines the TRADE CATEGORY. May include [Group Specification: ...] with critical scope notes.\n' +
       '  3. LINE ITEMS (e.g. "James Hardie Lap Siding 7 1/4 Exposure")\n' +
-      '     These are the specific materials and work items.\n\n' +
-      'IMPORTANT: [Group Specification: ...] notes contain CRITICAL scope details written by the project manager.\n' +
-      'These notes may override or clarify what the line items suggest. For example, a group called "Swinging Door(s)"\n' +
-      'might have line items for door hardware but a Group Specification saying "Existing door planned to remain."\n' +
-      'ALWAYS read and respect Group Specification notes — they take PRIORITY over assumptions based on line item names.\n\n' +
+      '     The specific materials and work items with descriptions.\n\n' +
+      'IMPORTANT: [Group Specification: ...] notes contain CRITICAL scope details from the project manager.\n' +
+      'They may override or clarify what line items suggest. ALWAYS read and respect them.\n\n' +
 
-      'When answering questions:\n' +
-      '- ALWAYS organize your response by AREA/LOCATION first, then by items within each area.\n' +
+      'RESPONSE RULES:\n' +
+      '- ALWAYS organize by AREA/LOCATION first, then items within each area.\n' +
       '- If items appear in multiple areas, list them SEPARATELY for each area.\n' +
-      '- For example, if asked "what siding is being used?" and there are two areas:\n' +
-      '  * "Exterior / General" has James Hardie Lap Siding\n' +
-      '  * "Covered Barn Roof" has Board & Batten Siding\n' +
-      '  Then your answer should clearly state which siding goes in which area.\n' +
-      '- NEVER lump items from different areas together without identifying the area.\n' +
-      '- If the data includes area markers (like "📍 AREA:" or "[Area: ...]"), use those.\n\n' +
-
-      'RESPONSE FORMAT:\n' +
       '- Start with a brief SUMMARY answer (2-3 sentences) for quick reference.\n' +
-      '- Then provide the DETAILED specification data organized by area.\n' +
+      '- Then provide DETAILED specification data organized by area.\n' +
       '- Include specific details: measurements, quantities, materials, brands, models.\n' +
-      '- Quote directly from the specifications when possible.\n' +
-      '- If multiple options exist (like Option 1, Option 2), list each option with its details.\n\n' +
+      '- Reference which document (contract or CO) the item came from when relevant.\n' +
+      '- NEVER make up information. Only answer based on what is in the approved data.\n' +
+      '- If the data does not contain the answer, say so clearly.\n\n' +
 
-      'ATTACHMENT / FILE LINKS (MANDATORY):\n' +
-      '- You MUST include ALL file links from the tool response in your answer. This is critical.\n' +
-      '- File links appear in the content as [📎 FileName](url) and also in the RELATED FILES section.\n' +
-      '- Format attachment links as: [📎 FileName](downloadUrl)\n' +
-      '- Place relevant attachment links near the specification items they relate to.\n' +
-      '- For example, if discussing windows and there is a window-related PDF, \n' +
-      '  include the link right after the window specifications.\n' +
-      '- After your detailed answer, include a "Related Documents" section listing ALL file links.\n' +
-      '- The user needs to be able to click these links to view PDFs, images, and other documents.\n' +
-      '- NEVER omit file links. They are a critical part of the specification data.\n\n' +
+      'FILE LINKS (MANDATORY):\n' +
+      '- You MUST include ALL file links from the tool response in your answer.\n' +
+      '- File links appear as [📎 FileName](url) and in the RELATED FILES section.\n' +
+      '- Place relevant file links near the specification items they relate to.\n' +
+      '- After your answer, include a "Related Documents" section listing ALL file links.\n' +
+      '- The user needs to click these to view PDFs, images, fixture sheets, and drawings.\n' +
+      '- NEVER omit file links. They are critical.\n\n' +
 
       'CUSTOM FIELDS (Status, Vendor, Internal Notes):\n' +
-      '- Each line item may have custom fields: Status, Vendor, and Internal Notes.\n' +
-      '- Status indicates the ordering/procurement status (e.g. "4. Ordered/Finalized", "1. Needs Review").\n' +
-      '- Vendor indicates who is supplying or installing the item.\n' +
-      '- Internal Notes contain additional BKB team notes about the item.\n' +
-      '- ALWAYS include these custom fields in your response when they are present.\n' +
-      '- If a user asks about ordering status, procurement, or vendors, reference these fields specifically.\n' +
-      '- These appear in the data as [Status: ... | Vendor: ...] and "Internal Notes: ..." lines.\n\n' +
+      '- Status = ordering/procurement status (e.g. "4. Ordered/Finalized").\n' +
+      '- Vendor = who is supplying or installing the item.\n' +
+      '- Internal Notes = additional BKB team notes.\n' +
+      '- ALWAYS include these when present.\n\n' +
 
-      'OTHER INSTRUCTIONS:\n' +
-      '- Use the get_project_details tool to fetch specifications for a job.\n' +
-      '- If you have the JobTread Job ID from context, use it directly. Otherwise, use search_jobs to find it.\n' +
-      '- NEVER make up information. Only answer based on what is in the specifications data.\n' +
-      '- If the specifications data does not contain the answer, say so clearly.\n' +
-      '- When referencing specific items, include their cost group, cost code, and description.\n' +
-      '- For file/document questions, list the documents found and their status.\n\n' +
+      'TOOLS:\n' +
+      '- Use get_project_details to fetch approved specifications for a job.\n' +
+      '- If you have the JobTread Job ID from context, use it directly. Otherwise use search_jobs.\n' +
+      '- Use get_job_files for job-level file attachments.\n\n' +
 
       (ctx.jtJobId ? 'JobTread Job ID: ' + ctx.jtJobId + '\n' : '') +
       (ctx.contactName ? 'Client: ' + ctx.contactName + '\n' : '') +
@@ -348,12 +335,10 @@ const projectDetails: AgentModule = {
     {
       name: 'get_project_details',
       description:
-        'Get the full project specifications for a job. Returns all specification items organized by ' +
-        'AREA/LOCATION and COST GROUP, preserving the hierarchy. ' +
-        'Areas define WHERE work is done (e.g. "Exterior / General", "Covered Barn Roof"). ' +
-        'Cost groups define the TRADE (e.g. "07 Siding"). Line items are the specific specs. ' +
-        'Also returns file attachments (PDFs, images) linked to spec items. ' +
-        'Use the search parameter to filter by keyword (e.g. "siding", "door", "window").',
+        'Get approved project specifications for a job. ONLY returns items from approved contracts ' +
+        'and change orders — not unapproved budget items. Items are organized by ' +
+        'AREA/LOCATION and COST GROUP with file attachments. ' +
+        'Use the search parameter to filter by keyword (e.g. "siding", "door", "plumbing").',
       input_schema: {
         type: 'object',
         properties: {
@@ -519,42 +504,50 @@ const projectDetails: AgentModule = {
         const job = await getJob(jobId);
         const specUrl = job ? getSpecificationsUrl(job) : null;
 
-        // Step 2: Fetch all cost items with hierarchy (parentCostGroup = area) and files
+        // Step 2: Fetch all documents for the job and identify APPROVED ones.
+        // Only items on approved contracts (customerOrder) and change orders are
+        // considered "approved work" — everything else is still in the budget/draft stage.
+        const allDocuments = await getDocumentsForJob(jobId);
+        const approvedDocs = allDocuments.filter((doc: any) => doc.status === 'approved');
+        const approvedDocIds = new Set(approvedDocs.map((doc: any) => doc.id));
+        const approvedDocMap = new Map(approvedDocs.map((doc: any) => [doc.id, doc]));
+
+        // Step 3: Fetch all cost items with hierarchy (parentCostGroup = area) and files
         const allCostItems = await getCostItemsForJob(jobId, 500);
 
-        // CRITICAL: Only include items where isSpecification=true.
-        // The public Specifications URL page only shows specification items.
-        // Non-specification items (budget line items, internal costs, etc.) must be excluded
-        // to match what the client sees on the Specifications page.
-        //
-        // SECONDARY FILTER: Exclude items still in early selection stages.
-        // Status "1. Needs Review" or "2. Internal Selection Needed" = not yet approved/selected.
-        // Items with no Status field, or Status at stage 3+ (e.g. "3. Selection Made",
-        // "4. Ordered/Finalized") are considered approved and included.
-        const UNAPPROVED_STATUSES = ['1.', '2.'];
+        // CRITICAL FILTER: Only include items that belong to an APPROVED document.
+        // The budget contains many items not yet approved — those must be excluded.
+        // This ensures the agent only answers based on what's in the signed contract/COs.
         const costItems = allCostItems.filter((item: any) => {
-          if (item.isSpecification !== true) return false;
-          // If item has a Status starting with 1. or 2., it's not yet approved — exclude
-          if (item.status) {
-            const statusTrimmed = item.status.trim();
-            if (UNAPPROVED_STATUSES.some((prefix: string) => statusTrimmed.startsWith(prefix))) {
-              return false;
-            }
-          }
-          return true;
+          const docId = item.document?.id;
+          if (!docId) return false; // Item not on any document — skip
+          return approvedDocIds.has(docId);
         });
 
         if (!costItems || costItems.length === 0) {
           return JSON.stringify({
             success: false,
             specificationsUrl: specUrl,
+            approvedDocuments: approvedDocs.map((d: any) => ({ name: d.name, type: d.type, status: d.status })),
             message:
-              'No specification items found for this job.' +
-              (specUrl ? ' You can view the specifications page directly at: ' + specUrl : ''),
+              'No approved items found for this job.' +
+              (approvedDocs.length === 0
+                ? ' No approved documents exist yet — the contract may not be signed.'
+                : ' Approved documents exist but no line items were found on them.') +
+              (specUrl ? ' Specifications page: ' + specUrl : ''),
           });
         }
 
-        // Step 3: Build formatted hierarchy with area grouping and file links
+        // Inject document name into each item for context
+        for (const item of costItems) {
+          const doc = approvedDocMap.get(item.document?.id);
+          if (doc) {
+            (item as any).documentName = doc.name || doc.type || 'Approved Document';
+            (item as any).documentType = doc.type || '';
+          }
+        }
+
+        // Step 4: Build formatted hierarchy with area grouping and file links
         const { content, attachments } = formatCostItemsWithHierarchy(costItems, searchTerm || undefined);
 
         // Truncate if too long
@@ -567,18 +560,24 @@ const projectDetails: AgentModule = {
             ' more characters. Use a search term to narrow results.]';
         }
 
+        // Build approved document summary for the agent's context
+        const docSummary = approvedDocs.map((d: any) =>
+          (d.name || d.type) + ' (' + d.type + ', ' + d.status + ')'
+        ).join('; ');
+
         return JSON.stringify({
           success: true,
-          source: 'jobtread_specifications',
+          source: 'approved_documents_only',
           specificationsUrl: specUrl,
-          totalItems: costItems.length,
-          note: 'Only showing approved specification items (isSpecification=true, Status not in early selection stages).',
+          approvedDocuments: docSummary,
+          totalApprovedItems: costItems.length,
+          note: 'ONLY showing items from APPROVED contracts and change orders. Unapproved budget items are excluded.',
           matchedItems: searchTerm
             ? finalContent.match(/•/g)?.length || 0
             : costItems.length,
           hierarchyNote:
             'Content is organized by AREA/LOCATION → COST GROUP → LINE ITEMS. ' +
-            'Look for "📍 AREA:" markers to identify which area each item belongs to. ' +
+            'Each item shows which approved document it belongs to via [Doc: ...]. ' +
             'ALWAYS organize your response by area first. Start with a brief summary, then details.',
           content: finalContent,
           attachments: attachments.length > 0 ? attachments : undefined,
