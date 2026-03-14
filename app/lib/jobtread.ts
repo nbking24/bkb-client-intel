@@ -1888,6 +1888,49 @@ export async function getDocumentCostItemsById(documentId: string): Promise<JTCo
   return items as JTCostItem[];
 }
 
+/**
+ * Lightweight document cost items query for the Specs agent.
+ * Fetches cost items from a specific document with the same fields as getCostItemsLightForJob.
+ * Used to pick up Change Order items that don't have a document reference on the budget-level cost item.
+ */
+export async function getDocumentCostItemsLightById(documentId: string): Promise<any[]> {
+  const data = await pave({
+    document: {
+      $: { id: documentId },
+      costItems: {
+        $: { size: 50 },
+        nodes: {
+          id: {},
+          name: {},
+          description: {},
+          costCode: { id: {}, name: {}, number: {} },
+          costGroup: {
+            id: {}, name: {}, description: {},
+            parentCostGroup: { id: {}, name: {}, description: {} },
+          },
+          files: { nodes: { id: {}, name: {}, url: {} } },
+        },
+      },
+    },
+  });
+
+  const nodes = (data as any)?.document?.costItems?.nodes || [];
+  return nodes.map((node: any) => ({
+    ...node,
+    files: node.files?.nodes || [],
+    // Inject the document reference since we know which document these came from
+    document: { id: documentId },
+    costGroup: node.costGroup ? {
+      ...node.costGroup,
+      files: [],
+      parentCostGroup: node.costGroup.parentCostGroup ? {
+        ...node.costGroup.parentCostGroup,
+        files: [],
+      } : null,
+    } : null,
+  }));
+}
+
 export async function getCostItemsForJob(jobId: string, limit = 500): Promise<JTCostItem[]> {
   // Paginate through all cost items (jobs can have 200+ items)
   // Page size 50 to avoid 413 errors when customFieldValues are included

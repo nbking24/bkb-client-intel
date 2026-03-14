@@ -4,6 +4,7 @@ import {
   getJob,
   getActiveJobs,
   getCostItemsLightForJob,
+  getDocumentCostItemsLightById,
   getDocumentStatusesForJob,
   getFilesForJob,
   JTCostItem,
@@ -506,46 +507,57 @@ const projectDetails: AgentModule = {
         const specUrl = job ? getSpecificationsUrl(job) : null;
 
         // Step 2: Get document statuses (lightweight query — just IDs and statuses)
-        // and cost items in parallel for speed
-        const [docStatuses, allCostItems] = await Promise.all([
+        // and budget-level cost items in parallel for speed
+        const [docStatuses, budgetCostItems] = await Promise.all([
           getDocumentStatusesForJob(jobId),
           getCostItemsLightForJob(jobId, 200),
         ]);
 
         // Build a set of approved document IDs and a map for name lookup
         const approvedDocIds = new Set<string>();
+        const approvedCustomerOrderIds: string[] = [];
         const docNameMap = new Map<string, string>();
         for (const doc of docStatuses) {
-          // Build a clear document label including number (e.g. "Change Order #6", "Construction Contract #1")
           const docNum = (doc as any).number;
           const baseName = doc.name || doc.type || 'Document';
           const docLabel = docNum ? `${baseName} #${docNum}` : baseName;
           docNameMap.set(doc.id, docLabel);
           if (doc.status === 'approved') {
             approvedDocIds.add(doc.id);
+            // Track approved customer orders (contracts & COs) separately
+            if (doc.type === 'customerOrder') {
+              approvedCustomerOrderIds.push(doc.id);
+            }
           }
         }
 
-        // DEBUG: Log approved documents and cost item document references
-        console.log('[project-details] Approved doc IDs:', Array.from(approvedDocIds));
-        console.log('[project-details] Doc name map:', Array.from(docNameMap.entries()));
-        console.log('[project-details] Total cost items from PAVE:', allCostItems.length);
-        const docIdDistribution = new Map<string, number>();
-        for (const item of allCostItems) {
-          const did = item.document?.id || 'NO_DOC';
-          docIdDistribution.set(did, (docIdDistribution.get(did) || 0) + 1);
-        }
-        console.log('[project-details] Cost items by document ID:', Array.from(docIdDistribution.entries()).map(([id, count]) => `${docNameMap.get(id) || id}: ${count}`));
-
-        // CRITICAL FILTER: Item must be on an APPROVED document (signed contract or approved CO).
-        // Note: We do NOT filter by isSpecification because that flag is rarely set in JobTread.
-        // Approved customer orders already represent what was agreed upon with the client.
-        const costItems = allCostItems.filter((item: any) => {
+        // Step 2b: Filter budget items that directly reference an approved document
+        const budgetItemsWithApprovedDoc = budgetCostItems.filter((item: any) => {
           const docId = item.document?.id;
-          if (!docId) return false;
-          return approvedDocIds.has(docId);
+          return docId && approvedDocIds.has(docId);
         });
-        console.log('[project-details] After filtering to approved docs:', costItems.length, 'items');
+
+        // Step 2c: Also fetch cost items directly from approved customer orders.
+        // This catches Change Order items whose budget-level items don't have a document reference.
+        const seenIds = new Set(budgetItemsWithApprovedDoc.map((item: any) => item.id));
+        const docItemPromises = approvedCustomerOrderIds.map(docId => getDocumentCostItemsLightById(docId));
+        const docItemArrays = await Promise.all(docItemPromises);
+        const docLevelItems: any[] = [];
+        for (const items of docItemArrays) {
+          for (const item of items) {
+            // Skip if we already have this item from the budget query
+            if (!seenIds.has(item.id)) {
+              seenIds.add(item.id);
+              docLevelItems.push(item);
+            }
+          }
+        }
+
+        // Merge: budget items with approved doc + document-level items from approved COs
+        const costItems = [...budgetItemsWithApprovedDoc, ...docLevelItems];
+        console.log('[project-details] Budget items with approved doc:', budgetItemsWithApprovedDoc.length);
+        console.log('[project-details] Additional doc-level items from COs:', docLevelItems.length);
+        console.log('[project-details] Total approved items:', costItems.length);
 
         if (!costItems || costItems.length === 0) {
           return JSON.stringify({
