@@ -83,7 +83,10 @@ function formatCostItemsWithHierarchy(
   // Helper: build a short, stable file link URL using the redirect endpoint
   // This avoids the AI needing to reproduce long CDN token URLs
   function fileLink(file: any): string {
-    if (file?.id) return '/api/file?id=' + file.id;
+    if (file?.id) {
+      console.log('[FILE-DEBUG] fileLink id=' + file.id + ' name=' + (file.name || '?'));
+      return '/api/file?id=' + file.id;
+    }
     return file?.url || '';
   }
 
