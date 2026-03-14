@@ -3,7 +3,7 @@ import { AgentModule, AgentContext } from './types';
 import {
   getJob,
   getActiveJobs,
-  getCostItemsForJob,
+  getCostItemsLightForJob,
   getDocumentStatusesForJob,
   getFilesForJob,
   JTCostItem,
@@ -509,7 +509,7 @@ const projectDetails: AgentModule = {
         // and cost items in parallel for speed
         const [docStatuses, allCostItems] = await Promise.all([
           getDocumentStatusesForJob(jobId),
-          getCostItemsForJob(jobId, 300),
+          getCostItemsLightForJob(jobId, 200),
         ]);
 
         // Build a set of approved document IDs and a map for name lookup

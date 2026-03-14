@@ -1969,6 +1969,65 @@ export async function getCostItemsForJob(jobId: string, limit = 500): Promise<JT
 }
 
 
+/**
+ * Lightweight cost items query for the Specs agent.
+ * Uses smaller page sizes and drops pricing/cost fields to avoid PAVE 413 errors.
+ * Only fetches fields needed for specification answers: name, description, hierarchy, document, and item-level files.
+ */
+export async function getCostItemsLightForJob(jobId: string, limit = 200): Promise<any[]> {
+  const PAGE_SIZE = 25;
+  let allItems: any[] = [];
+  let nextPage: string | null = null;
+  const maxPages = Math.ceil(limit / PAGE_SIZE);
+
+  for (let page = 0; page < maxPages; page++) {
+    const pageParams: Record<string, unknown> = { size: PAGE_SIZE };
+    if (nextPage) pageParams.page = nextPage;
+
+    const data = await pave({
+      job: {
+        $: { id: jobId },
+        costItems: {
+          $: pageParams,
+          nextPage: {},
+          nodes: {
+            id: {},
+            name: {},
+            description: {},
+            costCode: { id: {}, name: {}, number: {} },
+            costGroup: {
+              id: {}, name: {}, description: {},
+              parentCostGroup: { id: {}, name: {}, description: {} },
+            },
+            files: { nodes: { id: {}, name: {}, url: {} } },
+            document: { id: {}, name: {}, type: {} },
+          },
+        },
+      },
+    });
+
+    const costItemPage = (data as any)?.job?.costItems;
+    const nodes = costItemPage?.nodes || [];
+    const mapped = nodes.map((node: any) => ({
+      ...node,
+      files: node.files?.nodes || [],
+      costGroup: node.costGroup ? {
+        ...node.costGroup,
+        files: [], // Not fetched in light query
+        parentCostGroup: node.costGroup.parentCostGroup ? {
+          ...node.costGroup.parentCostGroup,
+          files: [], // Not fetched in light query
+        } : null,
+      } : null,
+    }));
+    allItems = allItems.concat(mapped);
+    nextPage = costItemPage?.nextPage || null;
+    if (!nextPage || nodes.length < PAGE_SIZE) break;
+  }
+
+  return allItems;
+}
+
 // ============================================================
 // COST GROUPS — Hierarchy & Updates (for Contract Spec Writer)
 // ============================================================
