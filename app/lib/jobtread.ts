@@ -269,12 +269,10 @@ export async function createTask(params: {
   assignedMembershipIds?: string[];
 }) {
   const { jobId, name, description, assignedMembershipIds } = params;
+  // All new tasks are 1-day tasks: endDate always equals startDate.
   // PAVE requires BOTH startDate and endDate if either is provided.
-  // Default to a 1-day task: if only endDate is given, startDate = endDate (and vice versa).
-  let startDate = params.startDate;
-  let endDate = params.endDate;
-  if (endDate && !startDate) startDate = endDate;
-  if (startDate && !endDate) endDate = startDate;
+  let startDate = params.startDate || params.endDate;
+  let endDate = startDate; // Force 1-day task
 
   const data = await pave({
     createTask: {
@@ -544,12 +542,10 @@ export async function createPhaseTask(params: {
   assignedMembershipIds?: string[];
 }): Promise<{ id: string; name: string; parentTask: any; warning?: string }> {
   const { jobId, parentGroupId, name, description, assignedMembershipIds } = params;
+  // All new tasks are 1-day tasks: endDate always equals startDate.
   // PAVE requires BOTH startDate and endDate if either is provided.
-  // Default to a 1-day task: if only endDate is given, startDate = endDate (and vice versa).
-  let startDate = params.startDate;
-  let endDate = params.endDate;
-  if (endDate && !startDate) startDate = endDate;
-  if (startDate && !endDate) endDate = startDate;
+  let startDate = params.startDate || params.endDate;
+  let endDate = startDate; // Force 1-day task
 
   const optionalFields = {
     ...(description ? { description } : {}),
@@ -612,6 +608,41 @@ export async function updateTaskProgress(taskId: string, progress: number) {
   });
 }
 
+// Fetch a single task by ID (used to look up current dates for duration preservation)
+export async function getTaskById(taskId: string): Promise<{
+  id: string;
+  name: string;
+  startDate: string | null;
+  endDate: string | null;
+}> {
+  const data = await pave({
+    task: {
+      $: { id: taskId },
+      id: {},
+      name: {},
+      startDate: {},
+      endDate: {},
+    },
+  });
+  const task = (data as any)?.task;
+  if (!task?.id) throw new Error('Task not found: ' + taskId);
+  return task;
+}
+
+// Helper: compute day difference between two YYYY-MM-DD date strings
+function dateDiffDays(start: string, end: string): number {
+  const s = new Date(start + 'T00:00:00');
+  const e = new Date(end + 'T00:00:00');
+  return Math.round((e.getTime() - s.getTime()) / (1000 * 60 * 60 * 24));
+}
+
+// Helper: add days to a YYYY-MM-DD date string
+function addDays(date: string, days: number): string {
+  const d = new Date(date + 'T00:00:00');
+  d.setDate(d.getDate() + days);
+  return d.toISOString().split('T')[0];
+}
+
 // General task update — change name, dates, description, progress, etc.
 export async function updateTask(taskId: string, fields: {
   name?: string;
@@ -623,8 +654,31 @@ export async function updateTask(taskId: string, fields: {
   const params: any = { id: taskId };
   if (fields.name !== undefined) params.name = fields.name;
   if (fields.description !== undefined) params.description = fields.description;
-  if (fields.startDate !== undefined) params.startDate = fields.startDate;
-  if (fields.endDate !== undefined) params.endDate = fields.endDate;
+
+  // Duration preservation: when startDate changes but endDate is NOT explicitly set,
+  // look up the current task dates and shift endDate to keep the same duration.
+  if (fields.startDate !== undefined && fields.endDate === undefined) {
+    try {
+      const current = await getTaskById(taskId);
+      if (current.startDate && current.endDate) {
+        const duration = dateDiffDays(current.startDate, current.endDate);
+        params.startDate = fields.startDate;
+        params.endDate = addDays(fields.startDate, duration);
+      } else {
+        // No existing dates — treat as 1-day task
+        params.startDate = fields.startDate;
+        params.endDate = fields.startDate;
+      }
+    } catch {
+      // Fallback: just set both to the same date
+      params.startDate = fields.startDate;
+      params.endDate = fields.startDate;
+    }
+  } else {
+    if (fields.startDate !== undefined) params.startDate = fields.startDate;
+    if (fields.endDate !== undefined) params.endDate = fields.endDate;
+  }
+
   if (fields.progress !== undefined) params.progress = Math.min(1, Math.max(0, fields.progress));
   // pave() now throws on PAVE API errors, so if this succeeds the update went through
   await pave({
@@ -2231,8 +2285,29 @@ export async function updateTaskFull(taskId: string, fields: {
   const params: any = { id: taskId };
   if (fields.name !== undefined) params.name = fields.name;
   if (fields.description !== undefined) params.description = fields.description;
-  if (fields.startDate !== undefined) params.startDate = fields.startDate;
-  if (fields.endDate !== undefined) params.endDate = fields.endDate;
+
+  // Duration preservation: when startDate changes but endDate is NOT explicitly set,
+  // look up the current task dates and shift endDate to keep the same duration.
+  if (fields.startDate !== undefined && fields.endDate === undefined) {
+    try {
+      const current = await getTaskById(taskId);
+      if (current.startDate && current.endDate) {
+        const duration = dateDiffDays(current.startDate, current.endDate);
+        params.startDate = fields.startDate;
+        params.endDate = addDays(fields.startDate, duration);
+      } else {
+        params.startDate = fields.startDate;
+        params.endDate = fields.startDate;
+      }
+    } catch {
+      params.startDate = fields.startDate;
+      params.endDate = fields.startDate;
+    }
+  } else {
+    if (fields.startDate !== undefined) params.startDate = fields.startDate;
+    if (fields.endDate !== undefined) params.endDate = fields.endDate;
+  }
+
   if (fields.startTime !== undefined) params.startTime = fields.startTime;
   if (fields.endTime !== undefined) params.endTime = fields.endTime;
   if (fields.progress !== undefined) params.progress = Math.min(1, Math.max(0, fields.progress));

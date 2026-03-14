@@ -637,8 +637,11 @@ const knowItAll: AgentModule = {
       '@@TASK_CONFIRM@@\n' +
       '{"name":"short name","phase":"Phase Name","phaseId":"id","jobId":"the-job-id","description":"details","assignee":"Name","startDate":"YYYY-MM-DD","endDate":"YYYY-MM-DD"}\n' +
       '@@END_CONFIRM@@\n' +
-      'DATE RULES: Tasks are ALWAYS 1-day tasks. If the user says "due Friday" or gives any single date,\n' +
-      'set BOTH startDate AND endDate to that same date. NEVER leave startDate empty if endDate is set.\n' +
+      'DATE RULES: New tasks are ALWAYS 1-day tasks. Set BOTH startDate AND endDate to the SAME date.\n' +
+      'If the user says "due Friday" or gives any single date, set both to that date. NEVER leave startDate empty.\n' +
+      'EDIT RULES: When rescheduling/moving a task to a new date, ONLY set startDate to the new date.\n' +
+      'Do NOT set endDate — the system will automatically preserve the task\'s existing duration.\n' +
+      'Only set endDate explicitly if the user specifically asks to change the due date or duration.\n' +
       'IMPORTANT: Always include the jobId from the get_job_schedule call in the confirmation block.\n' +
       'STEP 3 — After the user approves with [APPROVED TASK DATA], call create_phase_task.\n' +
       'Field mapping: name→name, phaseId→parentGroupId, assignee→assignTo. Set durationDays=1.\n\n' +

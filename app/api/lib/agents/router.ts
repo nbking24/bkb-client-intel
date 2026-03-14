@@ -299,12 +299,10 @@ async function tryTaskCreationFastPath(msg: string, ctx: AgentContext, messages?
       } catch { /* ignore member lookup failures */ }
     }
 
-    // Step 3: Normalize dates — PAVE requires both if either is set.
-    // Default to 1-day task: if only endDate provided, set startDate = endDate (and vice versa).
-    let startDate = taskData.startDate || undefined;
-    let endDate = taskData.endDate || undefined;
-    if (endDate && !startDate) startDate = endDate;
-    if (startDate && !endDate) endDate = startDate;
+    // Step 3: Normalize dates — all new tasks are 1-day tasks.
+    // PAVE requires both startDate and endDate if either is set.
+    let startDate = taskData.startDate || taskData.endDate || undefined;
+    let endDate = startDate; // Force 1-day task
 
     // Step 4: Create the task
     let result: any;
