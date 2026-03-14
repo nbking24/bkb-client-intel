@@ -81,10 +81,8 @@ function formatCostItemsWithHierarchy(
   const seenFileIds = new Set<string>(); // Deduplicate files by ID
 
   // Helper: build a short, stable file link URL using the redirect endpoint
-  // This avoids the AI needing to reproduce long CDN token URLs
   function fileLink(file: any): string {
     if (file?.id) {
-      console.log('[FILE-DEBUG] fileLink id=' + file.id + ' name=' + (file.name || '?'));
       return '/api/file?id=' + file.id;
     }
     return file?.url || '';
@@ -174,11 +172,11 @@ function formatCostItemsWithHierarchy(
       lines.push('  [Area Note: ' + desc + ']');
     }
 
-    // Area-level files (from parent cost group)
+    // Area-level files (from parent cost group) — names only, links appended server-side
     const areaFileList = areaFiles.get(areaName);
     if (areaFileList && areaFileList.length > 0) {
       for (const file of areaFileList) {
-        lines.push('  [📎 ' + file.name + '](' + fileLink(file) + ')');
+        lines.push('  📎 ' + file.name + ' (file attached)');
       }
     }
     lines.push('');
@@ -193,11 +191,11 @@ function formatCostItemsWithHierarchy(
         lines.push('  [Group Specification: ' + desc + ']');
       }
 
-      // Cost group-level files
+      // Cost group-level files — names only, links appended server-side
       const gFiles = groupFiles.get(groupName);
       if (gFiles && gFiles.length > 0) {
         for (const file of gFiles) {
-          lines.push('  [📎 ' + file.name + '](' + fileLink(file) + ')');
+          lines.push('  📎 ' + file.name + ' (file attached)');
         }
       }
 
@@ -224,11 +222,11 @@ function formatCostItemsWithHierarchy(
         if (item.internalNotes) {
           lines.push('    Internal Notes: ' + item.internalNotes);
         }
-        // Inline cost item file links
+        // Inline cost item files — names only, links appended server-side
         if (item.files && item.files.length > 0) {
           for (const file of item.files) {
             if (file.url || file.id) {
-              lines.push('    [📎 ' + file.name + '](' + fileLink(file) + ')');
+              lines.push('    📎 ' + file.name + ' (file attached)');
             }
           }
         }
@@ -243,18 +241,11 @@ function formatCostItemsWithHierarchy(
       : 'No specification items found for this job.');
   }
 
-  // Add a dedicated RELATED FILES section at the end for high visibility
+  // Note: File links are NOT included in AI-visible text to prevent hallucination.
+  // The router appends real file links server-side after the AI generates its response.
   if (allAttachments.length > 0) {
     lines.push('');
-    lines.push('═══════════════════════════════════════════');
-    lines.push('📄 RELATED FILES & DOCUMENTS (' + allAttachments.length + ' files)');
-    lines.push('═══════════════════════════════════════════');
-    lines.push('IMPORTANT: You MUST include these file links in your response so the user can click to view them.');
-    lines.push('');
-    for (const att of allAttachments) {
-      lines.push('  • [📎 ' + att.fileName + '](' + att.downloadUrl + ')');
-      lines.push('    Context: ' + att.context);
-    }
+    lines.push('(' + allAttachments.length + ' file attachments found — clickable links will be appended automatically)');
   }
 
   return {
@@ -302,14 +293,10 @@ const projectDetails: AgentModule = {
       '- NEVER make up information. Only answer based on what is in the approved data.\n' +
       '- If the data does not contain the answer, say so clearly.\n\n' +
 
-      'FILE LINKS (MANDATORY):\n' +
-      '- You MUST include ALL file links from the tool response in your answer.\n' +
-      '- File links appear as [📎 FileName](/api/file?id=XXXX) and in the RELATED FILES section.\n' +
-      '- COPY file links EXACTLY as provided. They use short IDs — do NOT modify them.\n' +
-      '- Place relevant file links near the specification items they relate to.\n' +
-      '- After your answer, include a "Related Documents" section listing ALL file links.\n' +
-      '- The user needs to click these to view PDFs, images, fixture sheets, and drawings.\n' +
-      '- NEVER omit file links. They are critical.\n\n' +
+      'FILE ATTACHMENTS:\n' +
+      '- Files are mentioned in the data as "📎 FileName (file attached)".\n' +
+      '- Do NOT try to generate URLs or links for files. Clickable file links are added automatically after your response.\n' +
+      '- Simply mention the file names when relevant (e.g. "see the attached Vanity_Concept.jpg").\n\n' +
 
       'CUSTOM FIELDS (Status, Vendor, Internal Notes):\n' +
       '- Status = ordering/procurement status (e.g. "4. Ordered/Finalized").\n' +
@@ -609,6 +596,13 @@ const projectDetails: AgentModule = {
           note: 'ONLY items from APPROVED contracts/COs.',
           content: finalContent,
           fileCount: attachments.length,
+          // _fileLinks is used by the router to append real file links server-side
+          // (bypasses AI to prevent hallucination of file IDs)
+          _fileLinks: attachments.map(a => ({
+            name: a.fileName,
+            url: a.downloadUrl,
+            context: a.context,
+          })),
         });
       }
 

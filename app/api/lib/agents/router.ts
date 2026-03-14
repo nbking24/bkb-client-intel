@@ -428,6 +428,9 @@ export async function routeMessage(
 
   console.log('[ROUTER] Initial response: stop_reason=', response.stop_reason, 'blocks=', response.content?.map((b: any) => b.type).join(','), 'usage=', JSON.stringify(response.usage));
 
+  // Collect file links from tool results BEFORE they get truncated
+  const _collectedFileLinks: Array<{ name: string; url: string; context: string }> = [];
+
   // Handle tool use loop (max 5 iterations — 90s safety timer is the real guard)
   let iterations = 0;
   const routeStart = Date.now();
@@ -475,6 +478,26 @@ export async function routeMessage(
       }
     }
 
+    // Extract _fileLinks from tool results BEFORE truncation (prevents data loss)
+    // and strip them from the content sent to Claude (AI doesn't need URLs)
+    for (const tr of toolResults) {
+      if (typeof tr.content === 'string') {
+        try {
+          const parsed = JSON.parse(tr.content);
+          if (Array.isArray(parsed._fileLinks)) {
+            for (const fl of parsed._fileLinks) {
+              if (fl.name && fl.url && !_collectedFileLinks.some(e => e.url === fl.url)) {
+                _collectedFileLinks.push(fl);
+              }
+            }
+            // Remove _fileLinks from the JSON sent to Claude to save tokens
+            delete parsed._fileLinks;
+            tr.content = JSON.stringify(parsed);
+          }
+        } catch { /* not JSON — skip */ }
+      }
+    }
+
     // Truncate oversized tool results to prevent "request too large" errors
     for (const tr of toolResults) {
       if (typeof tr.content === 'string' && tr.content.length > 12000) {
@@ -514,6 +537,19 @@ export async function routeMessage(
   }
 
   console.log('[ROUTER] Final reply length:', reply.length, 'stop_reason:', response.stop_reason);
+
+  // ── SERVER-SIDE FILE LINK APPENDING ──
+  // Append real file links collected during the tool loop.
+  // This bypasses the AI entirely — real file IDs from the PAVE API are used
+  // instead of relying on the AI to reproduce them (which causes hallucination).
+  if (_collectedFileLinks.length > 0) {
+    console.log('[ROUTER] Appending', _collectedFileLinks.length, 'server-side file links');
+    reply += '\n\n---\n📄 **Related Documents** (' + _collectedFileLinks.length + ' files)\n';
+    for (const fl of _collectedFileLinks) {
+      reply += '\n[📎 ' + fl.name + '](' + fl.url + ')';
+      if (fl.context) reply += '  \n*' + fl.context + '*';
+    }
+  }
 
   // If we broke out of the loop early (time limit), append a note
   if (response.stop_reason === 'tool_use' && reply) {
