@@ -579,21 +579,33 @@ const knowItAll: AgentModule = {
     const msg = (userMessage || '').toLowerCase();
     const isEmailQuery = /email|draft|compose|write.*to|message.*to|letter|communicate|outreach|follow.?up.*with|spec.*sign|material.*spec|sign.?off/i.test(msg);
 
-    // Inject current date/time so the agent knows what day it is
+    // Inject current date/time in Eastern Time so the agent knows what day it is
     const now = new Date();
+    const etOptions: Intl.DateTimeFormatOptions = { timeZone: 'America/New_York', weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' };
+    const etDateStr = now.toLocaleDateString('en-US', etOptions);
+    // Also get the YYYY-MM-DD in ET for unambiguous reference
+    const etShort = now.toLocaleDateString('en-CA', { timeZone: 'America/New_York' }); // en-CA gives YYYY-MM-DD
+    const etHour = parseInt(now.toLocaleString('en-US', { timeZone: 'America/New_York', hour: 'numeric', hour12: false }));
+    const timeOfDay = etHour < 12 ? 'morning' : etHour < 17 ? 'afternoon' : 'evening';
+
+    // Build a 14-day reference calendar so the AI never gets day-of-week wrong
     const days = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
-    const months = ['January', 'February', 'March', 'April', 'May', 'June', 'July', 'August', 'September', 'October', 'November', 'December'];
-    const dayName = days[now.getDay()];
-    const monthName = months[now.getMonth()];
-    const dateStr = dayName + ', ' + monthName + ' ' + now.getDate() + ', ' + now.getFullYear();
-    const hour = now.getHours();
-    const timeOfDay = hour < 12 ? 'morning' : hour < 17 ? 'afternoon' : 'evening';
+    const calendarLines: string[] = [];
+    for (let i = 0; i < 14; i++) {
+      const d = new Date(now.getTime() + i * 86400000);
+      const dayStr = d.toLocaleDateString('en-CA', { timeZone: 'America/New_York' });
+      const dayName = days[new Date(dayStr + 'T12:00:00').getDay()];
+      calendarLines.push(dayName + ' = ' + dayStr);
+    }
+    const calendarRef = calendarLines.join(', ');
 
     // === BUILD SYSTEM PROMPT — lean for data queries, full for email/writing ===
     const base =
       'You are "Know it All," the AI assistant for Brett King Builder (BKB), a high-end residential renovation company in Bucks County, PA.\n\n' +
       'CURRENT USER: NATHAN KING (not Brett King). "me"/"I"/"my" = Nathan King.\n\n' +
-      'TODAY: ' + dateStr + ' (' + timeOfDay + '). Dates BEFORE today are PAST. Dates AFTER today are FUTURE.\n\n' +
+      'TODAY: ' + etDateStr + ' (' + etShort + ', ' + timeOfDay + ' ET). Dates BEFORE today are PAST. Dates AFTER today are FUTURE.\n' +
+      'DATE REFERENCE: ' + calendarRef + '\n' +
+      'ALWAYS use this reference when converting day names (e.g. "next Wednesday") to YYYY-MM-DD dates. Do NOT calculate dates in your head.\n\n' +
       '=== TOOL USAGE (CRITICAL) ===\n' +
       'You operate under a strict time budget. ALWAYS prefer the SINGLE most efficient tool:\n' +
       '- "list open tasks" → get_all_open_tasks (ONE call). NEVER loop through jobs.\n' +
