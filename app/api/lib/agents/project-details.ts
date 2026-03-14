@@ -308,7 +308,8 @@ const projectDetails: AgentModule = {
       'TOOLS:\n' +
       '- Use get_project_details to fetch approved specifications for a job.\n' +
       '- If you have the JobTread Job ID from context, use it directly. Otherwise use search_jobs.\n' +
-      '- Use get_job_files for job-level file attachments.\n\n' +
+      '- Use get_job_files for job-level file attachments.\n' +
+      '- DEBUGGING: If a tool returns an error, you MUST include the exact error message and debugInfo in your response.\n\n' +
 
       (ctx.jtJobId ? 'JobTread Job ID: ' + ctx.jtJobId + '\n' : '') +
       (ctx.contactName ? 'Client: ' + ctx.contactName + '\n' : '') +
@@ -598,12 +599,13 @@ const projectDetails: AgentModule = {
 
       return JSON.stringify({ error: 'Unknown tool: ' + name });
     } catch (err: any) {
-      console.error(
-        '[project-details] Tool error (' + name + '):',
-        err?.message
-      );
+      const errMsg = err?.message || 'Unknown error';
+      const errStack = err?.stack?.split('\n').slice(0, 3).join(' | ') || '';
+      console.error('[project-details] Tool error (' + name + '):', errMsg, errStack);
       return JSON.stringify({
-        error: 'Error: ' + (err?.message || 'Unknown error'),
+        error: 'Error executing ' + name + ': ' + errMsg,
+        debugInfo: errStack,
+        hint: 'IMPORTANT: Tell the user the exact error message above so we can debug it.',
       });
     }
   },
