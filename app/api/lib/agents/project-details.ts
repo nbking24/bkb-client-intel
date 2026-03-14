@@ -80,15 +80,22 @@ function formatCostItemsWithHierarchy(
   const allAttachments: Array<{ fileName: string; downloadUrl: string; context: string }> = [];
   const seenFileIds = new Set<string>(); // Deduplicate files by ID
 
+  // Helper: build a short, stable file link URL using the redirect endpoint
+  // This avoids the AI needing to reproduce long CDN token URLs
+  function fileLink(file: any): string {
+    if (file?.id) return '/api/file?id=' + file.id;
+    return file?.url || '';
+  }
+
   // Helper to collect files without duplicates
   function collectFile(file: any, context: string) {
-    if (!file?.url) return;
+    if (!file?.url && !file?.id) return;
     const fileKey = file.id || file.url;
     if (seenFileIds.has(fileKey)) return;
     seenFileIds.add(fileKey);
     allAttachments.push({
       fileName: file.name || 'attachment',
-      downloadUrl: file.url,
+      downloadUrl: fileLink(file),
       context,
     });
   }
@@ -96,9 +103,9 @@ function formatCostItemsWithHierarchy(
   // Build hierarchy: Area → Cost Group → Items
   const areaMap = new Map<string, Map<string, JTCostItem[]>>();
   // Track cost group files separately (keyed by group name to deduplicate)
-  const groupFiles = new Map<string, Array<{ name: string; url: string }>>();
+  const groupFiles = new Map<string, Array<{ id?: string; name: string; url: string }>>();
   // Track parent cost group (area) files
-  const areaFiles = new Map<string, Array<{ name: string; url: string }>>();
+  const areaFiles = new Map<string, Array<{ id?: string; name: string; url: string }>>();
 
   for (const item of filtered) {
     const areaName = item.costGroup?.parentCostGroup?.name || 'General';
@@ -168,7 +175,7 @@ function formatCostItemsWithHierarchy(
     const areaFileList = areaFiles.get(areaName);
     if (areaFileList && areaFileList.length > 0) {
       for (const file of areaFileList) {
-        lines.push('  [📎 ' + file.name + '](' + file.url + ')');
+        lines.push('  [📎 ' + file.name + '](' + fileLink(file) + ')');
       }
     }
     lines.push('');
@@ -187,7 +194,7 @@ function formatCostItemsWithHierarchy(
       const gFiles = groupFiles.get(groupName);
       if (gFiles && gFiles.length > 0) {
         for (const file of gFiles) {
-          lines.push('  [📎 ' + file.name + '](' + file.url + ')');
+          lines.push('  [📎 ' + file.name + '](' + fileLink(file) + ')');
         }
       }
 
@@ -217,8 +224,8 @@ function formatCostItemsWithHierarchy(
         // Inline cost item file links
         if (item.files && item.files.length > 0) {
           for (const file of item.files) {
-            if (file.url) {
-              lines.push('    [📎 ' + file.name + '](' + file.url + ')');
+            if (file.url || file.id) {
+              lines.push('    [📎 ' + file.name + '](' + fileLink(file) + ')');
             }
           }
         }
@@ -294,7 +301,8 @@ const projectDetails: AgentModule = {
 
       'FILE LINKS (MANDATORY):\n' +
       '- You MUST include ALL file links from the tool response in your answer.\n' +
-      '- File links appear as [📎 FileName](url) and in the RELATED FILES section.\n' +
+      '- File links appear as [📎 FileName](/api/file?id=XXXX) and in the RELATED FILES section.\n' +
+      '- COPY file links EXACTLY as provided. They use short IDs — do NOT modify them.\n' +
       '- Place relevant file links near the specification items they relate to.\n' +
       '- After your answer, include a "Related Documents" section listing ALL file links.\n' +
       '- The user needs to click these to view PDFs, images, fixture sheets, and drawings.\n' +
@@ -615,7 +623,7 @@ const projectDetails: AgentModule = {
           files: files.slice(0, 30).map((f: any) => ({
             id: f.id,
             name: f.name,
-            url: f.url || f.downloadUrl || null,
+            url: f.id ? '/api/file?id=' + f.id : (f.url || f.downloadUrl || null),
             type: f.contentType || f.type || 'unknown',
             createdAt: f.createdAt,
           })),

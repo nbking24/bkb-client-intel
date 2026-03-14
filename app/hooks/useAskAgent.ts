@@ -110,7 +110,7 @@ export function formatContent(content: string): React.ReactNode[] {
 
     let formatted = line.replace(/\*\*(.*?)\*\*/g, '<strong>$1</strong>');
     formatted = formatted.replace(
-      /\[([^\]]+)\]\((https?:\/\/[^)]+)\)/g,
+      /\[([^\]]+)\]\(((?:https?:\/\/|\/api\/)[^)]+)\)/g,
       '<a href="$2" target="_blank" rel="noopener noreferrer" style="color:#C9A84C;text-decoration:underline;word-break:break-all;">$1</a>'
     );
 
