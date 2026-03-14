@@ -518,7 +518,7 @@ const projectDetails: AgentModule = {
         for (const doc of docStatuses) {
           docNameMap.set(doc.id, doc.name || doc.type || 'Document');
           if (doc.status === 'approved') {
-            approvedDocIds.set(doc.id);
+            approvedDocIds.add(doc.id);
           }
         }
 
