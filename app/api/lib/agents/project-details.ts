@@ -159,7 +159,7 @@ function formatCostItemsWithHierarchy(
     const firstGroupInArea = Array.from(groupMap.values())[0];
     const areaDesc = firstGroupInArea?.[0]?.costGroup?.parentCostGroup?.description;
     if (areaDesc) {
-      const desc = areaDesc.length > 800 ? areaDesc.slice(0, 800) + '...' : areaDesc;
+      const desc = areaDesc.length > 400 ? areaDesc.slice(0, 400) + '...' : areaDesc;
       lines.push('  [Area Note: ' + desc + ']');
     }
 
@@ -178,7 +178,7 @@ function formatCostItemsWithHierarchy(
       // Cost group description (critical spec notes like "Existing door planned to remain")
       const groupDesc = groupItems[0]?.costGroup?.description;
       if (groupDesc) {
-        const desc = groupDesc.length > 800 ? groupDesc.slice(0, 800) + '...' : groupDesc;
+        const desc = groupDesc.length > 400 ? groupDesc.slice(0, 400) + '...' : groupDesc;
         lines.push('  [Group Specification: ' + desc + ']');
       }
 
@@ -194,8 +194,8 @@ function formatCostItemsWithHierarchy(
         const code = item.costCode ? ' (' + item.costCode.number + ')' : '';
         lines.push('  • ' + item.name + code);
         if (item.description) {
-          const desc = item.description.length > 600
-            ? item.description.slice(0, 600) + '...'
+          const desc = item.description.length > 300
+            ? item.description.slice(0, 300) + '...'
             : item.description;
           lines.push('    ' + desc);
         }
@@ -513,7 +513,7 @@ const projectDetails: AgentModule = {
         const approvedDocMap = new Map(approvedDocs.map((doc: any) => [doc.id, doc]));
 
         // Step 3: Fetch all cost items with hierarchy (parentCostGroup = area) and files
-        const allCostItems = await getCostItemsForJob(jobId, 500);
+        const allCostItems = await getCostItemsForJob(jobId, 300);
 
         // CRITICAL FILTER: Two conditions must BOTH be true:
         // 1. Item must be on an APPROVED document (signed contract or approved CO)
@@ -553,43 +553,22 @@ const projectDetails: AgentModule = {
         // Step 4: Build formatted hierarchy with area grouping and file links
         const { content, attachments } = formatCostItemsWithHierarchy(costItems, searchTerm || undefined);
 
-        // Truncate if too long
+        // Truncate if too long (keep tight to avoid exceeding Claude token limits)
         let finalContent = content;
-        if (finalContent.length > 15000) {
+        if (finalContent.length > 8000) {
           finalContent =
-            finalContent.slice(0, 15000) +
-            '\n\n... [Content truncated. ' +
-            (content.length - 15000) +
-            ' more characters. Use a search term to narrow results.]';
+            finalContent.slice(0, 8000) +
+            '\n\n... [Truncated. Use a search term to narrow results.]';
         }
-
-        // Build approved document summary for the agent's context
-        const docSummary = approvedDocs.map((d: any) =>
-          (d.name || d.type) + ' (' + d.type + ', ' + d.status + ')'
-        ).join('; ');
 
         return JSON.stringify({
           success: true,
           source: 'approved_documents_only',
           specificationsUrl: specUrl,
-          approvedDocuments: docSummary,
           totalApprovedItems: costItems.length,
-          note: 'ONLY showing items from APPROVED contracts and change orders. Unapproved budget items are excluded.',
-          matchedItems: searchTerm
-            ? finalContent.match(/•/g)?.length || 0
-            : costItems.length,
-          hierarchyNote:
-            'Content is organized by AREA/LOCATION → COST GROUP → LINE ITEMS. ' +
-            'Each item shows which approved document it belongs to via [Doc: ...]. ' +
-            'ALWAYS organize your response by area first. Start with a brief summary, then details.',
+          note: 'ONLY items from APPROVED contracts/COs.',
           content: finalContent,
-          attachments: attachments.length > 0 ? attachments : undefined,
-          attachmentNote: attachments.length > 0
-            ? 'MANDATORY: You MUST include ALL ' + attachments.length + ' file links in your response. ' +
-              'Format each as: [📎 FileName](url). ' +
-              'Add a "Related Documents" section at the end with all file links. ' +
-              'These are clickable PDFs/images the user needs to access.'
-            : undefined,
+          fileCount: attachments.length,
         });
       }
 
