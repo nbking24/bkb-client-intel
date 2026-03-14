@@ -309,7 +309,7 @@ const projectDetails: AgentModule = {
       '- Use get_project_details to fetch approved specifications for a job.\n' +
       '- If you have the JobTread Job ID from context, use it directly. Otherwise use search_jobs.\n' +
       '- Use get_job_files for job-level file attachments.\n' +
-      '- DEBUGGING: If a tool returns an error, you MUST include the exact error message and debugInfo in your response.\n\n' +
+      '- If a tool returns an error, include the error message in your response so the team can report it.\n\n' +
 
       (ctx.jtJobId ? 'JobTread Job ID: ' + ctx.jtJobId + '\n' : '') +
       (ctx.contactName ? 'Client: ' + ctx.contactName + '\n' : '') +
@@ -522,11 +522,10 @@ const projectDetails: AgentModule = {
           }
         }
 
-        // CRITICAL FILTER: Two conditions must BOTH be true:
-        // 1. Item must be on an APPROVED document (signed contract or approved CO)
-        // 2. Item must be a specification item (isSpecification=true)
+        // CRITICAL FILTER: Item must be on an APPROVED document (signed contract or approved CO).
+        // Note: We do NOT filter by isSpecification because that flag is rarely set in JobTread.
+        // Approved customer orders already represent what was agreed upon with the client.
         const costItems = allCostItems.filter((item: any) => {
-          if (item.isSpecification !== true) return false;
           const docId = item.document?.id;
           if (!docId) return false;
           return approvedDocIds.has(docId);
@@ -600,12 +599,9 @@ const projectDetails: AgentModule = {
       return JSON.stringify({ error: 'Unknown tool: ' + name });
     } catch (err: any) {
       const errMsg = err?.message || 'Unknown error';
-      const errStack = err?.stack?.split('\n').slice(0, 3).join(' | ') || '';
-      console.error('[project-details] Tool error (' + name + '):', errMsg, errStack);
+      console.error('[project-details] Tool error (' + name + '):', errMsg);
       return JSON.stringify({
         error: 'Error executing ' + name + ': ' + errMsg,
-        debugInfo: errStack,
-        hint: 'IMPORTANT: Tell the user the exact error message above so we can debug it.',
       });
     }
   },
