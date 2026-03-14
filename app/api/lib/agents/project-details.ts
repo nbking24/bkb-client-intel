@@ -499,21 +499,28 @@ const projectDetails: AgentModule = {
       if (name === 'get_project_details') {
         const jobId = input.jobId;
         const searchTerm = (input.search || '').trim();
+        console.log('[SPECS] get_project_details called for job:', jobId, 'search:', searchTerm);
 
         // Step 1: Get job info and Specifications URL
         const job = await getJob(jobId);
         const specUrl = job ? getSpecificationsUrl(job) : null;
+        console.log('[SPECS] Step 1 done. Job:', job?.name, 'specUrl:', specUrl ? 'yes' : 'no');
 
         // Step 2: Fetch all documents for the job and identify APPROVED ones.
-        // Only items on approved contracts (customerOrder) and change orders are
-        // considered "approved work" — everything else is still in the budget/draft stage.
         const allDocuments = await getDocumentsForJob(jobId);
+        console.log('[SPECS] Step 2 done. Total docs:', allDocuments.length, 'statuses:', allDocuments.map((d: any) => d.status).join(','));
         const approvedDocs = allDocuments.filter((doc: any) => doc.status === 'approved');
+        console.log('[SPECS] Approved docs:', approvedDocs.length, approvedDocs.map((d: any) => d.name + '=' + d.status).join(', '));
         const approvedDocIds = new Set(approvedDocs.map((doc: any) => doc.id));
         const approvedDocMap = new Map(approvedDocs.map((doc: any) => [doc.id, doc]));
 
         // Step 3: Fetch all cost items with hierarchy (parentCostGroup = area) and files
         const allCostItems = await getCostItemsForJob(jobId, 300);
+        console.log('[SPECS] Step 3 done. Total cost items:', allCostItems.length);
+        // Debug: check how many have isSpecification and document
+        const specCount = allCostItems.filter((i: any) => i.isSpecification === true).length;
+        const withDocCount = allCostItems.filter((i: any) => i.document?.id).length;
+        console.log('[SPECS] isSpec=true:', specCount, 'hasDoc:', withDocCount);
 
         // CRITICAL FILTER: Two conditions must BOTH be true:
         // 1. Item must be on an APPROVED document (signed contract or approved CO)
@@ -526,6 +533,7 @@ const projectDetails: AgentModule = {
           if (!docId) return false; // Must be on a document
           return approvedDocIds.has(docId); // Document must be approved
         });
+        console.log('[SPECS] After filter: approved spec items:', costItems.length);
 
         if (!costItems || costItems.length === 0) {
           return JSON.stringify({
