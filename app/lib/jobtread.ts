@@ -1906,7 +1906,11 @@ export async function getDocumentCostItemsLightById(documentId: string): Promise
           costCode: { id: {}, name: {}, number: {} },
           costGroup: {
             id: {}, name: {}, description: {},
-            parentCostGroup: { id: {}, name: {}, description: {} },
+            files: { nodes: { id: {}, name: {}, url: {} } },
+            parentCostGroup: {
+              id: {}, name: {}, description: {},
+              files: { nodes: { id: {}, name: {}, url: {} } },
+            },
           },
           files: { nodes: { id: {}, name: {}, url: {} } },
         },
@@ -1922,10 +1926,10 @@ export async function getDocumentCostItemsLightById(documentId: string): Promise
     document: { id: documentId },
     costGroup: node.costGroup ? {
       ...node.costGroup,
-      files: [],
+      files: node.costGroup.files?.nodes || [],
       parentCostGroup: node.costGroup.parentCostGroup ? {
         ...node.costGroup.parentCostGroup,
-        files: [],
+        files: node.costGroup.parentCostGroup.files?.nodes || [],
       } : null,
     } : null,
   }));
@@ -2041,7 +2045,11 @@ export async function getCostItemsLightForJob(jobId: string, limit = 200): Promi
             costCode: { id: {}, name: {}, number: {} },
             costGroup: {
               id: {}, name: {}, description: {},
-              parentCostGroup: { id: {}, name: {}, description: {} },
+              files: { nodes: { id: {}, name: {}, url: {} } },
+              parentCostGroup: {
+                id: {}, name: {}, description: {},
+                files: { nodes: { id: {}, name: {}, url: {} } },
+              },
             },
             files: { nodes: { id: {}, name: {}, url: {} } },
             document: { id: {}, name: {}, type: {} },
@@ -2057,10 +2065,10 @@ export async function getCostItemsLightForJob(jobId: string, limit = 200): Promi
       files: node.files?.nodes || [],
       costGroup: node.costGroup ? {
         ...node.costGroup,
-        files: [], // Not fetched in light query
+        files: node.costGroup.files?.nodes || [],
         parentCostGroup: node.costGroup.parentCostGroup ? {
           ...node.costGroup.parentCostGroup,
-          files: [], // Not fetched in light query
+          files: node.costGroup.parentCostGroup.files?.nodes || [],
         } : null,
       } : null,
     }));
