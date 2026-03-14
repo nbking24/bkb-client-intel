@@ -4,7 +4,6 @@ import {
   getJob,
   getActiveJobs,
   getCostItemsForJob,
-  getDocumentsForJob,
   getFilesForJob,
   JTCostItem,
 } from '../../../lib/jobtread';
@@ -499,62 +498,45 @@ const projectDetails: AgentModule = {
       if (name === 'get_project_details') {
         const jobId = input.jobId;
         const searchTerm = (input.search || '').trim();
-        console.log('[SPECS] get_project_details called for job:', jobId, 'search:', searchTerm);
 
         // Step 1: Get job info and Specifications URL
         const job = await getJob(jobId);
         const specUrl = job ? getSpecificationsUrl(job) : null;
-        console.log('[SPECS] Step 1 done. Job:', job?.name, 'specUrl:', specUrl ? 'yes' : 'no');
 
-        // Step 2: Fetch all documents for the job and identify APPROVED ones.
-        const allDocuments = await getDocumentsForJob(jobId);
-        console.log('[SPECS] Step 2 done. Total docs:', allDocuments.length, 'statuses:', allDocuments.map((d: any) => d.status).join(','));
-        const approvedDocs = allDocuments.filter((doc: any) => doc.status === 'approved');
-        console.log('[SPECS] Approved docs:', approvedDocs.length, approvedDocs.map((d: any) => d.name + '=' + d.status).join(', '));
-        const approvedDocIds = new Set(approvedDocs.map((doc: any) => doc.id));
-        const approvedDocMap = new Map(approvedDocs.map((doc: any) => [doc.id, doc]));
-
-        // Step 3: Fetch all cost items with hierarchy (parentCostGroup = area) and files
+        // Step 2: Fetch all cost items with hierarchy (parentCostGroup = area) and files.
+        // The document field now includes status, so we can filter by approved directly
+        // without a separate getDocumentsForJob call.
         const allCostItems = await getCostItemsForJob(jobId, 300);
-        console.log('[SPECS] Step 3 done. Total cost items:', allCostItems.length);
-        // Debug: check how many have isSpecification and document
-        const specCount = allCostItems.filter((i: any) => i.isSpecification === true).length;
-        const withDocCount = allCostItems.filter((i: any) => i.document?.id).length;
-        console.log('[SPECS] isSpec=true:', specCount, 'hasDoc:', withDocCount);
 
         // CRITICAL FILTER: Two conditions must BOTH be true:
         // 1. Item must be on an APPROVED document (signed contract or approved CO)
         // 2. Item must be a specification item (isSpecification=true) — this excludes
         //    internal labor, overhead, and cost-only items the client doesn't see.
-        // Together: only client-visible spec items from approved contracts/COs.
         const costItems = allCostItems.filter((item: any) => {
-          if (item.isSpecification !== true) return false; // Must be a spec item
-          const docId = item.document?.id;
-          if (!docId) return false; // Must be on a document
-          return approvedDocIds.has(docId); // Document must be approved
+          if (item.isSpecification !== true) return false;
+          return item.document?.status === 'approved';
         });
-        console.log('[SPECS] After filter: approved spec items:', costItems.length);
 
         if (!costItems || costItems.length === 0) {
+          // Check if there are ANY approved docs at all
+          const hasApprovedDocs = allCostItems.some((i: any) => i.document?.status === 'approved');
           return JSON.stringify({
             success: false,
             specificationsUrl: specUrl,
-            approvedDocuments: approvedDocs.map((d: any) => ({ name: d.name, type: d.type, status: d.status })),
             message:
-              'No approved items found for this job.' +
-              (approvedDocs.length === 0
+              'No approved specification items found for this job.' +
+              (!hasApprovedDocs
                 ? ' No approved documents exist yet — the contract may not be signed.'
-                : ' Approved documents exist but no line items were found on them.') +
+                : ' Approved documents exist but no spec line items were found on them.') +
               (specUrl ? ' Specifications page: ' + specUrl : ''),
           });
         }
 
         // Inject document name into each item for context
         for (const item of costItems) {
-          const doc = approvedDocMap.get(item.document?.id);
-          if (doc) {
-            (item as any).documentName = doc.name || doc.type || 'Approved Document';
-            (item as any).documentType = doc.type || '';
+          if (item.document) {
+            (item as any).documentName = item.document.name || item.document.type || 'Approved Document';
+            (item as any).documentType = item.document.type || '';
           }
         }
 

@@ -1725,7 +1725,7 @@ export interface JTCostItem {
   costGroup?: { id: string; name: string; description?: string; files?: JTCostItemFile[]; parentCostGroup?: { id: string; name: string; description?: string; files?: JTCostItemFile[] } | null } | null;
   files?: JTCostItemFile[];
   // Document association: null = Estimating, otherwise attached to a proposal/invoice
-  document?: { id: string; name: string; type: string } | null;
+  document?: { id: string; name: string; type: string; status?: string } | null;
   // Custom fields (Status, Internal Notes, Vendor)
   status?: string | null;
   internalNotes?: string | null;
@@ -1897,7 +1897,7 @@ export async function getCostItemsForJob(jobId: string, limit = 500): Promise<JT
             costCode: { id: {}, name: {}, number: {} },
             costGroup: { id: {}, name: {}, description: {}, files: { nodes: { id: {}, name: {}, url: {} } }, parentCostGroup: { id: {}, name: {}, description: {}, files: { nodes: { id: {}, name: {}, url: {} } } } },
             files: { nodes: { id: {}, name: {}, url: {} } },
-            document: { id: {}, name: {}, type: {} },
+            document: { id: {}, name: {}, type: {}, status: {} },
             customFieldValues: { nodes: { value: {}, customField: { name: {} } } },
           },
         },
