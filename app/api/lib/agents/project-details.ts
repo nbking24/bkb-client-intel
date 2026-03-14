@@ -526,6 +526,17 @@ const projectDetails: AgentModule = {
           }
         }
 
+        // DEBUG: Log approved documents and cost item document references
+        console.log('[project-details] Approved doc IDs:', Array.from(approvedDocIds));
+        console.log('[project-details] Doc name map:', Array.from(docNameMap.entries()));
+        console.log('[project-details] Total cost items from PAVE:', allCostItems.length);
+        const docIdDistribution = new Map<string, number>();
+        for (const item of allCostItems) {
+          const did = item.document?.id || 'NO_DOC';
+          docIdDistribution.set(did, (docIdDistribution.get(did) || 0) + 1);
+        }
+        console.log('[project-details] Cost items by document ID:', Array.from(docIdDistribution.entries()).map(([id, count]) => `${docNameMap.get(id) || id}: ${count}`));
+
         // CRITICAL FILTER: Item must be on an APPROVED document (signed contract or approved CO).
         // Note: We do NOT filter by isSpecification because that flag is rarely set in JobTread.
         // Approved customer orders already represent what was agreed upon with the client.
@@ -534,6 +545,7 @@ const projectDetails: AgentModule = {
           if (!docId) return false;
           return approvedDocIds.has(docId);
         });
+        console.log('[project-details] After filtering to approved docs:', costItems.length, 'items');
 
         if (!costItems || costItems.length === 0) {
           return JSON.stringify({
