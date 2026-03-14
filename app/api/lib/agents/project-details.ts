@@ -4,6 +4,7 @@ import {
   getJob,
   getActiveJobs,
   getCostItemsForJob,
+  getDocumentStatusesForJob,
   getFilesForJob,
   JTCostItem,
 } from '../../../lib/jobtread';
@@ -503,40 +504,52 @@ const projectDetails: AgentModule = {
         const job = await getJob(jobId);
         const specUrl = job ? getSpecificationsUrl(job) : null;
 
-        // Step 2: Fetch all cost items with hierarchy (parentCostGroup = area) and files.
-        // The document field now includes status, so we can filter by approved directly
-        // without a separate getDocumentsForJob call.
-        const allCostItems = await getCostItemsForJob(jobId, 300);
+        // Step 2: Get document statuses (lightweight query — just IDs and statuses)
+        // and cost items in parallel for speed
+        const [docStatuses, allCostItems] = await Promise.all([
+          getDocumentStatusesForJob(jobId),
+          getCostItemsForJob(jobId, 300),
+        ]);
+
+        // Build a set of approved document IDs and a map for name lookup
+        const approvedDocIds = new Set<string>();
+        const docNameMap = new Map<string, string>();
+        for (const doc of docStatuses) {
+          docNameMap.set(doc.id, doc.name || doc.type || 'Document');
+          if (doc.status === 'approved') {
+            approvedDocIds.set(doc.id);
+          }
+        }
 
         // CRITICAL FILTER: Two conditions must BOTH be true:
         // 1. Item must be on an APPROVED document (signed contract or approved CO)
-        // 2. Item must be a specification item (isSpecification=true) — this excludes
-        //    internal labor, overhead, and cost-only items the client doesn't see.
+        // 2. Item must be a specification item (isSpecification=true)
         const costItems = allCostItems.filter((item: any) => {
           if (item.isSpecification !== true) return false;
-          return item.document?.status === 'approved';
+          const docId = item.document?.id;
+          if (!docId) return false;
+          return approvedDocIds.has(docId);
         });
 
         if (!costItems || costItems.length === 0) {
-          // Check if there are ANY approved docs at all
-          const hasApprovedDocs = allCostItems.some((i: any) => i.document?.status === 'approved');
           return JSON.stringify({
             success: false,
             specificationsUrl: specUrl,
             message:
               'No approved specification items found for this job.' +
-              (!hasApprovedDocs
+              (approvedDocIds.size === 0
                 ? ' No approved documents exist yet — the contract may not be signed.'
-                : ' Approved documents exist but no spec line items were found on them.') +
+                : ' Approved documents exist (' + approvedDocIds.size + ') but no spec line items were found on them.') +
               (specUrl ? ' Specifications page: ' + specUrl : ''),
           });
         }
 
         // Inject document name into each item for context
         for (const item of costItems) {
-          if (item.document) {
-            (item as any).documentName = item.document.name || item.document.type || 'Approved Document';
-            (item as any).documentType = item.document.type || '';
+          const docId = item.document?.id;
+          if (docId) {
+            (item as any).documentName = docNameMap.get(docId) || item.document?.name || 'Approved Document';
+            (item as any).documentType = item.document?.type || '';
           }
         }
 

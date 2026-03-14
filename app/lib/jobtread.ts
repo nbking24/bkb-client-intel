@@ -1005,6 +1005,28 @@ export async function getDocumentsForJob(jobId: string): Promise<JTDocument[]> {
   return docs.map((d: any) => ({ ...d, job: { id: jobId, name: '' } }));
 }
 
+/**
+ * Lightweight query: get just document IDs, names, and statuses for a job.
+ * Much smaller payload than getDocumentsForJob — used for filtering cost items by approval status.
+ */
+export async function getDocumentStatusesForJob(jobId: string): Promise<Array<{ id: string; name: string; status: string; type: string }>> {
+  const data = await pave({
+    job: {
+      $: { id: jobId },
+      documents: {
+        $: { size: 50 },
+        nodes: {
+          id: {},
+          name: {},
+          status: {},
+          type: {},
+        },
+      },
+    },
+  });
+  return (data as any)?.job?.documents?.nodes || [];
+}
+
 export async function getApprovedDocuments(limit = 100): Promise<JTDocument[]> {
   const result = await orgQuery('documents', {
     $: {
@@ -1725,7 +1747,7 @@ export interface JTCostItem {
   costGroup?: { id: string; name: string; description?: string; files?: JTCostItemFile[]; parentCostGroup?: { id: string; name: string; description?: string; files?: JTCostItemFile[] } | null } | null;
   files?: JTCostItemFile[];
   // Document association: null = Estimating, otherwise attached to a proposal/invoice
-  document?: { id: string; name: string; type: string; status?: string } | null;
+  document?: { id: string; name: string; type: string } | null;
   // Custom fields (Status, Internal Notes, Vendor)
   status?: string | null;
   internalNotes?: string | null;
@@ -1897,7 +1919,7 @@ export async function getCostItemsForJob(jobId: string, limit = 500): Promise<JT
             costCode: { id: {}, name: {}, number: {} },
             costGroup: { id: {}, name: {}, description: {}, files: { nodes: { id: {}, name: {}, url: {} } }, parentCostGroup: { id: {}, name: {}, description: {}, files: { nodes: { id: {}, name: {}, url: {} } } } },
             files: { nodes: { id: {}, name: {}, url: {} } },
-            document: { id: {}, name: {}, type: {}, status: {} },
+            document: { id: {}, name: {}, type: {} },
             customFieldValues: { nodes: { value: {}, customField: { name: {} } } },
           },
         },
