@@ -268,7 +268,14 @@ export async function createTask(params: {
   endDate?: string;
   assignedMembershipIds?: string[];
 }) {
-  const { jobId, name, description, startDate, endDate, assignedMembershipIds } = params;
+  const { jobId, name, description, assignedMembershipIds } = params;
+  // PAVE requires BOTH startDate and endDate if either is provided.
+  // Default to a 1-day task: if only endDate is given, startDate = endDate (and vice versa).
+  let startDate = params.startDate;
+  let endDate = params.endDate;
+  if (endDate && !startDate) startDate = endDate;
+  if (startDate && !endDate) endDate = startDate;
+
   const data = await pave({
     createTask: {
       $: {
@@ -536,7 +543,14 @@ export async function createPhaseTask(params: {
   endDate?: string;
   assignedMembershipIds?: string[];
 }): Promise<{ id: string; name: string; parentTask: any; warning?: string }> {
-  const { jobId, parentGroupId, name, description, startDate, endDate, assignedMembershipIds } = params;
+  const { jobId, parentGroupId, name, description, assignedMembershipIds } = params;
+  // PAVE requires BOTH startDate and endDate if either is provided.
+  // Default to a 1-day task: if only endDate is given, startDate = endDate (and vice versa).
+  let startDate = params.startDate;
+  let endDate = params.endDate;
+  if (endDate && !startDate) startDate = endDate;
+  if (startDate && !endDate) endDate = startDate;
+
   const optionalFields = {
     ...(description ? { description } : {}),
     ...(startDate ? { startDate } : {}),
@@ -1354,14 +1368,19 @@ export async function getDailyLogsForJob(jobId: string, limit = 200): Promise<JT
   return [];
 }
 
+// Daily Log Type custom field ID — required by BKB's JobTread configuration.
+// Options: "Change Order", "Projects Review Meeting", "Client Meeting", "Receipts", "Other"
+const DAILY_LOG_TYPE_FIELD_ID = '22P5xZ5QiRLq';
+
 export async function createDailyLog(params: {
   jobId: string;
   date: string;       // YYYY-MM-DD
   notes: string;
   assignees?: string[];  // membership IDs
   notify?: boolean;
+  dailyLogType?: string; // defaults to "Other"
 }) {
-  const { jobId, date, notes, assignees, notify } = params;
+  const { jobId, date, notes, assignees, notify, dailyLogType } = params;
   const data = await pave({
     createDailyLog: {
       $: {
@@ -1370,6 +1389,9 @@ export async function createDailyLog(params: {
         notes,
         ...(assignees?.length ? { assignees } : {}),
         ...(notify !== undefined ? { notify } : {}),
+        customFieldValues: {
+          [DAILY_LOG_TYPE_FIELD_ID]: dailyLogType || 'Other',
+        },
       },
       createdDailyLog: { id: {}, date: {}, notes: {} },
     },

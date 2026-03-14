@@ -637,6 +637,8 @@ const knowItAll: AgentModule = {
       '@@TASK_CONFIRM@@\n' +
       '{"name":"short name","phase":"Phase Name","phaseId":"id","jobId":"the-job-id","description":"details","assignee":"Name","startDate":"YYYY-MM-DD","endDate":"YYYY-MM-DD"}\n' +
       '@@END_CONFIRM@@\n' +
+      'DATE RULES: Tasks are ALWAYS 1-day tasks. If the user says "due Friday" or gives any single date,\n' +
+      'set BOTH startDate AND endDate to that same date. NEVER leave startDate empty if endDate is set.\n' +
       'IMPORTANT: Always include the jobId from the get_job_schedule call in the confirmation block.\n' +
       'STEP 3 — After the user approves with [APPROVED TASK DATA], call create_phase_task.\n' +
       'Field mapping: name→name, phaseId→parentGroupId, assignee→assignTo. Set durationDays=1.\n\n' +
@@ -927,6 +929,7 @@ const knowItAll: AgentModule = {
           jobId: { type: 'string', description: 'The JobTread Job ID' },
           date: { type: 'string', description: 'Date in YYYY-MM-DD format. Defaults to today if not specified.' },
           notes: { type: 'string', description: 'Daily log notes — what happened on site, crew activity, issues, etc.' },
+          dailyLogType: { type: 'string', description: 'Type of daily log. Options: "Change Order", "Projects Review Meeting", "Client Meeting", "Receipts", "Other". Defaults to "Other" if not specified.' },
           assignTo: { type: 'string', description: 'Comma-separated team member names to assign to this log (optional)' },
           notify: { type: 'boolean', description: 'Whether to notify assigned members (default false)' },
         },
@@ -1505,7 +1508,7 @@ const knowItAll: AgentModule = {
           } catch (e) { /* ignore */ }
         }
 
-        const result = await createDailyLogWithCache({ jobId, date, notes: input.notes, assignees, notify: input.notify });
+        const result = await createDailyLogWithCache({ jobId, date, notes: input.notes, dailyLogType: input.dailyLogType, assignees, notify: input.notify });
         return JSON.stringify({ success: true, result, message: 'Daily log created for ' + date + '.' });
       }
 

@@ -299,7 +299,14 @@ async function tryTaskCreationFastPath(msg: string, ctx: AgentContext, messages?
       } catch { /* ignore member lookup failures */ }
     }
 
-    // Step 3: Create the task
+    // Step 3: Normalize dates — PAVE requires both if either is set.
+    // Default to 1-day task: if only endDate provided, set startDate = endDate (and vice versa).
+    let startDate = taskData.startDate || undefined;
+    let endDate = taskData.endDate || undefined;
+    if (endDate && !startDate) startDate = endDate;
+    if (startDate && !endDate) endDate = startDate;
+
+    // Step 4: Create the task
     let result: any;
     let warning = '';
     if (parentGroupId) {
@@ -308,8 +315,8 @@ async function tryTaskCreationFastPath(msg: string, ctx: AgentContext, messages?
         parentGroupId,
         name: taskData.name,
         description: taskData.description,
-        startDate: taskData.startDate,
-        endDate: taskData.endDate,
+        startDate,
+        endDate,
         assignedMembershipIds,
       });
       if (result.warning) warning = '\n\n⚠️ ' + result.warning;
@@ -319,8 +326,8 @@ async function tryTaskCreationFastPath(msg: string, ctx: AgentContext, messages?
         jobId,
         name: taskData.name,
         description: taskData.description,
-        startDate: taskData.startDate,
-        endDate: taskData.endDate,
+        startDate,
+        endDate,
         assignedMembershipIds,
       });
       if (taskData.phase) {
