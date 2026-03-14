@@ -515,13 +515,16 @@ const projectDetails: AgentModule = {
         // Step 3: Fetch all cost items with hierarchy (parentCostGroup = area) and files
         const allCostItems = await getCostItemsForJob(jobId, 500);
 
-        // CRITICAL FILTER: Only include items that belong to an APPROVED document.
-        // The budget contains many items not yet approved — those must be excluded.
-        // This ensures the agent only answers based on what's in the signed contract/COs.
+        // CRITICAL FILTER: Two conditions must BOTH be true:
+        // 1. Item must be on an APPROVED document (signed contract or approved CO)
+        // 2. Item must be a specification item (isSpecification=true) — this excludes
+        //    internal labor, overhead, and cost-only items the client doesn't see.
+        // Together: only client-visible spec items from approved contracts/COs.
         const costItems = allCostItems.filter((item: any) => {
+          if (item.isSpecification !== true) return false; // Must be a spec item
           const docId = item.document?.id;
-          if (!docId) return false; // Item not on any document — skip
-          return approvedDocIds.has(docId);
+          if (!docId) return false; // Must be on a document
+          return approvedDocIds.has(docId); // Document must be approved
         });
 
         if (!costItems || costItems.length === 0) {
