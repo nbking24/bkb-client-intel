@@ -555,9 +555,6 @@ const projectDetails: AgentModule = {
 
         // Merge: budget items with approved doc + document-level items from approved COs
         const costItems = [...budgetItemsWithApprovedDoc, ...docLevelItems];
-        console.log('[project-details] Budget items with approved doc:', budgetItemsWithApprovedDoc.length);
-        console.log('[project-details] Additional doc-level items from COs:', docLevelItems.length);
-        console.log('[project-details] Total approved items:', costItems.length);
 
         if (!costItems || costItems.length === 0) {
           return JSON.stringify({
