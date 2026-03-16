@@ -307,8 +307,9 @@ Core analysis function `buildInvoicingContext()` fetches all active jobs via PAV
 **analyzeContractJob()** — Fixed-Price jobs:
 - Milestone tracking via `$` prefix schedule tasks (approaching, overdue)
 - Draft invoice ↔ `$` task matching (fuzzy name match, extracts parenthesized labels)
-- Uninvoiced billable items (CC23 on vendor bills minus CC23 on customer invoices)
-- Unbilled labor hours (CC23 time entries minus CC23 invoice quantities)
+- Uninvoiced billable items: CC23 items with costType "Materials" or "Subcontractor" on vendor bills minus same on customer invoices (costCode + costType filter, not name prefix)
+- Unbilled labor hours: CC23 time entries minus CC23 invoice items where name contains "labor" (name-based filter — labor invoice items use costType "Other", not "Labor")
+- Denied vendor bills (deleted in JobTread) are excluded via `status !== 'denied'`
 - Released invoices (approved → paid, pending → open) with amounts
 - Health thresholds: milestone overdue (14d+ = critical), billable items ($200 warning / $800 overdue), labor hours (1h warning / 3h overdue)
 
@@ -523,11 +524,67 @@ JT API  ──→ jt_comments, jt_daily_logs (Supabase cache)
 
 14. **Contract vs Cost-Plus logic must stay separate**: Changes to `analyzeContractJob()` must NOT affect `analyzeCostPlusJob()` or vice versa. They interpret the same data differently — contract jobs only count `type === 'Billable'` time entries and CC23 costs; cost-plus jobs count ALL time entries and ALL vendor bill costs. Nathan has explicitly warned about this multiple times.
 
+15. **Fixed-Price billable detection uses costCode + costType, NOT name prefix**: For Fixed-Price jobs (`analyzeContractJob`), billable items are identified by `costCode.number === '23'` AND `costType.name` being "Materials" or "Subcontractor". Do NOT use `name.startsWith('23 Billable')` — that misses items with non-standard names. Cost-Plus jobs (`analyzeCostPlusJob`) and `findBillableItems()` still use the old name prefix filter `BILLABLE_NAME_PREFIX`.
+
+16. **Labor hours on invoices use costType "Other", not "Labor"**: When deducting billed labor hours from the total, match by item **name** (contains "labor"), NOT by `costType.name === 'Labor'`. In BKB's JobTread setup, billable labor line items on customer invoices are created with costType "Other". The costType "Labor" is for internal labor costs on vendor bills.
+
+17. **Deleted vendor bills have `status: 'denied'`**: When bills are deleted in JobTread, they aren't removed from the API — they get `status: 'denied'`. All analysis functions must filter these out with `status !== 'denied'` to avoid counting deleted bill costs in totals.
+
 ---
 
 ## 15. Changelog
 
 All modifications to the codebase should be logged here with date, files changed, and what was done.
+
+### 2026-03-16 — Fix: Labor Hours Deduction (Name vs CostType)
+
+**Problem:** After switching Fixed-Price billable detection to costType-based filtering (commit `b04f7ee`), the labor hours deduction broke. The Sines project had 3.9 billable hours, and Invoice #69 billed 2.9 of those hours, but the dashboard still showed 3.9 unbilled. The 2.9 hours were never deducted.
+
+**Root Cause:** The labor line item on Invoice #69 ("23 Billable Labor") has `costType: "Other"`, not `costType: "Labor"`. The costType-based filter `item.costType?.name === 'Labor'` didn't match, so billed hours were always zero. In BKB's JobTread setup, the "Labor" costType is for internal labor on vendor bills, while billable labor on customer invoices uses "Other".
+
+**Solution:** Reverted labor hour deduction filter from costType-based (`costType.name === 'Labor'`) back to name-based (`name.toLowerCase().includes('labor')`), which correctly matches items like "23 Billable Labor" regardless of their costType.
+
+**Changes:**
+- `app/lib/invoicing-health.ts` — Changed `cc23LaborOnInvoices` filter from `costType?.name === 'Labor'` to `name?.toLowerCase().includes('labor')`
+
+**Commits:** `c45971a`
+
+---
+
+### 2026-03-16 — Fix: CostCode + CostType Filter for Fixed-Price Billable Items
+
+**Problem:** The Sines Powder Room project had two vendor bills coded to Cost Code 23 with costType "Subcontractor" ($100 and $254.50), but the dashboard showed Billable: $0. These items had names like "01-Gen Supplies, Admin Costs:0102 - Sub" that didn't match the `name.startsWith('23 Billable')` prefix filter.
+
+**Solution:** For Fixed-Price jobs only, switched billable detection from name-prefix to costCode + costType:
+- **Billable costs:** `costCode.number === '23'` + `costType.name` in `['Materials', 'Subcontractor']`
+- **Labor hours:** Kept separate — uses name-based filter (see commit `c45971a`)
+- Cost-Plus jobs and `findBillableItems()` still use the old name prefix filter
+
+**Changes:**
+- `app/lib/jobtread.ts` — Added `costType: { id: {}, name: {} }` to `getDocumentCostItemsById` PAVE query
+- `app/lib/invoicing-health.ts` — Added `BILLABLE_COST_TYPE_NAMES` constant; rewrote `analyzeContractJob()` billable cost calculation to use costCode + costType filter; separated `allCC23` (all CC23 items) from `cc23Billable` (Materials/Subcontractor only)
+
+**Commits:** `b04f7ee`
+
+---
+
+### 2026-03-16 — Fix: Exclude Denied (Deleted) Vendor Bills from Dashboard
+
+**Problem:** The Sines Powder Room project had several vendor bills that were deleted in JobTread, but the dashboard still counted their costs in billable totals. This inflated the Unbilled Items amount (showed $773.85 instead of the correct amount).
+
+**Root Cause:** Deleted bills in JobTread get `status: 'denied'` rather than being removed from the API. The code filtered documents by `type === 'vendorBill'` but never checked the `status` field.
+
+**Solution:** Added `status !== 'denied'` filter in three places:
+1. `analyzeContractJob()` — vendor bill selection for CC23 cost analysis
+2. `analyzeCostPlusJob()` — builds a set of denied bill IDs, excludes their cost items
+3. `buildInvoicingContext()` — pre-filters cost items before passing to `findBillableItems()`
+
+**Changes:**
+- `app/lib/invoicing-health.ts` — Added denied bill filtering in `analyzeContractJob()`, `analyzeCostPlusJob()`, and `buildInvoicingContext()`
+
+**Commits:** `939ec82`
+
+---
 
 ### 2026-03-16 — Fix: Filter Unselected Document Options from Specs Agent
 
