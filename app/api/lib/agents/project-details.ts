@@ -536,12 +536,33 @@ const projectDetails: AgentModule = {
 
         // Step 2c: Also fetch cost items directly from approved customer orders.
         // This catches Change Order items whose budget-level items don't have a document reference.
-        const seenIds = new Set(budgetItemsWithApprovedDoc.map((item: any) => item.id));
+        // IMPORTANT: Document-level items include `isSelected` which identifies unselected options.
+        // In JobTread, documents can have options (alternative selections) — only selected ones should appear.
         const docItemPromises = approvedCustomerOrderIds.map(docId => getDocumentCostItemsLightById(docId));
         const docItemArrays = await Promise.all(docItemPromises);
+
+        // Build a set of unselected item IDs from document queries.
+        // These are items belonging to document options the client did NOT select.
+        const unselectedItemIds = new Set<string>();
+        for (const items of docItemArrays) {
+          for (const item of items) {
+            if (item.isSelected === false) {
+              unselectedItemIds.add(item.id);
+            }
+          }
+        }
+
+        // Filter budget items to exclude unselected document options
+        const filteredBudgetItems = budgetItemsWithApprovedDoc.filter((item: any) => {
+          return !unselectedItemIds.has(item.id);
+        });
+
+        const seenIds = new Set(filteredBudgetItems.map((item: any) => item.id));
         const docLevelItems: any[] = [];
         for (const items of docItemArrays) {
           for (const item of items) {
+            // Skip unselected options
+            if (item.isSelected === false) continue;
             // Skip if we already have this item from the budget query
             if (!seenIds.has(item.id)) {
               seenIds.add(item.id);
@@ -550,8 +571,8 @@ const projectDetails: AgentModule = {
           }
         }
 
-        // Merge: budget items with approved doc + document-level items from approved COs
-        const costItems = [...budgetItemsWithApprovedDoc, ...docLevelItems];
+        // Merge: selected budget items + selected document-level items from approved COs
+        const costItems = [...filteredBudgetItems, ...docLevelItems];
 
         if (!costItems || costItems.length === 0) {
           return JSON.stringify({

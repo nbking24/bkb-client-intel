@@ -1903,9 +1903,11 @@ export async function getDocumentCostItemsLightById(documentId: string): Promise
           id: {},
           name: {},
           description: {},
+          isSelected: {},
           costCode: { id: {}, name: {}, number: {} },
           costGroup: {
             id: {}, name: {}, description: {},
+            isSelected: {},
             files: { nodes: { id: {}, name: {}, url: {} } },
             parentCostGroup: {
               id: {}, name: {}, description: {},
@@ -1924,8 +1926,11 @@ export async function getDocumentCostItemsLightById(documentId: string): Promise
     files: node.files?.nodes || [],
     // Inject the document reference since we know which document these came from
     document: { id: documentId },
+    // Preserve isSelected from document-level query (false = unselected option)
+    isSelected: node.isSelected,
     costGroup: node.costGroup ? {
       ...node.costGroup,
+      isSelected: node.costGroup.isSelected,
       files: node.costGroup.files?.nodes || [],
       parentCostGroup: node.costGroup.parentCostGroup ? {
         ...node.costGroup.parentCostGroup,
