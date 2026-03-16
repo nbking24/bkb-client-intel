@@ -139,17 +139,23 @@ async function ensureGroupPath(
   return parentId!;
 }
 
-// -- Fetch existing groups for the job --
+// -- Fetch existing groups for the job (paginated) --
 async function getExistingGroups(jobId: string): Promise<Map<string, string>> {
-  const result = await pave({
-    job: {
-      $: { id: jobId },
-      costGroups: {
-        $: { size: 500 },
-        nodes: {
-          id: {},
-          name: {},
-          parentCostGroup: {
+  const PAGE_SIZE = 100;
+  let allGroups: any[] = [];
+  let nextPage: string | null = null;
+
+  for (let page = 0; page < 10; page++) {
+    const pageParams: Record<string, unknown> = { size: PAGE_SIZE };
+    if (nextPage) pageParams.page = nextPage;
+
+    const result = await pave({
+      job: {
+        $: { id: jobId },
+        costGroups: {
+          $: pageParams,
+          nextPage: {},
+          nodes: {
             id: {},
             name: {},
             parentCostGroup: {
@@ -161,16 +167,26 @@ async function getExistingGroups(jobId: string): Promise<Map<string, string>> {
                 parentCostGroup: {
                   id: {},
                   name: {},
+                  parentCostGroup: {
+                    id: {},
+                    name: {},
+                  },
                 },
               },
             },
           },
         },
       },
-    },
-  });
+    });
 
-  const groups = result?.job?.costGroups?.nodes || [];
+    const nodes = result?.job?.costGroups?.nodes || [];
+    allGroups = allGroups.concat(nodes);
+
+    nextPage = result?.job?.costGroups?.nextPage || null;
+    if (!nextPage || nodes.length < PAGE_SIZE) break;
+  }
+
+  const groups = allGroups;
   const idToPath = new Map<string, string>();
   const pathToId = new Map<string, string>();
 
