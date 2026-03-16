@@ -409,10 +409,12 @@ async function analyzeContractJob(
     return sum;
   }, 0);
 
-  // Only CC23 *Labor* cost-type items on customer invoices represent hours already billed.
+  // Only CC23 *Labor* items on customer invoices represent hours already billed.
+  // Match by name (contains "labor") rather than costType, because billable labor
+  // line items on invoices use costType "Other", not "Labor".
   const cc23LaborOnInvoices = allCC23.filter(
     (item) => item.document?.type === 'customerInvoice' &&
-      item.costType?.name === 'Labor'
+      item.name?.toLowerCase().includes('labor')
   );
   const billedLaborHours = cc23LaborOnInvoices
     .reduce((sum, item) => sum + (item.quantity || 0), 0);
