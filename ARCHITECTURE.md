@@ -4,7 +4,7 @@
 >
 > **Nathan:** If starting a new conversation, mention this doc or say "review the architecture doc" so the assistant knows to read it first.
 
-**Last updated:** 2026-03-13
+**Last updated:** 2026-03-16
 **Repo:** `github.com/nbking24/bkb-client-intel`
 **Deploy:** Vercel (auto-deploy on push to `main`)
 **Live URL:** `https://bkb-client-intel.vercel.app`
@@ -238,7 +238,56 @@ Both the desktop (`/dashboard/ask`) and mobile (`/m/ask`) pages import from `app
 
 ---
 
-## 6. Invoicing Health Dashboard
+## 6. Specs Agent (Project Details) — Data Flow
+
+The **Project Details** agent (`project-details.ts`) answers spec/selection questions about a focused job. It uses a single tool `get_project_details` that fetches cost items from approved JobTread documents and returns them to Claude for answering.
+
+### 6.1 Data Retrieval Pipeline
+
+1. **Fetch all budget cost items** via `getCostItemsLightForJob(jobId)` — returns every cost item in the job's budget with cost groups, files, and document references
+2. **Identify approved documents** — filters for customer orders/invoices with `status === 'approved'` or `status === 'pending'`
+3. **Filter budget items** — keeps only items that reference an approved document ID
+4. **Fetch document-level items** via `getDocumentCostItemsLightById(docId)` for each approved document — this catches Change Order items whose budget-level entries lack a document reference
+5. **Filter out unselected options** — uses PAVE `isSelected` field to exclude items the client did NOT select (see below)
+6. **Merge** — combines filtered budget items + selected document-level items (deduped by ID)
+7. **Build context string** — formats items with names, descriptions, cost codes, cost groups, and file links
+8. **Append file links** — file URLs use the JobTread CDN pattern: `https://cdn.jobtread.com/files/{fileId}` (appended server-side, not from PAVE URL field)
+
+### 6.2 Document Options & `isSelected` Filtering
+
+JobTread documents (estimates, contracts) can have **options** — alternative cost groups where the client selects which ones they want. For example, a flooring section might offer "Alpine Quartzite" and "Sterling Quartzite" as two options, but the client only selects one.
+
+**Key PAVE API behavior:**
+- `isSelected` is available on document-level cost items AND cost groups (via `getDocumentCostItemsLightById`)
+- `isSelected: true` = client selected this option
+- `isSelected: false` = client did NOT select this option (should be excluded from results)
+- `isSelected` on budget-level (job) cost items always returns `false` — it's only meaningful at the document level
+- `approvedPrice` does NOT exist in the PAVE API (not a valid field)
+
+**Filtering logic** (in `project-details.ts`):
+1. Fetch document items from all approved customer orders
+2. Build a `unselectedItemIds` set from items where `isSelected === false`
+3. Filter budget items to exclude IDs in that set
+4. When processing document-level items, skip any where `isSelected === false`
+
+### 6.3 File Links
+
+File URLs in Specs agent responses use the CDN pattern `https://cdn.jobtread.com/files/{fileId}` rather than the PAVE `url` field. This is because:
+- PAVE file URLs are short-lived signed URLs that expire
+- The CDN URL pattern provides stable, permanent links
+- File IDs are appended server-side in `project-details.ts` when building the context string
+
+### 6.4 Key Files
+
+| File | Role |
+|------|------|
+| `app/api/lib/agents/project-details.ts` | Specs agent — system prompt, `get_project_details` tool, context builder |
+| `app/lib/jobtread.ts` (`getDocumentCostItemsLightById`) | Fetches cost items from a single document with `isSelected` field |
+| `app/lib/jobtread.ts` (`getCostItemsLightForJob`) | Fetches all budget cost items for a job |
+
+---
+
+## 7. Invoicing Health Dashboard
 
 The Invoicing Health Dashboard (`/dashboard/invoicing`) provides a centralized view of invoicing health across all active JobTread projects. It has a backend analysis layer, cached API endpoint, agent-powered recommendations, and a rich frontend with project cards.
 
@@ -322,7 +371,7 @@ Core analysis function `buildInvoicingContext()` fetches all active jobs via PAV
 
 ---
 
-## 7. Database (Supabase)
+## 8. Database (Supabase)
 
 ### 7.1 Core Tables
 
@@ -363,7 +412,7 @@ Core analysis function `buildInvoicingContext()` fetches all active jobs via PAV
 
 ---
 
-## 8. Sync Pipeline
+## 9. Sync Pipeline
 
 ### 8.1 Automatic Sync
 - **Daily 5 AM**: `/api/cron/sync-incremental` syncs all active JT jobs + GHL contacts
@@ -384,7 +433,7 @@ JT API  ──→ jt_comments, jt_daily_logs (Supabase cache)
 
 ---
 
-## 9. External Integrations
+## 10. External Integrations
 
 ### 9.1 Go High Level (GHL)
 - Base URL: `https://services.leadconnectorhq.com`
@@ -402,7 +451,7 @@ JT API  ──→ jt_comments, jt_daily_logs (Supabase cache)
 
 ---
 
-## 10. Environment Variables
+## 11. Environment Variables
 
 | Variable | Purpose |
 |----------|---------|
@@ -421,7 +470,7 @@ JT API  ──→ jt_comments, jt_daily_logs (Supabase cache)
 
 ---
 
-## 11. Vercel Config
+## 12. Vercel Config
 
 - All API routes: **60 second timeout**
 - `/api/chat`: **1024 MB memory** (agent processing)
@@ -430,7 +479,7 @@ JT API  ──→ jt_comments, jt_daily_logs (Supabase cache)
 
 ---
 
-## 12. Team Members
+## 13. Team Members
 
 | Name | Role | Notes |
 |------|------|-------|
@@ -444,7 +493,7 @@ JT API  ──→ jt_comments, jt_daily_logs (Supabase cache)
 
 ---
 
-## 13. Known Gotchas & Warnings
+## 14. Known Gotchas & Warnings
 
 1. **Agent routing**: With two agents (Know-it-All + Project Details), routing is simpler but still score-based. Check both agents when modifying `canHandle()` scores.
 
@@ -468,13 +517,46 @@ JT API  ──→ jt_comments, jt_daily_logs (Supabase cache)
 
 11. **Budget-level ≠ Document-level cost items**: `job.costItems` (via `getCostItemsForJobLite`) returns ONLY budget/estimate line items. Vendor bill line items, invoice line items, and PO line items are separate **document-level** items accessible only via `document.costItems` (via `getDocumentCostItemsById`). If you need actual costs incurred or amounts billed, you MUST query document-level items. The deprecated `getDocumentCostItemsForJob()` tried to bulk-fetch these but caused 413 errors — do NOT use it.
 
-12. **Contract vs Cost-Plus logic must stay separate**: Changes to `analyzeContractJob()` must NOT affect `analyzeCostPlusJob()` or vice versa. They interpret the same data differently — contract jobs only count `type === 'Billable'` time entries and CC23 costs; cost-plus jobs count ALL time entries and ALL vendor bill costs. Nathan has explicitly warned about this multiple times.
+12. **PAVE `isSelected` only works at document level**: The `isSelected` field on cost items and cost groups is only meaningful when queried from a document context (via `getDocumentCostItemsLightById`). At the budget level (`getCostItemsLightForJob`), `isSelected` returns `false` for everything — it cannot distinguish selected from unselected options. To filter out unselected document options, you MUST query document-level items, collect the unselected IDs, then use those IDs to filter budget-level results.
+
+13. **PAVE field `approvedPrice` does not exist**: Despite being visible in the JobTread UI, `approvedPrice` is not a valid PAVE API field on either document or budget cost items. Do not attempt to use it for filtering. Use `isSelected` instead for option selection status.
+
+14. **Contract vs Cost-Plus logic must stay separate**: Changes to `analyzeContractJob()` must NOT affect `analyzeCostPlusJob()` or vice versa. They interpret the same data differently — contract jobs only count `type === 'Billable'` time entries and CC23 costs; cost-plus jobs count ALL time entries and ALL vendor bill costs. Nathan has explicitly warned about this multiple times.
 
 ---
 
-## 14. Changelog
+## 15. Changelog
 
 All modifications to the codebase should be logged here with date, files changed, and what was done.
+
+### 2026-03-16 — Fix: Filter Unselected Document Options from Specs Agent
+
+**Problem:** The Specs agent was returning results for cost items that belonged to unselected document options. In JobTread, documents (estimates/contracts) can have multiple option groups (e.g., two flooring choices), and the client selects which ones they want. The agent was showing ALL options regardless of selection status — e.g., "Sterling Quartzite (AKT-LM51)" appeared in results even though only "Alpine Quartzite (AKT-LM50)" was selected.
+
+**Root Cause:** The existing filtering only checked whether a document was approved, not whether individual options within that document were selected. Both selected and unselected option items exist in the budget referencing the same approved document ID.
+
+**Solution:** Used the PAVE API `isSelected` field on document-level cost items to identify and exclude unselected options. The field returns `true` for selected options and `false` for unselected ones. After fetching document items, we build a set of unselected item IDs and filter them out of both the budget-level and document-level results before merging.
+
+**Changes:**
+- `app/lib/jobtread.ts` — Added `isSelected: {}` to both cost items and cost groups in the `getDocumentCostItemsLightById()` PAVE query; preserved `isSelected` in the mapped return objects
+- `app/api/lib/agents/project-details.ts` — After fetching document items, builds `unselectedItemIds` set from items where `isSelected === false`; filters budget items to exclude unselected IDs; skips unselected items when processing document-level items
+
+**Commits:** `0b8a64e`
+
+---
+
+### 2026-03-15 — Fix: Specs Agent File Links (CDN URLs)
+
+**Problem:** The Specs agent was generating hallucinated file IDs in response links. File URLs pointed to non-existent resources because the AI was fabricating file IDs rather than using actual ones from the data.
+
+**Solution:** Changed file link generation to be server-side rather than AI-generated. File URLs now use the stable CDN pattern `https://cdn.jobtread.com/files/{fileId}` with real file IDs from the PAVE API, appended in the context string that gets passed to Claude. This prevents hallucination since the AI never constructs file URLs — it only references pre-built links.
+
+**Changes:**
+- `app/api/lib/agents/project-details.ts` — Modified context builder to append CDN-based file links using actual file IDs from cost items, cost groups, and parent cost groups; updated system prompt to instruct Claude to use file links from the provided data rather than constructing them
+
+**Commits:** `9ee8d33`
+
+---
 
 ### 2026-03-13 — Feature: Unpaid Invoice Total on Project Cards
 
