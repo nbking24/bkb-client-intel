@@ -113,52 +113,37 @@ export async function fetchUnits(): Promise<UnitRef[]> {
 }
 
 export async function fetchCatalogItems(): Promise<CatalogCostItem[]> {
-  const allItems: CatalogCostItem[] = [];
-  let cursor: string | null = null;
-  const PAGE_SIZE = 100;
+  // PAVE org-level costItems has a max size of 100 and no pagination support.
+  // Fetch the max allowed in a single request.
+  const result = await orgQuery('costItems', {
+    $: { size: 100 },
+    nodes: {
+      id: {},
+      name: {},
+      description: {},
+      quantity: {},
+      unitCost: {},
+      unitPrice: {},
+      isTaxable: {},
+      costCode: { id: {}, name: {}, number: {} },
+      costType: { id: {}, name: {} },
+      unit: { id: {}, name: {} },
+    },
+  });
 
-  // Paginate through all org cost items
-  while (true) {
-    const params: Record<string, unknown> = {
-      $: { size: PAGE_SIZE, ...(cursor ? { after: cursor } : {}) },
-      nodes: {
-        id: {},
-        name: {},
-        description: {},
-        quantity: {},
-        unitCost: {},
-        unitPrice: {},
-        isTaxable: {},
-        costCode: { id: {}, name: {}, number: {} },
-        costType: { id: {}, name: {} },
-        unit: { id: {}, name: {} },
-      },
-    };
-
-    const result = await orgQuery('costItems', params);
-    const nodes = result.nodes || [];
-
-    for (const n of nodes) {
-      allItems.push({
-        id: n.id,
-        name: n.name || '',
-        description: n.description || null,
-        costCode: n.costCode ? { id: n.costCode.id, name: n.costCode.name, number: n.costCode.number || '' } : null,
-        costType: n.costType ? { id: n.costType.id, name: n.costType.name } : null,
-        unit: n.unit ? { id: n.unit.id, name: n.unit.name } : null,
-        unitCost: n.unitCost || 0,
-        unitPrice: n.unitPrice || 0,
-        quantity: n.quantity || 1,
-        isTaxable: n.isTaxable || false,
-      });
-    }
-
-    if (nodes.length < PAGE_SIZE) break;
-    cursor = nodes[nodes.length - 1]?.id;
-    if (!cursor) break;
-  }
-
-  return allItems;
+  const nodes = result.nodes || [];
+  return nodes.map((n: any) => ({
+    id: n.id,
+    name: n.name || '',
+    description: n.description || null,
+    costCode: n.costCode ? { id: n.costCode.id, name: n.costCode.name, number: n.costCode.number || '' } : null,
+    costType: n.costType ? { id: n.costType.id, name: n.costType.name } : null,
+    unit: n.unit ? { id: n.unit.id, name: n.unit.name } : null,
+    unitCost: n.unitCost || 0,
+    unitPrice: n.unitPrice || 0,
+    quantity: n.quantity || 1,
+    isTaxable: n.isTaxable || false,
+  }));
 }
 
 // -- Full catalog fetch --
