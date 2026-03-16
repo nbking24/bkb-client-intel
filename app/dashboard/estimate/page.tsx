@@ -100,6 +100,16 @@ function RenderContent({ content }: { content: string }) {
 function BudgetPreview({ budget }: { budget: ProposedBudget | null }) {
   const [expandedGroups, setExpandedGroups] = useState<Set<string>>(new Set());
 
+  // Auto-expand all groups when budget changes — must be before any early return
+  useEffect(() => {
+    if (!budget || budget.lineItems.length === 0) return;
+    const tree = new Map<string, boolean>();
+    for (const item of budget.lineItems) {
+      tree.set(item.groupName, true);
+    }
+    setExpandedGroups(new Set(tree.keys()));
+  }, [budget]);
+
   if (!budget || budget.lineItems.length === 0) {
     return (
       <div className="flex flex-col items-center justify-center h-full opacity-40 px-4">
@@ -128,11 +138,6 @@ function BudgetPreview({ budget }: { budget: ProposedBudget | null }) {
     next.has(path) ? next.delete(path) : next.add(path);
     setExpandedGroups(next);
   };
-
-  // Auto-expand all on first render
-  useEffect(() => {
-    setExpandedGroups(new Set(sortedGroups.map(([path]) => path)));
-  }, [budget]);
 
   return (
     <div className="space-y-1">
