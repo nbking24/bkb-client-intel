@@ -348,7 +348,7 @@ async function analyzeContractJob(
 
   // Fetch document-level cost items from vendor bills and non-draft customer invoices
   // (Can't use a single nested query — it causes 413 errors on PAVE)
-  const vendorBills = documents.filter((d) => d.type === 'vendorBill');
+  const vendorBills = documents.filter((d) => d.type === 'vendorBill' && d.status !== 'denied');
   const customerInvoicesForCC23 = documents.filter(
     (d) => d.type === 'customerInvoice' && d.status !== 'draft'
   );
@@ -560,8 +560,12 @@ async function analyzeCostPlusJob(
 
   // Calculate unbilled costs: actual costs incurred (vendor bills only) vs costs billed on invoices
   // Only vendor bills represent real money spent — unattached budget items are just estimates
+  // Exclude cost items on denied (deleted) vendor bills
+  const deniedBillIds = new Set(
+    documents.filter((d) => d.type === 'vendorBill' && d.status === 'denied').map((d) => d.id)
+  );
   const costItemsOnBills = costItems.filter(
-    (item) => item.document?.type === 'vendorBill'
+    (item) => item.document?.type === 'vendorBill' && !deniedBillIds.has(item.document?.id ?? '')
   );
   const totalJobCosts = costItemsOnBills.reduce(
     (sum, item) => sum + (item.cost || 0), 0
@@ -866,7 +870,14 @@ export async function buildInvoicingContext(): Promise<InvoicingFullContext> {
 
     // Billable items — only for non-contract jobs (contract jobs handle CC23 in analyzeContractJob)
     if (job.priceType !== 'Fixed-Price') {
-      const billable = findBillableItems(job, costItems, timeEntries);
+      // Exclude cost items belonging to denied (deleted) vendor bills
+      const deniedBillIdsForBillable = new Set(
+        documents.filter((d) => d.type === 'vendorBill' && d.status === 'denied').map((d) => d.id)
+      );
+      const activeCostItems = costItems.filter(
+        (item) => !(item.document?.type === 'vendorBill' && deniedBillIdsForBillable.has(item.document?.id ?? ''))
+      );
+      const billable = findBillableItems(job, activeCostItems, timeEntries);
       if (billable) {
         billableItems.push(billable);
         if (billable.totalUninvoicedAmount > ALERT_THRESHOLDS.unbilledAmountThreshold) {
