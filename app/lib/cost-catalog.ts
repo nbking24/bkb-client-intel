@@ -115,7 +115,7 @@ export async function fetchUnits(): Promise<UnitRef[]> {
 export async function fetchCatalogItems(): Promise<CatalogCostItem[]> {
   const allItems: CatalogCostItem[] = [];
   let cursor: string | null = null;
-  const PAGE_SIZE = 200;
+  const PAGE_SIZE = 100;
 
   // Paginate through all org cost items
   while (true) {
