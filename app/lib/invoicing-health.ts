@@ -29,8 +29,10 @@ import {
 
 /** Cost Code 23 — "23 Billable" (labor hours), "23 Billable Materials", "23 Billable Subs" (costs) */
 const BILLABLE_COST_CODE_NUMBER = '23';
-/** Name prefix filter — only items whose name starts with "23 Billable" are counted */
+/** Name prefix filter — only items whose name starts with "23 Billable" are counted (Cost-Plus jobs) */
 const BILLABLE_NAME_PREFIX = '23 Billable';
+/** Cost types that qualify as billable on Fixed-Price jobs (costCode 23 + one of these) */
+const BILLABLE_COST_TYPE_NAMES = ['Materials', 'Subcontractor'];
 
 /** Cost Plus jobs should be invoiced every 14 days */
 const COST_PLUS_BILLING_CADENCE_DAYS = 14;
@@ -367,32 +369,34 @@ async function analyzeContractJob(
   );
   const allDocCostItems = docCostItemResults.flat();
 
-  const docCC23 = allDocCostItems.filter(
-    (item) => item.costCode?.number === BILLABLE_COST_CODE_NUMBER &&
-      item.name?.startsWith(BILLABLE_NAME_PREFIX)
+  // Fixed-Price billable filter: Cost Code 23 + costType "Materials" or "Subcontractor"
+  // Any CC23 item with a qualifying cost type counts as billable, regardless of item name.
+  const allCC23 = allDocCostItems.filter(
+    (item) => item.costCode?.number === BILLABLE_COST_CODE_NUMBER
   );
-  const cc23OnBills = docCC23.filter(
+
+  // Billable costs: CC23 items with Materials or Subcontractor cost type
+  const cc23Billable = allCC23.filter(
+    (item) => BILLABLE_COST_TYPE_NAMES.includes(item.costType?.name ?? '')
+  );
+  const cc23BillableOnBills = cc23Billable.filter(
     (item) => item.document?.type === 'vendorBill'
   );
-  const cc23OnInvoices = docCC23.filter(
+  const cc23BillableOnInvoices = cc23Billable.filter(
     (item) => item.document?.type === 'customerInvoice'
   );
-  const cc23BillCosts = cc23OnBills.reduce(
+  const cc23BillCosts = cc23BillableOnBills.reduce(
     (sum, item) => sum + (item.cost || 0), 0
   );
-  // Only Materials & Subs on invoices reduce billable costs — Labor does not.
-  const cc23InvoicedCosts = cc23OnInvoices
-    .filter((item) => !item.name?.toLowerCase().includes('labor'))
-    .reduce((sum, item) => sum + (item.cost || 0), 0);
+  const cc23InvoicedCosts = cc23BillableOnInvoices.reduce(
+    (sum, item) => sum + (item.cost || 0), 0
+  );
   const uninvoicedBillableAmount = Math.max(0, cc23BillCosts - cc23InvoicedCosts);
 
   // Calculate unbilled labor hours for contract jobs:
   // 1. Find all time entries tagged to Cost Code 23 (Miscellaneous/Billable) and sum their hours
   // 2. Subtract hours that have been billed on change order invoices
-  //    (CC23 labor items on customer invoices)
-  // Time entries only need cost code 23 — the cost item may still carry a
-  // legacy name (e.g. "23 Miscellaneous/billable Labor") so we skip the
-  // name-prefix check here (vendor bills & invoices still require it).
+  //    (CC23 Labor cost-type items on customer invoices)
   const billableTimeEntries = timeEntries.filter(
     (entry) => entry.costItem?.costCode?.number === BILLABLE_COST_CODE_NUMBER
   );
@@ -405,10 +409,12 @@ async function analyzeContractJob(
     return sum;
   }, 0);
 
-  // Only CC23 *Labor* items on customer invoices represent hours already billed.
-  // Materials and Subs quantities must NOT reduce billable hours.
-  const billedLaborHours = cc23OnInvoices
-    .filter((item) => item.name?.toLowerCase().includes('labor'))
+  // Only CC23 *Labor* cost-type items on customer invoices represent hours already billed.
+  const cc23LaborOnInvoices = allCC23.filter(
+    (item) => item.document?.type === 'customerInvoice' &&
+      item.costType?.name === 'Labor'
+  );
+  const billedLaborHours = cc23LaborOnInvoices
     .reduce((sum, item) => sum + (item.quantity || 0), 0);
 
   const unbilledLaborHours = Math.max(0, totalBillableHours - billedLaborHours);

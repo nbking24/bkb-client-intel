@@ -1879,6 +1879,7 @@ export async function getDocumentCostItemsById(documentId: string): Promise<JTCo
           price: {},
           quantity: {},
           costCode: { number: {}, name: {} },
+          costType: { id: {}, name: {} },
         },
       },
     },
