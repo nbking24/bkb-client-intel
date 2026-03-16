@@ -3,6 +3,7 @@
 // POST /api/estimating/create — Create Budget in JobTread
 // Takes an approved budget proposal and creates groups + items
 // in the actual JobTread job via PAVE API
+// Uses correct PAVE mutation syntax (same as MCP tools)
 // ============================================================
 
 import { NextRequest, NextResponse } from 'next/server';
@@ -30,70 +31,61 @@ async function pave(query: Record<string, unknown>) {
   return json;
 }
 
-// -- Create a cost group in a job --
+// -- Create a cost group using correct PAVE mutation syntax --
 async function createCostGroup(
   jobId: string,
   name: string,
   description: string,
-  parentGroupId?: string
+  parentCostGroupId?: string
 ): Promise<string> {
-  const input: Record<string, unknown> = {
-    jobId,
-    name,
-    description: description || undefined,
-  };
-  if (parentGroupId) {
-    input.parentCostGroupId = parentGroupId;
-  }
-
   const result = await pave({
     createCostGroup: {
-      $: { input },
-      id: {},
-      name: {},
+      $: {
+        jobId,
+        name,
+        ...(description ? { description } : {}),
+        ...(parentCostGroupId ? { parentCostGroupId } : {}),
+      },
+      createdCostGroup: { id: {}, name: {} },
     },
   });
 
-  const groupId = result?.createCostGroup?.id;
-  if (!groupId) throw new Error(`Failed to create cost group: ${name}`);
+  const groupId = result?.createCostGroup?.createdCostGroup?.id;
+  if (!groupId) throw new Error(`Failed to create cost group: ${name} — ${JSON.stringify(result)}`);
   return groupId;
 }
 
-// -- Create a cost item in a job (within a group) --
+// -- Create a cost item using correct PAVE mutation syntax --
 async function createCostItem(
   jobId: string,
   costGroupId: string,
   item: BudgetLineItem
 ): Promise<string> {
-  const input: Record<string, unknown> = {
-    jobId,
-    costGroupId,
-    name: item.name,
-    description: item.description || undefined,
-    quantity: item.quantity,
-    unitCost: item.unitCost,
-    unitPrice: item.unitPrice,
-  };
-
-  if (item.costCodeId) input.costCodeId = item.costCodeId;
-  if (item.costTypeId) input.costTypeId = item.costTypeId;
-  if (item.unitId) input.unitId = item.unitId;
-  if (item.organizationCostItemId) input.organizationCostItemId = item.organizationCostItemId;
-
   const result = await pave({
     createCostItem: {
-      $: { input },
-      id: {},
-      name: {},
+      $: {
+        jobId,
+        costGroupId,
+        name: item.name,
+        ...(item.description ? { description: item.description } : {}),
+        quantity: item.quantity,
+        unitCost: item.unitCost,
+        unitPrice: item.unitPrice,
+        ...(item.costCodeId ? { costCodeId: item.costCodeId } : {}),
+        ...(item.costTypeId ? { costTypeId: item.costTypeId } : {}),
+        ...(item.unitId ? { unitId: item.unitId } : {}),
+        ...(item.organizationCostItemId ? { organizationCostItemId: item.organizationCostItemId } : {}),
+      },
+      createdCostItem: { id: {}, name: {} },
     },
   });
 
-  const itemId = result?.createCostItem?.id;
-  if (!itemId) throw new Error(`Failed to create cost item: ${item.name}`);
+  const itemId = result?.createCostItem?.createdCostItem?.id;
+  if (!itemId) throw new Error(`Failed to create cost item: ${item.name} — ${JSON.stringify(result)}`);
   return itemId;
 }
 
-// -- Find or create a group by path (handles nesting) --
+// -- Find or create a group by path (handles nesting like "Demo > Labor") --
 async function ensureGroupPath(
   jobId: string,
   groupPath: string,
@@ -128,7 +120,7 @@ async function ensureGroupPath(
       continue;
     }
 
-    // Create this segment
+    // Create this segment — only the leaf gets the description
     const isLeaf = i === parts.length - 1;
     const desc = isLeaf ? groupDescription : '';
     const groupId = await createCostGroup(jobId, parts[i], desc, parentId);
@@ -139,7 +131,7 @@ async function ensureGroupPath(
   return parentId!;
 }
 
-// -- Fetch existing groups for the job (paginated) --
+// -- Fetch existing groups for the job (paginated, max 100 per page) --
 async function getExistingGroups(jobId: string): Promise<Map<string, string>> {
   const PAGE_SIZE = 100;
   let allGroups: any[] = [];
