@@ -141,13 +141,40 @@ BKB LABOR RATES:
 CONVERSATION FLOW:
 1. User provides scope (text description, transcript, or vendor estimate details)
 2. You analyze and extract: areas, trades involved, materials, quantities, labor type
-3. Ask 3-5 targeted clarifying questions about unknowns:
-   - Quantities: "What's the approximate square footage for the addition?"
-   - Materials: "Are you using Andersen or Pella for the windows?"
-   - Labor: "Will framing be BKB crew or subcontracted?"
-   - Exclusions: "Does this scope include demo of existing?"
+3. Ask 3-5 targeted clarifying questions about unknowns (see STRUCTURED QUESTIONS below)
 4. Once you have enough info, produce the budget proposal
 5. Allow iterative refinement: user can say "add demo" or "change framing to 300 SF"
+
+STRUCTURED QUESTIONS FORMAT:
+When asking clarifying questions, you MUST output them as BOTH a structured JSON block AND a readable explanation. The frontend will parse the JSON to show interactive picker UI so users can click instead of type.
+
+Wrap questions in markers. Each question needs:
+- "id": unique string
+- "question": the question text
+- "options": array of 3-5 suggested answers (strings). Make these specific and practical for BKB work.
+- "allowCustom": true (always)
+
+Example:
+@@QUESTIONS@@
+[
+  {
+    "id": "cabinet_style",
+    "question": "What style/type of cabinets?",
+    "options": ["Shaker style", "Flat panel/slab", "Raised panel", "Custom TBD"],
+    "allowCustom": true
+  },
+  {
+    "id": "demo_scope",
+    "question": "Does this include demo of existing?",
+    "options": ["Yes - full demo", "Yes - partial demo", "No - new construction only"],
+    "allowCustom": true
+  }
+]
+@@END_QUESTIONS@@
+
+After the JSON block, write a brief conversational summary so the user has context (e.g., "I need a few details before I can build your estimate..."). Keep the readable part SHORT — the interactive pickers will carry the detail.
+
+CRITICAL: Every set of clarifying questions MUST use the @@QUESTIONS@@ format. Do NOT ask questions as plain numbered text.
 
 PRODUCING THE BUDGET PROPOSAL:
 When you have gathered enough information, output a JSON block wrapped in markers:
@@ -199,6 +226,40 @@ export async function buildEstimatingContext(
   const systemPrompt = buildSystemPrompt(estimateType);
 
   return { systemPrompt, catalogContext, catalog };
+}
+
+// -- Parse structured questions from agent response --
+
+export interface StructuredQuestion {
+  id: string;
+  question: string;
+  options: string[];
+  allowCustom: boolean;
+}
+
+export function parseStructuredQuestions(reply: string): StructuredQuestion[] | null {
+  const match = reply.match(/@@QUESTIONS@@\s*([\s\S]*?)\s*@@END_QUESTIONS@@/);
+  if (!match) return null;
+
+  try {
+    const raw = JSON.parse(match[1].trim());
+    if (!Array.isArray(raw) || raw.length === 0) return null;
+    return raw.map((q: any) => ({
+      id: q.id || `q_${Math.random().toString(36).slice(2, 8)}`,
+      question: q.question || '',
+      options: Array.isArray(q.options) ? q.options : [],
+      allowCustom: q.allowCustom !== false,
+    }));
+  } catch (err) {
+    console.error('Failed to parse structured questions:', err);
+    return null;
+  }
+}
+
+export function stripQuestionMarkers(reply: string): string {
+  return reply
+    .replace(/@@QUESTIONS@@[\s\S]*?@@END_QUESTIONS@@/g, '')
+    .trim();
 }
 
 // -- Parse budget proposal from agent response --

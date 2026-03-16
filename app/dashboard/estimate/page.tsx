@@ -42,6 +42,17 @@ interface UploadedFile {
   size: number;
 }
 
+interface StructuredQuestion {
+  id: string;
+  question: string;
+  options: string[];
+  allowCustom: boolean;
+}
+
+interface QuestionAnswers {
+  [questionId: string]: { selected: string | null; custom: string };
+}
+
 type EstimateType = 'initial' | 'change-order';
 
 /* ── Style constants ── */
@@ -211,6 +222,108 @@ function BudgetPreview({ budget }: { budget: ProposedBudget | null }) {
   );
 }
 
+/* ── Question Picker UI ── */
+function QuestionPicker({
+  questions,
+  answers,
+  onAnswer,
+  onSubmit,
+  submitting,
+}: {
+  questions: StructuredQuestion[];
+  answers: QuestionAnswers;
+  onAnswer: (qId: string, selected: string | null, custom: string) => void;
+  onSubmit: () => void;
+  submitting: boolean;
+}) {
+  const allAnswered = questions.every((q) => {
+    const a = answers[q.id];
+    return a && (a.selected || a.custom.trim());
+  });
+
+  return (
+    <div className="space-y-3 w-full max-w-[85%]">
+      <div className="flex items-center gap-2 mb-1">
+        <Bot size={14} style={{ color: GOLD }} />
+        <span className="text-xs font-medium" style={{ color: GOLD }}>A few questions before I build your estimate:</span>
+      </div>
+
+      {questions.map((q) => {
+        const a = answers[q.id] || { selected: null, custom: '' };
+        const isCustomActive = a.selected === '__custom__';
+
+        return (
+          <div
+            key={q.id}
+            className="rounded-lg px-3 py-2.5"
+            style={{ background: '#242424', border: '1px solid rgba(205,162,116,0.1)' }}
+          >
+            <p className="text-xs font-medium mb-2" style={{ color: TEXT }}>{q.question}</p>
+            <div className="flex flex-wrap gap-1.5">
+              {q.options.map((opt) => (
+                <button
+                  key={opt}
+                  onClick={() => onAnswer(q.id, opt, '')}
+                  className="px-2.5 py-1 rounded-full text-[11px] font-medium transition-all"
+                  style={{
+                    background: a.selected === opt ? 'rgba(201,168,76,0.2)' : 'rgba(255,255,255,0.04)',
+                    color: a.selected === opt ? GOLD : TEXT_MUTED,
+                    border: `1px solid ${a.selected === opt ? 'rgba(201,168,76,0.4)' : 'rgba(205,162,116,0.1)'}`,
+                  }}
+                >
+                  {a.selected === opt && <span className="mr-1">✓</span>}
+                  {opt}
+                </button>
+              ))}
+              {q.allowCustom && (
+                <button
+                  onClick={() => onAnswer(q.id, '__custom__', a.custom)}
+                  className="px-2.5 py-1 rounded-full text-[11px] font-medium transition-all"
+                  style={{
+                    background: isCustomActive ? 'rgba(201,168,76,0.2)' : 'rgba(255,255,255,0.04)',
+                    color: isCustomActive ? GOLD : TEXT_MUTED,
+                    border: `1px solid ${isCustomActive ? 'rgba(201,168,76,0.4)' : 'rgba(205,162,116,0.1)'}`,
+                  }}
+                >
+                  ✏️ Other
+                </button>
+              )}
+            </div>
+            {isCustomActive && (
+              <input
+                type="text"
+                value={a.custom}
+                onChange={(e) => onAnswer(q.id, '__custom__', e.target.value)}
+                placeholder="Type your answer..."
+                autoFocus
+                className="w-full mt-2 px-2.5 py-1.5 rounded-lg text-xs outline-none"
+                style={{ background: DARK_BG, color: TEXT, border: '1px solid rgba(201,168,76,0.2)' }}
+              />
+            )}
+          </div>
+        );
+      })}
+
+      <button
+        onClick={onSubmit}
+        disabled={!allAnswered || submitting}
+        className="w-full flex items-center justify-center gap-2 px-4 py-2 rounded-lg text-xs font-semibold transition-colors disabled:opacity-30"
+        style={{
+          background: allAnswered ? 'rgba(201,168,76,0.15)' : 'transparent',
+          color: allAnswered ? GOLD : TEXT_MUTED,
+          border: `1px solid ${allAnswered ? 'rgba(201,168,76,0.3)' : 'rgba(205,162,116,0.08)'}`,
+        }}
+      >
+        {submitting ? (
+          <><Loader2 size={14} className="animate-spin" /> Sending Answers...</>
+        ) : (
+          <><Send size={14} /> Submit Answers</>
+        )}
+      </button>
+    </div>
+  );
+}
+
 /* ── Main Page ── */
 export default function EstimatePage() {
   /* State */
@@ -229,6 +342,8 @@ export default function EstimatePage() {
   const [proposedBudget, setProposedBudget] = useState<ProposedBudget | null>(null);
   const [creating, setCreating] = useState(false);
   const [createResult, setCreateResult] = useState<{ success: boolean; message: string } | null>(null);
+  const [pendingQuestions, setPendingQuestions] = useState<StructuredQuestion[] | null>(null);
+  const [questionAnswers, setQuestionAnswers] = useState<QuestionAnswers>({});
 
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLTextAreaElement>(null);
@@ -360,6 +475,14 @@ export default function EstimatePage() {
       if (data.proposedBudget) {
         setProposedBudget(data.proposedBudget);
       }
+
+      // Check for structured questions
+      if (data.structuredQuestions && data.structuredQuestions.length > 0) {
+        setPendingQuestions(data.structuredQuestions);
+        setQuestionAnswers({});
+      } else {
+        setPendingQuestions(null);
+      }
     } catch (err) {
       const errMsg = err instanceof Error ? err.message : 'Something went wrong';
       setMessages([...updatedMessages, { role: 'assistant', content: `Error: ${errMsg}` }]);
@@ -368,15 +491,36 @@ export default function EstimatePage() {
     }
   };
 
-  /* Submit follow-up message */
-  const handleSubmit = async (e?: React.FormEvent) => {
-    e?.preventDefault();
-    if (!query.trim() || loading || !selectedJob) return;
+  /* Handle question answer selection */
+  const handleQuestionAnswer = (qId: string, selected: string | null, custom: string) => {
+    setQuestionAnswers((prev) => ({
+      ...prev,
+      [qId]: { selected, custom },
+    }));
+  };
 
-    const userMsg: ChatMessage = { role: 'user', content: query.trim() };
+  /* Submit compiled answers from question pickers */
+  const handleSubmitAnswers = async () => {
+    if (!pendingQuestions || loading || !selectedJob) return;
+
+    // Compile answers into a readable message
+    const answerLines = pendingQuestions.map((q) => {
+      const a = questionAnswers[q.id];
+      if (!a) return `${q.question}: (no answer)`;
+      const value = a.selected === '__custom__' ? a.custom.trim() : a.selected;
+      return `${q.question}: ${value}`;
+    });
+
+    const compiledMessage = answerLines.join('\n');
+
+    // Clear the pickers
+    setPendingQuestions(null);
+    setQuestionAnswers({});
+
+    // Submit as a regular follow-up message
+    const userMsg: ChatMessage = { role: 'user', content: compiledMessage };
     const updatedMessages = [...messages, userMsg];
     setMessages(updatedMessages);
-    setQuery('');
     setLoading(true);
 
     try {
@@ -406,6 +550,68 @@ export default function EstimatePage() {
 
       if (data.proposedBudget) {
         setProposedBudget(data.proposedBudget);
+      }
+
+      if (data.structuredQuestions && data.structuredQuestions.length > 0) {
+        setPendingQuestions(data.structuredQuestions);
+        setQuestionAnswers({});
+      } else {
+        setPendingQuestions(null);
+      }
+    } catch (err) {
+      const errMsg = err instanceof Error ? err.message : 'Something went wrong';
+      setMessages([...updatedMessages, { role: 'assistant', content: `Error: ${errMsg}` }]);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  /* Submit follow-up message */
+  const handleSubmit = async (e?: React.FormEvent) => {
+    e?.preventDefault();
+    if (!query.trim() || loading || !selectedJob) return;
+
+    const userMsg: ChatMessage = { role: 'user', content: query.trim() };
+    const updatedMessages = [...messages, userMsg];
+    setMessages(updatedMessages);
+    setQuery('');
+    setLoading(true);
+    setPendingQuestions(null); // Clear any pending pickers
+
+    try {
+      const res = await fetch('/api/estimating', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${getAuthToken()}`,
+        },
+        body: JSON.stringify({
+          jobId: selectedJob.id,
+          jobName: `#${selectedJob.number} ${selectedJob.name}`,
+          estimateType,
+          changeOrderName: estimateType === 'change-order' ? changeOrderName : undefined,
+          messages: updatedMessages.map((m) => ({ role: m.role, content: m.content })),
+        }),
+      });
+
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({ error: 'Request failed' }));
+        throw new Error(err.error || 'Request failed');
+      }
+
+      const data = await res.json();
+      const assistantMsg: ChatMessage = { role: 'assistant', content: data.reply };
+      setMessages([...updatedMessages, assistantMsg]);
+
+      if (data.proposedBudget) {
+        setProposedBudget(data.proposedBudget);
+      }
+
+      if (data.structuredQuestions && data.structuredQuestions.length > 0) {
+        setPendingQuestions(data.structuredQuestions);
+        setQuestionAnswers({});
+      } else {
+        setPendingQuestions(null);
       }
     } catch (err) {
       const errMsg = err instanceof Error ? err.message : 'Something went wrong';
@@ -464,6 +670,8 @@ export default function EstimatePage() {
     setChangeOrderName('');
     setScopeText('');
     setUploadedFiles([]);
+    setPendingQuestions(null);
+    setQuestionAnswers({});
   };
 
   /* Filtered jobs for dropdown */
@@ -797,6 +1005,17 @@ export default function EstimatePage() {
               )}
             </div>
           ))}
+
+          {/* Structured Question Pickers */}
+          {pendingQuestions && pendingQuestions.length > 0 && !loading && (
+            <QuestionPicker
+              questions={pendingQuestions}
+              answers={questionAnswers}
+              onAnswer={handleQuestionAnswer}
+              onSubmit={handleSubmitAnswers}
+              submitting={loading}
+            />
+          )}
 
           {loading && (
             <div className="flex gap-3">

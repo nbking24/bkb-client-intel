@@ -11,8 +11,10 @@ import { validateAuth } from '../lib/auth';
 import {
   buildEstimatingContext,
   parseProposedBudget,
+  parseStructuredQuestions,
   resolveIds,
   stripProposalMarkers,
+  stripQuestionMarkers,
 } from '@/app/lib/estimating-agent';
 
 const anthropic = new Anthropic();
@@ -86,12 +88,17 @@ export async function POST(req: NextRequest) {
       proposedBudget = resolveIds(proposedBudget, catalog);
     }
 
-    // Strip proposal markers from the display reply
-    const cleanReply = stripProposalMarkers(replyText);
+    // Check for structured questions in the response
+    const structuredQuestions = parseStructuredQuestions(replyText);
+
+    // Strip markers from the display reply
+    let cleanReply = stripProposalMarkers(replyText);
+    cleanReply = stripQuestionMarkers(cleanReply);
 
     return NextResponse.json({
       reply: cleanReply,
       proposedBudget,
+      structuredQuestions,
       readyToCreate: !!proposedBudget && proposedBudget.lineItems.length > 0,
     });
   } catch (err) {
