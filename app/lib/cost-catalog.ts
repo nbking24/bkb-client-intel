@@ -18,7 +18,7 @@ export interface CatalogCostItem {
   description: string | null;
   costCode: { id: string; name: string; number: string } | null;
   costType: { id: string; name: string } | null;
-  unit: { id: string; name: string; abbreviation: string } | null;
+  unit: { id: string; name: string } | null;
   unitCost: number;
   unitPrice: number;
   quantity: number;
@@ -39,7 +39,6 @@ export interface CostTypeRef {
 export interface UnitRef {
   id: string;
   name: string;
-  abbreviation: string;
 }
 
 export interface CostCatalog {
@@ -59,8 +58,13 @@ async function pave(query: Record<string, unknown>) {
     body: JSON.stringify({ query: { $: { grantKey: JT_KEY() }, ...query } }),
     cache: 'no-store',
   });
-  if (!res.ok) throw new Error(`PAVE error ${res.status}`);
-  const json = await res.json();
+  if (!res.ok) {
+    const text = await res.text().catch(() => '');
+    throw new Error(`PAVE error ${res.status}: ${text.slice(0, 300)}`);
+  }
+  const text = await res.text();
+  if (!text) return {};
+  const json = JSON.parse(text);
   if (json.errors?.length) throw new Error(json.errors[0]?.message || 'PAVE error');
   return json;
 }
@@ -100,12 +104,11 @@ export async function fetchCostTypes(): Promise<CostTypeRef[]> {
 export async function fetchUnits(): Promise<UnitRef[]> {
   const result = await orgQuery('units', {
     $: { size: 20 },
-    nodes: { id: {}, name: {}, abbreviation: {} },
+    nodes: { id: {}, name: {} },
   });
   return (result.nodes || []).map((n: any) => ({
     id: n.id,
     name: n.name,
-    abbreviation: n.abbreviation || '',
   }));
 }
 
@@ -128,7 +131,7 @@ export async function fetchCatalogItems(): Promise<CatalogCostItem[]> {
         isTaxable: {},
         costCode: { id: {}, name: {}, number: {} },
         costType: { id: {}, name: {} },
-        unit: { id: {}, name: {}, abbreviation: {} },
+        unit: { id: {}, name: {} },
       },
     };
 
@@ -142,7 +145,7 @@ export async function fetchCatalogItems(): Promise<CatalogCostItem[]> {
         description: n.description || null,
         costCode: n.costCode ? { id: n.costCode.id, name: n.costCode.name, number: n.costCode.number || '' } : null,
         costType: n.costType ? { id: n.costType.id, name: n.costType.name } : null,
-        unit: n.unit ? { id: n.unit.id, name: n.unit.name, abbreviation: n.unit.abbreviation || '' } : null,
+        unit: n.unit ? { id: n.unit.id, name: n.unit.name } : null,
         unitCost: n.unitCost || 0,
         unitPrice: n.unitPrice || 0,
         quantity: n.quantity || 1,
@@ -235,11 +238,21 @@ export function findCostTypeId(catalog: CostCatalog, typeName: string): string |
 }
 
 export function findUnitId(catalog: CostCatalog, unitName: string): string | null {
-  const u = catalog.units.find(
-    (u) => u.name.toLowerCase() === unitName.toLowerCase() ||
-           u.abbreviation.toLowerCase() === unitName.toLowerCase()
-  );
-  return u?.id || null;
+  const lower = unitName.toLowerCase();
+  // Check exact name match first
+  const u = catalog.units.find((u) => u.name.toLowerCase() === lower);
+  if (u) return u.id;
+  // Check common abbreviations
+  const abbrevMap: Record<string, string> = {
+    'ea': 'each', 'ls': 'lump sum', 'sf': 'square feet', 'lf': 'linear feet',
+    'hr': 'hours', 'hrs': 'hours', 'sq': 'squares', 'mo': 'months', 'day': 'days',
+  };
+  const expanded = abbrevMap[lower];
+  if (expanded) {
+    const u2 = catalog.units.find((u) => u.name.toLowerCase() === expanded);
+    if (u2) return u2.id;
+  }
+  return null;
 }
 
 export function findCatalogItemsByCode(catalog: CostCatalog, codeNumber: string): CatalogCostItem[] {
@@ -270,7 +283,7 @@ export function formatCatalogForAgent(catalog: CostCatalog): string {
   // Units
   lines.push('\n### Units');
   for (const u of catalog.units) {
-    lines.push(`- ${u.name} [${u.abbreviation}] (ID: ${u.id})`);
+    lines.push(`- ${u.name} (ID: ${u.id})`);
   }
 
   // Catalog items grouped by cost code
@@ -289,7 +302,7 @@ export function formatCatalogForAgent(catalog: CostCatalog): string {
     for (const item of items.slice(0, 30)) { // Limit per code to manage context size
       const parts = [item.name];
       if (item.costType) parts.push(item.costType.name);
-      if (item.unit) parts.push(item.unit.abbreviation);
+      if (item.unit) parts.push(item.unit.name);
       if (item.unitCost > 0) parts.push(`$${item.unitCost}/${item.unitPrice}`);
       if (item.description) parts.push(`"${item.description.slice(0, 60)}"`);
       lines.push(`  - ${parts.join(' | ')} (ID: ${item.id})`);

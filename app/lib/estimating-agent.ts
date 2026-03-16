@@ -249,9 +249,14 @@ export function resolveIds(budget: ProposedBudget, catalog: CostCatalog): Propos
   const codeMap = new Map(catalog.costCodes.map((c) => [c.number, c.id]));
   const typeMap = new Map(catalog.costTypes.map((t) => [t.name.toLowerCase(), t.id]));
   const unitMap = new Map(catalog.units.map((u) => [u.name.toLowerCase(), u.id]));
-  // Also map abbreviations
-  for (const u of catalog.units) {
-    unitMap.set(u.abbreviation.toLowerCase(), u.id);
+  // Also map common abbreviations
+  const abbreviationMap: Record<string, string> = {
+    'ea': 'each', 'ls': 'lump sum', 'sf': 'square feet', 'lf': 'linear feet',
+    'hr': 'hours', 'hrs': 'hours', 'sq': 'squares', 'mo': 'months', 'day': 'days',
+  };
+  for (const [abbr, full] of Object.entries(abbreviationMap)) {
+    const id = unitMap.get(full);
+    if (id) unitMap.set(abbr, id);
   }
 
   return {

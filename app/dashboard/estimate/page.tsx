@@ -5,7 +5,7 @@ import { useState, useRef, useEffect } from 'react';
 import {
   Calculator, Send, Loader2, Bot, User, ChevronDown, ChevronRight,
   Plus, DollarSign, Package, Hammer, FileText, CheckCircle2,
-  AlertCircle, RefreshCw,
+  AlertCircle, Upload, X, Paperclip, ClipboardPaste,
 } from 'lucide-react';
 import {
   getAuthToken, formatContent, type ChatMessage, type JobOption,
@@ -35,11 +35,17 @@ interface ProposedBudget {
   totalPrice: number;
 }
 
+interface UploadedFile {
+  name: string;
+  type: string;
+  content: string; // base64 or extracted text
+  size: number;
+}
+
 type EstimateType = 'initial' | 'change-order';
 
 /* ── Style constants ── */
 const CARD = { background: '#242424', border: '1px solid rgba(205,162,116,0.12)' };
-const CARD_HOVER = { background: '#2a2a2a', border: '1px solid rgba(205,162,116,0.2)' };
 const GOLD = '#C9A84C';
 const TEXT = '#e8e0d8';
 const TEXT_MUTED = '#8a8078';
@@ -104,7 +110,6 @@ function BudgetPreview({ budget }: { budget: ProposedBudget | null }) {
     tree.get(key)!.items.push(item);
   }
 
-  // Sort groups by path
   const sortedGroups = [...tree.entries()].sort((a, b) => a[0].localeCompare(b[0]));
 
   const toggleGroup = (path: string) => {
@@ -157,12 +162,10 @@ function BudgetPreview({ budget }: { budget: ProposedBudget | null }) {
         const depth = parts.length - 1;
         const groupLabel = parts[parts.length - 1];
         const isExpanded = expandedGroups.has(path);
-        const groupCost = group.items.reduce((s, i) => s + i.quantity * i.unitCost, 0);
         const groupPrice = group.items.reduce((s, i) => s + i.quantity * i.unitPrice, 0);
 
         return (
           <div key={path}>
-            {/* Group header */}
             <button
               onClick={() => toggleGroup(path)}
               className="w-full flex items-center gap-1.5 px-2 py-1.5 rounded hover:bg-white/5 transition-colors"
@@ -177,7 +180,6 @@ function BudgetPreview({ budget }: { budget: ProposedBudget | null }) {
               </span>
             </button>
 
-            {/* Items */}
             {isExpanded && group.items.map((item, idx) => {
               const codeColor = CODE_COLORS[item.costCodeNumber] || TEXT_MUTED;
               return (
@@ -186,15 +188,10 @@ function BudgetPreview({ budget }: { budget: ProposedBudget | null }) {
                   className="flex items-start gap-2 px-2 py-1 ml-4 rounded"
                   style={{ paddingLeft: `${16 + depth * 12}px` }}
                 >
-                  <div
-                    className="w-1.5 h-1.5 rounded-full mt-1.5 flex-shrink-0"
-                    style={{ background: codeColor }}
-                  />
+                  <div className="w-1.5 h-1.5 rounded-full mt-1.5 flex-shrink-0" style={{ background: codeColor }} />
                   <div className="flex-1 min-w-0">
                     <div className="flex justify-between items-baseline gap-2">
-                      <span className="text-[11px] truncate" style={{ color: TEXT }}>
-                        {item.name}
-                      </span>
+                      <span className="text-[11px] truncate" style={{ color: TEXT }}>{item.name}</span>
                       <span className="text-[10px] tabular-nums flex-shrink-0" style={{ color: TEXT_MUTED }}>
                         ${(item.quantity * item.unitPrice).toLocaleString(undefined, { maximumFractionDigits: 0 })}
                       </span>
@@ -227,12 +224,15 @@ export default function EstimatePage() {
   const [jobDropdownOpen, setJobDropdownOpen] = useState(false);
   const [estimateType, setEstimateType] = useState<EstimateType>('initial');
   const [changeOrderName, setChangeOrderName] = useState('');
+  const [scopeText, setScopeText] = useState('');
+  const [uploadedFiles, setUploadedFiles] = useState<UploadedFile[]>([]);
   const [proposedBudget, setProposedBudget] = useState<ProposedBudget | null>(null);
   const [creating, setCreating] = useState(false);
   const [createResult, setCreateResult] = useState<{ success: boolean; message: string } | null>(null);
 
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLTextAreaElement>(null);
+  const fileInputRef = useRef<HTMLInputElement>(null);
 
   /* Load jobs */
   useEffect(() => {
@@ -260,7 +260,115 @@ export default function EstimatePage() {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
   }, [messages, loading]);
 
-  /* Submit message */
+  /* Handle file upload */
+  const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const files = e.target.files;
+    if (!files) return;
+
+    for (const file of Array.from(files)) {
+      // Read file as text for text files, base64 for others
+      const reader = new FileReader();
+
+      if (file.type === 'text/plain' || file.type === 'text/csv' || file.name.endsWith('.txt')) {
+        reader.onload = () => {
+          setUploadedFiles(prev => [...prev, {
+            name: file.name,
+            type: file.type || 'text/plain',
+            content: reader.result as string,
+            size: file.size,
+          }]);
+        };
+        reader.readAsText(file);
+      } else {
+        // For PDFs and other files, read as base64
+        reader.onload = () => {
+          const base64 = (reader.result as string).split(',')[1] || '';
+          setUploadedFiles(prev => [...prev, {
+            name: file.name,
+            type: file.type,
+            content: base64,
+            size: file.size,
+          }]);
+        };
+        reader.readAsDataURL(file);
+      }
+    }
+
+    // Reset file input
+    if (fileInputRef.current) fileInputRef.current.value = '';
+  };
+
+  const removeFile = (idx: number) => {
+    setUploadedFiles(prev => prev.filter((_, i) => i !== idx));
+  };
+
+  /* Build initial message from scope + files */
+  const buildScopeMessage = (): string => {
+    const parts: string[] = [];
+
+    if (scopeText.trim()) {
+      parts.push(scopeText.trim());
+    }
+
+    // Include text from uploaded files
+    for (const file of uploadedFiles) {
+      if (file.type === 'text/plain' || file.type === 'text/csv' || file.name.endsWith('.txt')) {
+        parts.push(`\n--- Attached: ${file.name} ---\n${file.content}`);
+      } else {
+        parts.push(`\n[Attached file: ${file.name} (${(file.size / 1024).toFixed(0)} KB)]`);
+      }
+    }
+
+    return parts.join('\n');
+  };
+
+  /* Submit scope as first message */
+  const handleSubmitScope = async () => {
+    const scopeMessage = buildScopeMessage();
+    if (!scopeMessage.trim() || loading || !selectedJob) return;
+
+    const userMsg: ChatMessage = { role: 'user', content: scopeMessage };
+    const updatedMessages = [userMsg];
+    setMessages(updatedMessages);
+    setLoading(true);
+
+    try {
+      const res = await fetch('/api/estimating', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${getAuthToken()}`,
+        },
+        body: JSON.stringify({
+          jobId: selectedJob.id,
+          jobName: `#${selectedJob.number} ${selectedJob.name}`,
+          estimateType,
+          changeOrderName: estimateType === 'change-order' ? changeOrderName : undefined,
+          messages: updatedMessages.map((m) => ({ role: m.role, content: m.content })),
+        }),
+      });
+
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({ error: 'Request failed' }));
+        throw new Error(err.error || 'Request failed');
+      }
+
+      const data = await res.json();
+      const assistantMsg: ChatMessage = { role: 'assistant', content: data.reply };
+      setMessages([...updatedMessages, assistantMsg]);
+
+      if (data.proposedBudget) {
+        setProposedBudget(data.proposedBudget);
+      }
+    } catch (err) {
+      const errMsg = err instanceof Error ? err.message : 'Something went wrong';
+      setMessages([...updatedMessages, { role: 'assistant', content: `Error: ${errMsg}` }]);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  /* Submit follow-up message */
   const handleSubmit = async (e?: React.FormEvent) => {
     e?.preventDefault();
     if (!query.trim() || loading || !selectedJob) return;
@@ -354,6 +462,8 @@ export default function EstimatePage() {
     setProposedBudget(null);
     setCreateResult(null);
     setChangeOrderName('');
+    setScopeText('');
+    setUploadedFiles([]);
   };
 
   /* Filtered jobs for dropdown */
@@ -370,11 +480,14 @@ export default function EstimatePage() {
     }
   };
 
+  const hasStarted = messages.length > 0;
+  const canStartEstimate = selectedJob && (scopeText.trim() || uploadedFiles.length > 0);
+
   return (
     <div className="flex h-[calc(100vh-3.5rem)]">
-      {/* ── LEFT PANEL: Config ── */}
+      {/* ── LEFT PANEL: Config & Scope Input ── */}
       <div
-        className="w-72 flex-shrink-0 flex flex-col border-r overflow-y-auto"
+        className="w-80 flex-shrink-0 flex flex-col border-r overflow-y-auto"
         style={{ background: DARK_BG, borderColor: 'rgba(205,162,116,0.12)' }}
       >
         <div className="p-4 space-y-4">
@@ -480,58 +593,183 @@ export default function EstimatePage() {
                 className="w-full mt-1 px-3 py-2 rounded-lg text-xs outline-none"
                 style={{ ...CARD, color: TEXT }}
               />
+              <p className="text-[10px] mt-1" style={{ color: TEXT_MUTED }}>
+                Groups under: Post Pricing Changes &gt; Client Requested &gt; [Name]
+              </p>
             </div>
           )}
 
-          {/* New Estimate button */}
-          {messages.length > 0 && (
-            <button
-              onClick={handleReset}
-              className="w-full flex items-center justify-center gap-1.5 px-3 py-2 rounded-lg text-xs font-medium transition-colors hover:bg-white/5"
-              style={{ color: TEXT_MUTED, border: '1px solid rgba(205,162,116,0.08)' }}
-            >
-              <Plus size={14} />
-              New Estimate
-            </button>
+          {/* Divider */}
+          <hr style={{ borderColor: 'rgba(205,162,116,0.1)' }} />
+
+          {/* ── SCOPE INPUT SECTION ── */}
+          {!hasStarted ? (
+            <>
+              <div>
+                <label className="text-[10px] font-medium uppercase tracking-wide flex items-center gap-1.5" style={{ color: TEXT_MUTED }}>
+                  <ClipboardPaste size={11} />
+                  Scope / Transcript / Notes
+                </label>
+                <textarea
+                  value={scopeText}
+                  onChange={(e) => setScopeText(e.target.value)}
+                  placeholder={"Paste or type the scope of work here.\n\nExamples:\n• Project scope description\n• Meeting transcript or notes\n• Vendor estimate details\n• Change order description"}
+                  rows={8}
+                  className="w-full mt-1 px-3 py-2 rounded-lg text-xs resize-none outline-none"
+                  style={{ ...CARD, color: TEXT, lineHeight: '1.6' }}
+                  disabled={!selectedJob}
+                />
+              </div>
+
+              {/* File Upload */}
+              <div>
+                <label className="text-[10px] font-medium uppercase tracking-wide flex items-center gap-1.5" style={{ color: TEXT_MUTED }}>
+                  <Paperclip size={11} />
+                  Attach Files
+                </label>
+                <input
+                  ref={fileInputRef}
+                  type="file"
+                  multiple
+                  accept=".pdf,.txt,.csv,.doc,.docx"
+                  onChange={handleFileUpload}
+                  className="hidden"
+                />
+                <button
+                  onClick={() => fileInputRef.current?.click()}
+                  disabled={!selectedJob}
+                  className="w-full mt-1 flex items-center justify-center gap-2 px-3 py-3 rounded-lg text-xs transition-colors hover:bg-white/5 disabled:opacity-30"
+                  style={{
+                    border: '1px dashed rgba(205,162,116,0.2)',
+                    color: TEXT_MUTED,
+                    background: 'rgba(36,36,36,0.5)',
+                  }}
+                >
+                  <Upload size={14} />
+                  Upload PDF, TXT, or DOC
+                </button>
+
+                {/* Uploaded files list */}
+                {uploadedFiles.length > 0 && (
+                  <div className="mt-2 space-y-1">
+                    {uploadedFiles.map((file, idx) => (
+                      <div
+                        key={idx}
+                        className="flex items-center gap-2 px-2 py-1.5 rounded-lg text-[11px]"
+                        style={{ background: 'rgba(201,168,76,0.06)', border: '1px solid rgba(201,168,76,0.12)' }}
+                      >
+                        <FileText size={12} style={{ color: GOLD }} />
+                        <span className="flex-1 truncate" style={{ color: TEXT }}>
+                          {file.name}
+                        </span>
+                        <span style={{ color: TEXT_MUTED }}>
+                          {(file.size / 1024).toFixed(0)}K
+                        </span>
+                        <button onClick={() => removeFile(idx)} className="hover:bg-white/10 rounded p-0.5">
+                          <X size={12} style={{ color: TEXT_MUTED }} />
+                        </button>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+
+              {/* Start Estimate Button */}
+              <button
+                onClick={handleSubmitScope}
+                disabled={!canStartEstimate || loading}
+                className="w-full flex items-center justify-center gap-2 px-4 py-2.5 rounded-lg text-xs font-semibold transition-colors disabled:opacity-30"
+                style={{
+                  background: canStartEstimate ? 'rgba(201,168,76,0.15)' : 'transparent',
+                  color: canStartEstimate ? GOLD : TEXT_MUTED,
+                  border: `1px solid ${canStartEstimate ? 'rgba(201,168,76,0.3)' : 'rgba(205,162,116,0.08)'}`,
+                }}
+              >
+                {loading ? (
+                  <>
+                    <Loader2 size={14} className="animate-spin" />
+                    Analyzing Scope...
+                  </>
+                ) : (
+                  <>
+                    <Send size={14} />
+                    Start Estimating
+                  </>
+                )}
+              </button>
+
+              {/* Quick suggestions */}
+              {selectedJob && !scopeText && uploadedFiles.length === 0 && (
+                <div>
+                  <p className="text-[10px] font-medium uppercase tracking-wide mb-1.5" style={{ color: TEXT_MUTED }}>
+                    Quick Start
+                  </p>
+                  {[
+                    'Kitchen renovation: new cabinets, countertops, plumbing, electrical, flooring, and painting',
+                    'Bathroom remodel: demo existing, new tile, vanity, plumbing fixtures, and lighting',
+                    'Build a 400 SF addition with foundation, framing, roofing, siding, HVAC, and electrical',
+                  ].map((suggestion, idx) => (
+                    <button
+                      key={idx}
+                      onClick={() => setScopeText(suggestion)}
+                      className="w-full text-left px-3 py-2 mb-1 rounded-lg text-[11px] hover:bg-white/5 transition-colors"
+                      style={{ color: TEXT_MUTED, border: '1px solid rgba(205,162,116,0.06)' }}
+                    >
+                      {suggestion}
+                    </button>
+                  ))}
+                </div>
+              )}
+            </>
+          ) : (
+            <>
+              {/* Already started — show summary and new estimate button */}
+              <div className="space-y-2">
+                <div className="px-3 py-2 rounded-lg text-[11px]" style={{ background: 'rgba(201,168,76,0.06)', border: '1px solid rgba(201,168,76,0.1)' }}>
+                  <p className="font-medium" style={{ color: GOLD }}>
+                    {estimateType === 'change-order' ? `CO: ${changeOrderName || 'Change Order'}` : 'Initial Estimate'}
+                  </p>
+                  <p className="mt-0.5 line-clamp-3" style={{ color: TEXT_MUTED }}>
+                    {messages[0]?.content.slice(0, 150)}...
+                  </p>
+                  {uploadedFiles.length > 0 && (
+                    <p className="mt-1" style={{ color: TEXT_MUTED }}>
+                      {uploadedFiles.length} file{uploadedFiles.length > 1 ? 's' : ''} attached
+                    </p>
+                  )}
+                </div>
+
+                <button
+                  onClick={handleReset}
+                  className="w-full flex items-center justify-center gap-1.5 px-3 py-2 rounded-lg text-xs font-medium transition-colors hover:bg-white/5"
+                  style={{ color: TEXT_MUTED, border: '1px solid rgba(205,162,116,0.08)' }}
+                >
+                  <Plus size={14} />
+                  New Estimate
+                </button>
+              </div>
+            </>
           )}
         </div>
-
-        {/* Suggestions */}
-        {messages.length === 0 && selectedJob && (
-          <div className="px-4 mt-2">
-            <p className="text-[10px] font-medium uppercase tracking-wide mb-2" style={{ color: TEXT_MUTED }}>
-              Try saying...
-            </p>
-            {[
-              'Kitchen renovation: new cabinets, countertops, plumbing, electrical, flooring, and painting',
-              'Bathroom remodel: demo existing, new tile, vanity, plumbing fixtures, and lighting',
-              'Build a 400 SF addition with foundation, framing, roofing, siding, HVAC, and electrical',
-            ].map((suggestion, idx) => (
-              <button
-                key={idx}
-                onClick={() => setQuery(suggestion)}
-                className="w-full text-left px-3 py-2 mb-1 rounded-lg text-[11px] hover:bg-white/5 transition-colors"
-                style={{ color: TEXT_MUTED, border: '1px solid rgba(205,162,116,0.06)' }}
-              >
-                {suggestion}
-              </button>
-            ))}
-          </div>
-        )}
       </div>
 
       {/* ── CENTER PANEL: Chat ── */}
       <div className="flex-1 flex flex-col min-w-0">
         {/* Messages */}
         <div className="flex-1 overflow-y-auto p-4 space-y-4">
-          {messages.length === 0 && (
+          {!hasStarted && (
             <div className="flex flex-col items-center justify-center h-full opacity-40">
               <Hammer size={40} style={{ color: TEXT_MUTED }} />
-              <p className="mt-3 text-sm" style={{ color: TEXT_MUTED }}>
+              <p className="mt-3 text-sm text-center" style={{ color: TEXT_MUTED }}>
                 {selectedJob
-                  ? 'Describe the scope of work to start building your estimate'
+                  ? 'Enter the scope of work in the left panel to start building your estimate'
                   : 'Select a job to get started'}
               </p>
+              {selectedJob && (
+                <p className="mt-1 text-xs text-center" style={{ color: TEXT_MUTED }}>
+                  Paste a transcript, scope description, or upload a PDF
+                </p>
+              )}
             </div>
           )}
 
@@ -577,34 +815,32 @@ export default function EstimatePage() {
           <div ref={messagesEndRef} />
         </div>
 
-        {/* Input */}
-        <div className="p-4 border-t" style={{ borderColor: 'rgba(205,162,116,0.08)' }}>
-          <form onSubmit={handleSubmit} className="flex gap-2">
-            <textarea
-              ref={inputRef}
-              value={query}
-              onChange={(e) => setQuery(e.target.value)}
-              onKeyDown={handleKeyDown}
-              placeholder={
-                !selectedJob
-                  ? 'Select a job first...'
-                  : 'Describe the scope of work...'
-              }
-              disabled={!selectedJob || loading}
-              rows={2}
-              className="flex-1 px-3 py-2 rounded-lg text-sm resize-none outline-none disabled:opacity-50"
-              style={{ ...CARD, color: TEXT }}
-            />
-            <button
-              type="submit"
-              disabled={!query.trim() || loading || !selectedJob}
-              className="self-end px-3 py-2 rounded-lg transition-colors disabled:opacity-30"
-              style={{ background: 'rgba(201,168,76,0.15)', color: GOLD }}
-            >
-              <Send size={16} />
-            </button>
-          </form>
-        </div>
+        {/* Chat Input — only shown after conversation has started */}
+        {hasStarted && (
+          <div className="p-4 border-t" style={{ borderColor: 'rgba(205,162,116,0.08)' }}>
+            <form onSubmit={handleSubmit} className="flex gap-2">
+              <textarea
+                ref={inputRef}
+                value={query}
+                onChange={(e) => setQuery(e.target.value)}
+                onKeyDown={handleKeyDown}
+                placeholder="Ask a follow-up, provide more details, or request changes..."
+                disabled={loading}
+                rows={2}
+                className="flex-1 px-3 py-2 rounded-lg text-sm resize-none outline-none disabled:opacity-50"
+                style={{ ...CARD, color: TEXT }}
+              />
+              <button
+                type="submit"
+                disabled={!query.trim() || loading}
+                className="self-end px-3 py-2 rounded-lg transition-colors disabled:opacity-30"
+                style={{ background: 'rgba(201,168,76,0.15)', color: GOLD }}
+              >
+                <Send size={16} />
+              </button>
+            </form>
+          </div>
+        )}
       </div>
 
       {/* ── RIGHT PANEL: Budget Preview ── */}
