@@ -1,0 +1,680 @@
+// @ts-nocheck
+'use client';
+
+import { useState, useRef, useEffect } from 'react';
+import {
+  Calculator, Send, Loader2, Bot, User, ChevronDown, ChevronRight,
+  Plus, DollarSign, Package, Hammer, FileText, CheckCircle2,
+  AlertCircle, RefreshCw,
+} from 'lucide-react';
+import {
+  getAuthToken, formatContent, type ChatMessage, type JobOption,
+} from '@/app/hooks/useAskAgent';
+
+/* ── Types ── */
+interface BudgetLineItem {
+  name: string;
+  description: string;
+  costCodeNumber: string;
+  costTypeName: string;
+  unitName: string;
+  quantity: number;
+  unitCost: number;
+  unitPrice: number;
+  groupName: string;
+  groupDescription: string;
+  organizationCostItemId?: string;
+}
+
+interface ProposedBudget {
+  estimateType: 'initial' | 'change-order';
+  changeOrderName?: string;
+  areaName: string;
+  lineItems: BudgetLineItem[];
+  totalCost: number;
+  totalPrice: number;
+}
+
+type EstimateType = 'initial' | 'change-order';
+
+/* ── Style constants ── */
+const CARD = { background: '#242424', border: '1px solid rgba(205,162,116,0.12)' };
+const CARD_HOVER = { background: '#2a2a2a', border: '1px solid rgba(205,162,116,0.2)' };
+const GOLD = '#C9A84C';
+const TEXT = '#e8e0d8';
+const TEXT_MUTED = '#8a8078';
+const DARK_BG = '#1a1a1a';
+
+const CODE_COLORS: Record<string, string> = {
+  '01': '#6366f1', '02': '#ef4444', '03': '#78716c', '04': '#f59e0b',
+  '05': '#3b82f6', '06': '#10b981', '08': '#dc2626', '09': '#f97316',
+  '10': '#0ea5e9', '11': '#14b8a6', '12': '#eab308', '13': '#a3a3a3',
+  '14': '#8b5cf6', '15': '#ec4899', '16': '#06b6d4', '17': '#f43f5e',
+  '18': '#84cc16', '19': '#a78bfa', '20': '#22d3ee', '22': '#d946ef',
+  '23': '#fbbf24',
+};
+
+/* ── Render formatted content ── */
+function RenderContent({ content }: { content: string }) {
+  const elements = formatContent(content);
+  return (
+    <>
+      {elements.map((el: any) => {
+        if (el.type === 'code') {
+          return (
+            <div key={el.key} className="mt-2 mb-2 rounded-lg" style={{ background: DARK_BG, border: '1px solid rgba(205,162,116,0.15)' }}>
+              <pre className="px-3 py-2 text-xs overflow-x-auto whitespace-pre-wrap" style={{ color: '#c8c0b8', fontFamily: 'monospace', lineHeight: '1.5' }}>{el.content}</pre>
+            </div>
+          );
+        }
+        if (el.type === 'h2') return <div key={el.key} className="font-bold mt-3 mb-1" style={{ color: GOLD, fontSize: '0.9rem' }} dangerouslySetInnerHTML={{ __html: el.html }} />;
+        if (el.type === 'h3') return <div key={el.key} className="font-semibold mt-2 mb-0.5" style={{ color: TEXT, fontSize: '0.85rem' }} dangerouslySetInnerHTML={{ __html: el.html }} />;
+        if (el.type === 'bullet') return <div key={el.key} className="ml-3 text-sm" dangerouslySetInnerHTML={{ __html: '&bull; ' + el.html }} />;
+        if (el.type === 'numbered') return <div key={el.key} className="ml-3 text-sm" dangerouslySetInnerHTML={{ __html: el.html }} />;
+        if (el.type === 'hr') return <hr key={el.key} className="my-3" style={{ borderColor: 'rgba(205,162,116,0.15)' }} />;
+        if (el.type === 'spacer') return <div key={el.key} className="h-1.5" />;
+        return <div key={el.key} className="text-sm" dangerouslySetInnerHTML={{ __html: el.html }} />;
+      })}
+    </>
+  );
+}
+
+/* ── Budget Tree View ── */
+function BudgetPreview({ budget }: { budget: ProposedBudget | null }) {
+  const [expandedGroups, setExpandedGroups] = useState<Set<string>>(new Set());
+
+  if (!budget || budget.lineItems.length === 0) {
+    return (
+      <div className="flex flex-col items-center justify-center h-full opacity-40 px-4">
+        <Package size={40} style={{ color: TEXT_MUTED }} />
+        <p className="mt-3 text-sm text-center" style={{ color: TEXT_MUTED }}>
+          Budget preview will appear here once the AI develops a proposal
+        </p>
+      </div>
+    );
+  }
+
+  // Build tree from flat items
+  const tree = new Map<string, { description: string; items: BudgetLineItem[] }>();
+  for (const item of budget.lineItems) {
+    const key = item.groupName;
+    if (!tree.has(key)) {
+      tree.set(key, { description: item.groupDescription, items: [] });
+    }
+    tree.get(key)!.items.push(item);
+  }
+
+  // Sort groups by path
+  const sortedGroups = [...tree.entries()].sort((a, b) => a[0].localeCompare(b[0]));
+
+  const toggleGroup = (path: string) => {
+    const next = new Set(expandedGroups);
+    next.has(path) ? next.delete(path) : next.add(path);
+    setExpandedGroups(next);
+  };
+
+  // Auto-expand all on first render
+  useEffect(() => {
+    setExpandedGroups(new Set(sortedGroups.map(([path]) => path)));
+  }, [budget]);
+
+  return (
+    <div className="space-y-1">
+      {/* Summary header */}
+      <div className="px-3 py-2 rounded-lg mb-2" style={{ background: 'rgba(201,168,76,0.08)', border: '1px solid rgba(201,168,76,0.15)' }}>
+        <div className="flex justify-between items-center">
+          <span className="text-xs font-semibold" style={{ color: GOLD }}>
+            {budget.estimateType === 'change-order' ? 'Change Order' : 'Estimate'} Preview
+          </span>
+          <span className="text-xs" style={{ color: TEXT_MUTED }}>
+            {budget.lineItems.length} items
+          </span>
+        </div>
+        <div className="flex justify-between mt-1">
+          <span className="text-xs" style={{ color: TEXT_MUTED }}>Total Cost</span>
+          <span className="text-xs font-medium" style={{ color: TEXT }}>
+            ${budget.totalCost.toLocaleString(undefined, { minimumFractionDigits: 0, maximumFractionDigits: 0 })}
+          </span>
+        </div>
+        <div className="flex justify-between">
+          <span className="text-xs" style={{ color: TEXT_MUTED }}>Total Price</span>
+          <span className="text-xs font-bold" style={{ color: GOLD }}>
+            ${budget.totalPrice.toLocaleString(undefined, { minimumFractionDigits: 0, maximumFractionDigits: 0 })}
+          </span>
+        </div>
+        <div className="flex justify-between">
+          <span className="text-xs" style={{ color: TEXT_MUTED }}>Margin</span>
+          <span className="text-xs font-medium" style={{ color: '#22c55e' }}>
+            ${(budget.totalPrice - budget.totalCost).toLocaleString(undefined, { minimumFractionDigits: 0, maximumFractionDigits: 0 })}
+            {' '}({budget.totalPrice > 0 ? ((1 - budget.totalCost / budget.totalPrice) * 100).toFixed(1) : 0}%)
+          </span>
+        </div>
+      </div>
+
+      {/* Groups */}
+      {sortedGroups.map(([path, group]) => {
+        const parts = path.split(' > ');
+        const depth = parts.length - 1;
+        const groupLabel = parts[parts.length - 1];
+        const isExpanded = expandedGroups.has(path);
+        const groupCost = group.items.reduce((s, i) => s + i.quantity * i.unitCost, 0);
+        const groupPrice = group.items.reduce((s, i) => s + i.quantity * i.unitPrice, 0);
+
+        return (
+          <div key={path}>
+            {/* Group header */}
+            <button
+              onClick={() => toggleGroup(path)}
+              className="w-full flex items-center gap-1.5 px-2 py-1.5 rounded hover:bg-white/5 transition-colors"
+              style={{ paddingLeft: `${8 + depth * 12}px` }}
+            >
+              {isExpanded ? <ChevronDown size={12} style={{ color: TEXT_MUTED }} /> : <ChevronRight size={12} style={{ color: TEXT_MUTED }} />}
+              <span className="text-xs font-medium truncate flex-1 text-left" style={{ color: TEXT }}>
+                {groupLabel}
+              </span>
+              <span className="text-[10px] tabular-nums" style={{ color: GOLD }}>
+                ${groupPrice.toLocaleString(undefined, { maximumFractionDigits: 0 })}
+              </span>
+            </button>
+
+            {/* Items */}
+            {isExpanded && group.items.map((item, idx) => {
+              const codeColor = CODE_COLORS[item.costCodeNumber] || TEXT_MUTED;
+              return (
+                <div
+                  key={`${path}-${idx}`}
+                  className="flex items-start gap-2 px-2 py-1 ml-4 rounded"
+                  style={{ paddingLeft: `${16 + depth * 12}px` }}
+                >
+                  <div
+                    className="w-1.5 h-1.5 rounded-full mt-1.5 flex-shrink-0"
+                    style={{ background: codeColor }}
+                  />
+                  <div className="flex-1 min-w-0">
+                    <div className="flex justify-between items-baseline gap-2">
+                      <span className="text-[11px] truncate" style={{ color: TEXT }}>
+                        {item.name}
+                      </span>
+                      <span className="text-[10px] tabular-nums flex-shrink-0" style={{ color: TEXT_MUTED }}>
+                        ${(item.quantity * item.unitPrice).toLocaleString(undefined, { maximumFractionDigits: 0 })}
+                      </span>
+                    </div>
+                    <div className="text-[10px]" style={{ color: TEXT_MUTED }}>
+                      {item.quantity} {item.unitName} @ ${item.unitCost}/{item.unitPrice}
+                      <span className="ml-2 opacity-60">{item.costTypeName}</span>
+                    </div>
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
+/* ── Main Page ── */
+export default function EstimatePage() {
+  /* State */
+  const [messages, setMessages] = useState<ChatMessage[]>([]);
+  const [query, setQuery] = useState('');
+  const [loading, setLoading] = useState(false);
+  const [jobs, setJobs] = useState<JobOption[]>([]);
+  const [selectedJob, setSelectedJob] = useState<JobOption | null>(null);
+  const [jobsLoading, setJobsLoading] = useState(true);
+  const [jobSearch, setJobSearch] = useState('');
+  const [jobDropdownOpen, setJobDropdownOpen] = useState(false);
+  const [estimateType, setEstimateType] = useState<EstimateType>('initial');
+  const [changeOrderName, setChangeOrderName] = useState('');
+  const [proposedBudget, setProposedBudget] = useState<ProposedBudget | null>(null);
+  const [creating, setCreating] = useState(false);
+  const [createResult, setCreateResult] = useState<{ success: boolean; message: string } | null>(null);
+
+  const messagesEndRef = useRef<HTMLDivElement>(null);
+  const inputRef = useRef<HTMLTextAreaElement>(null);
+
+  /* Load jobs */
+  useEffect(() => {
+    async function fetchJobs() {
+      try {
+        const res = await fetch('/api/dashboard/projects', {
+          headers: { Authorization: `Bearer ${getAuthToken()}` },
+        });
+        if (res.ok) {
+          const data = await res.json();
+          const list = (data.projects || []).map((j: any) => ({
+            id: j.id, name: j.name, number: j.number || '', clientName: j.clientName || '',
+          }));
+          list.sort((a: JobOption, b: JobOption) => (parseInt(b.number) || 0) - (parseInt(a.number) || 0));
+          setJobs(list);
+        }
+      } catch (err) { console.error('Failed to load jobs:', err); }
+      finally { setJobsLoading(false); }
+    }
+    fetchJobs();
+  }, []);
+
+  /* Auto-scroll */
+  useEffect(() => {
+    messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
+  }, [messages, loading]);
+
+  /* Submit message */
+  const handleSubmit = async (e?: React.FormEvent) => {
+    e?.preventDefault();
+    if (!query.trim() || loading || !selectedJob) return;
+
+    const userMsg: ChatMessage = { role: 'user', content: query.trim() };
+    const updatedMessages = [...messages, userMsg];
+    setMessages(updatedMessages);
+    setQuery('');
+    setLoading(true);
+
+    try {
+      const res = await fetch('/api/estimating', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${getAuthToken()}`,
+        },
+        body: JSON.stringify({
+          jobId: selectedJob.id,
+          jobName: `#${selectedJob.number} ${selectedJob.name}`,
+          estimateType,
+          changeOrderName: estimateType === 'change-order' ? changeOrderName : undefined,
+          messages: updatedMessages.map((m) => ({ role: m.role, content: m.content })),
+        }),
+      });
+
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({ error: 'Request failed' }));
+        throw new Error(err.error || 'Request failed');
+      }
+
+      const data = await res.json();
+      const assistantMsg: ChatMessage = { role: 'assistant', content: data.reply };
+      setMessages([...updatedMessages, assistantMsg]);
+
+      if (data.proposedBudget) {
+        setProposedBudget(data.proposedBudget);
+      }
+    } catch (err) {
+      const errMsg = err instanceof Error ? err.message : 'Something went wrong';
+      setMessages([...updatedMessages, { role: 'assistant', content: `Error: ${errMsg}` }]);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  /* Create budget in JobTread */
+  const handleCreateBudget = async () => {
+    if (!proposedBudget || !selectedJob || creating) return;
+    setCreating(true);
+    setCreateResult(null);
+
+    try {
+      const res = await fetch('/api/estimating/create', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${getAuthToken()}`,
+        },
+        body: JSON.stringify({
+          jobId: selectedJob.id,
+          budget: proposedBudget,
+        }),
+      });
+
+      const data = await res.json();
+      if (data.success) {
+        setCreateResult({
+          success: true,
+          message: `Created ${data.createdCount} items in ${data.groupsCreated} groups`,
+        });
+      } else {
+        setCreateResult({
+          success: false,
+          message: data.errors?.join('; ') || data.error || 'Creation failed',
+        });
+      }
+    } catch (err) {
+      setCreateResult({
+        success: false,
+        message: err instanceof Error ? err.message : 'Creation failed',
+      });
+    } finally {
+      setCreating(false);
+    }
+  };
+
+  /* Reset */
+  const handleReset = () => {
+    setMessages([]);
+    setProposedBudget(null);
+    setCreateResult(null);
+    setChangeOrderName('');
+  };
+
+  /* Filtered jobs for dropdown */
+  const filteredJobs = jobs.filter((j) => {
+    const q = jobSearch.toLowerCase();
+    return j.name.toLowerCase().includes(q) || j.number.includes(q) || j.clientName?.toLowerCase().includes(q);
+  });
+
+  /* Key handler for textarea */
+  const handleKeyDown = (e: React.KeyboardEvent) => {
+    if (e.key === 'Enter' && !e.shiftKey) {
+      e.preventDefault();
+      handleSubmit();
+    }
+  };
+
+  return (
+    <div className="flex h-[calc(100vh-3.5rem)]">
+      {/* ── LEFT PANEL: Config ── */}
+      <div
+        className="w-72 flex-shrink-0 flex flex-col border-r overflow-y-auto"
+        style={{ background: DARK_BG, borderColor: 'rgba(205,162,116,0.12)' }}
+      >
+        <div className="p-4 space-y-4">
+          {/* Header */}
+          <div className="flex items-center gap-2">
+            <Calculator size={18} style={{ color: GOLD }} />
+            <h2 className="text-sm font-semibold" style={{ color: TEXT }}>Estimating</h2>
+          </div>
+
+          {/* Job Selector */}
+          <div>
+            <label className="text-[10px] font-medium uppercase tracking-wide" style={{ color: TEXT_MUTED }}>
+              Job
+            </label>
+            <div className="relative mt-1">
+              <button
+                onClick={() => setJobDropdownOpen(!jobDropdownOpen)}
+                className="w-full flex items-center justify-between px-3 py-2 rounded-lg text-xs"
+                style={{ ...CARD, color: selectedJob ? TEXT : TEXT_MUTED }}
+              >
+                <span className="truncate">
+                  {jobsLoading ? 'Loading...' : selectedJob ? `#${selectedJob.number} ${selectedJob.name}` : 'Select a job...'}
+                </span>
+                <ChevronDown size={14} />
+              </button>
+
+              {jobDropdownOpen && (
+                <div
+                  className="absolute z-50 w-full mt-1 rounded-lg shadow-xl max-h-60 overflow-y-auto"
+                  style={{ background: '#2a2a2a', border: '1px solid rgba(205,162,116,0.2)' }}
+                >
+                  <div className="p-2">
+                    <input
+                      type="text"
+                      placeholder="Search jobs..."
+                      value={jobSearch}
+                      onChange={(e) => setJobSearch(e.target.value)}
+                      className="w-full px-2 py-1.5 rounded text-xs outline-none"
+                      style={{ background: DARK_BG, color: TEXT, border: '1px solid rgba(205,162,116,0.1)' }}
+                      autoFocus
+                    />
+                  </div>
+                  {filteredJobs.map((j) => (
+                    <button
+                      key={j.id}
+                      onClick={() => {
+                        setSelectedJob(j);
+                        setJobDropdownOpen(false);
+                        setJobSearch('');
+                      }}
+                      className="w-full text-left px-3 py-2 text-xs hover:bg-white/5 transition-colors"
+                      style={{ color: TEXT }}
+                    >
+                      <span style={{ color: GOLD }}>#{j.number}</span>{' '}
+                      {j.name}
+                      {j.clientName && (
+                        <span className="ml-1" style={{ color: TEXT_MUTED }}>— {j.clientName}</span>
+                      )}
+                    </button>
+                  ))}
+                  {filteredJobs.length === 0 && (
+                    <p className="px-3 py-2 text-xs" style={{ color: TEXT_MUTED }}>No jobs found</p>
+                  )}
+                </div>
+              )}
+            </div>
+          </div>
+
+          {/* Estimate Type */}
+          <div>
+            <label className="text-[10px] font-medium uppercase tracking-wide" style={{ color: TEXT_MUTED }}>
+              Type
+            </label>
+            <div className="flex gap-1 mt-1">
+              {(['initial', 'change-order'] as EstimateType[]).map((type) => (
+                <button
+                  key={type}
+                  onClick={() => setEstimateType(type)}
+                  className="flex-1 px-2 py-1.5 rounded-lg text-[11px] font-medium transition-colors"
+                  style={{
+                    background: estimateType === type ? 'rgba(201,168,76,0.15)' : 'transparent',
+                    color: estimateType === type ? GOLD : TEXT_MUTED,
+                    border: `1px solid ${estimateType === type ? 'rgba(201,168,76,0.3)' : 'rgba(205,162,116,0.08)'}`,
+                  }}
+                >
+                  {type === 'initial' ? 'Initial Estimate' : 'Change Order'}
+                </button>
+              ))}
+            </div>
+          </div>
+
+          {/* Change Order Name */}
+          {estimateType === 'change-order' && (
+            <div>
+              <label className="text-[10px] font-medium uppercase tracking-wide" style={{ color: TEXT_MUTED }}>
+                Change Order Name
+              </label>
+              <input
+                type="text"
+                value={changeOrderName}
+                onChange={(e) => setChangeOrderName(e.target.value)}
+                placeholder="e.g., Upgraded Countertops"
+                className="w-full mt-1 px-3 py-2 rounded-lg text-xs outline-none"
+                style={{ ...CARD, color: TEXT }}
+              />
+            </div>
+          )}
+
+          {/* New Estimate button */}
+          {messages.length > 0 && (
+            <button
+              onClick={handleReset}
+              className="w-full flex items-center justify-center gap-1.5 px-3 py-2 rounded-lg text-xs font-medium transition-colors hover:bg-white/5"
+              style={{ color: TEXT_MUTED, border: '1px solid rgba(205,162,116,0.08)' }}
+            >
+              <Plus size={14} />
+              New Estimate
+            </button>
+          )}
+        </div>
+
+        {/* Suggestions */}
+        {messages.length === 0 && selectedJob && (
+          <div className="px-4 mt-2">
+            <p className="text-[10px] font-medium uppercase tracking-wide mb-2" style={{ color: TEXT_MUTED }}>
+              Try saying...
+            </p>
+            {[
+              'Kitchen renovation: new cabinets, countertops, plumbing, electrical, flooring, and painting',
+              'Bathroom remodel: demo existing, new tile, vanity, plumbing fixtures, and lighting',
+              'Build a 400 SF addition with foundation, framing, roofing, siding, HVAC, and electrical',
+            ].map((suggestion, idx) => (
+              <button
+                key={idx}
+                onClick={() => setQuery(suggestion)}
+                className="w-full text-left px-3 py-2 mb-1 rounded-lg text-[11px] hover:bg-white/5 transition-colors"
+                style={{ color: TEXT_MUTED, border: '1px solid rgba(205,162,116,0.06)' }}
+              >
+                {suggestion}
+              </button>
+            ))}
+          </div>
+        )}
+      </div>
+
+      {/* ── CENTER PANEL: Chat ── */}
+      <div className="flex-1 flex flex-col min-w-0">
+        {/* Messages */}
+        <div className="flex-1 overflow-y-auto p-4 space-y-4">
+          {messages.length === 0 && (
+            <div className="flex flex-col items-center justify-center h-full opacity-40">
+              <Hammer size={40} style={{ color: TEXT_MUTED }} />
+              <p className="mt-3 text-sm" style={{ color: TEXT_MUTED }}>
+                {selectedJob
+                  ? 'Describe the scope of work to start building your estimate'
+                  : 'Select a job to get started'}
+              </p>
+            </div>
+          )}
+
+          {messages.map((msg, idx) => (
+            <div key={idx} className={`flex gap-3 ${msg.role === 'user' ? 'justify-end' : ''}`}>
+              {msg.role === 'assistant' && (
+                <div className="w-7 h-7 rounded-full flex items-center justify-center flex-shrink-0" style={{ background: 'rgba(201,168,76,0.12)' }}>
+                  <Bot size={14} style={{ color: GOLD }} />
+                </div>
+              )}
+              <div
+                className="max-w-[80%] rounded-lg px-3 py-2"
+                style={{
+                  background: msg.role === 'user' ? 'rgba(201,168,76,0.1)' : '#242424',
+                  border: `1px solid ${msg.role === 'user' ? 'rgba(201,168,76,0.2)' : 'rgba(205,162,116,0.08)'}`,
+                  color: TEXT,
+                }}
+              >
+                <RenderContent content={msg.content} />
+              </div>
+              {msg.role === 'user' && (
+                <div className="w-7 h-7 rounded-full flex items-center justify-center flex-shrink-0" style={{ background: 'rgba(27,58,92,0.3)' }}>
+                  <User size={14} style={{ color: '#93c5fd' }} />
+                </div>
+              )}
+            </div>
+          ))}
+
+          {loading && (
+            <div className="flex gap-3">
+              <div className="w-7 h-7 rounded-full flex items-center justify-center flex-shrink-0" style={{ background: 'rgba(201,168,76,0.12)' }}>
+                <Bot size={14} style={{ color: GOLD }} />
+              </div>
+              <div className="rounded-lg px-3 py-2" style={{ ...CARD }}>
+                <div className="flex items-center gap-2">
+                  <Loader2 size={14} className="animate-spin" style={{ color: GOLD }} />
+                  <span className="text-xs" style={{ color: TEXT_MUTED }}>Analyzing scope...</span>
+                </div>
+              </div>
+            </div>
+          )}
+
+          <div ref={messagesEndRef} />
+        </div>
+
+        {/* Input */}
+        <div className="p-4 border-t" style={{ borderColor: 'rgba(205,162,116,0.08)' }}>
+          <form onSubmit={handleSubmit} className="flex gap-2">
+            <textarea
+              ref={inputRef}
+              value={query}
+              onChange={(e) => setQuery(e.target.value)}
+              onKeyDown={handleKeyDown}
+              placeholder={
+                !selectedJob
+                  ? 'Select a job first...'
+                  : 'Describe the scope of work...'
+              }
+              disabled={!selectedJob || loading}
+              rows={2}
+              className="flex-1 px-3 py-2 rounded-lg text-sm resize-none outline-none disabled:opacity-50"
+              style={{ ...CARD, color: TEXT }}
+            />
+            <button
+              type="submit"
+              disabled={!query.trim() || loading || !selectedJob}
+              className="self-end px-3 py-2 rounded-lg transition-colors disabled:opacity-30"
+              style={{ background: 'rgba(201,168,76,0.15)', color: GOLD }}
+            >
+              <Send size={16} />
+            </button>
+          </form>
+        </div>
+      </div>
+
+      {/* ── RIGHT PANEL: Budget Preview ── */}
+      <div
+        className="w-80 flex-shrink-0 flex flex-col border-l overflow-y-auto"
+        style={{ background: DARK_BG, borderColor: 'rgba(205,162,116,0.12)' }}
+      >
+        <div className="p-3 border-b flex items-center justify-between" style={{ borderColor: 'rgba(205,162,116,0.08)' }}>
+          <div className="flex items-center gap-2">
+            <DollarSign size={14} style={{ color: GOLD }} />
+            <span className="text-xs font-semibold" style={{ color: TEXT }}>Budget Preview</span>
+          </div>
+          {proposedBudget && (
+            <span className="text-[10px] px-1.5 py-0.5 rounded" style={{ background: 'rgba(34,197,94,0.1)', color: '#22c55e' }}>
+              Ready
+            </span>
+          )}
+        </div>
+
+        <div className="flex-1 p-3">
+          <BudgetPreview budget={proposedBudget} />
+        </div>
+
+        {/* Create button */}
+        {proposedBudget && (
+          <div className="p-3 border-t space-y-2" style={{ borderColor: 'rgba(205,162,116,0.08)' }}>
+            {createResult && (
+              <div
+                className="flex items-start gap-2 px-3 py-2 rounded-lg text-xs"
+                style={{
+                  background: createResult.success ? 'rgba(34,197,94,0.08)' : 'rgba(239,68,68,0.08)',
+                  border: `1px solid ${createResult.success ? 'rgba(34,197,94,0.2)' : 'rgba(239,68,68,0.2)'}`,
+                  color: createResult.success ? '#22c55e' : '#ef4444',
+                }}
+              >
+                {createResult.success ? <CheckCircle2 size={14} /> : <AlertCircle size={14} />}
+                <span>{createResult.message}</span>
+              </div>
+            )}
+
+            <button
+              onClick={handleCreateBudget}
+              disabled={creating || createResult?.success}
+              className="w-full flex items-center justify-center gap-2 px-4 py-2.5 rounded-lg text-xs font-semibold transition-colors disabled:opacity-50"
+              style={{
+                background: createResult?.success ? 'rgba(34,197,94,0.15)' : 'rgba(201,168,76,0.15)',
+                color: createResult?.success ? '#22c55e' : GOLD,
+                border: `1px solid ${createResult?.success ? 'rgba(34,197,94,0.3)' : 'rgba(201,168,76,0.3)'}`,
+              }}
+            >
+              {creating ? (
+                <>
+                  <Loader2 size={14} className="animate-spin" />
+                  Creating in JobTread...
+                </>
+              ) : createResult?.success ? (
+                <>
+                  <CheckCircle2 size={14} />
+                  Created in JobTread
+                </>
+              ) : (
+                <>
+                  <FileText size={14} />
+                  Create in JobTread
+                </>
+              )}
+            </button>
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
