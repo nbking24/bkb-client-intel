@@ -1916,29 +1916,49 @@ export async function getDocumentCostItemsLightById(documentId: string): Promise
             },
           },
           files: { nodes: { id: {}, name: {}, url: {} } },
+          customFieldValues: { nodes: { value: {}, customField: { name: {} } } },
         },
       },
     },
   });
 
   const nodes = (data as any)?.document?.costItems?.nodes || [];
-  return nodes.map((node: any) => ({
-    ...node,
-    files: node.files?.nodes || [],
-    // Inject the document reference since we know which document these came from
-    document: { id: documentId },
-    // Preserve isSelected from document-level query (false = unselected option)
-    isSelected: node.isSelected,
-    costGroup: node.costGroup ? {
-      ...node.costGroup,
-      isSelected: node.costGroup.isSelected,
-      files: node.costGroup.files?.nodes || [],
-      parentCostGroup: node.costGroup.parentCostGroup ? {
-        ...node.costGroup.parentCostGroup,
-        files: node.costGroup.parentCostGroup.files?.nodes || [],
+  return nodes.map((node: any) => {
+    // Parse custom field values into named fields (Status, Internal Notes, Vendor)
+    const cfvs = node.customFieldValues?.nodes || [];
+    let status: string | null = null;
+    let internalNotes: string | null = null;
+    let vendor: string | null = null;
+    for (const cfv of cfvs) {
+      const fieldName = cfv.customField?.name;
+      const val = cfv.value;
+      if (!fieldName || !val) continue;
+      if (fieldName === 'Status') status = val;
+      else if (fieldName === 'Internal Notes') internalNotes = val;
+      else if (fieldName === 'Vendor') vendor = val;
+    }
+    return {
+      ...node,
+      customFieldValues: undefined,
+      status,
+      internalNotes,
+      vendor,
+      files: node.files?.nodes || [],
+      // Inject the document reference since we know which document these came from
+      document: { id: documentId },
+      // Preserve isSelected from document-level query (false = unselected option)
+      isSelected: node.isSelected,
+      costGroup: node.costGroup ? {
+        ...node.costGroup,
+        isSelected: node.costGroup.isSelected,
+        files: node.costGroup.files?.nodes || [],
+        parentCostGroup: node.costGroup.parentCostGroup ? {
+          ...node.costGroup.parentCostGroup,
+          files: node.costGroup.parentCostGroup.files?.nodes || [],
+        } : null,
       } : null,
-    } : null,
-  }));
+    };
+  });
 }
 
 export async function getCostItemsForJob(jobId: string, limit = 500): Promise<JTCostItem[]> {
@@ -2059,6 +2079,7 @@ export async function getCostItemsLightForJob(jobId: string, limit = 200): Promi
             },
             files: { nodes: { id: {}, name: {}, url: {} } },
             document: { id: {}, name: {}, type: {} },
+            customFieldValues: { nodes: { value: {}, customField: { name: {} } } },
           },
         },
       },
@@ -2066,18 +2087,37 @@ export async function getCostItemsLightForJob(jobId: string, limit = 200): Promi
 
     const costItemPage = (data as any)?.job?.costItems;
     const nodes = costItemPage?.nodes || [];
-    const mapped = nodes.map((node: any) => ({
-      ...node,
-      files: node.files?.nodes || [],
-      costGroup: node.costGroup ? {
-        ...node.costGroup,
-        files: node.costGroup.files?.nodes || [],
-        parentCostGroup: node.costGroup.parentCostGroup ? {
-          ...node.costGroup.parentCostGroup,
-          files: node.costGroup.parentCostGroup.files?.nodes || [],
+    const mapped = nodes.map((node: any) => {
+      // Parse custom field values into named fields (Status, Internal Notes, Vendor)
+      const cfvs = node.customFieldValues?.nodes || [];
+      let status: string | null = null;
+      let internalNotes: string | null = null;
+      let vendor: string | null = null;
+      for (const cfv of cfvs) {
+        const fieldName = cfv.customField?.name;
+        const val = cfv.value;
+        if (!fieldName || !val) continue;
+        if (fieldName === 'Status') status = val;
+        else if (fieldName === 'Internal Notes') internalNotes = val;
+        else if (fieldName === 'Vendor') vendor = val;
+      }
+      return {
+        ...node,
+        customFieldValues: undefined,
+        status,
+        internalNotes,
+        vendor,
+        files: node.files?.nodes || [],
+        costGroup: node.costGroup ? {
+          ...node.costGroup,
+          files: node.costGroup.files?.nodes || [],
+          parentCostGroup: node.costGroup.parentCostGroup ? {
+            ...node.costGroup.parentCostGroup,
+            files: node.costGroup.parentCostGroup.files?.nodes || [],
+          } : null,
         } : null,
-      } : null,
-    }));
+      };
+    });
     allItems = allItems.concat(mapped);
     nextPage = costItemPage?.nextPage || null;
     if (!nextPage || nodes.length < PAGE_SIZE) break;

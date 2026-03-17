@@ -292,6 +292,16 @@ const projectDetails: AgentModule = {
       '- NEVER make up information. Only answer based on what is in the approved data.\n' +
       '- If the data does not contain the answer, say so clearly.\n\n' +
 
+      'SELECTION & ORDERING STATUS:\n' +
+      'Cost items may include custom fields tracking selection/ordering status:\n' +
+      '- [Status: Ordered/Finalized] — the item has been ordered and confirmed\n' +
+      '- [Status: Internal Selection Needed] — BKB team still needs to make a selection\n' +
+      '- [Status: Pricing/Agreement Pending] — waiting on pricing or client approval\n' +
+      '- [Vendor: Build.com] — where the item was ordered from\n' +
+      '- Internal Notes: order details, shipping info, tracking numbers, etc.\n' +
+      'When asked "was X ordered?" or "what is the status of X?", search for the item and report its Status, Vendor, and Internal Notes.\n' +
+      '"Ordered/Finalized" means YES, the item has been ordered. Include vendor and notes in your answer.\n\n' +
+
       'FILE ATTACHMENTS:\n' +
       '- Files are mentioned in the data as "📎 FileName (file attached)".\n' +
       '- Do NOT try to generate URLs or links for files. Clickable file links are added automatically after your response.\n' +
@@ -397,6 +407,9 @@ const projectDetails: AgentModule = {
     if (/(give me.*detail|all.*detail|detail.*of)/i.test(lower)) return 0.92;
     if (/(where.*install|where.*go|where.*being|where.*getting)/i.test(lower))
       return 0.93;
+    // Selections, ordering status, vendor questions
+    if (/(order|ordered|finalized|selection|selected|vendor|where.*order|was.*order|has.*been.*order|fixture|mirror|faucet|toilet|vanity|shower|tub|sink)/i.test(lower))
+      return 0.92;
 
     // Medium-high: document/contract/change order questions
     if (
