@@ -49,8 +49,18 @@ const MARGINS: Record<string, number> = {
   'Allowance': 0.30,
   'Selection': 0.30,
   'Other': 0.30,
-  'Subcontractor': 0.25, // Default sub margin, varies by trade
+  'Subcontractor': 0.30, // 30% default — confirmed across 13-project analysis
 };
+
+// Target margins by cost type — used for validation
+export const TARGET_MARGINS: Record<string, number> = { ...MARGINS };
+
+// Labor rate constants
+export const LABOR_RATES = {
+  hourlyRate: 85,    // $/hr cost
+  billRate: 125,     // $/hr price
+  margin: 0.32,      // 32%
+} as const;
 
 export function calculatePrice(cost: number, costTypeName: string): number {
   const margin = MARGINS[costTypeName] ?? 0.30;
@@ -111,16 +121,99 @@ BKB COST CODE SYSTEM (23 categories):
 ${buildCategoryList()}
 Note: Categories 07 and 21 are not used.
 
-COST TYPES & MARGINS:
+COST TYPES & MARGINS (ALL types use these defaults — no trade-specific exceptions):
 - Materials — 30% margin (cost / 0.70 = price)
-- Labor — 32% margin ($85/hr cost, ~$125/hr price for BKB crew)
-- Subcontractor — ~25% margin (varies by trade, negotiate per sub)
+- Labor — 32% margin ($85/hr cost, $125/hr price for BKB crew)
+- Subcontractor — 30% margin (cost / 0.70 = price)
 - Allowance — 30% margin (placeholder amounts for client selections)
 - Selection — 30% margin (fixture/finish selections)
 - Other — 30% margin
 
+IMPORTANT: These margins are firm defaults derived from 13-project portfolio analysis ($4.9M revenue, 942 items).
+If any line item's price does not meet the target margin, flag it. Always calculate: price = cost / (1 - margin).
+
 AVAILABLE UNITS:
 Days, Each, Hours, Linear Feet (LF), Lump Sum (LS), Months, Square Feet (SF), Squares (sq)
+
+PRICING BENCHMARKS BY COST CODE (from 13-project analysis, $4.9M portfolio):
+These are HISTORICAL AVERAGES from completed BKB projects. Use them as sanity-checks and starting points.
+When the user doesn't specify exact costs, use these ranges as reasonable estimates.
+
+Code 01 Planning/Admin — Avg margin 32.5% on $211K revenue
+  Typical: Architectural plans, engineering, permits, project management hours
+  PM labor: $85/hr cost, $125/hr price (Hours)
+
+Code 02 Demolition/Sitework — Avg margin 30.5% on $113K revenue
+  Typical: Interior demo ($2,500-$8,000 LS sub), dumpster ($600-$1,200/pull EA)
+  Site protection, porta-potty ($200-$350/mo)
+
+Code 03 Concrete/Stone — Avg margin 32.8% on $544K revenue (STRONG)
+  Typical: Foundation work, stone veneer, concrete flatwork
+  Often subcontracted as lump sum
+
+Code 04 Framing — Avg margin 28.0% on $304K revenue
+  Typical: Structural framing $41-$55/SF (sub), BKB labor for misc framing
+  Wall framing, headers, blocking, structural modifications
+
+Code 05 Windows/Doors — Avg margin 21.8% on $280K revenue (BELOW TARGET — price up!)
+  Typical: Window replacements $500-$2,500/ea material, installation $150-$400/ea labor
+  Exterior doors $1,200-$3,500/ea installed. Interior doors $400-$800/ea installed
+  ⚠️ IMPORTANT: Historical margin was only 21.8%. Price materials at FULL 30% margin.
+
+Code 06 Exterior Finish/Decks — Avg margin 30.8% on $422K revenue
+  Typical: Siding (James Hardie $8-$14/SF installed), decking ($35-$65/SF composite)
+  Exterior trim, soffit, fascia
+
+Code 08 Roofing — Avg margin 25.2% on $81K revenue
+  Typical: Asphalt shingle $350-$500/square installed, standing seam metal $800-$1,200/square
+  Usually subcontracted as lump sum
+
+Code 09 Insulation — Avg margin 23.8% on $42K revenue
+  Typical: Spray foam $1.50-$3.50/SF, batt $0.80-$1.50/SF, blown-in $1.00-$2.00/SF
+  ⚠️ Price at 30% — historical was below target.
+
+Code 10 Plumbing — Avg margin 22.3% on $215K revenue (BELOW TARGET — price up!)
+  Typical: Rough-in $3,500-$8,000/bathroom (sub LS), fixtures $500-$3,000/ea
+  Kitchen rough-in $2,000-$5,000 LS
+  ⚠️ IMPORTANT: Historical margin was only 22.3%. Price at FULL 30% margin.
+
+Code 11 HVAC — Avg margin 24.1% on $51K revenue
+  Typical: Ductwork modifications $1,500-$4,000 LS, mini-split $3,500-$6,000/unit installed
+  ⚠️ Price at 30% — historical was below target.
+
+Code 12 Electrical — Avg margin 28.3% on $126K revenue
+  Typical: Rough-in $3,000-$8,000/room (sub LS), panel upgrade $2,500-$4,500
+  Recessed lights $150-$250/ea installed, outlets/switches $100-$200/ea
+
+Code 13 Drywall — Avg margin 26.6% on $65K revenue
+  Typical: Hang & finish $2.50-$4.50/SF (sub), patches $300-$800/room LS
+
+Code 14 Interior Finish — Avg margin 30.5% on $158K revenue
+  Typical: Trim/molding installation, built-ins, hardware, interior carpentry
+  Crown molding $8-$15/LF installed, base trim $5-$10/LF installed
+
+Code 15 Painting — Avg margin 21.5% on $72K revenue (BELOW TARGET — price up!)
+  Typical: Interior $2.50-$4.50/SF (sub), exterior $3.00-$6.00/SF
+  Cabinet painting $80-$150/door (sub)
+  ⚠️ IMPORTANT: Historical margin was only 21.5%. Price at FULL 30% margin.
+
+Code 16 Cabinets/Countertops — Avg margin 25.5% on $932K revenue (LARGEST category)
+  Typical: Custom cabinets $400-$800/LF, semi-custom $250-$500/LF
+  Quartz countertops $75-$125/SF installed, granite $60-$100/SF
+  ⚠️ Watch margins closely — largest spend category.
+
+Code 17 Tile — Avg margin 24.3% on $119K revenue
+  Typical: Floor tile $12-$25/SF installed (sub), wall tile $15-$30/SF
+  Shower tile $20-$40/SF, backsplash $15-$30/SF
+  ⚠️ Price at 30% — historical was below target.
+
+Code 19 Flooring — Avg margin 22.8% on $181K revenue (BELOW TARGET — price up!)
+  Typical: Hardwood $10-$18/SF installed, LVP $6-$12/SF installed
+  Carpet $4-$8/SF installed
+  ⚠️ IMPORTANT: Historical margin was only 22.8%. Price at FULL 30% margin.
+
+Code 20 Shower Glass/Specialty — Avg margin 24.7% on $4K revenue
+  Typical: Frameless shower glass $1,500-$4,000/opening installed
 
 DESCRIPTION GUIDELINES:
 - Group descriptions are CLIENT-FACING: professional scope language describing what the client is getting
@@ -328,6 +421,79 @@ export function resolveIds(budget: ProposedBudget, catalog: CostCatalog): Propos
       costTypeId: typeMap.get(item.costTypeName.toLowerCase()) || item.costTypeId,
       unitId: unitMap.get(item.unitName.toLowerCase()) || item.unitId,
     })),
+  };
+}
+
+// -- Margin Validation --
+
+export interface MarginWarning {
+  itemName: string;
+  groupName: string;
+  costTypeName: string;
+  actualMargin: number;
+  targetMargin: number;
+  suggestedPrice: number;
+  currentPrice: number;
+}
+
+/**
+ * Validate every line item in a proposed budget against target margins.
+ * Returns an array of warnings for items below target.
+ */
+export function validateMargins(budget: ProposedBudget): MarginWarning[] {
+  const warnings: MarginWarning[] = [];
+
+  for (const item of budget.lineItems) {
+    if (item.unitCost <= 0 || item.unitPrice <= 0) continue; // Skip zero-cost items
+
+    const targetMargin = MARGINS[item.costTypeName] ?? 0.30;
+    const actualMargin = 1 - (item.unitCost / item.unitPrice);
+    const suggestedPrice = calculatePrice(item.unitCost, item.costTypeName);
+
+    // Flag if margin is more than 2% below target (allows small rounding tolerance)
+    if (actualMargin < targetMargin - 0.02) {
+      warnings.push({
+        itemName: item.name,
+        groupName: item.groupName,
+        costTypeName: item.costTypeName,
+        actualMargin: Math.round(actualMargin * 1000) / 10,
+        targetMargin: Math.round(targetMargin * 100),
+        suggestedPrice,
+        currentPrice: item.unitPrice,
+      });
+    }
+  }
+
+  return warnings;
+}
+
+/**
+ * Auto-correct prices to hit target margins.
+ * Used when the agent produces items below target — we fix them before showing to user.
+ */
+export function enforceTargetMargins(budget: ProposedBudget): ProposedBudget {
+  return {
+    ...budget,
+    lineItems: budget.lineItems.map((item) => {
+      if (item.unitCost <= 0) return item;
+
+      const targetMargin = MARGINS[item.costTypeName] ?? 0.30;
+      const actualMargin = item.unitPrice > 0 ? 1 - (item.unitCost / item.unitPrice) : 0;
+
+      // If margin is below target by more than 2%, correct it
+      if (actualMargin < targetMargin - 0.02) {
+        const correctedPrice = calculatePrice(item.unitCost, item.costTypeName);
+        return { ...item, unitPrice: correctedPrice };
+      }
+      return item;
+    }),
+    // Recalculate totals
+    get totalCost() {
+      return this.lineItems.reduce((sum, i) => sum + (i.quantity * i.unitCost), 0);
+    },
+    get totalPrice() {
+      return this.lineItems.reduce((sum, i) => sum + (i.quantity * i.unitPrice), 0);
+    },
   };
 }
 

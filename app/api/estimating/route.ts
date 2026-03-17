@@ -15,6 +15,8 @@ import {
   resolveIds,
   stripProposalMarkers,
   stripQuestionMarkers,
+  validateMargins,
+  enforceTargetMargins,
 } from '@/app/lib/estimating-agent';
 
 const anthropic = new Anthropic();
@@ -84,8 +86,26 @@ export async function POST(req: NextRequest) {
 
     // Check for budget proposal in the response
     let proposedBudget = parseProposedBudget(replyText);
+    let marginWarnings: ReturnType<typeof validateMargins> = [];
+
     if (proposedBudget) {
+      // Resolve IDs from the org catalog
       proposedBudget = resolveIds(proposedBudget, catalog);
+
+      // Validate margins and collect warnings
+      marginWarnings = validateMargins(proposedBudget);
+
+      // Auto-correct any items below target margin
+      if (marginWarnings.length > 0) {
+        proposedBudget = enforceTargetMargins(proposedBudget);
+        // Recalculate totals after correction
+        proposedBudget.totalCost = proposedBudget.lineItems.reduce(
+          (sum, i) => sum + (i.quantity * i.unitCost), 0
+        );
+        proposedBudget.totalPrice = proposedBudget.lineItems.reduce(
+          (sum, i) => sum + (i.quantity * i.unitPrice), 0
+        );
+      }
     }
 
     // Check for structured questions in the response
@@ -100,6 +120,7 @@ export async function POST(req: NextRequest) {
       proposedBudget,
       structuredQuestions,
       readyToCreate: !!proposedBudget && proposedBudget.lineItems.length > 0,
+      marginWarnings: marginWarnings.length > 0 ? marginWarnings : undefined,
     });
   } catch (err) {
     console.error('Estimating error:', err);
