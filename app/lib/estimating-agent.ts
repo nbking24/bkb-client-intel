@@ -78,7 +78,10 @@ function buildCategoryList(): string {
     .join('\n');
 }
 
-export function buildSystemPrompt(estimateType: 'initial' | 'change-order'): string {
+export function buildSystemPrompt(
+  estimateType: 'initial' | 'change-order',
+  quickEstimate: boolean = false,
+): string {
   const hierarchySection = estimateType === 'initial'
     ? `BUDGET GROUP HIERARCHY (Initial Estimate):
 When creating an initial estimate, structure groups as:
@@ -217,10 +220,40 @@ Code 20 Shower Glass/Specialty — Avg margin 24.7% on $4K revenue
   Typical: Frameless shower glass $1,500-$4,000/opening installed
 
 DESCRIPTION GUIDELINES:
-- Group descriptions are CLIENT-FACING: professional scope language describing what the client is getting
-  Example: "Provide and install new kitchen cabinetry including island, base cabinets, and upper cabinets per design plans."
-- Item descriptions are for INSTALLERS/TRADE PARTNERS: technical details, specs, measurements
-  Example: "James Hardie lap siding, 8.25\" exposure, smooth finish. Install per manufacturer specs with 1.25\" galvanized nails."
+
+GROUP DESCRIPTIONS (groupDescription) are CLIENT-FACING. These are the most important written output
+because they define scope for the homeowner and set expectations for the contract. They must be DETAILED
+and COMPREHENSIVE — not one-line summaries. Each group description should clearly communicate:
+  - WHAT is being done (remove, install, build, finish, etc.)
+  - WHERE it applies (which room, wall, floor, area)
+  - WHAT'S INCLUDED in the price (materials, labor, specific tasks)
+  - WHAT'S NOT INCLUDED if relevant (exclusions that avoid confusion)
+  - MATERIAL/QUALITY LEVEL when known (allowance range, specified product, or "per selection")
+
+GOOD group description (detailed, defines scope):
+  "Provide and install new kitchen cabinetry including custom island with integrated seating overhang,
+  perimeter base and wall cabinets, lazy susan corner unit, and pull-out trash cabinet. Cabinetry to be
+  painted shaker-style with soft-close hinges and drawer slides throughout. Installation includes removal
+  and disposal of existing cabinets, countertop template coordination, and hardware installation.
+  Countertop cutout and sink hookup by others."
+
+ANOTHER GOOD example:
+  "Complete demolition of existing kitchen including removal of all cabinets, countertops, backsplash tile,
+  flooring to subfloor, and drywall as needed for plumbing and electrical access. Scope includes protection
+  of adjacent finished spaces, debris removal, and dumpster haul-off. Excludes asbestos or lead abatement
+  if discovered — to be addressed via change order if required."
+
+BAD group description (too vague, doesn't define scope):
+  "Kitchen cabinetry per plans."  ← What cabinets? What's included? What's excluded?
+  "Plumbing rough-in."  ← Where? What fixtures? New lines or just relocations?
+  "Provide framing per plans."  ← What kind of framing? Structural? Walls only? Headers?
+
+Write group descriptions as if the homeowner will read them without any other context. If you don't have
+enough information to write a detailed description, that is a valid reason to ask a clarifying question.
+Minimum 2-3 sentences per group description. More is better when scope is complex.
+
+ITEM DESCRIPTIONS are for INSTALLERS/TRADE PARTNERS: technical details, specs, measurements
+  Example: "James Hardie lap siding, 8.25\\" exposure, smooth finish. Install per manufacturer specs with 1.25\\" galvanized nails."
 
 SPEC WRITING CONVENTIONS:
 - Standard openers: "Provide and install...", "Furnish and install...", "Remove and replace...", "Remove and dispose of..."
@@ -377,6 +410,25 @@ When using Lump Sum for unknown quantities, set the unitCost to a reasonable tot
 pricing benchmarks above, and add "[QTY TBD]" to the item description so it's clear this needs
 to be refined once actual measurements are taken.
 
+${quickEstimate ? `
+QUICK ESTIMATE MODE (ACTIVE):
+The user selected "Quick Estimate" mode. This means they want you to build the budget STRUCTURE
+as fast as possible with placeholder quantities. They will fill in actual quantities later.
+
+Rules for Quick Estimate mode:
+- Use Lump Sum (qty=1) for EVERY line item unless the user explicitly gave you a quantity
+- DO NOT ask about quantities — the user will refine them after seeing the structure
+- Focus on getting the RIGHT items, cost codes, groups, and descriptions — structure is the priority
+- Still use realistic unit costs from the benchmarks (the $/LS total should be a reasonable ballpark)
+- Add "[QTY TBD]" at the end of each item description that uses a placeholder
+- You CAN still ask 1-2 questions if the SCOPE is genuinely unclear (e.g., "Does this include demo?")
+  but do NOT ask about measurements, quantities, or square footage — skip all of those
+- Produce the budget proposal on your FIRST response if the scope is at all clear
+- Better to propose a budget that needs refinement than to ask questions that delay the estimate
+` : `
+STANDARD ESTIMATE MODE (ACTIVE):
+Build a detailed, accurate estimate. Ask about quantities when they're unknown and can't use Lump Sum.
+`}
 PRODUCING THE BUDGET:
 If the user provides enough detail (dimensions, scope, quality level), go straight to the budget.
 If quantities or scope boundaries are missing, ask — but keep it to 2-4 questions max.`;
@@ -386,11 +438,12 @@ If quantities or scope boundaries are missing, ask — but keep it to 2-4 questi
 
 export async function buildEstimatingContext(
   jobId?: string,
-  estimateType: 'initial' | 'change-order' = 'initial'
+  estimateType: 'initial' | 'change-order' = 'initial',
+  quickEstimate: boolean = false,
 ): Promise<{ systemPrompt: string; catalogContext: string; catalog: CostCatalog }> {
   const catalog = await getCachedCatalog();
   const catalogContext = formatCatalogForAgent(catalog);
-  const systemPrompt = buildSystemPrompt(estimateType);
+  const systemPrompt = buildSystemPrompt(estimateType, quickEstimate);
 
   return { systemPrompt, catalogContext, catalog };
 }

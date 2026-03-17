@@ -344,6 +344,7 @@ export default function EstimatePage() {
   const [changeOrderName, setChangeOrderName] = useState('');
   const [scopeText, setScopeText] = useState('');
   const [uploadedFiles, setUploadedFiles] = useState<UploadedFile[]>([]);
+  const [quickEstimate, setQuickEstimate] = useState(false);
   const [proposedBudget, setProposedBudget] = useState<ProposedBudget | null>(null);
   const [creating, setCreating] = useState(false);
   const [createResult, setCreateResult] = useState<{ success: boolean; message: string } | null>(null);
@@ -464,6 +465,7 @@ export default function EstimatePage() {
           jobName: `#${selectedJob.number} ${selectedJob.name}`,
           estimateType,
           changeOrderName: estimateType === 'change-order' ? changeOrderName : undefined,
+          quickEstimate,
           messages: updatedMessages.map((m) => ({ role: m.role, content: m.content })),
         }),
       });
@@ -540,6 +542,7 @@ export default function EstimatePage() {
           jobName: `#${selectedJob.number} ${selectedJob.name}`,
           estimateType,
           changeOrderName: estimateType === 'change-order' ? changeOrderName : undefined,
+          quickEstimate,
           messages: updatedMessages.map((m) => ({ role: m.role, content: m.content })),
         }),
       });
@@ -595,6 +598,7 @@ export default function EstimatePage() {
           jobName: `#${selectedJob.number} ${selectedJob.name}`,
           estimateType,
           changeOrderName: estimateType === 'change-order' ? changeOrderName : undefined,
+          quickEstimate,
           messages: updatedMessages.map((m) => ({ role: m.role, content: m.content })),
         }),
       });
@@ -675,6 +679,7 @@ export default function EstimatePage() {
     setChangeOrderName('');
     setScopeText('');
     setUploadedFiles([]);
+    setQuickEstimate(false);
     setPendingQuestions(null);
     setQuestionAnswers({});
   };
@@ -886,6 +891,31 @@ export default function EstimatePage() {
                   </div>
                 )}
               </div>
+
+              {/* Estimate Mode Toggle */}
+              <label
+                className="flex items-start gap-2.5 px-3 py-2.5 rounded-lg cursor-pointer transition-colors hover:bg-white/5"
+                style={{
+                  border: `1px solid ${quickEstimate ? 'rgba(201,168,76,0.25)' : 'rgba(205,162,116,0.08)'}`,
+                  background: quickEstimate ? 'rgba(201,168,76,0.06)' : 'transparent',
+                }}
+              >
+                <input
+                  type="checkbox"
+                  checked={quickEstimate}
+                  onChange={(e) => setQuickEstimate(e.target.checked)}
+                  className="mt-0.5 rounded"
+                  style={{ accentColor: GOLD }}
+                />
+                <div>
+                  <span className="text-[11px] font-medium" style={{ color: quickEstimate ? GOLD : TEXT }}>
+                    Quick estimate — I'll fill in quantities
+                  </span>
+                  <p className="text-[10px] mt-0.5" style={{ color: TEXT_MUTED }}>
+                    Builds structure with placeholder quantities. Faster, but you refine the numbers.
+                  </p>
+                </div>
+              </label>
 
               {/* Start Estimate Button */}
               <button

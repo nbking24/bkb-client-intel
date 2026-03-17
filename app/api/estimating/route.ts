@@ -33,6 +33,7 @@ export async function POST(req: NextRequest) {
       jobName,
       estimateType = 'initial',
       changeOrderName,
+      quickEstimate = false,
       messages = [],
     } = body;
 
@@ -43,7 +44,8 @@ export async function POST(req: NextRequest) {
     // Build context with system prompt + catalog
     const { systemPrompt, catalogContext, catalog } = await buildEstimatingContext(
       jobId,
-      estimateType
+      estimateType,
+      quickEstimate
     );
 
     // Build the full system prompt with catalog data
