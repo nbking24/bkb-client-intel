@@ -5,6 +5,7 @@
 
 import { BKB_CATEGORIES, BKB_CATEGORY_DETAILS } from './bkb-spec-guide';
 import { getCachedCatalog, formatCatalogForAgent, type CostCatalog } from './cost-catalog';
+import { formatScopeNotesForPrompt } from './scope-notes';
 import { getActiveJobs } from './jobtread';
 
 // -- Types --
@@ -259,6 +260,8 @@ SPEC WRITING CONVENTIONS:
 - Standard openers: "Provide and install...", "Furnish and install...", "Remove and replace...", "Remove and dispose of..."
 - Material format: Manufacturer, Product/Series, Style/Model, Color, Finish, Type/Size
 - Never mention subcontractor or vendor names in descriptions
+
+${formatScopeNotesForPrompt()}
 
 BKB LABOR RATES:
 - BKB Crew (internal labor): $85/hr cost, $125/hr price
