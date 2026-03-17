@@ -2833,8 +2833,9 @@ async function createJTCostItem(params: {
   unitCost?: number;
   unitPrice?: number;
   isTaxable?: boolean;
+  jobCostItemId?: string;  // Required for customer invoices — links to original budget item
 }) {
-  const { costGroupId, name, description, costCodeId, costTypeId, unitId, quantity, unitCost, unitPrice, isTaxable } = params;
+  const { costGroupId, name, description, costCodeId, costTypeId, unitId, quantity, unitCost, unitPrice, isTaxable, jobCostItemId } = params;
   const data = await pave({
     createCostItem: {
       $: {
@@ -2848,6 +2849,7 @@ async function createJTCostItem(params: {
         ...(unitCost !== undefined ? { unitCost } : {}),
         ...(unitPrice !== undefined ? { unitPrice } : {}),
         ...(isTaxable !== undefined ? { isTaxable } : {}),
+        ...(jobCostItemId ? { jobCostItemId } : {}),
       },
       createdCostItem: {
         id: {},
@@ -3051,6 +3053,7 @@ export async function createDraftCostPlusInvoice(jobId: string): Promise<{
           description: item.description || undefined,
           costCodeId: item.costCode?.id || undefined,
           costTypeId: item.costType?.id || undefined,
+          jobCostItemId: item.id,  // Link to original budget item
           quantity: item.quantity ?? 1,
           unitCost: item.unitCost ?? 0,
           unitPrice: item.unitPrice ?? 0,
@@ -3069,6 +3072,7 @@ export async function createDraftCostPlusInvoice(jobId: string): Promise<{
         description: item.description || undefined,
         costCodeId: item.costCode?.id || undefined,
         costTypeId: item.costType?.id || undefined,
+        jobCostItemId: item.id,  // Link to original budget item
         quantity: item.quantity ?? 1,
         unitCost: item.unitCost ?? 0,
         unitPrice: item.unitPrice ?? 0,
