@@ -522,12 +522,45 @@ function ContractJobCard({ job }: { job: ContractJobHealth }) {
 // Cost Plus Jobs Section
 // ============================================================
 
-function CostPlusJobCard({ job }: { job: CostPlusJobHealth }) {
+function CostPlusJobCard({ job, onInvoiceCreated }: { job: CostPlusJobHealth; onInvoiceCreated?: () => void }) {
+  const [creating, setCreating] = useState(false);
+  const [createResult, setCreateResult] = useState<{ success: boolean; message: string; documentNumber?: string } | null>(null);
+
   const hasUnbilledWork = job.unbilledCosts > 0 || job.unbilledHours > 0;
   const daysColor = !hasUnbilledWork ? '#8a8078' : (job.daysSinceLastInvoice ?? 0) > 14 ? '#ef4444' : (job.daysSinceLastInvoice ?? 0) > 10 ? '#eab308' : '#22c55e';
   const unpaidTotal = (job.releasedInvoices || [])
     .filter((inv) => inv.status === 'open')
     .reduce((sum, inv) => sum + inv.amount, 0);
+
+  async function handleCreateDraftInvoice() {
+    if (creating) return;
+    setCreating(true);
+    setCreateResult(null);
+    try {
+      const res = await fetch('/api/dashboard/invoicing/create-invoice', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ jobId: job.jobId }),
+      });
+      const data = await res.json();
+      if (data.success) {
+        setCreateResult({
+          success: true,
+          message: `Draft invoice ${data.documentNumber} created with ${data.itemCount} items (${formatCurrency(data.totalPrice)})`,
+          documentNumber: data.documentNumber,
+        });
+        // Refresh the dashboard data after a short delay
+        setTimeout(() => onInvoiceCreated?.(), 1500);
+      } else {
+        setCreateResult({ success: false, message: data.error || 'Failed to create invoice' });
+      }
+    } catch (err: any) {
+      setCreateResult({ success: false, message: err.message || 'Network error' });
+    } finally {
+      setCreating(false);
+    }
+  }
+
   return (
     <div className="px-3 py-2.5 rounded-lg" style={CARD_STYLE}>
       {/* Header row */}
@@ -579,6 +612,49 @@ function CostPlusJobCard({ job }: { job: CostPlusJobHealth }) {
           {alert}
         </div>
       ))}
+
+      {/* Create Draft Invoice Button — only for jobs with unbilled work */}
+      {hasUnbilledWork && (
+        <div className="mt-2 pt-2" style={{ borderTop: '1px solid rgba(205,162,116,0.08)' }}>
+          {createResult ? (
+            <div
+              className="flex items-center gap-2 text-xs py-1.5 px-2 rounded-lg"
+              style={{
+                background: createResult.success ? 'rgba(34,197,94,0.1)' : 'rgba(239,68,68,0.1)',
+                color: createResult.success ? '#22c55e' : '#ef4444',
+              }}
+            >
+              {createResult.success ? <Check size={12} /> : <AlertCircle size={12} />}
+              {createResult.message}
+            </div>
+          ) : (
+            <button
+              onClick={handleCreateDraftInvoice}
+              disabled={creating}
+              className="flex items-center gap-2 text-xs font-medium py-1.5 px-3 rounded-lg transition-colors w-full justify-center"
+              style={{
+                background: creating ? 'rgba(205,162,116,0.08)' : 'rgba(205,162,116,0.15)',
+                color: '#CDA274',
+                cursor: creating ? 'wait' : 'pointer',
+              }}
+              onMouseEnter={(e) => !creating && (e.currentTarget.style.background = 'rgba(205,162,116,0.25)')}
+              onMouseLeave={(e) => !creating && (e.currentTarget.style.background = 'rgba(205,162,116,0.15)')}
+            >
+              {creating ? (
+                <>
+                  <Loader2 size={12} className="animate-spin" />
+                  Creating Draft Invoice...
+                </>
+              ) : (
+                <>
+                  <Plus size={12} />
+                  Create Draft Invoice
+                </>
+              )}
+            </button>
+          )}
+        </div>
+      )}
 
       <InvoiceDetails drafts={job.draftInvoices} released={job.releasedInvoices} />
     </div>
@@ -954,7 +1030,7 @@ export default function InvoicingDashboard() {
             {costPlusExpanded && (
               <div className="grid gap-2 md:grid-cols-2 lg:grid-cols-3 ml-1">
                 {filtered.map((job) => (
-                  <CostPlusJobCard key={job.jobId} job={job} />
+                  <CostPlusJobCard key={job.jobId} job={job} onInvoiceCreated={() => fetchReport(true)} />
                 ))}
               </div>
             )}

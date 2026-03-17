@@ -2727,3 +2727,293 @@ export async function createDailyLogWithCache(params: Parameters<typeof createDa
 
   return result;
 }
+
+// ============================================================
+// DOCUMENT CREATION — PAVE mutations for creating invoices
+// ============================================================
+
+/**
+ * Create a document shell (invoice, estimate, PO, etc.) on a job.
+ * Returns the created document ID and metadata.
+ */
+async function createJTDocument(params: {
+  jobId: string;
+  type: 'customerInvoice' | 'customerOrder' | 'vendorOrder' | 'vendorBill' | 'bidRequest';
+  name: string;
+  fromName: string;
+  toName: string;
+  taxRate: string;
+  subject?: string;
+  description?: string;
+  footer?: string;
+}) {
+  const { jobId, type, name, fromName, toName, taxRate, subject, description, footer } = params;
+  const data = await pave({
+    createDocument: {
+      $: {
+        jobId,
+        type,
+        name,
+        fromName,
+        toName,
+        taxRate,
+        ...(subject ? { subject } : {}),
+        ...(description !== undefined ? { description } : {}),
+        ...(footer !== undefined ? { footer } : {}),
+      },
+      createdDocument: {
+        id: {},
+        name: {},
+        number: {},
+        status: {},
+        type: {},
+      },
+    },
+  });
+  const doc = (data as any)?.createDocument?.createdDocument;
+  if (!doc?.id) throw new Error('Document creation failed: ' + JSON.stringify(data));
+  return doc as { id: string; name: string; number: string; status: string; type: string };
+}
+
+/**
+ * Create a cost group on a document (or nested under a parent cost group).
+ */
+async function createJTCostGroup(params: {
+  documentId?: string;
+  parentCostGroupId?: string;
+  name: string;
+  description?: string;
+}) {
+  const { documentId, parentCostGroupId, name, description } = params;
+  if (!documentId && !parentCostGroupId) {
+    throw new Error('createJTCostGroup requires documentId or parentCostGroupId');
+  }
+  const data = await pave({
+    createCostGroup: {
+      $: {
+        ...(documentId ? { documentId } : {}),
+        ...(parentCostGroupId ? { parentCostGroupId } : {}),
+        name,
+        ...(description ? { description } : {}),
+      },
+      createdCostGroup: {
+        id: {},
+        name: {},
+      },
+    },
+  });
+  const group = (data as any)?.createCostGroup?.createdCostGroup;
+  if (!group?.id) throw new Error('Cost group creation failed: ' + JSON.stringify(data));
+  return group as { id: string; name: string };
+}
+
+/**
+ * Create a cost item inside a cost group on a document.
+ */
+async function createJTCostItem(params: {
+  costGroupId: string;
+  name: string;
+  description?: string;
+  costCodeId?: string;
+  costTypeId?: string;
+  unitId?: string;
+  quantity?: number;
+  unitCost?: number;
+  unitPrice?: number;
+  isTaxable?: boolean;
+}) {
+  const { costGroupId, name, description, costCodeId, costTypeId, unitId, quantity, unitCost, unitPrice, isTaxable } = params;
+  const data = await pave({
+    createCostItem: {
+      $: {
+        costGroupId,
+        name,
+        ...(description ? { description } : {}),
+        ...(costCodeId ? { costCodeId } : {}),
+        ...(costTypeId ? { costTypeId } : {}),
+        ...(unitId ? { unitId } : {}),
+        ...(quantity !== undefined ? { quantity } : {}),
+        ...(unitCost !== undefined ? { unitCost } : {}),
+        ...(unitPrice !== undefined ? { unitPrice } : {}),
+        ...(isTaxable !== undefined ? { isTaxable } : {}),
+      },
+      createdCostItem: {
+        id: {},
+        name: {},
+      },
+    },
+  });
+  const item = (data as any)?.createCostItem?.createdCostItem;
+  if (!item?.id) throw new Error('Cost item creation failed: ' + JSON.stringify(data));
+  return item as { id: string; name: string };
+}
+
+// ============================================================
+// COST-PLUS DRAFT INVOICE CREATION
+// ============================================================
+
+/**
+ * Creates a draft customer invoice for a cost-plus job by:
+ * 1. Fetching job details + customer info
+ * 2. Querying all unbilled budget items (document === null)
+ * 3. Creating a document shell (customerInvoice, draft)
+ * 4. Grouping unbilled items by cost type category
+ * 5. Creating cost groups and items on the document
+ *
+ * Returns the created document info or throws on failure.
+ */
+export async function createDraftCostPlusInvoice(jobId: string): Promise<{
+  documentId: string;
+  documentName: string;
+  documentNumber: string;
+  itemCount: number;
+  totalCost: number;
+  totalPrice: number;
+}> {
+  // 1. Get job details for customer name and job number
+  const job = await getJob(jobId);
+  if (!job) throw new Error('Job not found: ' + jobId);
+
+  const customerName = job.clientName || 'Client';
+  const jobNumber = job.number || '';
+
+  // 2. Get all budget cost items
+  const allItems = await getCostItemsForJob(jobId);
+
+  // 3. Filter to unbilled items (not on any document)
+  const unbilledItems = allItems.filter((item: any) => !item.document);
+
+  if (unbilledItems.length === 0) {
+    throw new Error('No unbilled cost items found for this job. All items are already on documents.');
+  }
+
+  // 4. Categorize items by cost type for grouping on the invoice
+  // Matches the BKB pattern from Invoice 199-15: Permit & Admin, Materials, BKB Labor
+  type CategoryKey = 'admin' | 'materials' | 'labor' | 'subcontractor' | 'other';
+  const categoryNames: Record<CategoryKey, string> = {
+    admin: 'Permit & Admin Costs',
+    materials: 'Materials',
+    labor: 'BKB Labor',
+    subcontractor: 'Subcontractor Costs',
+    other: 'Other Costs',
+  };
+
+  const categorized: Record<CategoryKey, typeof unbilledItems> = {
+    admin: [],
+    materials: [],
+    labor: [],
+    subcontractor: [],
+    other: [],
+  };
+
+  for (const item of unbilledItems) {
+    const costTypeName = (item.costType?.name || '').toLowerCase();
+    const costCodeNum = parseInt(item.costCode?.number || '0', 10);
+
+    // Categorize based on cost type name and cost code patterns
+    if (costTypeName.includes('labor') || costCodeNum === 1 || costCodeNum === 2 || costCodeNum === 3) {
+      categorized.labor.push(item);
+    } else if (costTypeName.includes('material')) {
+      categorized.materials.push(item);
+    } else if (costTypeName.includes('subcontract')) {
+      categorized.subcontractor.push(item);
+    } else if (costCodeNum === 20 || costCodeNum === 21 || costCodeNum === 22) {
+      // Cost codes 20-22: Permits, Insurance, Project Management
+      categorized.admin.push(item);
+    } else {
+      categorized.other.push(item);
+    }
+  }
+
+  // 5. Create the document shell
+  const invoiceName = `Invoice ${jobNumber}`;
+  const doc = await createJTDocument({
+    jobId,
+    type: 'customerInvoice',
+    name: invoiceName,
+    fromName: 'Terri (Brett King Builder-Contractor Inc.)',
+    toName: customerName,
+    taxRate: '0',
+    subject: `Cost Plus Invoice - ${job.name}`,
+  });
+
+  // 6. Create cost groups and items on the document
+  let totalCost = 0;
+  let totalPrice = 0;
+  let createdItemCount = 0;
+
+  for (const [category, items] of Object.entries(categorized) as [CategoryKey, typeof unbilledItems][]) {
+    if (items.length === 0) continue;
+
+    // Create top-level category group on the document
+    const categoryGroup = await createJTCostGroup({
+      documentId: doc.id,
+      name: categoryNames[category],
+    });
+
+    // Group items by their budget cost group name (sub-grouping)
+    const subGroups: Record<string, typeof items> = {};
+    const ungrouped: typeof items = [];
+
+    for (const item of items) {
+      const groupName = item.costGroup?.name;
+      if (groupName) {
+        if (!subGroups[groupName]) subGroups[groupName] = [];
+        subGroups[groupName].push(item);
+      } else {
+        ungrouped.push(item);
+      }
+    }
+
+    // Create sub-groups and their items
+    for (const [subGroupName, subItems] of Object.entries(subGroups)) {
+      const subGroup = await createJTCostGroup({
+        parentCostGroupId: categoryGroup.id,
+        name: subGroupName,
+        description: subItems[0]?.costGroup?.description || undefined,
+      });
+
+      for (const item of subItems) {
+        await createJTCostItem({
+          costGroupId: subGroup.id,
+          name: item.name,
+          description: item.description || undefined,
+          costCodeId: item.costCode?.id || undefined,
+          costTypeId: item.costType?.id || undefined,
+          quantity: item.quantity ?? 1,
+          unitCost: item.unitCost ?? 0,
+          unitPrice: item.unitPrice ?? 0,
+        });
+        totalCost += (item.cost ?? 0);
+        totalPrice += (item.price ?? 0);
+        createdItemCount++;
+      }
+    }
+
+    // Add ungrouped items directly under the category
+    for (const item of ungrouped) {
+      await createJTCostItem({
+        costGroupId: categoryGroup.id,
+        name: item.name,
+        description: item.description || undefined,
+        costCodeId: item.costCode?.id || undefined,
+        costTypeId: item.costType?.id || undefined,
+        quantity: item.quantity ?? 1,
+        unitCost: item.unitCost ?? 0,
+        unitPrice: item.unitPrice ?? 0,
+      });
+      totalCost += (item.cost ?? 0);
+      totalPrice += (item.price ?? 0);
+      createdItemCount++;
+    }
+  }
+
+  return {
+    documentId: doc.id,
+    documentName: doc.name,
+    documentNumber: doc.number,
+    itemCount: createdItemCount,
+    totalCost,
+    totalPrice,
+  };
+}
