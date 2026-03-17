@@ -222,6 +222,9 @@ Code 20 Shower Glass/Specialty — Avg margin 24.7% on $4K revenue
 
 DESCRIPTION GUIDELINES:
 
+IMPORTANT: All group descriptions MUST be written in **Markdown** format. This ensures proper rendering
+when estimate documents are generated. Use bold, bullet lists, line breaks, and emphasis as needed.
+
 GROUP DESCRIPTIONS (groupDescription) are CLIENT-FACING. These are the most important written output
 because they define scope for the homeowner and set expectations for the contract. They must be DETAILED
 and COMPREHENSIVE — not one-line summaries. Each group description should clearly communicate:
@@ -231,20 +234,16 @@ and COMPREHENSIVE — not one-line summaries. Each group description should clea
   - WHAT'S NOT INCLUDED if relevant (exclusions that avoid confusion)
   - MATERIAL/QUALITY LEVEL when known (allowance range, specified product, or "per selection")
 
-GOOD group description (detailed, defines scope):
-  "Provide and install new kitchen cabinetry including custom island with integrated seating overhang,
-  perimeter base and wall cabinets, lazy susan corner unit, and pull-out trash cabinet. Cabinetry to be
-  painted shaker-style with soft-close hinges and drawer slides throughout. Installation includes removal
-  and disposal of existing cabinets, countertop template coordination, and hardware installation.
-  Countertop cutout and sink hookup by others."
+FORMAT: Write in Markdown. Use **bold** for section labels, bullet lists for inclusions/exclusions,
+and line breaks between logical sections. This renders cleanly in generated estimate documents.
+
+GOOD group description (detailed, markdown-formatted):
+  "Provide and install new kitchen cabinetry including custom island with integrated seating overhang, perimeter base and wall cabinets, lazy susan corner unit, and pull-out trash cabinet. Cabinetry to be painted shaker-style with soft-close hinges and drawer slides throughout.\\n\\n**Includes:**\\n- Removal and disposal of existing cabinets\\n- Countertop template coordination\\n- Hardware installation\\n- Soft-close hinges and drawer slides\\n\\n**Excludes:**\\n- Countertop cutout and sink hookup (by others)"
 
 ANOTHER GOOD example:
-  "Complete demolition of existing kitchen including removal of all cabinets, countertops, backsplash tile,
-  flooring to subfloor, and drywall as needed for plumbing and electrical access. Scope includes protection
-  of adjacent finished spaces, debris removal, and dumpster haul-off. Excludes asbestos or lead abatement
-  if discovered — to be addressed via change order if required."
+  "Complete demolition of existing kitchen including removal of all cabinets, countertops, backsplash tile, flooring to subfloor, and drywall as needed for plumbing and electrical access.\\n\\n**Includes:**\\n- Protection of adjacent finished spaces\\n- Debris removal and dumpster haul-off\\n- Disconnect of existing plumbing and electrical (capped)\\n\\n**Excludes:**\\n- Asbestos or lead abatement if discovered — to be addressed via change order if required"
 
-BAD group description (too vague, doesn't define scope):
+BAD group description (too vague, no formatting):
   "Kitchen cabinetry per plans."  ← What cabinets? What's included? What's excluded?
   "Plumbing rough-in."  ← Where? What fixtures? New lines or just relocations?
   "Provide framing per plans."  ← What kind of framing? Structural? Walls only? Headers?
@@ -252,8 +251,9 @@ BAD group description (too vague, doesn't define scope):
 Write group descriptions as if the homeowner will read them without any other context. If you don't have
 enough information to write a detailed description, that is a valid reason to ask a clarifying question.
 Minimum 2-3 sentences per group description. More is better when scope is complex.
+Use \\n for line breaks within the JSON string value — the frontend will render the markdown.
 
-ITEM DESCRIPTIONS are for INSTALLERS/TRADE PARTNERS: technical details, specs, measurements
+ITEM DESCRIPTIONS are for INSTALLERS/TRADE PARTNERS: technical details, specs, measurements (plain text, no markdown needed)
   Example: "James Hardie lap siding, 8.25\\" exposure, smooth finish. Install per manufacturer specs with 1.25\\" galvanized nails."
 
 SPEC WRITING CONVENTIONS:

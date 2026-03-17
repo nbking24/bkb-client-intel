@@ -58,10 +58,11 @@ export function formatScopeNotesForPrompt(): string {
   return `MANDATORY SCOPE NOTES:
 The following notes MUST be appended to the relevant group description whenever the trigger
 condition is met. These are non-negotiable — always include the exact note text. Append each
-applicable note as its own paragraph at the end of the group description.
+applicable note as a markdown-formatted paragraph at the end of the group description.
+Use this format: \\n\\n**Note:** [note text here]
 
 ${lines}
 
-If multiple notes apply to the same group, include all of them. These notes protect BKB and set
-proper client expectations about potential change orders.`;
+If multiple notes apply to the same group, include all of them as separate **Note:** paragraphs.
+These notes protect BKB and set proper client expectations about potential change orders.`;
 }
