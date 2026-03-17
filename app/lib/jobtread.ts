@@ -2948,11 +2948,17 @@ export async function createDraftCostPlusInvoice(jobId: string): Promise<{
     if (!nextPage || nodes.length < PAGE_SIZE) break;
   }
 
-  // 3. Filter to unbilled items (not on any document)
-  const unbilledItems = allUnbilled;
+  // 3. Filter to unbilled items that have actual costs or prices (exclude $0.00 placeholders)
+  const unbilledItems = allUnbilled.filter((item) => {
+    const cost = item.cost ?? 0;
+    const price = item.price ?? 0;
+    const unitCost = item.unitCost ?? 0;
+    const unitPrice = item.unitPrice ?? 0;
+    return cost !== 0 || price !== 0 || unitCost !== 0 || unitPrice !== 0;
+  });
 
   if (unbilledItems.length === 0) {
-    throw new Error('No unbilled cost items found for this job. All items are already on documents.');
+    throw new Error('No billable cost items found for this job. All unbilled items have $0.00 values.');
   }
 
   // 4. Categorize items by cost type for grouping on the invoice
