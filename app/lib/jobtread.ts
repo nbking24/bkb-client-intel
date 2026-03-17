@@ -1648,6 +1648,7 @@ export interface JTTimeEntry {
   endedAt: string;
   notes: string;
   type: string;
+  cost?: number;
   user?: { id: string; name: string };
   costItem?: { id: string; name: string; costCode?: { number: string; name: string } | null } | null;
 }
@@ -1660,6 +1661,7 @@ export async function getTimeEntriesForJob(jobId: string, limit = 100): Promise<
       endedAt: {},
       notes: {},
       type: {},
+      cost: {},
       user: { id: {}, name: {} },
       costItem: { id: {}, name: {}, costCode: { number: {}, name: {} } },
     },
@@ -1884,6 +1886,7 @@ export async function getDocumentCostItemsById(documentId: string): Promise<JTCo
           quantity: {},
           costCode: { number: {}, name: {} },
           costType: { id: {}, name: {} },
+          jobCostItem: { id: {} },
         },
       },
     },
@@ -2888,7 +2891,25 @@ export async function createDraftCostPlusInvoice(jobId: string): Promise<{
   totalCost: number;
   totalPrice: number;
 }> {
-  // 1. Get job details including location for customer name, address, and job number
+  // ============================================================
+  // COST-PLUS INVOICE CREATION — From Vendor Bills + Time Entries
+  //
+  // This mirrors JT's "Bills and Time" flow: pull uninvoiced vendor
+  // bills and time entries onto a customer invoice.
+  //
+  // The old approach pulled from budget items, which was wrong —
+  // Cost-Plus billing in JT is based on actual vendor bills and
+  // time entries, not budget estimates.
+  //
+  // Algorithm:
+  // 1. Fetch all vendor bills and their cost items
+  // 2. Fetch all non-draft customer invoices and their cost items
+  // 3. Use per-budget-item FIFO deduction to find uninvoiced bills
+  // 4. Use per-budget-item hour deduction to find uninvoiced time
+  // 5. Create invoice with uninvoiced bills + time entries
+  // ============================================================
+
+  // 1. Get job details
   const jobData = await pave({
     job: {
       $: { id: jobId },
@@ -2903,110 +2924,150 @@ export async function createDraftCostPlusInvoice(jobId: string): Promise<{
   if (!job) throw new Error('Job not found: ' + jobId);
 
   const customerName = job.location?.account?.name || 'Client';
-  const jobNumber = job.number || '';
   const locationName = job.location?.name || '';
   const locationAddress = job.location?.address || locationName;
 
-  // 2. Get all budget cost items — use lean paginated query to avoid 413 errors
-  const PAGE_SIZE = 30;
-  let allUnbilled: any[] = [];
-  let nextPage: string | null = null;
-
-  for (let page = 0; page < 30; page++) {
-    const pageParams: Record<string, unknown> = { size: PAGE_SIZE };
-    if (nextPage) pageParams.page = nextPage;
-
-    const data = await pave({
-      job: {
-        $: { id: jobId },
-        costItems: {
-          $: pageParams,
-          nextPage: {},
-          nodes: {
-            id: {},
-            name: {},
-            description: {},
-            quantity: {},
-            unitCost: {},
-            unitPrice: {},
-            cost: {},
-            price: {},
-            costType: { id: {}, name: {} },
-            costCode: { id: {}, name: {}, number: {} },
-            costGroup: { id: {}, name: {}, description: {} },
-            document: { id: {} },
-          },
+  // 2. Fetch all documents for the job
+  const docsData = await pave({
+    job: {
+      $: { id: jobId },
+      documents: {
+        $: { size: 100 },
+        nodes: {
+          id: {}, name: {}, type: {}, status: {}, number: {},
+          createdAt: {},
+          account: { name: {} },
         },
       },
-    });
+    },
+  });
+  const allDocs = (docsData as any)?.job?.documents?.nodes || [];
+  const vendorBills = allDocs.filter((d: any) => d.type === 'vendorBill' && d.status !== 'denied');
+  const nonDraftInvoices = allDocs.filter((d: any) => d.type === 'customerInvoice' && d.status !== 'draft');
 
-    const costItemPage = (data as any)?.job?.costItems;
-    const nodes = costItemPage?.nodes || [];
-    // Only keep unbilled items (not on any document)
-    for (const node of nodes) {
-      if (!node.document) {
-        allUnbilled.push(node);
+  // 3. Collect vendor bill cost items grouped by jobCostItemId (budget item)
+  type BillCostEntry = {
+    billDocId: string; billName: string; billNumber: string;
+    costItemId: string; costItemName: string;
+    cost: number; unitCost: number; quantity: number;
+    costCodeId?: string; costTypeId?: string;
+    jobCostItemId?: string;
+    date: string;
+  };
+  const billsByBudgetItem = new Map<string, BillCostEntry[]>();
+  const allBillEntries: BillCostEntry[] = [];
+
+  for (const bill of vendorBills) {
+    const billItems = await getDocumentCostItemsById(bill.id);
+    for (const item of billItems) {
+      const budgetId = (item as any).jobCostItem?.id || item.id;
+      const entry: BillCostEntry = {
+        billDocId: bill.id,
+        billName: bill.account?.name || bill.name || 'Vendor Bill',
+        billNumber: bill.number || '',
+        costItemId: item.id,
+        costItemName: item.name || '',
+        cost: item.cost || 0,
+        unitCost: (item as any).unitCost || item.cost || 0,
+        quantity: item.quantity || 1,
+        costCodeId: item.costCode?.id,
+        costTypeId: item.costType?.id,
+        jobCostItemId: (item as any).jobCostItem?.id,
+        date: bill.createdAt || '',
+      };
+      if (!billsByBudgetItem.has(budgetId)) billsByBudgetItem.set(budgetId, []);
+      billsByBudgetItem.get(budgetId)!.push(entry);
+      allBillEntries.push(entry);
+    }
+  }
+
+  // 4. Collect invoiced amounts per budget item from non-draft customer invoices
+  const invoicedByBudgetItem = new Map<string, number>();
+  const invoicedHoursByBudgetItem = new Map<string, number>();
+
+  for (const inv of nonDraftInvoices) {
+    const invItems = await getDocumentCostItemsById(inv.id);
+    for (const item of invItems) {
+      const budgetId = (item as any).jobCostItem?.id || item.id;
+      invoicedByBudgetItem.set(budgetId, (invoicedByBudgetItem.get(budgetId) || 0) + (item.cost || 0));
+      invoicedHoursByBudgetItem.set(budgetId, (invoicedHoursByBudgetItem.get(budgetId) || 0) + (item.quantity || 0));
+    }
+  }
+
+  // 5. FIFO deduction to find uninvoiced bills
+  const uninvoicedBills: BillCostEntry[] = [];
+  billsByBudgetItem.forEach((bills, budgetId) => {
+    bills.sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime());
+    let remaining = invoicedByBudgetItem.get(budgetId) || 0;
+    for (const bill of bills) {
+      if (remaining >= bill.cost) {
+        remaining -= bill.cost;
+      } else {
+        uninvoicedBills.push(bill);
+        remaining = 0;
       }
     }
-    nextPage = costItemPage?.nextPage || null;
-    if (!nextPage || nodes.length < PAGE_SIZE) break;
-  }
-
-  // 3. Filter to unbilled items that have actual costs or prices (exclude $0.00 placeholders)
-  const unbilledItems = allUnbilled.filter((item) => {
-    const cost = item.cost ?? 0;
-    const price = item.price ?? 0;
-    const unitCost = item.unitCost ?? 0;
-    const unitPrice = item.unitPrice ?? 0;
-    return cost !== 0 || price !== 0 || unitCost !== 0 || unitPrice !== 0;
   });
 
-  if (unbilledItems.length === 0) {
-    throw new Error('No billable cost items found for this job. All unbilled items have $0.00 values.');
+  // 6. Fetch time entries and find uninvoiced ones
+  const teData = await pave({
+    job: {
+      $: { id: jobId },
+      timeEntries: {
+        $: { size: 200 },
+        nodes: {
+          id: {}, startedAt: {}, endedAt: {}, type: {}, cost: {},
+          user: { id: {}, name: {} },
+          costItem: { id: {}, name: {}, costCode: { number: {}, name: {} } },
+        },
+      },
+    },
+  });
+  const timeEntries = (teData as any)?.job?.timeEntries?.nodes || [];
+
+  // Group time entries by budget cost item
+  type TEInfo = { id: string; user: string; hours: number; cost: number; date: string; costItemId: string; costItemName: string };
+  const timeByBudgetItem = new Map<string, TEInfo[]>();
+  for (const te of timeEntries) {
+    if (!te.startedAt || !te.endedAt) continue;
+    const hours = (new Date(te.endedAt).getTime() - new Date(te.startedAt).getTime()) / 3600000;
+    const budgetId = te.costItem?.id || 'unknown';
+    if (!timeByBudgetItem.has(budgetId)) timeByBudgetItem.set(budgetId, []);
+    timeByBudgetItem.get(budgetId)!.push({
+      id: te.id,
+      user: te.user?.name || 'Unknown',
+      hours,
+      cost: te.cost || 0,
+      date: te.startedAt,
+      costItemId: te.costItem?.id || '',
+      costItemName: te.costItem?.name || '',
+    });
   }
 
-  // 4. Categorize items by cost type for grouping on the invoice
-  // Matches the BKB pattern from Invoice 199-15: Permit & Admin, Materials, BKB Labor
-  // Order: Materials first, then Admin, Subcontractor, Other, and Labor last
-  type CategoryKey = 'admin' | 'materials' | 'labor' | 'subcontractor' | 'other';
-  const categoryOrder: CategoryKey[] = ['materials', 'admin', 'subcontractor', 'other', 'labor'];
-  const categoryNames: Record<CategoryKey, string> = {
-    admin: 'Permit & Admin Costs',
-    materials: 'Materials',
-    labor: 'BKB Labor',
-    subcontractor: 'Subcontractor Costs',
-    other: 'Other Costs',
-  };
+  // FIFO hour deduction for time entries
+  const uninvoicedTime: TEInfo[] = [];
+  timeByBudgetItem.forEach((entries, budgetId) => {
+    entries.sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime());
+    const totalBillCost = (billsByBudgetItem.get(budgetId) || []).reduce((s, b) => s + b.cost, 0);
+    const invoicedHrs = invoicedHoursByBudgetItem.get(budgetId) || 0;
+    // If this budget item has vendor bills, invoice hours might cover bills not time
+    let remainingHoursCredit = totalBillCost > 0 ? 0 : invoicedHrs;
 
-  const categorized: Record<CategoryKey, typeof unbilledItems> = {
-    admin: [],
-    materials: [],
-    labor: [],
-    subcontractor: [],
-    other: [],
-  };
-
-  for (const item of unbilledItems) {
-    const costTypeName = (item.costType?.name || '').toLowerCase();
-    const costCodeNum = parseInt(item.costCode?.number || '0', 10);
-
-    // Categorize based on cost type name and cost code patterns
-    if (costTypeName.includes('labor') || costCodeNum === 1 || costCodeNum === 2 || costCodeNum === 3) {
-      categorized.labor.push(item);
-    } else if (costTypeName.includes('material')) {
-      categorized.materials.push(item);
-    } else if (costTypeName.includes('subcontract')) {
-      categorized.subcontractor.push(item);
-    } else if (costCodeNum === 20 || costCodeNum === 21 || costCodeNum === 22) {
-      // Cost codes 20-22: Permits, Insurance, Project Management
-      categorized.admin.push(item);
-    } else {
-      categorized.other.push(item);
+    for (const entry of entries) {
+      if (remainingHoursCredit >= entry.hours) {
+        remainingHoursCredit -= entry.hours;
+      } else {
+        uninvoicedTime.push(entry);
+        remainingHoursCredit = 0;
+      }
     }
+  });
+
+  if (uninvoicedBills.length === 0 && uninvoicedTime.length === 0) {
+    throw new Error('No uninvoiced vendor bills or time entries found for this job.');
   }
 
-  // 5. Create the document shell
-  // name must be one of: "Deposit", "Invoice", "Progress Invoice"
+  // 7. Create the document shell
   const doc = await createJTDocument({
     jobId,
     type: 'customerInvoice',
@@ -3022,94 +3083,89 @@ export async function createDraftCostPlusInvoice(jobId: string): Promise<{
     description: 'This invoice reflects charges under a Cost Plus Fee agreement. You are billed for all actual project costs—including materials, subcontractors, labor, insurance, and permits - plus a 25% contractor\'s fee applied to those costs. Labor is billed at $115/hr (Master Craftsman) or $55/hr (Journeyman/Administrative).',
   });
 
-  // 6. Create cost groups and items on the document
+  // 8. Create cost items from uninvoiced bills (grouped by vendor)
   let totalCost = 0;
   let totalPrice = 0;
   let createdItemCount = 0;
 
-  // Helper: build a short description for material items matching Behmlander invoice pattern
-  // e.g. "03-Concrete, Stone/Block Work:0303 - Materials" from cost code name + group context
-  function buildItemDescription(item: any, category: CategoryKey): string | undefined {
-    // If item already has a description, use it
-    if (item.description) return item.description;
-    // For materials, build a description from cost code info
-    if (category === 'materials') {
-      const codeName = item.costCode?.name;
-      const codeNum = item.costCode?.number;
-      if (codeName && codeNum) {
-        return `${codeNum}-${codeName}`;
-      }
-      if (codeName) return codeName;
-    }
-    return undefined;
-  }
-
-  // Iterate categories in explicit order: Materials first, Labor last
-  for (const category of categoryOrder) {
-    const items = categorized[category];
-    if (items.length === 0) continue;
-
-    // Create top-level category group on the document
-    const categoryGroup = await createJTCostGroup({
+  if (uninvoicedBills.length > 0) {
+    const billsGroup = await createJTCostGroup({
       documentId: doc.id,
-      name: categoryNames[category],
+      name: 'Vendor Bills',
     });
 
-    // Group items by their budget cost group name (sub-grouping)
-    const subGroups: Record<string, typeof items> = {};
-    const ungrouped: typeof items = [];
-
-    for (const item of items) {
-      const groupName = item.costGroup?.name;
-      if (groupName) {
-        if (!subGroups[groupName]) subGroups[groupName] = [];
-        subGroups[groupName].push(item);
-      } else {
-        ungrouped.push(item);
-      }
+    // Sub-group by vendor (bill account name)
+    const byVendor: Record<string, BillCostEntry[]> = {};
+    for (const bill of uninvoicedBills) {
+      const key = bill.billName;
+      if (!byVendor[key]) byVendor[key] = [];
+      byVendor[key].push(bill);
     }
 
-    // Create sub-groups and their items
-    for (const [subGroupName, subItems] of Object.entries(subGroups)) {
-      const subGroup = await createJTCostGroup({
-        parentCostGroupId: categoryGroup.id,
-        name: subGroupName,
-        description: subItems[0]?.costGroup?.description || undefined,
+    for (const [vendorName, items] of Object.entries(byVendor)) {
+      const vendorGroup = await createJTCostGroup({
+        parentCostGroupId: billsGroup.id,
+        name: vendorName,
       });
-
-      for (const item of subItems) {
+      for (const item of items) {
+        const markup = 1.25; // 25% contractor's fee
         await createJTCostItem({
-          costGroupId: subGroup.id,
-          name: item.name,
-          description: buildItemDescription(item, category),
-          costCodeId: item.costCode?.id || undefined,
-          costTypeId: item.costType?.id || undefined,
-          jobCostItemId: item.id,  // Link to original budget item
-          quantity: item.quantity ?? 1,
-          unitCost: item.unitCost ?? 0,
-          unitPrice: item.unitPrice ?? 0,
+          costGroupId: vendorGroup.id,
+          name: item.costItemName || `Bill #${item.billNumber}`,
+          description: `Bill ${item.billNumber} - ${vendorName}`,
+          costCodeId: item.costCodeId,
+          costTypeId: item.costTypeId,
+          jobCostItemId: item.jobCostItemId,
+          quantity: item.quantity || 1,
+          unitCost: item.unitCost || item.cost,
+          unitPrice: (item.unitCost || item.cost) * markup,
         });
-        totalCost += (item.cost ?? 0);
-        totalPrice += (item.price ?? 0);
+        totalCost += item.cost;
+        totalPrice += item.cost * markup;
         createdItemCount++;
       }
     }
+  }
 
-    // Add ungrouped items directly under the category
-    for (const item of ungrouped) {
+  // 9. Create cost items from uninvoiced time entries (grouped by worker)
+  if (uninvoicedTime.length > 0) {
+    const laborGroup = await createJTCostGroup({
+      documentId: doc.id,
+      name: 'BKB Labor',
+    });
+
+    // Group by user
+    const byUser: Record<string, TEInfo[]> = {};
+    for (const te of uninvoicedTime) {
+      if (!byUser[te.user]) byUser[te.user] = [];
+      byUser[te.user].push(te);
+    }
+
+    for (const [userName, entries] of Object.entries(byUser)) {
+      const totalHours = entries.reduce((s, e) => s + e.hours, 0);
+      const totalTimeCost = entries.reduce((s, e) => s + e.cost, 0);
+      // Determine billing rate: $115/hr Master Craftsman, $55/hr Journeyman
+      const isLead = userName.toLowerCase().includes('evan') || userName.toLowerCase().includes('josh') || userName.toLowerCase().includes('brett');
+      const billRate = isLead ? 115 : 55;
+      // Build description with date breakdown
+      const dateBreakdown = entries
+        .map(e => {
+          const d = new Date(e.date);
+          return `${d.toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}: ${e.hours.toFixed(1)}h`;
+        })
+        .join(', ');
+
       await createJTCostItem({
-        costGroupId: categoryGroup.id,
-        name: item.name,
-        description: buildItemDescription(item, category),
-        costCodeId: item.costCode?.id || undefined,
-        costTypeId: item.costType?.id || undefined,
-        jobCostItemId: item.id,  // Link to original budget item
-        quantity: item.quantity ?? 1,
-        unitCost: item.unitCost ?? 0,
-        unitPrice: item.unitPrice ?? 0,
+        costGroupId: laborGroup.id,
+        name: `${userName} Labor`,
+        description: dateBreakdown,
+        jobCostItemId: entries[0]?.costItemId || undefined,
+        quantity: Math.round(totalHours * 100) / 100,
+        unitCost: Math.round((totalTimeCost / totalHours) * 100) / 100, // actual cost rate
+        unitPrice: billRate,
       });
-      totalCost += (item.cost ?? 0);
-      totalPrice += (item.price ?? 0);
+      totalCost += totalTimeCost;
+      totalPrice += totalHours * billRate;
       createdItemCount++;
     }
   }

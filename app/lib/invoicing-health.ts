@@ -567,71 +567,145 @@ async function analyzeCostPlusJob(
     }
   }
 
-  // Calculate unbilled costs and hours using DOCUMENT-LEVEL cost items.
-  // job.costItems returns budget-level items which don't map to vendor bill / invoice
-  // line items reliably. Instead, fetch cost items from each document and match by
-  // jobCostItemId (budget item link) to determine what's been billed.
-  let docCostItems: JTCostItem[] = [];
-  try {
-    docCostItems = await getDocumentCostItemsForJob(job.id);
-  } catch (err: any) {
-    console.error(`[InvoicingHealth] Failed to fetch doc cost items for ${job.name}: ${err?.message || err}`);
+  // ============================================================
+  // COST-PLUS UNBILLED CALCULATION — Per-Budget-Item FIFO Deduction
+  //
+  // JT tracks "Not Invoiced" bills & time in the Bills and Time tab.
+  // Multiple vendor bills can share the same budget item (jobCostItemId),
+  // so we can't just check presence — we need to deduct invoiced amounts
+  // from the oldest bills first (FIFO) per budget item.
+  //
+  // For time entries, we deduct invoiced HOURS (from invoice quantities)
+  // per budget item, oldest entries first.
+  // ============================================================
+
+  // Fetch vendor bill cost items per-document (avoids 413 errors)
+  const vendorBills = documents.filter(
+    (d) => d.type === 'vendorBill' && d.status !== 'denied'
+  );
+  const nonDraftInvoices = customerInvoices.filter(
+    (d) => d.status !== 'draft'
+  );
+
+  // Collect vendor bill cost items grouped by jobCostItemId (budget item)
+  // Each entry tracks the bill document for FIFO ordering by date
+  type BillCostEntry = { billDocId: string; costItemId: string; cost: number; date: string };
+  const billsByBudgetItem = new Map<string, BillCostEntry[]>();
+
+  for (const bill of vendorBills) {
+    try {
+      const billItems = await getDocumentCostItemsById(bill.id);
+      for (const item of billItems) {
+        const budgetId = (item as any).jobCostItem?.id || (item as any).costCode?.number || item.id;
+        if (!billsByBudgetItem.has(budgetId)) billsByBudgetItem.set(budgetId, []);
+        billsByBudgetItem.get(budgetId)!.push({
+          billDocId: bill.id,
+          costItemId: item.id,
+          cost: item.cost || 0,
+          date: bill.createdAt || '',
+        });
+      }
+    } catch (err: any) {
+      console.error(`[InvoicingHealth] Failed to fetch bill items for ${job.name} bill ${bill.id}: ${err?.message}`);
+    }
   }
 
-  // Vendor bill cost items (excluding denied/deleted bills)
-  const vendorBillItems = docCostItems.filter(
-    (item) => item.document?.type === 'vendorBill' && item.document?.status !== 'denied'
-  );
+  // Collect invoiced amounts per budget item from non-draft customer invoices
+  const invoicedByBudgetItem = new Map<string, number>();
+  const invoicedHoursByBudgetItem = new Map<string, number>();
 
-  // Customer invoice cost items (non-draft only)
-  const invoiceCostItems = docCostItems.filter(
-    (item) => item.document?.type === 'customerInvoice' && item.document?.status !== 'draft'
-  );
-
-  // Split invoice items into labor vs non-labor (materials/subs)
-  const invoiceNonLaborItems = invoiceCostItems.filter(
-    (item) => !item.costType?.name?.toLowerCase().includes('labor')
-  );
-  const invoiceLaborItems = invoiceCostItems.filter(
-    (item) => item.costType?.name?.toLowerCase().includes('labor')
-  );
-
-  // Group vendor bill costs and invoice non-labor costs by budget item (jobCostItemId).
-  // Multiple vendor bills can reference the same budget item, so we need to sum per budget item.
-  const vendorCostByBudgetItem = new Map<string, number>();
-  for (const item of vendorBillItems) {
-    const budgetId = item.jobCostItem?.id || item.id; // fallback to item ID if no budget link
-    vendorCostByBudgetItem.set(budgetId, (vendorCostByBudgetItem.get(budgetId) || 0) + (item.cost || 0));
+  for (const inv of nonDraftInvoices) {
+    try {
+      const invItems = await getDocumentCostItemsById(inv.id);
+      for (const item of invItems) {
+        const budgetId = (item as any).jobCostItem?.id || item.id;
+        invoicedByBudgetItem.set(
+          budgetId,
+          (invoicedByBudgetItem.get(budgetId) || 0) + (item.cost || 0)
+        );
+        // Track invoiced hours (from quantity) for budget items that have time entries
+        invoicedHoursByBudgetItem.set(
+          budgetId,
+          (invoicedHoursByBudgetItem.get(budgetId) || 0) + (item.quantity || 0)
+        );
+      }
+    } catch (err: any) {
+      console.error(`[InvoicingHealth] Failed to fetch invoice items for ${job.name} inv ${inv.id}: ${err?.message}`);
+    }
   }
 
-  const invoicedCostByBudgetItem = new Map<string, number>();
-  for (const item of invoiceNonLaborItems) {
-    const budgetId = item.jobCostItem?.id || item.id;
-    invoicedCostByBudgetItem.set(budgetId, (invoicedCostByBudgetItem.get(budgetId) || 0) + (item.cost || 0));
-  }
-
-  // Unbilled = sum of (vendor bill cost - invoiced cost) per budget item, where positive
+  // BILLS: Per-budget-item FIFO deduction
+  // For each budget item, deduct invoiced amount from oldest bills first.
+  // Vendor bill cost that isn't covered by invoiced amounts = uninvoiced.
   let unbilledCosts = 0;
-  vendorCostByBudgetItem.forEach((vendorCost, budgetId) => {
-    const invoicedCost = invoicedCostByBudgetItem.get(budgetId) || 0;
-    unbilledCosts += Math.max(0, vendorCost - invoicedCost);
+  billsByBudgetItem.forEach((bills, budgetId) => {
+    // Sort bills by date (oldest first) for FIFO
+    bills.sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime());
+    let remaining = invoicedByBudgetItem.get(budgetId) || 0;
+
+    for (const bill of bills) {
+      if (remaining >= bill.cost) {
+        // Bill is fully covered by invoiced amount
+        remaining -= bill.cost;
+      } else {
+        // Bill is partially or fully uninvoiced
+        unbilledCosts += bill.cost - Math.max(0, remaining);
+        remaining = 0;
+      }
+    }
   });
   const unbilledAmount = unbilledCosts;
 
-  // Calculate unbilled hours: all time entries minus labor hours billed on invoices.
-  // For cost-plus jobs, ALL hours are billable and need to be invoiced.
-  const totalHours = timeEntries.reduce((sum, entry) => {
-    if (entry.startedAt && entry.endedAt) {
-      const start = new Date(entry.startedAt).getTime();
-      const end = new Date(entry.endedAt).getTime();
-      return sum + (end - start) / (1000 * 60 * 60);
+  // TIME: Per-budget-item hour deduction (FIFO by date)
+  // Group time entries by their budget cost item (costItem.id), then deduct
+  // invoiced hours per budget item from the oldest entries first.
+  // For cost-plus jobs, ALL hours are billable.
+  type TimeEntryInfo = { id: string; hours: number; cost: number; date: string };
+  const timeByBudgetItem = new Map<string, TimeEntryInfo[]>();
+
+  for (const te of timeEntries) {
+    if (!te.startedAt || !te.endedAt) continue;
+    const hours = (new Date(te.endedAt).getTime() - new Date(te.startedAt).getTime()) / (1000 * 60 * 60);
+    const budgetId = te.costItem?.id || 'unknown';
+    if (!timeByBudgetItem.has(budgetId)) timeByBudgetItem.set(budgetId, []);
+    timeByBudgetItem.get(budgetId)!.push({
+      id: te.id,
+      hours,
+      cost: (te as any).cost || 0,
+      date: te.startedAt,
+    });
+  }
+
+  let unbilledHours = 0;
+  let unbilledTimeCost = 0;
+  timeByBudgetItem.forEach((entries, budgetId) => {
+    entries.sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime());
+
+    // How many hours of this budget item were invoiced?
+    // Use invoice quantities as hours. But first, subtract any vendor bill costs
+    // that consumed invoiced amounts for this budget item.
+    const totalInvoiced = invoicedByBudgetItem.get(budgetId) || 0;
+    const totalBillCost = (billsByBudgetItem.get(budgetId) || []).reduce((s, b) => s + b.cost, 0);
+    // Bills consume invoiced amounts first; remaining goes to time
+    const invoicedForBills = Math.min(totalBillCost, totalInvoiced);
+    // For time, use the hours from invoice quantities rather than cost amounts
+    // (invoice costs use billing rates, time entry costs use internal rates — they differ)
+    const invoicedHrs = invoicedHoursByBudgetItem.get(budgetId) || 0;
+    // If this budget item has vendor bills, the invoice hours might include bill-related items
+    // Only count hours as time coverage when there are NO vendor bills for this budget item
+    let remainingHoursCredit = totalBillCost > 0 ? 0 : invoicedHrs;
+
+    for (const entry of entries) {
+      if (remainingHoursCredit >= entry.hours) {
+        remainingHoursCredit -= entry.hours;
+      } else {
+        const uninvoicedHrs = entry.hours - Math.max(0, remainingHoursCredit);
+        unbilledHours += uninvoicedHrs;
+        unbilledTimeCost += entry.cost * (uninvoicedHrs / entry.hours);
+        remainingHoursCredit = 0;
+      }
     }
-    return sum;
-  }, 0);
-  // Billed labor hours from invoice labor line items (document-level, not budget-level)
-  const billedLaborHours = invoiceLaborItems
-    .reduce((sum, item) => sum + (item.quantity || 0), 0);
-  const unbilledHours = Math.max(0, totalHours - billedLaborHours);
+  });
 
   // Draft invoices
   const draftInvoices = customerInvoices.filter((d) => d.status === 'draft');
