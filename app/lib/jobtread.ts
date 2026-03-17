@@ -2877,11 +2877,53 @@ export async function createDraftCostPlusInvoice(jobId: string): Promise<{
   const customerName = job.clientName || 'Client';
   const jobNumber = job.number || '';
 
-  // 2. Get all budget cost items
-  const allItems = await getCostItemsForJob(jobId);
+  // 2. Get all budget cost items — use lean paginated query to avoid 413 errors
+  const PAGE_SIZE = 30;
+  let allUnbilled: any[] = [];
+  let nextPage: string | null = null;
+
+  for (let page = 0; page < 30; page++) {
+    const pageParams: Record<string, unknown> = { size: PAGE_SIZE };
+    if (nextPage) pageParams.page = nextPage;
+
+    const data = await pave({
+      job: {
+        $: { id: jobId },
+        costItems: {
+          $: pageParams,
+          nextPage: {},
+          nodes: {
+            id: {},
+            name: {},
+            description: {},
+            quantity: {},
+            unitCost: {},
+            unitPrice: {},
+            cost: {},
+            price: {},
+            costType: { id: {}, name: {} },
+            costCode: { id: {}, name: {}, number: {} },
+            costGroup: { id: {}, name: {}, description: {} },
+            document: { id: {} },
+          },
+        },
+      },
+    });
+
+    const costItemPage = (data as any)?.job?.costItems;
+    const nodes = costItemPage?.nodes || [];
+    // Only keep unbilled items (not on any document)
+    for (const node of nodes) {
+      if (!node.document) {
+        allUnbilled.push(node);
+      }
+    }
+    nextPage = costItemPage?.nextPage || null;
+    if (!nextPage || nodes.length < PAGE_SIZE) break;
+  }
 
   // 3. Filter to unbilled items (not on any document)
-  const unbilledItems = allItems.filter((item: any) => !item.document);
+  const unbilledItems = allUnbilled;
 
   if (unbilledItems.length === 0) {
     throw new Error('No unbilled cost items found for this job. All items are already on documents.');
