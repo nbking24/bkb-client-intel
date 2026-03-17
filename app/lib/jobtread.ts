@@ -2963,7 +2963,9 @@ export async function createDraftCostPlusInvoice(jobId: string): Promise<{
 
   // 4. Categorize items by cost type for grouping on the invoice
   // Matches the BKB pattern from Invoice 199-15: Permit & Admin, Materials, BKB Labor
+  // Order: Materials first, then Admin, Subcontractor, Other, and Labor last
   type CategoryKey = 'admin' | 'materials' | 'labor' | 'subcontractor' | 'other';
+  const categoryOrder: CategoryKey[] = ['materials', 'admin', 'subcontractor', 'other', 'labor'];
   const categoryNames: Record<CategoryKey, string> = {
     admin: 'Permit & Admin Costs',
     materials: 'Materials',
@@ -3021,7 +3023,26 @@ export async function createDraftCostPlusInvoice(jobId: string): Promise<{
   let totalPrice = 0;
   let createdItemCount = 0;
 
-  for (const [category, items] of Object.entries(categorized) as [CategoryKey, typeof unbilledItems][]) {
+  // Helper: build a short description for material items matching Behmlander invoice pattern
+  // e.g. "03-Concrete, Stone/Block Work:0303 - Materials" from cost code name + group context
+  function buildItemDescription(item: any, category: CategoryKey): string | undefined {
+    // If item already has a description, use it
+    if (item.description) return item.description;
+    // For materials, build a description from cost code info
+    if (category === 'materials') {
+      const codeName = item.costCode?.name;
+      const codeNum = item.costCode?.number;
+      if (codeName && codeNum) {
+        return `${codeNum}-${codeName}`;
+      }
+      if (codeName) return codeName;
+    }
+    return undefined;
+  }
+
+  // Iterate categories in explicit order: Materials first, Labor last
+  for (const category of categoryOrder) {
+    const items = categorized[category];
     if (items.length === 0) continue;
 
     // Create top-level category group on the document
@@ -3056,7 +3077,7 @@ export async function createDraftCostPlusInvoice(jobId: string): Promise<{
         await createJTCostItem({
           costGroupId: subGroup.id,
           name: item.name,
-          description: item.description || undefined,
+          description: buildItemDescription(item, category),
           costCodeId: item.costCode?.id || undefined,
           costTypeId: item.costType?.id || undefined,
           jobCostItemId: item.id,  // Link to original budget item
@@ -3075,7 +3096,7 @@ export async function createDraftCostPlusInvoice(jobId: string): Promise<{
       await createJTCostItem({
         costGroupId: categoryGroup.id,
         name: item.name,
-        description: item.description || undefined,
+        description: buildItemDescription(item, category),
         costCodeId: item.costCode?.id || undefined,
         costTypeId: item.costType?.id || undefined,
         jobCostItemId: item.id,  // Link to original budget item
