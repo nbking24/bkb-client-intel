@@ -6,6 +6,7 @@
 import { BKB_CATEGORIES, BKB_CATEGORY_DETAILS } from './bkb-spec-guide';
 import { getCachedCatalog, formatCatalogForAgent, type CostCatalog } from './cost-catalog';
 import { formatScopeNotesForPrompt } from './scope-notes';
+import { formatEstimatingRulesForPrompt } from './estimating-knowledge';
 import { getActiveJobs } from './jobtread';
 
 // -- Types --
@@ -262,6 +263,8 @@ SPEC WRITING CONVENTIONS:
 - Never mention subcontractor or vendor names in descriptions
 
 ${formatScopeNotesForPrompt()}
+
+${formatEstimatingRulesForPrompt()}
 
 BKB LABOR RATES:
 - BKB Crew (internal labor): $85/hr cost, $125/hr price
