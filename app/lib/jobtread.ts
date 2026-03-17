@@ -3014,7 +3014,7 @@ export async function createDraftCostPlusInvoice(jobId: string): Promise<{
     job: {
       $: { id: jobId },
       timeEntries: {
-        $: { size: 200 },
+        $: { size: 100 },
         nodes: {
           id: {}, startedAt: {}, endedAt: {}, type: {}, cost: {},
           user: { id: {}, name: {} },
