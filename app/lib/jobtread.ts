@@ -3271,7 +3271,7 @@ export async function createDraftBillableInvoice(jobId: string): Promise<{
     job: {
       $: { id: jobId },
       timeEntries: {
-        $: { size: 200 },
+        $: { size: 100 },
         nodes: {
           id: {}, startedAt: {}, endedAt: {}, notes: {}, type: {},
           user: { name: {} },
