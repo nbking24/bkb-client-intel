@@ -413,7 +413,40 @@ function InvoiceDetails({ drafts, released }: { drafts: DraftInvoiceInfo[]; rele
 // Contract Jobs Section
 // ============================================================
 
-function ContractJobCard({ job }: { job: ContractJobHealth }) {
+function ContractJobCard({ job, onInvoiceCreated }: { job: ContractJobHealth; onInvoiceCreated?: () => void }) {
+  const [creatingBillable, setCreatingBillable] = useState(false);
+  const [billableResult, setBillableResult] = useState<{ success: boolean; message: string; documentNumber?: string } | null>(null);
+
+  const hasBillableWork = (job.uninvoicedBillableAmount ?? 0) > 0 || (job.unbilledLaborHours ?? 0) > 0;
+
+  async function handleCreateBillableInvoice() {
+    if (creatingBillable) return;
+    setCreatingBillable(true);
+    setBillableResult(null);
+    try {
+      const res = await fetch('/api/dashboard/invoicing/create-billable-invoice', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ jobId: job.jobId }),
+      });
+      const data = await res.json();
+      if (data.success) {
+        setBillableResult({
+          success: true,
+          message: `Draft invoice ${data.documentNumber} created with ${data.itemCount} items (${formatCurrency(data.totalPrice)})`,
+          documentNumber: data.documentNumber,
+        });
+        setTimeout(() => onInvoiceCreated?.(), 1500);
+      } else {
+        setBillableResult({ success: false, message: data.error || 'Failed to create invoice' });
+      }
+    } catch (err: any) {
+      setBillableResult({ success: false, message: err.message || 'Network error' });
+    } finally {
+      setCreatingBillable(false);
+    }
+  }
+
   const unpaidTotal = (job.releasedInvoices || [])
     .filter((inv) => inv.status === 'open')
     .reduce((sum, inv) => sum + inv.amount, 0);
@@ -512,6 +545,49 @@ function ContractJobCard({ job }: { job: ContractJobHealth }) {
           {alert}
         </div>
       ))}
+
+      {/* Create Billable Draft Invoice Button — only for jobs with uninvoiced CC23 items or hours */}
+      {hasBillableWork && (
+        <div className="mt-2 pt-2" style={{ borderTop: '1px solid rgba(205,162,116,0.08)' }}>
+          {billableResult ? (
+            <div
+              className="flex items-center gap-2 text-xs py-1.5 px-2 rounded-lg"
+              style={{
+                background: billableResult.success ? 'rgba(34,197,94,0.1)' : 'rgba(239,68,68,0.1)',
+                color: billableResult.success ? '#22c55e' : '#ef4444',
+              }}
+            >
+              {billableResult.success ? <Check size={12} /> : <AlertCircle size={12} />}
+              {billableResult.message}
+            </div>
+          ) : (
+            <button
+              onClick={handleCreateBillableInvoice}
+              disabled={creatingBillable}
+              className="flex items-center gap-2 text-xs font-medium py-1.5 px-3 rounded-lg transition-colors w-full justify-center"
+              style={{
+                background: creatingBillable ? 'rgba(205,162,116,0.08)' : 'rgba(205,162,116,0.15)',
+                color: '#CDA274',
+                cursor: creatingBillable ? 'wait' : 'pointer',
+              }}
+              onMouseEnter={(e) => !creatingBillable && (e.currentTarget.style.background = 'rgba(205,162,116,0.25)')}
+              onMouseLeave={(e) => !creatingBillable && (e.currentTarget.style.background = 'rgba(205,162,116,0.15)')}
+            >
+              {creatingBillable ? (
+                <>
+                  <Loader2 size={12} className="animate-spin" />
+                  Creating Billable Invoice...
+                </>
+              ) : (
+                <>
+                  <Plus size={12} />
+                  Create Billable Invoice
+                </>
+              )}
+            </button>
+          )}
+        </div>
+      )}
 
       <InvoiceDetails drafts={job.draftInvoices} released={job.releasedInvoices} />
     </div>
@@ -1007,7 +1083,7 @@ export default function InvoicingDashboard() {
             {contractExpanded && (
               <div className="grid gap-2 md:grid-cols-2 lg:grid-cols-3 ml-1">
                 {filtered.map((job) => (
-                  <ContractJobCard key={job.jobId} job={job} />
+                  <ContractJobCard key={job.jobId} job={job} onInvoiceCreated={() => fetchReport(true)} />
                 ))}
               </div>
             )}

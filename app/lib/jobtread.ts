@@ -3119,3 +3119,359 @@ export async function createDraftCostPlusInvoice(jobId: string): Promise<{
     totalPrice,
   };
 }
+
+// ============================================================
+// Fixed-Price / Contract Billable Invoice Creation
+// ============================================================
+
+/**
+ * Create a draft customer invoice for a fixed-price (contract) job containing:
+ * 1. CC23 (Billable) material & subcontractor costs from vendor bills not yet on customer invoices
+ * 2. CC23 (Billable) labor hours from time entries not yet billed
+ *
+ * This mirrors the cost-plus invoice creation but uses the CC23 billable item logic
+ * from invoicing-health.ts to identify what needs to be invoiced.
+ */
+export async function createDraftBillableInvoice(jobId: string): Promise<{
+  documentId: string;
+  documentName: string;
+  documentNumber: string;
+  itemCount: number;
+  totalCost: number;
+  totalPrice: number;
+}> {
+  const BILLABLE_COST_CODE_NUMBER = '23';
+  const BILLABLE_COST_TYPE_NAMES = ['Materials', 'Subcontractor'];
+
+  // 1. Get job details including location for customer name, address
+  const jobData = await pave({
+    job: {
+      $: { id: jobId },
+      id: {}, name: {}, number: {},
+      location: {
+        id: {}, name: {}, address: {},
+        account: { id: {}, name: {} },
+      },
+    },
+  });
+  const job = (jobData as any)?.job;
+  if (!job) throw new Error('Job not found: ' + jobId);
+
+  const customerName = job.location?.account?.name || 'Client';
+  const locationName = job.location?.name || '';
+  const locationAddress = job.location?.address || locationName;
+
+  // 2. Get all documents for the job to identify vendor bills and customer invoices
+  const docsData = await pave({
+    job: {
+      $: { id: jobId },
+      documents: {
+        $: { size: 50 },
+        nodes: { id: {}, name: {}, type: {}, status: {}, number: {} },
+      },
+    },
+  });
+  const allDocs = (docsData as any)?.job?.documents?.nodes || [];
+  const vendorBills = allDocs.filter(
+    (d: any) => d.type === 'vendorBill' && d.status !== 'denied'
+  );
+  const customerInvoices = allDocs.filter(
+    (d: any) => d.type === 'customerInvoice' && d.status !== 'draft'
+  );
+
+  // 3. Get CC23 items from vendor bills (costs incurred)
+  // These items reference budget items via jobCostItemId
+  const vendorBillItemResults = await Promise.all(
+    vendorBills.map(async (doc: any) => {
+      try {
+        const data = await pave({
+          document: {
+            $: { id: doc.id },
+            costItems: {
+              $: { size: 50 },
+              nodes: {
+                id: {}, name: {}, cost: {}, price: {}, quantity: {},
+                unitCost: {}, unitPrice: {},
+                costCode: { id: {}, number: {}, name: {} },
+                costType: { id: {}, name: {} },
+                jobCostItem: { id: {} },
+              },
+            },
+          },
+        });
+        const items = (data as any)?.document?.costItems?.nodes || [];
+        return items.map((item: any) => ({
+          ...item,
+          sourceDoc: { id: doc.id, number: doc.number, name: doc.name },
+        }));
+      } catch {
+        return [];
+      }
+    })
+  );
+  const allVendorBillItems = vendorBillItemResults.flat();
+  const cc23VendorBillItems = allVendorBillItems.filter(
+    (item: any) => item.costCode?.number === BILLABLE_COST_CODE_NUMBER
+  );
+
+  // 4. Get CC23 items already on customer invoices (already billed)
+  const customerInvoiceItemResults = await Promise.all(
+    customerInvoices.map(async (doc: any) => {
+      try {
+        const data = await pave({
+          document: {
+            $: { id: doc.id },
+            costItems: {
+              $: { size: 50 },
+              nodes: {
+                id: {}, name: {}, cost: {}, price: {}, quantity: {},
+                costCode: { number: {} },
+                costType: { name: {} },
+                jobCostItem: { id: {} },
+              },
+            },
+          },
+        });
+        return (data as any)?.document?.costItems?.nodes || [];
+      } catch {
+        return [];
+      }
+    })
+  );
+  const allCustomerInvoiceItems = customerInvoiceItemResults.flat();
+  const cc23InvoicedItems = allCustomerInvoiceItems.filter(
+    (item: any) => item.costCode?.number === BILLABLE_COST_CODE_NUMBER
+  );
+
+  // Build a set of budget item IDs already billed on customer invoices
+  const billedBudgetItemIds = new Set<string>();
+  for (const item of cc23InvoicedItems) {
+    if (item.jobCostItem?.id) {
+      billedBudgetItemIds.add(item.jobCostItem.id);
+    }
+  }
+
+  // 5. Filter to uninvoiced CC23 vendor bill items
+  // An item is uninvoiced if its linked budget item (jobCostItem) hasn't appeared on a customer invoice
+  const uninvoicedCC23Items = cc23VendorBillItems.filter((item: any) => {
+    const budgetItemId = item.jobCostItem?.id;
+    if (!budgetItemId) return true;  // If no budget link, include it (conservative)
+    return !billedBudgetItemIds.has(budgetItemId);
+  });
+
+  // Separate into materials/subs and other CC23 items
+  const uninvoicedMaterialsSubs = uninvoicedCC23Items.filter(
+    (item: any) => BILLABLE_COST_TYPE_NAMES.includes(item.costType?.name ?? '')
+  );
+
+  // 6. Calculate unbilled CC23 labor hours from time entries
+  const teData = await pave({
+    job: {
+      $: { id: jobId },
+      timeEntries: {
+        $: { size: 200 },
+        nodes: {
+          id: {}, startedAt: {}, endedAt: {}, notes: {}, type: {},
+          user: { name: {} },
+          costItem: { id: {}, name: {}, costCode: { number: {} } },
+        },
+      },
+    },
+  });
+  const timeEntries = (teData as any)?.job?.timeEntries?.nodes || [];
+  const cc23TimeEntries = timeEntries.filter(
+    (e: any) => e.costItem?.costCode?.number === BILLABLE_COST_CODE_NUMBER
+  );
+
+  // Sum CC23 hours
+  let totalCC23Hours = 0;
+  for (const entry of cc23TimeEntries) {
+    if (entry.startedAt && entry.endedAt) {
+      const hours = (new Date(entry.endedAt).getTime() - new Date(entry.startedAt).getTime()) / 3600000;
+      totalCC23Hours += hours;
+    }
+  }
+
+  // Subtract hours already billed on customer invoices
+  // CC23 items on invoices with "labor" in the name represent billed hours (quantity = hours)
+  const cc23LaborOnInvoices = cc23InvoicedItems.filter(
+    (item: any) => item.name?.toLowerCase().includes('labor')
+  );
+  const billedLaborHours = cc23LaborOnInvoices.reduce(
+    (sum: number, item: any) => sum + (item.quantity || 0), 0
+  );
+  const unbilledLaborHours = Math.max(0, totalCC23Hours - billedLaborHours);
+
+  // Check if there's anything to invoice
+  if (uninvoicedMaterialsSubs.length === 0 && unbilledLaborHours < 0.1) {
+    throw new Error('No uninvoiced CC23 billable items or labor hours found for this job.');
+  }
+
+  // 7. Get the CC23 labor budget item ID for linking the labor line item
+  // (the budget item that time entries are tagged to)
+  let laborBudgetItemId: string | undefined;
+  let laborCostCodeId: string | undefined;
+  let laborCostTypeId: string | undefined;
+  if (unbilledLaborHours >= 0.1 && cc23TimeEntries.length > 0) {
+    laborBudgetItemId = cc23TimeEntries[0].costItem?.id;
+    // Fetch the budget item's cost code and type IDs
+    if (laborBudgetItemId) {
+      const laborItemData = await pave({
+        costItem: {
+          $: { id: laborBudgetItemId },
+          costCode: { id: {} },
+          costType: { id: {} },
+          unitCost: {},
+          unitPrice: {},
+        },
+      });
+      const laborItem = (laborItemData as any)?.costItem;
+      laborCostCodeId = laborItem?.costCode?.id;
+      laborCostTypeId = laborItem?.costType?.id;
+    }
+  }
+
+  // 8. Create the document shell
+  const doc = await createJTDocument({
+    jobId,
+    type: 'customerInvoice',
+    name: 'Invoice',
+    fromName: 'Terri (Brett King Builder-Contractor Inc.)',
+    toName: customerName,
+    toAddress: locationAddress,
+    taxRate: '0',
+    jobLocationName: locationName,
+    jobLocationAddress: locationAddress,
+    dueDays: 2,
+    subject: `Billable Items Invoice - ${job.name}`,
+    description: 'This invoice covers billable items and labor hours incurred on this project.',
+  });
+
+  let totalCost = 0;
+  let totalPrice = 0;
+  let createdItemCount = 0;
+
+  // 9. Create materials/subs group with items (if any)
+  if (uninvoicedMaterialsSubs.length > 0) {
+    const materialsGroup = await createJTCostGroup({
+      documentId: doc.id,
+      name: 'Billable Materials & Subcontractors',
+    });
+
+    // Sub-group by vendor bill source for clarity
+    const byVendorBill: Record<string, any[]> = {};
+    const ungrouped: any[] = [];
+
+    for (const item of uninvoicedMaterialsSubs) {
+      const billName = item.sourceDoc
+        ? `${item.sourceDoc.name} #${item.sourceDoc.number}`
+        : null;
+      if (billName) {
+        if (!byVendorBill[billName]) byVendorBill[billName] = [];
+        byVendorBill[billName].push(item);
+      } else {
+        ungrouped.push(item);
+      }
+    }
+
+    // Create sub-groups per vendor bill
+    for (const [billName, items] of Object.entries(byVendorBill)) {
+      const subGroup = await createJTCostGroup({
+        parentCostGroupId: materialsGroup.id,
+        name: billName,
+      });
+
+      for (const item of items) {
+        const description = item.costCode?.name
+          ? `${item.costCode.number}-${item.costCode.name}`
+          : undefined;
+
+        await createJTCostItem({
+          costGroupId: subGroup.id,
+          name: item.name,
+          description,
+          costCodeId: item.costCode?.id || undefined,
+          costTypeId: item.costType?.id || undefined,
+          jobCostItemId: item.jobCostItem?.id || undefined,
+          quantity: item.quantity ?? 1,
+          unitCost: item.unitCost ?? 0,
+          unitPrice: item.unitPrice ?? 0,
+        });
+        totalCost += (item.cost ?? 0);
+        totalPrice += (item.price ?? 0);
+        createdItemCount++;
+      }
+    }
+
+    // Add ungrouped items directly under materials group
+    for (const item of ungrouped) {
+      await createJTCostItem({
+        costGroupId: materialsGroup.id,
+        name: item.name,
+        description: item.costCode?.name
+          ? `${item.costCode.number}-${item.costCode.name}`
+          : undefined,
+        costCodeId: item.costCode?.id || undefined,
+        costTypeId: item.costType?.id || undefined,
+        jobCostItemId: item.jobCostItem?.id || undefined,
+        quantity: item.quantity ?? 1,
+        unitCost: item.unitCost ?? 0,
+        unitPrice: item.unitPrice ?? 0,
+      });
+      totalCost += (item.cost ?? 0);
+      totalPrice += (item.price ?? 0);
+      createdItemCount++;
+    }
+  }
+
+  // 10. Create labor group with hours (if any)
+  if (unbilledLaborHours >= 0.1) {
+    const laborGroup = await createJTCostGroup({
+      documentId: doc.id,
+      name: 'BKB Billable Labor',
+    });
+
+    const roundedHours = Math.round(unbilledLaborHours * 100) / 100;
+
+    // Build a summary of who worked (for the description)
+    const workerHours: Record<string, number> = {};
+    for (const entry of cc23TimeEntries) {
+      const name = entry.user?.name || 'Unknown';
+      if (entry.startedAt && entry.endedAt) {
+        const hours = (new Date(entry.endedAt).getTime() - new Date(entry.startedAt).getTime()) / 3600000;
+        workerHours[name] = (workerHours[name] || 0) + hours;
+      }
+    }
+    const laborDescription = Object.entries(workerHours)
+      .map(([name, hours]) => `${name}: ${Math.round(hours * 10) / 10}h`)
+      .join(', ');
+
+    // Use standard BKB billable labor rate: $85/hr cost, $115/hr price
+    const laborUnitCost = 85;
+    const laborUnitPrice = 115;
+
+    await createJTCostItem({
+      costGroupId: laborGroup.id,
+      name: '23 Billable Labor',
+      description: laborDescription || undefined,
+      costCodeId: laborCostCodeId || undefined,
+      costTypeId: laborCostTypeId || undefined,
+      jobCostItemId: laborBudgetItemId || undefined,
+      quantity: roundedHours,
+      unitCost: laborUnitCost,
+      unitPrice: laborUnitPrice,
+    });
+    totalCost += roundedHours * laborUnitCost;
+    totalPrice += roundedHours * laborUnitPrice;
+    createdItemCount++;
+  }
+
+  return {
+    documentId: doc.id,
+    documentName: doc.name,
+    documentNumber: doc.number,
+    itemCount: createdItemCount,
+    totalCost,
+    totalPrice,
+  };
+}
