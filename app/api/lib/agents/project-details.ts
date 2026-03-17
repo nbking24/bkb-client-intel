@@ -584,32 +584,32 @@ const projectDetails: AgentModule = {
           }
         }
 
-        // Enrich doc-level items with custom field values from matching budget items.
-        // Document-level cost items in PAVE don't carry customFieldValues, so we
-        // look up the corresponding budget item by name + cost group to merge status/vendor/notes.
-        if (docLevelItems.length > 0) {
-          const budgetByKey = new Map<string, any>();
-          for (const bi of budgetCostItems) {
-            const key = (bi.name || '').toLowerCase() + '::' + (bi.costGroup?.name || '').toLowerCase();
-            if (bi.status || bi.vendor || bi.internalNotes) {
-              budgetByKey.set(key, bi);
-            }
+        // Merge: selected budget items + selected document-level items from approved COs
+        const costItems = [...filteredBudgetItems, ...docLevelItems];
+
+        // Enrich items missing custom field values from matching budget items.
+        // Document-level cost items in PAVE don't carry customFieldValues.
+        // Budget items on a document may also lack custom fields if the budget-level
+        // "canonical" item has a different ID (e.g., CO doc items vs budget items).
+        // We look up the corresponding budget item by name + cost group to merge status/vendor/notes.
+        const budgetByKey = new Map<string, any>();
+        for (const bi of budgetCostItems) {
+          const key = (bi.name || '').toLowerCase() + '::' + (bi.costGroup?.name || '').toLowerCase();
+          if (bi.status || bi.vendor || bi.internalNotes) {
+            budgetByKey.set(key, bi);
           }
-          for (const di of docLevelItems) {
-            if (!di.status && !di.vendor && !di.internalNotes) {
-              const key = (di.name || '').toLowerCase() + '::' + (di.costGroup?.name || '').toLowerCase();
-              const match = budgetByKey.get(key);
-              if (match) {
-                di.status = match.status;
-                di.vendor = match.vendor;
-                di.internalNotes = match.internalNotes;
-              }
+        }
+        for (const item of costItems) {
+          if (!item.status && !item.vendor && !item.internalNotes) {
+            const key = (item.name || '').toLowerCase() + '::' + (item.costGroup?.name || '').toLowerCase();
+            const match = budgetByKey.get(key);
+            if (match) {
+              item.status = match.status;
+              item.vendor = match.vendor;
+              item.internalNotes = match.internalNotes;
             }
           }
         }
-
-        // Merge: selected budget items + selected document-level items from approved COs
-        const costItems = [...filteredBudgetItems, ...docLevelItems];
 
         if (!costItems || costItems.length === 0) {
           return JSON.stringify({
