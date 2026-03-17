@@ -1750,7 +1750,9 @@ export interface JTCostItem {
   costGroup?: { id: string; name: string; description?: string; files?: JTCostItemFile[]; parentCostGroup?: { id: string; name: string; description?: string; files?: JTCostItemFile[] } | null } | null;
   files?: JTCostItemFile[];
   // Document association: null = Estimating, otherwise attached to a proposal/invoice
-  document?: { id: string; name: string; type: string } | null;
+  document?: { id: string; name: string; type: string; status?: string } | null;
+  // Budget item this document cost item is linked to
+  jobCostItem?: { id: string } | null;
   // Custom fields (Status, Internal Notes, Vendor)
   status?: string | null;
   internalNotes?: string | null;
@@ -1810,11 +1812,11 @@ export async function getCostItemsForJobLite(jobId: string, limit = 200): Promis
  * Returns a flat array with each item's parent document type included.
  */
 export async function getDocumentCostItemsForJob(jobId: string): Promise<JTCostItem[]> {
-  const PAGE_SIZE = 50; // keep document page small to avoid 413
+  const PAGE_SIZE = 30; // keep small to avoid 413
   let allItems: JTCostItem[] = [];
   let nextPage: string | null = null;
 
-  for (let page = 0; page < 5; page++) {
+  for (let page = 0; page < 10; page++) {
     const pageParams: Record<string, unknown> = { size: PAGE_SIZE };
     if (nextPage) pageParams.page = nextPage;
 
@@ -1827,6 +1829,7 @@ export async function getDocumentCostItemsForJob(jobId: string): Promise<JTCostI
           nodes: {
             id: {},
             type: {},
+            status: {},
             costItems: {
               $: { size: 50 },
               nodes: {
@@ -1837,6 +1840,7 @@ export async function getDocumentCostItemsForJob(jobId: string): Promise<JTCostI
                 quantity: {},
                 costCode: { number: {}, name: {} },
                 costType: { id: {}, name: {} },
+                jobCostItem: { id: {} },
               },
             },
           },
@@ -1852,7 +1856,7 @@ export async function getDocumentCostItemsForJob(jobId: string): Promise<JTCostI
       for (const item of docItems) {
         allItems.push({
           ...item,
-          document: { id: doc.id, name: '', type: doc.type },
+          document: { id: doc.id, name: '', type: doc.type, status: doc.status },
         });
       }
     }

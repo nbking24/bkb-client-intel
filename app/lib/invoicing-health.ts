@@ -17,6 +17,7 @@ import {
   getTimeEntriesForJob,
   getJobSchedule,
   getDocumentCostItemsById,
+  getDocumentCostItemsForJob,
   type JTJob,
   type JTDocument,
   type JTCostItem,
@@ -566,23 +567,50 @@ async function analyzeCostPlusJob(
     }
   }
 
-  // Calculate unbilled costs using DOCUMENT-LEVEL totals (not budget items).
-  // job.costItems returns budget items which don't reliably map to vendor bills/invoices.
-  // Instead, use the document.cost field which represents actual totals on each document.
-  const activeVendorBills = documents.filter(
-    (d) => d.type === 'vendorBill' && d.status !== 'denied'
+  // Calculate unbilled costs and hours using DOCUMENT-LEVEL cost items.
+  // job.costItems returns budget-level items which don't map to vendor bill / invoice
+  // line items reliably. Instead, fetch cost items from each document and match by
+  // jobCostItemId (budget item link) to determine what's been billed.
+  const docCostItems = await getDocumentCostItemsForJob(job.id);
+
+  // Vendor bill cost items (excluding denied/deleted bills)
+  const vendorBillItems = docCostItems.filter(
+    (item) => item.document?.type === 'vendorBill' && item.document?.status !== 'denied'
   );
-  const totalJobCosts = activeVendorBills.reduce(
-    (sum, d) => sum + (d.cost || 0), 0
+
+  // Customer invoice cost items (non-draft only)
+  const invoiceCostItems = docCostItems.filter(
+    (item) => item.document?.type === 'customerInvoice' && item.document?.status !== 'draft'
   );
-  // Sum costs from all non-draft customer invoices (approved + pending)
-  const billedInvoices = customerInvoices.filter(
-    (d) => d.status !== 'draft'
+
+  // Split invoice items into labor vs non-labor (materials/subs)
+  const invoiceNonLaborItems = invoiceCostItems.filter(
+    (item) => !item.costType?.name?.toLowerCase().includes('labor')
   );
-  const totalCostsBilled = billedInvoices.reduce(
-    (sum, d) => sum + (d.cost || 0), 0
+  const invoiceLaborItems = invoiceCostItems.filter(
+    (item) => item.costType?.name?.toLowerCase().includes('labor')
   );
-  const unbilledCosts = Math.max(0, totalJobCosts - totalCostsBilled);
+
+  // Group vendor bill costs and invoice non-labor costs by budget item (jobCostItemId).
+  // Multiple vendor bills can reference the same budget item, so we need to sum per budget item.
+  const vendorCostByBudgetItem = new Map<string, number>();
+  for (const item of vendorBillItems) {
+    const budgetId = item.jobCostItem?.id || item.id; // fallback to item ID if no budget link
+    vendorCostByBudgetItem.set(budgetId, (vendorCostByBudgetItem.get(budgetId) || 0) + (item.cost || 0));
+  }
+
+  const invoicedCostByBudgetItem = new Map<string, number>();
+  for (const item of invoiceNonLaborItems) {
+    const budgetId = item.jobCostItem?.id || item.id;
+    invoicedCostByBudgetItem.set(budgetId, (invoicedCostByBudgetItem.get(budgetId) || 0) + (item.cost || 0));
+  }
+
+  // Unbilled = sum of (vendor bill cost - invoiced cost) per budget item, where positive
+  let unbilledCosts = 0;
+  vendorCostByBudgetItem.forEach((vendorCost, budgetId) => {
+    const invoicedCost = invoicedCostByBudgetItem.get(budgetId) || 0;
+    unbilledCosts += Math.max(0, vendorCost - invoicedCost);
+  });
   const unbilledAmount = unbilledCosts;
 
   // Calculate unbilled hours: all time entries minus labor hours billed on invoices.
@@ -595,12 +623,8 @@ async function analyzeCostPlusJob(
     }
     return sum;
   }, 0);
-  // For billed labor hours, check cost items on invoices that are labor-typed
-  const costItemsOnInvoices = costItems.filter(
-    (item) => item.document?.type === 'customerInvoice'
-  );
-  const billedLaborHours = costItemsOnInvoices
-    .filter((item) => item.costType?.name?.toLowerCase().includes('labor'))
+  // Billed labor hours from invoice labor line items (document-level, not budget-level)
+  const billedLaborHours = invoiceLaborItems
     .reduce((sum, item) => sum + (item.quantity || 0), 0);
   const unbilledHours = Math.max(0, totalHours - billedLaborHours);
 
