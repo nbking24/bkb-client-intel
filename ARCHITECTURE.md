@@ -552,6 +552,46 @@ JT API  ──→ jt_comments, jt_daily_logs (Supabase cache)
 
 All modifications to the codebase should be logged here with date, files changed, and what was done.
 
+### 2026-03-17 — Fix: Cost-Plus Invoicing Rewritten to Use Bills & Time (Not Budget Items)
+
+**Problem:** The Cost-Plus analysis (`analyzeCostPlusJob`) and invoice creation (`createDraftCostPlusInvoice`) were fundamentally wrong. They used `jobCostItemId` presence to determine what's been billed, but multiple vendor bills can share the same budget item — causing false matches. For example, on Edwards Ongoing, Wehrung's Lumber ($24.56) and Freedom Millwork ($911.39) both referenced the same "14-Trim, Finish:1403 - Materials" budget item. Since Freedom's bill was invoiced, Wehrung's was falsely flagged as invoiced too. The invoice creation function also pulled from budget items instead of actual vendor bills and time entries, which doesn't match JT's "Bills and Time" model for Cost-Plus.
+
+**Root Cause:** The old approach matched vendor bill cost items to invoice cost items by `jobCostItemId` (budget item bridge). This works when each bill maps to a unique budget item, but fails when multiple bills share one. JT's native Cost-Plus billing works from vendor bills and time entries directly, not budget estimates.
+
+**Solution — Analysis (`analyzeCostPlusJob`):**
+- Fetch vendor bill cost items per-document (one document at a time via `getDocumentCostItemsById` to avoid 413 errors)
+- Group vendor bill costs by `jobCostItemId`, then use per-budget-item **FIFO deduction**: sum invoiced amounts from customer invoices for each budget item, then deduct from the oldest vendor bills first. Bills not fully covered = uninvoiced.
+- For time entries: group by budget cost item (`costItem.id`), deduct invoiced hours (from invoice line item quantities) per budget item, oldest entries first.
+- Added `cost` field to time entry PAVE queries and `JTTimeEntry` interface.
+- Added `jobCostItem: { id: {} }` to `getDocumentCostItemsById` query.
+
+**Solution — Invoice Creation (`createDraftCostPlusInvoice`):**
+- Complete rewrite: now pulls from uninvoiced vendor bills + time entries instead of budget items.
+- Uses the same FIFO deduction logic to determine which bills and time entries are uninvoiced.
+- Groups vendor bill items by vendor name on the invoice (sub-groups under "Vendor Bills").
+- Groups time entries by worker under "BKB Labor" with date breakdown in description.
+- Uses 25% markup on bills, $115/hr (Master Craftsman) and $55/hr (Journeyman) billing rates for labor.
+
+**Verified on Edwards Ongoing (Job #170):**
+- Dashboard unbilled costs: $808.66 — exact match with JT "Not Invoiced" view (Olde Town $270 + Wehrung's $24.56 + Reeds $514.10)
+- Draft Invoice #15 created with 5 items ($1,803.33): 3 vendor bill items + 2 labor items
+- Old code would have shown Wehrung's as already invoiced (wrong) and pulled budget items instead of actual bills
+
+**Key Architectural Lesson — Per-Budget-Item FIFO Deduction:**
+- Multiple vendor bills can reference the same `jobCostItemId` (budget item)
+- You CANNOT determine if a specific bill is invoiced by checking if its `jobCostItemId` appears on any customer invoice
+- Instead: sum all vendor bill costs per budget item, sum all invoiced costs per budget item, deduct from oldest bills first
+- PAVE `sourceCostItemId` on `createCostItem` is accepted as a parameter but doesn't persist the linkage (tested and confirmed null on read-back)
+- PAVE `timeEntryIds` is NOT a valid `createCostItem` parameter (returns "no value is ever expected there")
+
+**Changes:**
+- `app/lib/invoicing-health.ts` — Rewrote `analyzeCostPlusJob()`: removed `getDocumentCostItemsForJob` call, added per-document vendor bill fetching via `getDocumentCostItemsById`, implemented FIFO deduction for both bills and time entries
+- `app/lib/jobtread.ts` — Rewrote `createDraftCostPlusInvoice()`: pulls from uninvoiced vendor bills and time entries instead of budget items; added `jobCostItem: { id: {} }` to `getDocumentCostItemsById` query; added `cost` field to time entry PAVE query and `JTTimeEntry` interface; fixed PAVE query size limit (200 → 100)
+
+**Commits:** `3e6dc4c`, `235bbec`
+
+---
+
 ### 2026-03-17 — Feature: One-Click Billable Invoice for Fixed-Price Contract Jobs
 
 **Problem:** Fixed-Price (contract) jobs on the dashboard showed uninvoiced CC23 billable items and labor hours, but creating an invoice required manually entering everything in JobTread.
