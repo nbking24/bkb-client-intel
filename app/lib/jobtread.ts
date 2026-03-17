@@ -975,6 +975,7 @@ export interface JTDocument {
   description: string;
   number: string;
   price: number | null;
+  cost: number | null;
   createdAt: string;
   signedAt: string | null;
   job: { id: string; name: string };
@@ -995,6 +996,7 @@ export async function getDocumentsForJob(jobId: string): Promise<JTDocument[]> {
           description: {},
           number: {},
           price: {},
+          cost: {},
           createdAt: {},
           signedAt: {},
         },

@@ -566,29 +566,27 @@ async function analyzeCostPlusJob(
     }
   }
 
-  // Calculate unbilled costs: actual costs incurred (vendor bills only) vs costs billed on invoices
-  // Only vendor bills represent real money spent — unattached budget items are just estimates
-  // Exclude cost items on denied (deleted) vendor bills
-  const deniedBillIds = new Set(
-    documents.filter((d) => d.type === 'vendorBill' && d.status === 'denied').map((d) => d.id)
+  // Calculate unbilled costs using DOCUMENT-LEVEL totals (not budget items).
+  // job.costItems returns budget items which don't reliably map to vendor bills/invoices.
+  // Instead, use the document.cost field which represents actual totals on each document.
+  const activeVendorBills = documents.filter(
+    (d) => d.type === 'vendorBill' && d.status !== 'denied'
   );
-  const costItemsOnBills = costItems.filter(
-    (item) => item.document?.type === 'vendorBill' && !deniedBillIds.has(item.document?.id ?? '')
+  const totalJobCosts = activeVendorBills.reduce(
+    (sum, d) => sum + (d.cost || 0), 0
   );
-  const totalJobCosts = costItemsOnBills.reduce(
-    (sum, item) => sum + (item.cost || 0), 0
+  // Sum costs from all non-draft customer invoices (approved + pending)
+  const billedInvoices = customerInvoices.filter(
+    (d) => d.status !== 'draft'
   );
-  const costItemsOnInvoices = costItems.filter(
-    (item) => item.document?.type === 'customerInvoice'
-  );
-  const totalCostsBilled = costItemsOnInvoices.reduce(
-    (sum, item) => sum + (item.cost || 0), 0
+  const totalCostsBilled = billedInvoices.reduce(
+    (sum, d) => sum + (d.cost || 0), 0
   );
   const unbilledCosts = Math.max(0, totalJobCosts - totalCostsBilled);
   const unbilledAmount = unbilledCosts;
 
-  // Calculate unbilled hours: all time entries minus labor hours billed on invoices
-  // For cost-plus jobs, ALL hours are billable and need to be invoiced
+  // Calculate unbilled hours: all time entries minus labor hours billed on invoices.
+  // For cost-plus jobs, ALL hours are billable and need to be invoiced.
   const totalHours = timeEntries.reduce((sum, entry) => {
     if (entry.startedAt && entry.endedAt) {
       const start = new Date(entry.startedAt).getTime();
@@ -597,6 +595,10 @@ async function analyzeCostPlusJob(
     }
     return sum;
   }, 0);
+  // For billed labor hours, check cost items on invoices that are labor-typed
+  const costItemsOnInvoices = costItems.filter(
+    (item) => item.document?.type === 'customerInvoice'
+  );
   const billedLaborHours = costItemsOnInvoices
     .filter((item) => item.costType?.name?.toLowerCase().includes('labor'))
     .reduce((sum, item) => sum + (item.quantity || 0), 0);
