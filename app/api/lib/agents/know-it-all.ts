@@ -622,6 +622,15 @@ const knowItAll: AgentModule = {
       'WRITE OPERATIONS: ALWAYS confirm with user before any create/update/delete.\n\n' +
       'TEAM: Nathan King, Terri Dalavai, David Steich, Evan Harrington, John Molnar, Karen Molnar, Chrissy Zajick\n\n' +
       'BKB 9-PHASE SCHEDULE: 1.Admin 2.Concept 3.Design Development 4.Contract 5.Pre-Construction 6.Production 7.Inspections 8.Punch/Closeout 9.Project Closeout\n\n' +
+      '=== SELECTIONS & ORDERING STATUS ===\n' +
+      'Cost items in JobTread have custom fields tracking selection/ordering status:\n' +
+      '- Status: e.g. "Ordered/Finalized", "Internal Selection Needed", "Pricing/Agreement Pending", etc.\n' +
+      '- Vendor: which vendor/supplier the item is ordered from (e.g. Build.com, Ferguson)\n' +
+      '- Internal Notes: details like order numbers, shipping info, who it was sent to\n' +
+      'When asked "was X ordered?", "what is the status of the mirror?", "where was X ordered from?", etc.:\n' +
+      '  → Use get_job_budget with a search keyword matching the item name.\n' +
+      '  → The response includes {Status:}, {Vendor:}, and {Notes:} fields for each cost item.\n' +
+      '  → Answer directly from these fields. "Ordered/Finalized" means the item has been ordered.\n\n' +
       '=== SCHEDULE & CALENDAR (CRITICAL) ===\n' +
       'TWO calendars exist: JobTread (construction tasks/milestones) and GHL/GoHighLevel (client meetings/appointments).\n' +
       'GHL is the SOURCE OF TRUTH for client meetings, consultations, site visits, and appointments.\n' +
@@ -747,8 +756,8 @@ const knowItAll: AgentModule = {
     },
     {
       name: 'get_job_budget',
-      description: 'Get cost items (budget line items) for a job. Use search to filter by keyword.',
-      input_schema: { type: 'object', properties: { jobId: { type: 'string', description: 'The JobTread Job ID' }, search: { type: 'string', description: 'Optional keyword filter' } }, required: ['jobId'] },
+      description: 'Get cost items (budget line items) for a job, including selection status (ordered, finalized, pending), vendor, and internal notes. Use search to filter by keyword — also searches status and vendor fields. Use this when asked about selections, ordering status, materials, or what has been ordered/finalized.',
+      input_schema: { type: 'object', properties: { jobId: { type: 'string', description: 'The JobTread Job ID' }, search: { type: 'string', description: 'Optional keyword filter (searches name, description, cost code, group, status, vendor)' } }, required: ['jobId'] },
     },
     {
       name: 'get_cost_codes',
@@ -1078,6 +1087,8 @@ const knowItAll: AgentModule = {
     // Very high for explicit task/JT operations (formerly jt-entry patterns)
     if (/create.*task|add.*task|schedule.*task|new.*task|make.*task/i.test(lower)) return 0.95;
     if (/(create|add|update|edit|delete|remove|schedule|assign|change|modify).*(jobtread|job\s*tread|budget|comment|item|phase)/i.test(lower)) return 0.95;
+    // Selections, ordering status, materials ordering
+    if (/(order|ordered|finalized|selection|selected|vendor|where.*order|was.*order|has.*been.*order|material.*status|fixture)/i.test(lower)) return 0.9;
     if (/(update|change|move|reschedule|push|set|adjust).*(task|date|due|deadline|end date|start date|schedule)/i.test(lower)) return 0.95;
     if (/mark.*(complete|done|finished|progress)|complete.*task|finish.*task|update.*progress/i.test(lower)) return 0.9;
     if (/apply.*template|standard.*template|create.*phase|add.*phase/i.test(lower)) return 0.9;
@@ -1604,7 +1615,7 @@ const knowItAll: AgentModule = {
         let filtered = items;
         if (searchTerm) {
           filtered = items.filter((i: any) => {
-            const searchable = [i.name, i.description, i.costCode?.name, i.costGroup?.name].filter(Boolean).join(' ').toLowerCase();
+            const searchable = [i.name, i.description, i.costCode?.name, i.costGroup?.name, i.status, i.vendor, i.internalNotes].filter(Boolean).join(' ').toLowerCase();
             return searchable.includes(searchTerm);
           });
         }
@@ -1617,7 +1628,11 @@ const knowItAll: AgentModule = {
           const spec = i.isSpecification ? ' [SPEC]' : '';
           const code = i.costCode ? ' (' + i.costCode.number + ' ' + i.costCode.name + ')' : '';
           const group = i.costGroup ? ' [' + i.costGroup.name + ']' : '';
-          return '- ' + i.name + spec + code + group + ' | Qty: ' + (i.quantity || 0) + ' | Cost: $' + cost.toFixed(2) + ' | Price: $' + price.toFixed(2);
+          // Include selection status, vendor, and internal notes when present
+          const statusTag = i.status ? ' {Status: ' + i.status + '}' : '';
+          const vendorTag = i.vendor ? ' {Vendor: ' + i.vendor + '}' : '';
+          const notesTag = i.internalNotes ? ' {Notes: ' + i.internalNotes + '}' : '';
+          return '- ' + i.name + spec + code + group + statusTag + vendorTag + notesTag + ' | Qty: ' + (i.quantity || 0) + ' | Cost: $' + cost.toFixed(2) + ' | Price: $' + price.toFixed(2);
         });
         if (filtered.length > 75) lines.push('... and ' + (filtered.length - 75) + ' more. Use search parameter to filter.');
         lines.push('');
