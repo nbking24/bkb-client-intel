@@ -109,7 +109,27 @@ async function tryFastPath(msg: string, ctx: AgentContext): Promise<AgentResult 
       /\btask.*\b(open|incomplete|pending|list)\b/i.test(stripped)) {
     console.log('[FAST-PATH] Detected open tasks query');
     try {
-      // Approach: get active jobs, then fetch tasks per job (avoids 413 from org-level task query)
+      // When a specific job is selected, scope to ONLY that job
+      if (ctx.jtJobId) {
+        console.log('[FAST-PATH] Scoping tasks to focused job:', ctx.jtJobId);
+        const tasks = await getTasksForJob(ctx.jtJobId);
+        const openTasks = tasks.filter((t: any) => !t.isGroup && (t.progress === null || t.progress < 1));
+
+        if (openTasks.length === 0) {
+          return { agentName: 'Know it All', reply: 'No open tasks found for this job.', needsConfirmation: false };
+        }
+
+        let reply = `Here are the **${openTasks.length} open tasks** for this job:\n\n`;
+        for (const t of openTasks) {
+          const pct = Math.round((t.progress || 0) * 100);
+          const due = t.endDate || 'No due date';
+          reply += `- **${t.name}** — ${pct}% complete | Due: ${due}\n`;
+        }
+
+        return { agentName: 'Know it All', reply: reply.trim(), needsConfirmation: false };
+      }
+
+      // No job selected — fetch tasks across all active jobs
       const jobs = await getActiveJobs(10);  // Limit to 10 most recent active jobs
       if (!jobs || jobs.length === 0) {
         return { agentName: 'Know it All', reply: 'No active jobs found, so no open tasks.', needsConfirmation: false };
