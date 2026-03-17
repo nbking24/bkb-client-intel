@@ -781,11 +781,28 @@ function findBillableItems(
 // 6. Build Full Invoicing Health Context (main entry point)
 // ============================================================
 
+// Only show jobs with these custom Status values on the dashboard
+const DASHBOARD_ALLOWED_STATUSES = [
+  '5. Design Phase',
+  '6. In Production',
+  '7. Final Billing',
+  '9. On Hold',
+  '10. Ready',
+];
+
 export async function buildInvoicingContext(): Promise<InvoicingFullContext> {
   const todayStr = getTodayDateString();
 
   // 1. Get all active jobs (now includes native priceType field from PAVE API)
-  const rawJobs = await getActiveJobs(50);
+  const allJobs = await getActiveJobs(50);
+
+  // 1b. Filter to only jobs with allowed custom Status values
+  const rawJobs = allJobs.filter((job) => {
+    const status = job.customStatus || '';
+    return DASHBOARD_ALLOWED_STATUSES.includes(status);
+  });
+
+  console.log(`[InvoicingHealth] Filtered ${allJobs.length} active jobs → ${rawJobs.length} with allowed status`);
 
   // 2. For each job, fetch documents, cost items, and time entries
   //    Use batched concurrency (5 jobs at a time) to avoid overwhelming the PAVE API
