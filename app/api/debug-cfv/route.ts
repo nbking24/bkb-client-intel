@@ -1,5 +1,5 @@
 import { NextResponse } from 'next/server';
-import { getCostItemsLightForJob, getDocumentCostItemsLightById } from '@/app/lib/jobtread';
+import { getCostItemsLightForJob, getDocumentCostItemsLightById, getDocumentStatusesForJob } from '@/app/lib/jobtread';
 
 export const dynamic = 'force-dynamic';
 
@@ -7,50 +7,74 @@ export async function GET() {
   const jobId = '22PEn8bysN7v'; // Wooley
 
   try {
-    // Test 1: Try with limit=500 (current setting)
-    let budgetItems: any[] = [];
-    let budgetError: string | null = null;
-    try {
-      budgetItems = await getCostItemsLightForJob(jobId, 500);
-    } catch (e: any) {
-      budgetError = e.message || String(e);
+    // Get all budget items
+    const budgetItems = await getCostItemsLightForJob(jobId, 500);
+
+    // Get document statuses
+    const docStatuses = await getDocumentStatusesForJob(jobId);
+    const approvedDocIds = new Set<string>();
+    const approvedCustomerOrderIds: string[] = [];
+    for (const doc of docStatuses) {
+      if (doc.status === 'approved') {
+        approvedDocIds.add(doc.id);
+        if (doc.type === 'customerOrder') {
+          approvedCustomerOrderIds.push(doc.id);
+        }
+      }
     }
 
-    // Test 2: Try with limit=50 (smaller)
-    let budgetItems50: any[] = [];
-    let budget50Error: string | null = null;
-    try {
-      budgetItems50 = await getCostItemsLightForJob(jobId, 50);
-    } catch (e: any) {
-      budget50Error = e.message || String(e);
-    }
-
-    // Find mirror items if we got any results
-    const mirrorItems500 = budgetItems.filter((item: any) =>
-      item.name?.toLowerCase().includes('mirror')
-    );
-    const mirrorItems50 = budgetItems50.filter((item: any) =>
+    // Find all mirror items and show their document references
+    const mirrorItems = budgetItems.filter((item: any) =>
       item.name?.toLowerCase().includes('mirror')
     );
 
-    // Check items with status
-    const itemsWithStatus500 = budgetItems.filter((item: any) => item.status);
-    const itemsWithStatus50 = budgetItems50.filter((item: any) => item.status);
+    // Check which mirror items pass the approved doc filter
+    const mirrorWithApprovedDoc = mirrorItems.filter((item: any) => {
+      const docId = item.document?.id;
+      return docId && approvedDocIds.has(docId);
+    });
+
+    // Get doc-level items from approved customer orders
+    const docItemPromises = approvedCustomerOrderIds.map(docId => getDocumentCostItemsLightById(docId));
+    const docItemArrays = await Promise.all(docItemPromises);
+
+    // Find mirror items from doc-level queries
+    const docMirrorItems: any[] = [];
+    for (const items of docItemArrays) {
+      for (const item of items) {
+        if (item.name?.toLowerCase().includes('mirror')) {
+          docMirrorItems.push(item);
+        }
+      }
+    }
 
     return NextResponse.json({
-      test500: {
-        totalItems: budgetItems.length,
-        error: budgetError,
-        mirrorItems: mirrorItems500.map((i: any) => ({ id: i.id, name: i.name, status: i.status, vendor: i.vendor, internalNotes: i.internalNotes, costGroup: i.costGroup?.name })),
-        itemsWithStatusCount: itemsWithStatus500.length,
-        itemsWithStatus: itemsWithStatus500.map((i: any) => ({ id: i.id, name: i.name, status: i.status, vendor: i.vendor, costGroup: i.costGroup?.name })),
-      },
-      test50: {
-        totalItems: budgetItems50.length,
-        error: budget50Error,
-        mirrorItems: mirrorItems50.map((i: any) => ({ id: i.id, name: i.name, status: i.status, vendor: i.vendor, internalNotes: i.internalNotes, costGroup: i.costGroup?.name })),
-        itemsWithStatusCount: itemsWithStatus50.length,
-      },
+      totalBudgetItems: budgetItems.length,
+      approvedDocs: docStatuses.filter((d: any) => d.status === 'approved').map((d: any) => ({ id: d.id, name: d.name, type: d.type })),
+      approvedCustomerOrderIds,
+      mirrorItemsInBudget: mirrorItems.map((i: any) => ({
+        id: i.id,
+        name: i.name,
+        status: i.status,
+        vendor: i.vendor,
+        internalNotes: i.internalNotes,
+        costGroup: i.costGroup?.name,
+        parentGroup: i.costGroup?.parentCostGroup?.name,
+        documentId: i.document?.id,
+        documentName: i.document?.name,
+        documentType: i.document?.type,
+        hasApprovedDoc: i.document?.id ? approvedDocIds.has(i.document.id) : false,
+      })),
+      mirrorWithApprovedDocCount: mirrorWithApprovedDoc.length,
+      docLevelMirrorItems: docMirrorItems.map((i: any) => ({
+        id: i.id,
+        name: i.name,
+        status: i.status,
+        vendor: i.vendor,
+        internalNotes: i.internalNotes,
+        costGroup: i.costGroup?.name,
+        isSelected: i.isSelected,
+      })),
     });
   } catch (e: any) {
     return NextResponse.json({ error: e.message || String(e) }, { status: 500 });
