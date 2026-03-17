@@ -4,7 +4,7 @@
 >
 > **Nathan:** If starting a new conversation, mention this doc or say "review the architecture doc" so the assistant knows to read it first.
 
-**Last updated:** 2026-03-16
+**Last updated:** 2026-03-17
 **Repo:** `github.com/nbking24/bkb-client-intel`
 **Deploy:** Vercel (auto-deploy on push to `main`)
 **Live URL:** `https://bkb-client-intel.vercel.app`
@@ -92,7 +92,9 @@ app/
 │   ├── dashboard/
 │   │   ├── invoicing/
 │   │   │   ├── route.ts             # Invoicing health data endpoint (cached)
-│   │   │   └── create-task/route.ts # Create $ schedule task for unmatched draft invoices
+│   │   │   ├── create-task/route.ts # Create $ schedule task for unmatched draft invoices
+│   │   │   ├── create-invoice/route.ts        # One-click draft invoice for Cost-Plus jobs
+│   │   │   └── create-billable-invoice/route.ts # One-click draft invoice for Fixed-Price CC23 billable items
 │   │   ├── projects/route.ts        # Active projects list
 │   │   ├── tasks/route.ts           # Task list with urgency
 │   │   ├── schedule/route.ts        # Schedule multi-view endpoint
@@ -334,6 +336,7 @@ Core analysis function `buildInvoicingContext()` fetches all active jobs via PAV
 - Progress bar: invoiced % of contract value
 - Inline stats: Billable items amount + unbilled labor hours
 - Alerts: approaching milestones, overdue milestones, unmatched drafts (with Create Task button), pending invoices awaiting payment
+- **"Create Billable Invoice" button**: One-click creates a draft customer invoice from CC23 billable items (materials/subs on vendor bills not yet on customer invoices) plus unbilled CC23 labor hours. Sub-grouped by vendor bill source. Labor billed at $85/$115 per hour with worker breakdown in description.
 - Collapsible invoice details: Draft (amber) / Paid (green) / Open (yellow) badges
 
 **Cost Plus Job Cards:**
@@ -342,6 +345,7 @@ Core analysis function `buildInvoicingContext()` fetches all active jobs via PAV
 - Progress bar: days since last invoice (colored by cadence health)
 - Inline stats: unbilled costs + unbilled hours + total billed
 - Alerts: billing cadence warnings
+- **"Create Draft Invoice" button**: One-click creates a draft customer invoice in JobTread with all unbilled budget items (excludes $0.00 placeholders). Groups: Materials first → Admin → Subcontractor → Other → Labor last. Material items get auto-generated descriptions from cost code info.
 - Collapsible invoice details: Draft / Paid / Open badges
 
 **Billable Items Section:** Expandable cards per job showing uninvoiced CC23 items and hours
@@ -367,6 +371,8 @@ Core analysis function `buildInvoicingContext()` fetches all active jobs via PAV
 | `GET /api/dashboard/invoicing?cached=true` | Serve cached invoicing data from Supabase |
 | `GET /api/dashboard/invoicing?refresh=true` | Run fresh analysis, update cache, return data |
 | `POST /api/dashboard/invoicing/create-task` | Create `$` schedule task for unmatched draft invoice |
+| `POST /api/dashboard/invoicing/create-invoice` | Create draft Cost-Plus invoice (all unbilled budget items) |
+| `POST /api/dashboard/invoicing/create-billable-invoice` | Create draft Fixed-Price invoice (CC23 billable items + labor) |
 | `POST /api/agent/invoicing` | Run Claude analysis on invoicing data |
 | `GET /api/cron/invoicing-health` | Daily 1 AM EST cron to refresh cache |
 
@@ -530,11 +536,71 @@ JT API  ──→ jt_comments, jt_daily_logs (Supabase cache)
 
 17. **Deleted vendor bills have `status: 'denied'`**: When bills are deleted in JobTread, they aren't removed from the API — they get `status: 'denied'`. All analysis functions must filter these out with `status !== 'denied'` to avoid counting deleted bill costs in totals.
 
+18. **PAVE `createDocument` required fields**: `jobId`, `type`, `name` (must be exactly "Deposit", "Invoice", or "Progress Invoice"), `fromName`, `toName`, `taxRate`, `jobLocationName`, `jobLocationAddress`, `dueDays` (or `dueDate`). Omitting `jobLocationName`/`jobLocationAddress` or `dueDays` produces cryptic errors. BKB defaults: `fromName: 'Terri (Brett King Builder-Contractor Inc.)'`, `dueDays: 2`, `taxRate: '0'`.
+
+19. **PAVE `createCostItem` on customer invoices requires `jobCostItemId`**: When adding cost items to a customer invoice, you MUST provide `jobCostItemId` (the ID of the budget cost item this line links to). Without it, creation fails. This is NOT required for vendor bills or estimates.
+
+20. **No bulk/copy PAVE mutations**: There are no bulk-create or document-copy mutations. Creating a draft invoice with 50+ items requires sequential calls: one `createDocument`, then N `createCostGroup` + M `createCostItem` calls. Use `maxDuration = 60` on the API route.
+
+21. **PAVE `document.costItems` vs `job.costItems`**: A budget item (from `job.costItems`) can be referenced by multiple document items. The PAVE `document` field on a budget item returns only ONE linked document. To check if a budget item appears on a customer invoice, query the customer invoice's `costItems` and check their `jobCostItem.id` values against the budget item ID.
+
+22. **Cost-Plus = ALL hours billable, Fixed-Price = ONLY CC23 hours**: This is a critical business rule. Cost-Plus jobs bill all time entries regardless of cost code. Fixed-Price jobs ONLY bill time entries tagged to Cost Code 23. Nathan has explicitly corrected this twice — do not change this behavior.
+
 ---
 
 ## 15. Changelog
 
 All modifications to the codebase should be logged here with date, files changed, and what was done.
+
+### 2026-03-17 — Feature: One-Click Billable Invoice for Fixed-Price Contract Jobs
+
+**Problem:** Fixed-Price (contract) jobs on the dashboard showed uninvoiced CC23 billable items and labor hours, but creating an invoice required manually entering everything in JobTread.
+
+**Solution:** Added "Create Billable Invoice" button to ContractJobCard. Creates a draft customer invoice containing CC23 materials/subcontractor items from vendor bills (not yet on customer invoices) and unbilled CC23 labor hours. Items are matched by `jobCostItemId` to prevent double-billing. Labor billed at $85/$115 per hour with worker breakdown in description.
+
+**Changes:**
+- `app/lib/jobtread.ts` — Added `createDraftBillableInvoice()` function (~250 lines). Queries vendor bill CC23 items, customer invoice CC23 items, matches by jobCostItemId, fetches CC23 time entries, creates document shell + groups (Materials & Subs → Labor) + items
+- `app/api/dashboard/invoicing/create-billable-invoice/route.ts` — **NEW** POST endpoint for fixed-price billable invoice creation
+- `app/dashboard/invoicing/page.tsx` — Added state, handler, and button UI to `ContractJobCard` (mirrors CostPlusJobCard pattern)
+
+### 2026-03-17 — Revert: Cost-Plus Unbilled Hours (Count All, Not Just CC23)
+
+**Problem:** Incorrectly changed `analyzeCostPlusJob()` to only count CC23 time entries (commit `4d92522`). This broke Cost-Plus reporting — Silver Maintenance dropped from 18.3h to 10.3h.
+
+**Root Cause:** Misunderstood the business rule. Cost-Plus jobs count ALL hours as billable. ONLY Fixed-Price/contract jobs restrict to CC23.
+
+**Solution:** Immediately reverted to original code that sums all time entries for cost-plus jobs (commit `e607ab5`).
+
+### 2026-03-17 — Enhancement: Invoice Group Ordering + Material Descriptions
+
+**Problem:** Cost-Plus draft invoices had items in arbitrary order. Nathan wanted Materials at top, Labor at bottom, matching the Behmlander Invoice 199-15 pattern. Also wanted short descriptions on material items.
+
+**Solution:** Added explicit `categoryOrder` array: materials → admin → subcontractor → other → labor. Added `buildItemDescription()` helper that generates descriptions from cost code info (e.g., "03-Concrete, Stone/Block Work") for material items.
+
+**Changes:**
+- `app/lib/jobtread.ts` — Added `categoryOrder`, `categoryNames`, `buildItemDescription()` in `createDraftCostPlusInvoice()`
+
+### 2026-03-17 — Enhancement: Exclude $0.00 Placeholder Items from Cost-Plus Invoices
+
+**Problem:** Draft invoices included $0.00 budget items that were just placeholders, cluttering the invoice.
+
+**Solution:** Added filter after fetching unbilled items: skip any item where cost, price, unitCost, and unitPrice are all zero.
+
+**Changes:**
+- `app/lib/jobtread.ts` — Added zero-value filter at line ~2952 in `createDraftCostPlusInvoice()`
+
+### 2026-03-16 — Feature: One-Click Draft Invoice for Cost-Plus Jobs
+
+**Problem:** Creating invoices for Cost-Plus jobs required manually copying dozens of budget items into a new invoice in JobTread, a tedious process taking 30+ minutes per job.
+
+**Solution:** Added "Create Draft Invoice" button to CostPlusJobCard on the Invoicing Health Dashboard. One click creates a complete draft customer invoice in JobTread with all unbilled budget items, properly organized into cost groups. Uses paginated lean PAVE queries (PAGE_SIZE=30) to avoid 413 errors, creates document shell with BKB-standard settings, then sequentially creates cost groups and items with `jobCostItemId` links.
+
+**Changes:**
+- `app/lib/jobtread.ts` — Added `createDraftCostPlusInvoice()`, `createJTDocument()`, `createJTCostGroup()`, `createJTCostItem()` PAVE mutation functions
+- `app/api/dashboard/invoicing/create-invoice/route.ts` — **NEW** POST endpoint (maxDuration=60)
+- `app/dashboard/invoicing/page.tsx` — Added state, handler, and button UI to `CostPlusJobCard`
+
+**Tested:** Edwards Ongoing (Invoice 170-13, 66 items, $3,784.15) — created and cleaned up successfully.
 
 ### 2026-03-16 — Fix: Labor Hours Deduction (Name vs CostType)
 
