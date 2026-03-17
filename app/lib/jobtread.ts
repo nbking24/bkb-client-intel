@@ -2739,15 +2739,23 @@ export async function createDailyLogWithCache(params: Parameters<typeof createDa
 async function createJTDocument(params: {
   jobId: string;
   type: 'customerInvoice' | 'customerOrder' | 'vendorOrder' | 'vendorBill' | 'bidRequest';
-  name: string;
+  name: string;  // Must be one of: "Deposit", "Invoice", "Progress Invoice"
   fromName: string;
   toName: string;
+  toAddress?: string;
   taxRate: string;
+  jobLocationName: string;
+  jobLocationAddress: string;
+  dueDays?: number;
   subject?: string;
   description?: string;
   footer?: string;
 }) {
-  const { jobId, type, name, fromName, toName, taxRate, subject, description, footer } = params;
+  const {
+    jobId, type, name, fromName, toName, toAddress, taxRate,
+    jobLocationName, jobLocationAddress, dueDays,
+    subject, description, footer,
+  } = params;
   const data = await pave({
     createDocument: {
       $: {
@@ -2757,6 +2765,10 @@ async function createJTDocument(params: {
         fromName,
         toName,
         taxRate,
+        jobLocationName,
+        jobLocationAddress,
+        ...(toAddress ? { toAddress } : {}),
+        ...(dueDays !== undefined ? { dueDays } : {}),
         ...(subject ? { subject } : {}),
         ...(description !== undefined ? { description } : {}),
         ...(footer !== undefined ? { footer } : {}),
@@ -2870,12 +2882,24 @@ export async function createDraftCostPlusInvoice(jobId: string): Promise<{
   totalCost: number;
   totalPrice: number;
 }> {
-  // 1. Get job details for customer name and job number
-  const job = await getJob(jobId);
+  // 1. Get job details including location for customer name, address, and job number
+  const jobData = await pave({
+    job: {
+      $: { id: jobId },
+      id: {}, name: {}, number: {},
+      location: {
+        id: {}, name: {}, address: {},
+        account: { id: {}, name: {} },
+      },
+    },
+  });
+  const job = (jobData as any)?.job;
   if (!job) throw new Error('Job not found: ' + jobId);
 
-  const customerName = job.clientName || 'Client';
+  const customerName = job.location?.account?.name || 'Client';
   const jobNumber = job.number || '';
+  const locationName = job.location?.name || '';
+  const locationAddress = job.location?.address || locationName;
 
   // 2. Get all budget cost items — use lean paginated query to avoid 413 errors
   const PAGE_SIZE = 30;
@@ -2968,15 +2992,20 @@ export async function createDraftCostPlusInvoice(jobId: string): Promise<{
   }
 
   // 5. Create the document shell
-  const invoiceName = `Invoice ${jobNumber}`;
+  // name must be one of: "Deposit", "Invoice", "Progress Invoice"
   const doc = await createJTDocument({
     jobId,
     type: 'customerInvoice',
-    name: invoiceName,
+    name: 'Invoice',
     fromName: 'Terri (Brett King Builder-Contractor Inc.)',
     toName: customerName,
+    toAddress: locationAddress,
     taxRate: '0',
+    jobLocationName: locationName,
+    jobLocationAddress: locationAddress,
+    dueDays: 2,
     subject: `Cost Plus Invoice - ${job.name}`,
+    description: 'This invoice reflects charges under a Cost Plus Fee agreement. You are billed for all actual project costs—including materials, subcontractors, labor, insurance, and permits - plus a 25% contractor\'s fee applied to those costs. Labor is billed at $115/hr (Master Craftsman) or $55/hr (Journeyman/Administrative).',
   });
 
   // 6. Create cost groups and items on the document
