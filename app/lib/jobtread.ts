@@ -1812,11 +1812,11 @@ export async function getCostItemsForJobLite(jobId: string, limit = 200): Promis
  * Returns a flat array with each item's parent document type included.
  */
 export async function getDocumentCostItemsForJob(jobId: string): Promise<JTCostItem[]> {
-  const PAGE_SIZE = 30; // keep small to avoid 413
+  const PAGE_SIZE = 15; // very small to avoid 413 on large jobs
   let allItems: JTCostItem[] = [];
   let nextPage: string | null = null;
 
-  for (let page = 0; page < 10; page++) {
+  for (let page = 0; page < 20; page++) {
     const pageParams: Record<string, unknown> = { size: PAGE_SIZE };
     if (nextPage) pageParams.page = nextPage;
 
@@ -1831,15 +1831,13 @@ export async function getDocumentCostItemsForJob(jobId: string): Promise<JTCostI
             type: {},
             status: {},
             costItems: {
-              $: { size: 50 },
+              $: { size: 100 },
               nodes: {
                 id: {},
                 name: {},
                 cost: {},
-                price: {},
                 quantity: {},
-                costCode: { number: {}, name: {} },
-                costType: { id: {}, name: {} },
+                costType: { name: {} },
                 jobCostItem: { id: {} },
               },
             },

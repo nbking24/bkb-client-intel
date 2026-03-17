@@ -571,7 +571,12 @@ async function analyzeCostPlusJob(
   // job.costItems returns budget-level items which don't map to vendor bill / invoice
   // line items reliably. Instead, fetch cost items from each document and match by
   // jobCostItemId (budget item link) to determine what's been billed.
-  const docCostItems = await getDocumentCostItemsForJob(job.id);
+  let docCostItems: JTCostItem[] = [];
+  try {
+    docCostItems = await getDocumentCostItemsForJob(job.id);
+  } catch (err: any) {
+    console.error(`[InvoicingHealth] Failed to fetch doc cost items for ${job.name}: ${err?.message || err}`);
+  }
 
   // Vendor bill cost items (excluding denied/deleted bills)
   const vendorBillItems = docCostItems.filter(
@@ -915,9 +920,13 @@ export async function buildInvoicingContext(): Promise<InvoicingFullContext> {
 
     // Cost Plus analysis
     if (job.priceType === 'Cost-Plus') {
-      const cpHealth = await analyzeCostPlusJob(job, documents, timeEntries, costItems, todayStr);
-      costPlusJobs.push(cpHealth);
-      globalAlerts.push(...cpHealth.alerts.map((a) => `[${job.name}] ${a}`));
+      try {
+        const cpHealth = await analyzeCostPlusJob(job, documents, timeEntries, costItems, todayStr);
+        costPlusJobs.push(cpHealth);
+        globalAlerts.push(...cpHealth.alerts.map((a) => `[${job.name}] ${a}`));
+      } catch (err: any) {
+        console.error(`[InvoicingHealth] Cost-Plus analysis FAILED for ${job.name}: ${err?.message || err}`);
+      }
     }
 
     // Billable items — only for non-contract jobs (contract jobs handle CC23 in analyzeContractJob)
