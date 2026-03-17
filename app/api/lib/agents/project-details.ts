@@ -520,7 +520,7 @@ const projectDetails: AgentModule = {
         // and budget-level cost items in parallel for speed
         const [docStatuses, budgetCostItems] = await Promise.all([
           getDocumentStatusesForJob(jobId),
-          getCostItemsLightForJob(jobId, 200),
+          getCostItemsLightForJob(jobId, 500),
         ]);
 
         // Build a set of approved document IDs and a map for name lookup
@@ -580,6 +580,30 @@ const projectDetails: AgentModule = {
             if (!seenIds.has(item.id)) {
               seenIds.add(item.id);
               docLevelItems.push(item);
+            }
+          }
+        }
+
+        // Enrich doc-level items with custom field values from matching budget items.
+        // Document-level cost items in PAVE don't carry customFieldValues, so we
+        // look up the corresponding budget item by name + cost group to merge status/vendor/notes.
+        if (docLevelItems.length > 0) {
+          const budgetByKey = new Map<string, any>();
+          for (const bi of budgetCostItems) {
+            const key = (bi.name || '').toLowerCase() + '::' + (bi.costGroup?.name || '').toLowerCase();
+            if (bi.status || bi.vendor || bi.internalNotes) {
+              budgetByKey.set(key, bi);
+            }
+          }
+          for (const di of docLevelItems) {
+            if (!di.status && !di.vendor && !di.internalNotes) {
+              const key = (di.name || '').toLowerCase() + '::' + (di.costGroup?.name || '').toLowerCase();
+              const match = budgetByKey.get(key);
+              if (match) {
+                di.status = match.status;
+                di.vendor = match.vendor;
+                di.internalNotes = match.internalNotes;
+              }
             }
           }
         }
