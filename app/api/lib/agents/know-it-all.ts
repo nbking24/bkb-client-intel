@@ -1161,6 +1161,16 @@ const knowItAll: AgentModule = {
   executeTool: async (name: string, input: any, ctx: AgentContext) => {
     try {
       if (name === 'get_all_open_tasks') {
+        // When a specific job is selected, auto-scope to that job instead of ALL jobs
+        if (ctx.jtJobId) {
+          const tasks = await getTasksForJob(ctx.jtJobId);
+          if (!tasks || tasks.length === 0) return JSON.stringify({ success: true, count: 0, message: 'No open tasks found for this job.' });
+          const lines = tasks.map((t: any) => {
+            const status = t.progress >= 1 ? 'DONE' : t.progress > 0 ? 'IN PROGRESS' : 'NOT STARTED';
+            return `- [${status}] "${t.name}" | Due: ${t.endDate || 'No date'} | Start: ${t.startDate || 'No date'}`;
+          });
+          return JSON.stringify({ success: true, count: tasks.length, scopedToJob: true, tasks: lines.join('\n') });
+        }
         const tasks = await getAllOpenTasks();
         if (!tasks || tasks.length === 0) return JSON.stringify({ success: true, count: 0, message: 'No open tasks found.' });
         // Compact format to reduce token count
