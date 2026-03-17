@@ -587,13 +587,9 @@ async function analyzeCostPlusJob(
   const unbilledCosts = Math.max(0, totalJobCosts - totalCostsBilled);
   const unbilledAmount = unbilledCosts;
 
-  // Calculate unbilled hours: only CC23 (Billable) time entries that haven't been invoiced yet
-  // Standard production hours (CC01-CC20) are billed through normal time cost invoicing cycles
-  // and don't need separate tracking. CC23 represents extra/billable work outside the contract.
-  const billableTimeEntries = timeEntries.filter(
-    (entry) => entry.costItem?.costCode?.number === BILLABLE_COST_CODE_NUMBER
-  );
-  const totalBillableHours = billableTimeEntries.reduce((sum, entry) => {
+  // Calculate unbilled hours: all time entries minus labor hours billed on invoices
+  // For cost-plus jobs, ALL hours are billable and need to be invoiced
+  const totalHours = timeEntries.reduce((sum, entry) => {
     if (entry.startedAt && entry.endedAt) {
       const start = new Date(entry.startedAt).getTime();
       const end = new Date(entry.endedAt).getTime();
@@ -601,14 +597,10 @@ async function analyzeCostPlusJob(
     }
     return sum;
   }, 0);
-  // Subtract CC23 labor hours already billed on customer invoices
-  const cc23OnInvoices = costItemsOnInvoices.filter(
-    (item) => item.costCode?.number === BILLABLE_COST_CODE_NUMBER
-  );
-  const billedCC23LaborHours = cc23OnInvoices
+  const billedLaborHours = costItemsOnInvoices
     .filter((item) => item.costType?.name?.toLowerCase().includes('labor'))
     .reduce((sum, item) => sum + (item.quantity || 0), 0);
-  const unbilledHours = Math.max(0, totalBillableHours - billedCC23LaborHours);
+  const unbilledHours = Math.max(0, totalHours - billedLaborHours);
 
   // Draft invoices
   const draftInvoices = customerInvoices.filter((d) => d.status === 'draft');
