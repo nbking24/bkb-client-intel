@@ -606,9 +606,23 @@ const knowItAll: AgentModule = {
       'TODAY: ' + etDateStr + ' (' + etShort + ', ' + timeOfDay + ' ET). Dates BEFORE today are PAST. Dates AFTER today are FUTURE.\n' +
       'DATE REFERENCE: ' + calendarRef + '\n' +
       'ALWAYS use this reference when converting day names (e.g. "next Wednesday") to YYYY-MM-DD dates. Do NOT calculate dates in your head.\n\n' +
+      '=== JOB FOCUS (CRITICAL) ===\n' +
+      (ctx.jtJobId
+        ? 'A SPECIFIC JOB IS SELECTED (Job ID: ' + ctx.jtJobId + '). ALL queries MUST be scoped to THIS job ONLY unless the user explicitly asks about other jobs or all jobs.\n' +
+          '- "open tasks" / "what tasks are open" → get_job_tasks with jobId=' + ctx.jtJobId + '. Do NOT use get_all_open_tasks.\n' +
+          '- "budget" / "what was ordered" → get_job_budget with jobId=' + ctx.jtJobId + '.\n' +
+          '- "schedule" / "what\'s the timeline" → get_job_schedule with jobId=' + ctx.jtJobId + '.\n' +
+          '- "documents" / "invoices" → get_job_documents with jobId=' + ctx.jtJobId + '.\n' +
+          '- "daily logs" → get_job_daily_logs with jobId=' + ctx.jtJobId + '.\n' +
+          '- Any job-specific tool → ALWAYS pass jobId=' + ctx.jtJobId + '.\n' +
+          'ONLY use cross-job tools (get_all_open_tasks, search_jobs, get_approved_documents, etc.) if the user EXPLICITLY asks about "all jobs", "across jobs", or references a DIFFERENT job.\n\n'
+        : 'No specific job is selected. Use cross-job tools like get_all_open_tasks, search_jobs, etc.\n' +
+          'If the user references a specific job by name or number, search_jobs first to find the ID, then use job-specific tools.\n\n') +
       '=== TOOL USAGE (CRITICAL) ===\n' +
       'You operate under a strict time budget. ALWAYS prefer the SINGLE most efficient tool:\n' +
-      '- "list open tasks" → get_all_open_tasks (ONE call). NEVER loop through jobs.\n' +
+      (ctx.jtJobId
+        ? '- "list open tasks" → get_job_tasks with jobId (scoped to selected job).\n'
+        : '- "list open tasks" → get_all_open_tasks (ONE call). NEVER loop through jobs.\n') +
       '- "active jobs" → search_jobs (ONE call).\n' +
       '- "tasks for [person]" → get_member_tasks (ONE call).\n' +
       '- NEVER make more than 2 tool calls for a simple query.\n' +
@@ -689,8 +703,7 @@ const knowItAll: AgentModule = {
     return base + taskRules + emailRules + docRules +
       (ctx.communicationChannel !== 'unknown'
         ? 'Communication channel: ' + ctx.communicationChannel.toUpperCase() + '\n'
-        : '') +
-      (ctx.jtJobId ? 'JobTread Job ID: ' + ctx.jtJobId + '\n' : '');
+        : '');
   },
 
   tools: [
