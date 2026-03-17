@@ -69,10 +69,10 @@ export async function POST(req: NextRequest) {
       return { role: m.role, content: m.content };
     });
 
-    // Call Claude
-    const response = await anthropic.messages.create({
+    // Call Claude with enough tokens for large budget proposals
+    let response = await anthropic.messages.create({
       model: 'claude-sonnet-4-20250514',
-      max_tokens: 4096,
+      max_tokens: 16384,
       system: fullSystemPrompt,
       messages: enrichedMessages.map((m: any) => ({
         role: m.role as 'user' | 'assistant',
@@ -81,10 +81,42 @@ export async function POST(req: NextRequest) {
     });
 
     // Extract text response
-    const replyText = response.content
+    let replyText = response.content
       .filter((block: any) => block.type === 'text')
       .map((block: any) => block.text)
       .join('\n');
+
+    // Handle truncation: if response hit max_tokens and contains an open
+    // @@BUDGET_PROPOSAL@@ without @@END_PROPOSAL@@, send a continuation
+    // request so Claude finishes the JSON.
+    if (
+      response.stop_reason === 'max_tokens' &&
+      replyText.includes('@@BUDGET_PROPOSAL@@') &&
+      !replyText.includes('@@END_PROPOSAL@@')
+    ) {
+      const continuationMessages = [
+        ...enrichedMessages.map((m: any) => ({
+          role: m.role as 'user' | 'assistant',
+          content: m.content,
+        })),
+        { role: 'assistant' as const, content: replyText },
+        { role: 'user' as const, content: 'Continue — finish the JSON budget proposal and close with @@END_PROPOSAL@@' },
+      ];
+
+      const continuation = await anthropic.messages.create({
+        model: 'claude-sonnet-4-20250514',
+        max_tokens: 16384,
+        system: fullSystemPrompt,
+        messages: continuationMessages,
+      });
+
+      const continuationText = continuation.content
+        .filter((block: any) => block.type === 'text')
+        .map((block: any) => block.text)
+        .join('\n');
+
+      replyText = replyText + continuationText;
+    }
 
     // Check for budget proposal in the response
     let proposedBudget = parseProposedBudget(replyText);

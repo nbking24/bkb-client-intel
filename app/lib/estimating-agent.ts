@@ -633,8 +633,13 @@ export function enforceTargetMargins(budget: ProposedBudget): ProposedBudget {
 // -- Strip proposal markers from reply for display --
 
 export function stripProposalMarkers(reply: string): string {
-  return reply
+  let cleaned = reply
+    // Strip complete proposal blocks (with end marker)
     .replace(/@@BUDGET_PROPOSAL@@[\s\S]*?@@END_PROPOSAL@@/g, '')
     .replace(/```json\s*@@BUDGET_PROPOSAL@@[\s\S]*?@@END_PROPOSAL@@\s*```/g, '')
+    // Strip incomplete/truncated proposal blocks (no end marker — hit max_tokens)
+    .replace(/@@BUDGET_PROPOSAL@@[\s\S]*$/g, '')
+    .replace(/```json\s*@@BUDGET_PROPOSAL@@[\s\S]*$/g, '')
     .trim();
+  return cleaned;
 }
