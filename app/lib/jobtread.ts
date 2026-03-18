@@ -3303,20 +3303,43 @@ export async function createDraftBillableInvoice(jobId: string): Promise<{
     (item: any) => item.costCode?.number === BILLABLE_COST_CODE_NUMBER
   );
 
-  // Build a set of budget item IDs already billed on customer invoices
-  const billedBudgetItemIds = new Set<string>();
+  // 5. FIFO deduction to find uninvoiced CC23 vendor bill items
+  // (Same approach as Cost-Plus: multiple vendor bill items can share a budget item,
+  // so we can't just check if the budget ID appears on an invoice — we need to
+  // deduct invoiced amounts from oldest vendor bill items per budget item)
+
+  // Group CC23 invoiced costs by budget item
+  const cc23InvoicedByBudgetItem = new Map<string, number>();
   for (const item of cc23InvoicedItems) {
-    if (item.jobCostItem?.id) {
-      billedBudgetItemIds.add(item.jobCostItem.id);
-    }
+    const budgetId = item.jobCostItem?.id || item.id;
+    cc23InvoicedByBudgetItem.set(budgetId, (cc23InvoicedByBudgetItem.get(budgetId) || 0) + (item.cost || 0));
   }
 
-  // 5. Filter to uninvoiced CC23 vendor bill items
-  // An item is uninvoiced if its linked budget item (jobCostItem) hasn't appeared on a customer invoice
-  const uninvoicedCC23Items = cc23VendorBillItems.filter((item: any) => {
-    const budgetItemId = item.jobCostItem?.id;
-    if (!budgetItemId) return true;  // If no budget link, include it (conservative)
-    return !billedBudgetItemIds.has(budgetItemId);
+  // Group CC23 vendor bill items by budget item, sorted by date (FIFO)
+  const cc23ByBudgetItem = new Map<string, any[]>();
+  for (const item of cc23VendorBillItems) {
+    const budgetId = item.jobCostItem?.id || item.id;
+    if (!cc23ByBudgetItem.has(budgetId)) cc23ByBudgetItem.set(budgetId, []);
+    cc23ByBudgetItem.get(budgetId)!.push(item);
+  }
+
+  // FIFO deduction: deduct invoiced amounts from oldest vendor bill items first
+  const uninvoicedCC23Items: any[] = [];
+  cc23ByBudgetItem.forEach((items, budgetId) => {
+    items.sort((a: any, b: any) => {
+      const dateA = a.sourceDoc?.number || '0';
+      const dateB = b.sourceDoc?.number || '0';
+      return parseInt(dateA) - parseInt(dateB);
+    });
+    let remaining = cc23InvoicedByBudgetItem.get(budgetId) || 0;
+    for (const item of items) {
+      if (remaining >= (item.cost || 0)) {
+        remaining -= (item.cost || 0);
+      } else {
+        uninvoicedCC23Items.push(item);
+        remaining = 0;
+      }
+    }
   });
 
   // Separate into materials/subs and other CC23 items
