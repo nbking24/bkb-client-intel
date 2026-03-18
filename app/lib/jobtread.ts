@@ -3725,7 +3725,7 @@ export async function reorganizeCostPlusInvoice(documentId: string, jobId: strin
     : '';
 
   // 4. Delete existing category groups from a previous run (idempotency)
-  const CATEGORY_NAMES = ['Permit & Admin Costs', 'Materials', 'BKB Labor'];
+  const CATEGORY_NAMES = ['Permit & Admin Costs', 'Trade Partners', 'Materials', 'BKB Labor'];
   for (const g of groups) {
     if (CATEGORY_NAMES.includes(g.name)) {
       try { await deleteJTCostGroup(g.id); } catch (_e) { /* may fail if has children */ }
@@ -3733,7 +3733,7 @@ export async function reorganizeCostPlusInvoice(documentId: string, jobId: strin
   }
 
   // Create fresh category groups
-  const adminGroup = await createJTCostGroup({ documentId, name: 'Permit & Admin Costs' });
+  const adminGroup = await createJTCostGroup({ documentId, name: 'Trade Partners' });
   const materialsGroup = await createJTCostGroup({ documentId, name: 'Materials' });
   const laborGroup = await createJTCostGroup({ documentId, name: 'BKB Labor' });
 
@@ -3744,6 +3744,9 @@ export async function reorganizeCostPlusInvoice(documentId: string, jobId: strin
   // 5. Re-parent sub-groups and set showChildren=false (hides line items, matching Behmlander pattern)
   const adminBills = billGroups.filter(bg => bg.category === 'admin');
   const materialBills = billGroups.filter(bg => bg.category === 'materials');
+
+  // Collect all bill sub-groups for description rewriting
+  const allBillGroups = [...adminBills, ...materialBills];
 
   for (const bg of adminBills) {
     await updateJTCostGroup(bg.group.id, { parentCostGroupId: adminGroup.id });
@@ -3756,6 +3759,83 @@ export async function reorganizeCostPlusInvoice(documentId: string, jobId: strin
   for (const tg of timeGroups) {
     await updateJTCostGroup(tg.group.id, { parentCostGroupId: laborGroup.id });
     await pave({ updateCostGroup: { $: { id: tg.group.id, showChildren: false } } });
+  }
+
+  // 5b. Fetch vendor bill cost item descriptions and AI-rewrite for each bill sub-group.
+  // The bill sub-group names contain bill numbers like "Vendor Bill 170-10 (ref)".
+  // We need to look up the original vendor bill document, get its cost items' descriptions,
+  // then use AI to rewrite them as client-facing text for the invoice sub-group description.
+  try {
+    const apiKey = process.env.ANTHROPIC_API_KEY;
+    if (apiKey) {
+      // Get all vendor bill documents for this job
+      const jobDocsData = await pave({
+        job: {
+          $: { id: jobId },
+          documents: {
+            $: { size: 50 },
+            nodes: { id: {}, name: {}, number: {}, type: {}, status: {} },
+          },
+        },
+      });
+      const vendorBillDocs = ((jobDocsData as any)?.job?.documents?.nodes || [])
+        .filter((d: any) => d.type === 'vendorBill' && d.status !== 'denied');
+
+      for (const bg of allBillGroups) {
+        // Extract bill number from group name like "Vendor Bill 170-10 (ref)"
+        const billNumMatch = (bg.group.name || '').match(/Bill\s+(\d+-\d+)/);
+        if (!billNumMatch) continue;
+
+        // Find the matching vendor bill document
+        const billDoc = vendorBillDocs.find((d: any) => d.number === billNumMatch[1].split('-')[1]);
+        if (!billDoc) continue;
+
+        // Fetch the bill's cost items for their descriptions
+        const billItemsData = await pave({
+          document: {
+            $: { id: billDoc.id },
+            costItems: {
+              $: { size: 10 },
+              nodes: { id: {}, name: {}, description: {} },
+            },
+          },
+        });
+        const billItemDescs = ((billItemsData as any)?.document?.costItems?.nodes || [])
+          .map((i: any) => (i.description || '').trim())
+          .filter((d: string) => d.length > 0);
+
+        if (billItemDescs.length === 0) continue;
+
+        // AI-rewrite the description to be client-facing
+        const rawDesc = billItemDescs.join('\n');
+        const aiRes = await fetch('https://api.anthropic.com/v1/messages', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'x-api-key': apiKey,
+            'anthropic-version': '2023-06-01',
+          },
+          body: JSON.stringify({
+            model: 'claude-sonnet-4-20250514',
+            max_tokens: 256,
+            messages: [{
+              role: 'user',
+              content: `Rewrite this vendor bill description into a brief, professional, client-facing summary for a renovation invoice. Keep it to 1-2 concise sentences. Do not include pricing. Just describe the work or materials provided.\n\nOriginal description:\n${rawDesc}`,
+            }],
+          }),
+        });
+
+        if (aiRes.ok) {
+          const aiData = await aiRes.json();
+          const rewritten = (aiData.content?.[0]?.text || '').trim();
+          if (rewritten) {
+            await updateJTCostGroup(bg.group.id, { description: rewritten });
+          }
+        }
+      }
+    }
+  } catch (billDescErr: any) {
+    console.warn('[reorganize] Bill description rewriting failed:', billDescErr.message);
   }
 
   // 6. Use AI to rewrite descriptions as client-facing language
