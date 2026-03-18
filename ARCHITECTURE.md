@@ -554,6 +554,61 @@ JT API  ──→ jt_comments, jt_daily_logs (Supabase cache)
 
 All modifications to the codebase should be logged here with date, files changed, and what was done.
 
+### 2026-03-18 — Feature: User Login with Team Selection + Personalized AI Dashboard
+
+**Problem:** The app used a single shared PIN with no user identity tracking. The dashboard was hardcoded to Nathan's data. All team members saw the same view regardless of their role.
+
+**Solution — User Login (Phase 1-3):**
+
+1. **Token format**: Extended from `base64(pin:timestamp)` to `base64(pin:userId:timestamp)`. Backward compatible — old tokens still validate but return no userId. Updated all 11 API routes to use `validateAuth().valid` instead of boolean.
+
+2. **User selection screen**: After PIN entry, shows "Who are you?" with 5 team member buttons. Each shows name, role, and initials. Selected userId is embedded in the auth token.
+
+3. **TEAM_USERS config** (in `constants.ts`): Maps userId → name, initials, role, membershipId. Roles: Nathan (owner), Terri (admin), Evan (field_sup), Josh (field_sup), Dave (field).
+
+4. **useAuth() hook** (`app/hooks/useAuth.ts`): Client-side hook that decodes the token to extract userId, looks up full user profile from TEAM_USERS, returns `{ userId, user, role, membershipId, permissions, isAuthenticated }`.
+
+5. **Dashboard layout**: Shows current user's initials in avatar (was hardcoded "NK"). Uses useAuth() hook.
+
+**Solution — Personalized AI Dashboard (Phase 4):**
+
+1. **Data aggregation** (`app/lib/dashboard-data.ts`): `buildUserDashboardData(userId)` fetches per-user tasks (via `getOpenTasksForMember`), active jobs, recent JT comments and daily logs from Supabase cache (last 7 days). Tasks classified by urgency (urgent/high/normal) with days-until-due.
+
+2. **AI analysis** (`app/lib/dashboard-analysis.ts`): `analyzeUserDashboard(data)` calls Claude with role-specific prompts. Returns structured JSON: `{ summary, urgentItems, upcomingDeadlines, flaggedMessages, actionItems }`. Includes fallback rule-based analysis when AI unavailable. Role prompts:
+   - Owner: business health, team performance, cross-project insights
+   - Admin: billing priorities, AP/AR, documents
+   - Field sup: today's priorities, material needs, schedule conflicts
+   - Field: simple task checklist
+
+3. **API endpoint** (`app/api/dashboard/overview/route.ts`): Per-user caching via `agent_cache` table with key `dashboard-overview-{userId}`. Supports `?cached=true` and `?refresh=true`. maxDuration: 60.
+
+4. **Dashboard page** (`app/dashboard/page.tsx` — complete rewrite): Personalized greeting, 4 stat cards (Urgent, High Priority, Due Today, Open Tasks), AI Briefing panel, Needs Immediate Attention section, Action Items, Upcoming Deadlines, Messages to Review, Task list, Quick Actions (role-based nav links). Refresh button for fresh analysis.
+
+**Key architectural decisions:**
+- All roles use `getOpenTasksForMember(membershipId)` instead of `getAllOpenTasks()` to avoid PAVE 413 errors on the org-wide task query
+- Per-user cache keys isolate each user's dashboard analysis
+- Role-based RBAC uses existing `ROLE_CONFIG` from constants.ts
+- Dashboard page uses `useAuth()` for all personalization — no hardcoded values
+
+**New files:**
+- `app/hooks/useAuth.ts` — Client-side auth hook
+- `app/lib/dashboard-data.ts` — Per-user data aggregation
+- `app/lib/dashboard-analysis.ts` — AI analysis engine with role-specific prompts
+- `app/api/dashboard/overview/route.ts` — Cached dashboard API endpoint
+
+**Modified files:**
+- `app/api/auth/route.ts` — Token includes userId
+- `app/api/lib/auth.ts` — Returns `{ valid, userId }` instead of boolean
+- `app/lib/constants.ts` — Added TEAM_USERS config
+- `app/page.tsx` — Two-step login: PIN → user selection
+- `app/dashboard/layout.tsx` — Dynamic user initials in avatar
+- `app/dashboard/page.tsx` — Complete rewrite with AI-powered personalized dashboard
+- 11 API routes — Updated `validateAuth()` call sites to use `.valid`
+
+**Commits:** `2ef8f51`, `b45bdef`, `6b3ff74`
+
+---
+
 ### 2026-03-18 — Fix: Time Entry Pagination for Jobs with >100 Entries
 
 **Problem:** The Invoicing Health Dashboard showed 0 billable labor hours for Halvorsen Roof/Exterior (Job #154), despite 102.5 hours of CC23 "23 Billable" time entries visible in JobTread. The dashboard's summary cards, alerts, and invoice creation all reported zero unbilled hours.
