@@ -3535,3 +3535,213 @@ export async function createDraftBillableInvoice(jobId: string): Promise<{
     totalPrice,
   };
 }
+
+// ============================================================
+// COST-PLUS INVOICE REORGANIZATION
+// After JT creates an invoice from Bills & Time, this function
+// reorganizes the items into the BKB 3-group format:
+//   1. Permit & Admin Costs (with description)
+//   2. Materials (with description)
+//   3. BKB Labor (with description from time entry notes)
+// Modeled after Invoice 199-15 (Behmlander Stone House Reno).
+// ============================================================
+
+async function deleteJTCostGroup(costGroupId: string) {
+  await pave({ deleteCostGroup: { $: { id: costGroupId } } });
+}
+
+async function updateJTCostGroup(groupId: string, fields: { name?: string; description?: string; parentCostGroupId?: string }) {
+  const params: any = { id: groupId };
+  if (fields.name !== undefined) params.name = fields.name;
+  if (fields.description !== undefined) params.description = fields.description;
+  if (fields.parentCostGroupId !== undefined) params.parentCostGroupId = fields.parentCostGroupId;
+  await pave({ updateCostGroup: { $: params } });
+}
+
+/**
+ * Reorganize a Cost-Plus invoice (created via JT's Bills & Time UI) into
+ * the BKB 3-group format matching Invoice 199-15 (Behmlander pattern):
+ *
+ * 1. Permit & Admin Costs — engineering, permits, porta-potty, etc.
+ *    Description: bullet list of what admin/permit items are included
+ *    Sub-groups: individual vendor bill groups
+ *
+ * 2. Materials — lumber, hardware, concrete, etc.
+ *    Description: bullet list summarizing materials purchased
+ *    Sub-groups: individual vendor bill groups
+ *
+ * 3. BKB Labor — all time entries
+ *    Description: bullet list of work performed (from time entry notes)
+ *    Sub-groups: individual "Time Cost for [date]" groups (kept as-is)
+ */
+export async function reorganizeCostPlusInvoice(documentId: string, jobId: string): Promise<{
+  success: boolean;
+  groupCount: number;
+  laborDescription: string;
+  materialsDescription: string;
+  adminDescription: string;
+}> {
+  // 1. Read the invoice's current cost groups and items
+  const invoiceData = await pave({
+    document: {
+      $: { id: documentId },
+      costGroups: {
+        $: { size: 50 },
+        nodes: {
+          id: {}, name: {}, description: {},
+          parentCostGroup: { id: {} },
+        },
+      },
+      costItems: {
+        $: { size: 100 },
+        nodes: {
+          id: {}, name: {}, cost: {}, price: {}, quantity: {},
+          costGroup: { id: {}, name: {} },
+          costCode: { number: {}, name: {} },
+          costType: { id: {}, name: {} },
+        },
+      },
+    },
+  });
+
+  const groups = (invoiceData as any)?.document?.costGroups?.nodes || [];
+  const items = (invoiceData as any)?.document?.costItems?.nodes || [];
+
+  // 2. Identify existing sub-groups (bill groups + time groups)
+  const topLevelGroups = groups.filter((g: any) => !g.parentCostGroup?.id);
+  const subGroups = groups.filter((g: any) => g.parentCostGroup?.id);
+
+  // Classify sub-groups into categories
+  type Category = 'admin' | 'materials' | 'labor';
+  const billGroups: Array<{ group: any; category: Category }> = [];
+  const timeGroups: Array<{ group: any }> = [];
+
+  for (const sg of subGroups) {
+    const name = (sg.name || '').toLowerCase();
+    if (name.includes('time cost for')) {
+      timeGroups.push({ group: sg });
+    } else {
+      // Determine category from the bill's items' cost codes/types
+      const groupItems = items.filter((i: any) => i.costGroup?.id === sg.id);
+      let category: Category = 'materials'; // default
+
+      for (const item of groupItems) {
+        const costTypeName = (item.costType?.name || '').toLowerCase();
+        const costCodeNum = parseInt(item.costCode?.number || '0', 10);
+
+        // Admin: cost codes 1, 20-23 with subcontractor type, or permits/engineering
+        if (costCodeNum === 1 || costCodeNum === 20 || costCodeNum === 21 || costCodeNum === 22) {
+          category = 'admin';
+        } else if (costCodeNum === 23 && costTypeName.includes('subcontract')) {
+          category = 'admin';
+        } else if (costTypeName.includes('material')) {
+          category = 'materials';
+        } else if (costTypeName.includes('subcontract')) {
+          // Subcontractors that aren't admin go to admin by default
+          category = 'admin';
+        }
+        break; // first item determines category
+      }
+
+      billGroups.push({ group: sg, category });
+    }
+  }
+
+  // 3. Fetch time entry notes for the job (for BKB Labor description)
+  const teData = await pave({
+    job: {
+      $: { id: jobId },
+      timeEntries: {
+        $: { size: 100 },
+        nodes: {
+          id: {}, startedAt: {}, notes: {},
+          user: { name: {} },
+        },
+      },
+    },
+  });
+  const timeEntries = (teData as any)?.job?.timeEntries?.nodes || [];
+
+  // Build labor description from time entry notes (unique, non-empty)
+  const laborNotes: string[] = [];
+  for (const te of timeEntries) {
+    const note = (te.notes || '').trim();
+    if (note && !laborNotes.some(n => n.toLowerCase() === note.toLowerCase())) {
+      const cleaned = note.charAt(0).toUpperCase() + note.slice(1).replace(/\.\s*$/, '');
+      laborNotes.push(cleaned);
+    }
+  }
+  const laborDescription = laborNotes.length > 0
+    ? laborNotes.map(n => `• ${n}`).join('\n')
+    : '';
+
+  // Build materials description from cost code names on material items
+  const materialItemDescriptions = items
+    .filter((i: any) => {
+      const gid = i.costGroup?.id;
+      return billGroups.some(bg => bg.category === 'materials' && bg.group.id === gid);
+    })
+    .map((i: any) => {
+      const codeName = i.costCode?.name || '';
+      return codeName.replace(/:\d+\s*-\s*Materials?/i, '').replace(/^\d+-/, '').trim();
+    })
+    .filter((n: string, i: number, arr: string[]) => n && arr.indexOf(n) === i);
+  const materialsDescription = materialItemDescriptions.length > 0
+    ? materialItemDescriptions.map((n: string) => `• ${n}`).join('\n')
+    : '';
+
+  // Build admin description from admin item names
+  const adminItemDescriptions = items
+    .filter((i: any) => {
+      const gid = i.costGroup?.id;
+      return billGroups.some(bg => bg.category === 'admin' && bg.group.id === gid);
+    })
+    .map((i: any) => {
+      const codeName = i.costCode?.name || i.name || '';
+      return codeName.replace(/:\d+\s*-\s*(Sub|Materials?)/i, '').replace(/^\d+-/, '').trim();
+    })
+    .filter((n: string, i: number, arr: string[]) => n && arr.indexOf(n) === i);
+  const adminDescription = adminItemDescriptions.length > 0
+    ? adminItemDescriptions.map((n: string) => `• ${n}`).join('\n')
+    : '';
+
+  // 4. Create the 3 new top-level category groups with descriptions
+  const adminGroup = await createJTCostGroup({ documentId, name: 'Permit & Admin Costs' });
+  const materialsGroup = await createJTCostGroup({ documentId, name: 'Materials' });
+  const laborGroup = await createJTCostGroup({ documentId, name: 'BKB Labor' });
+
+  if (adminDescription) await updateJTCostGroup(adminGroup.id, { description: adminDescription });
+  if (materialsDescription) await updateJTCostGroup(materialsGroup.id, { description: materialsDescription });
+  if (laborDescription) await updateJTCostGroup(laborGroup.id, { description: laborDescription });
+
+  // 5. Re-parent sub-groups under the correct new top-level group
+  const adminBills = billGroups.filter(bg => bg.category === 'admin');
+  const materialBills = billGroups.filter(bg => bg.category === 'materials');
+
+  for (const bg of adminBills) {
+    await updateJTCostGroup(bg.group.id, { parentCostGroupId: adminGroup.id });
+  }
+  for (const bg of materialBills) {
+    await updateJTCostGroup(bg.group.id, { parentCostGroupId: materialsGroup.id });
+  }
+  for (const tg of timeGroups) {
+    await updateJTCostGroup(tg.group.id, { parentCostGroupId: laborGroup.id });
+  }
+
+  // 6. Delete the old (now empty) top-level groups
+  for (const oldGroup of topLevelGroups) {
+    try {
+      await deleteJTCostGroup(oldGroup.id);
+    } catch (e: any) {
+      console.warn(`[reorganize] Could not delete old group ${oldGroup.name}: ${e.message}`);
+    }
+  }
+
+  return {
+    success: true,
+    groupCount: adminBills.length + materialBills.length + timeGroups.length + 3,
+    laborDescription,
+    materialsDescription,
+    adminDescription,
+  };
+}
