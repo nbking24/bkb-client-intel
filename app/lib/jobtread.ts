@@ -982,29 +982,46 @@ export interface JTDocument {
 }
 
 export async function getDocumentsForJob(jobId: string): Promise<JTDocument[]> {
-  const data = await pave({
-    job: {
-      $: { id: jobId },
-      documents: {
-        $: { size: 100 },
-        nodes: {
-          id: {},
-          name: {},
-          subject: {},
-          status: {},
-          type: {},
-          description: {},
-          number: {},
-          price: {},
-          cost: {},
-          createdAt: {},
-          signedAt: {},
+  // Paginate documents — some jobs (like Bruno) have 100+ documents
+  const PAGE_SIZE = 50;
+  let allDocs: any[] = [];
+  let nextPage: string | null = null;
+
+  for (let page = 0; page < 10; page++) {
+    const pageParams: Record<string, unknown> = { size: PAGE_SIZE };
+    if (nextPage) pageParams.page = nextPage;
+
+    const data = await pave({
+      job: {
+        $: { id: jobId },
+        documents: {
+          $: pageParams,
+          nextPage: {},
+          nodes: {
+            id: {},
+            name: {},
+            subject: {},
+            status: {},
+            type: {},
+            description: {},
+            number: {},
+            price: {},
+            cost: {},
+            createdAt: {},
+            signedAt: {},
+          },
         },
       },
-    },
-  });
-  const docs = (data as any)?.job?.documents?.nodes || [];
-  return docs.map((d: any) => ({ ...d, job: { id: jobId, name: '' } }));
+    });
+
+    const docsPage = (data as any)?.job?.documents;
+    const nodes = docsPage?.nodes || [];
+    allDocs = allDocs.concat(nodes);
+    nextPage = docsPage?.nextPage || null;
+    if (!nextPage || nodes.length < PAGE_SIZE) break;
+  }
+
+  return allDocs.map((d: any) => ({ ...d, job: { id: jobId, name: '' } }));
 }
 
 /**
