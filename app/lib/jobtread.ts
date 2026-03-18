@@ -3724,7 +3724,15 @@ export async function reorganizeCostPlusInvoice(documentId: string, jobId: strin
     ? adminItemDescriptions.map((n: string) => `• ${n}`).join('\n')
     : '';
 
-  // 4. Create the 3 new top-level category groups with descriptions
+  // 4. Delete existing category groups from a previous run (idempotency)
+  const CATEGORY_NAMES = ['Permit & Admin Costs', 'Materials', 'BKB Labor'];
+  for (const g of groups) {
+    if (CATEGORY_NAMES.includes(g.name)) {
+      try { await deleteJTCostGroup(g.id); } catch (_e) { /* may fail if has children */ }
+    }
+  }
+
+  // Create fresh category groups
   const adminGroup = await createJTCostGroup({ documentId, name: 'Permit & Admin Costs' });
   const materialsGroup = await createJTCostGroup({ documentId, name: 'Materials' });
   const laborGroup = await createJTCostGroup({ documentId, name: 'BKB Labor' });
