@@ -3203,14 +3203,25 @@ export async function createDraftBillableInvoice(jobId: string): Promise<{
   const BILLABLE_COST_CODE_NUMBER = '23';
   const BILLABLE_COST_TYPE_NAMES = ['Materials', 'Subcontractor'];
 
-  // 1. Get job details including location for customer name, address
+  // 1. Get job details including location, customer info, and custom fields (Margin, Hourly Rate)
   const jobData = await pave({
     job: {
       $: { id: jobId },
       id: {}, name: {}, number: {},
       location: {
         id: {}, name: {}, address: {},
-        account: { id: {}, name: {} },
+        account: {
+          id: {}, name: {},
+          contacts: {
+            nodes: {
+              name: {},
+              customFieldValues: { nodes: { value: {}, customField: { name: {} } } },
+            },
+          },
+        },
+      },
+      customFieldValues: {
+        nodes: { value: {}, customField: { id: {}, name: {} } },
       },
     },
   });
@@ -3220,6 +3231,26 @@ export async function createDraftBillableInvoice(jobId: string): Promise<{
   const customerName = job.location?.account?.name || 'Client';
   const locationName = job.location?.name || '';
   const locationAddress = job.location?.address || locationName;
+
+  // Read custom fields: Margin (%) and Hourly Rate ($)
+  const customFields = job.customFieldValues?.nodes || [];
+  const marginField = customFields.find((cf: any) => cf.customField?.name === 'Margin');
+  const hourlyRateField = customFields.find((cf: any) => cf.customField?.name === 'Hourly Rate');
+  const marginPercent = marginField ? parseFloat(marginField.value) : 25; // default 25%
+  const hourlyRate = hourlyRateField ? parseFloat(hourlyRateField.value) : 115; // default $115
+  const marginMultiplier = 1 + (marginPercent / 100); // e.g. 30% → 1.30
+
+  // Get customer contact info for toPhone/toEmail
+  const contacts = job.location?.account?.contacts?.nodes || [];
+  const primaryContact = contacts[0];
+  let customerPhone = '';
+  let customerEmail = '';
+  if (primaryContact) {
+    for (const cfv of primaryContact.customFieldValues?.nodes || []) {
+      if (cfv.customField?.name === 'Phone') customerPhone = cfv.value || '';
+      if (cfv.customField?.name === 'Email') customerEmail = cfv.value || '';
+    }
+  }
 
   // 2. Get all documents for the job to identify vendor bills and customer invoices
   const docsData = await pave({
@@ -3414,7 +3445,7 @@ export async function createDraftBillableInvoice(jobId: string): Promise<{
     }
   }
 
-  // 8. Create the document shell
+  // 8. Create the document shell with BKB company info
   const doc = await createJTDocument({
     jobId,
     type: 'customerInvoice',
@@ -3430,16 +3461,23 @@ export async function createDraftBillableInvoice(jobId: string): Promise<{
     description: 'This invoice covers additional billable items and labor hours incurred on this project beyond the original contract scope.',
   });
 
+  // Set company address, org name, and hide QTY column
+  try {
+    await pave({ updateDocument: { $: { id: doc.id, fromAddress: '7843 Richlandtown Rd, Quakertown, PA 18951, USA' } } });
+    await pave({ updateDocument: { $: { id: doc.id, fromOrganizationName: 'Brett King Builder-Contractor Inc.' } } });
+    await pave({ updateDocument: { $: { id: doc.id, showQuantity: false } } });
+  } catch (_e) { /* non-critical if any fail */ }
+
   let totalCost = 0;
   let totalPrice = 0;
   let createdItemCount = 0;
 
   // ============================================================
-  // 9. Create in BKB 3-group format (Trade Partners / Materials / BKB Labor)
-  // matching the Behmlander 199-15 pattern with AI descriptions
+  // 9. Create in BKB format: Billable Items / Materials / BKB Labor
+  // with pricing from job custom fields (Margin % and Hourly Rate)
   // ============================================================
 
-  // Classify uninvoiced items into Trade Partners (subs) vs Materials
+  // Classify uninvoiced items into Billable Items (subs) vs Materials
   const uninvoicedSubs = uninvoicedMaterialsSubs.filter(
     (item: any) => item.costType?.name === 'Subcontractor'
   );
@@ -3553,10 +3591,10 @@ export async function createDraftBillableInvoice(jobId: string): Promise<{
           jobCostItemId: item.jobCostItem?.id || undefined,
           quantity: item.quantity ?? 1,
           unitCost: item.unitCost || item.cost || 0,
-          unitPrice: item.unitPrice || (item.unitCost || item.cost || 0) * 1.25,
+          unitPrice: item.unitPrice || (item.unitCost || item.cost || 0) * marginMultiplier,
         });
         totalCost += (item.cost ?? 0);
-        totalPrice += (item.price || (item.cost || 0) * 1.25);
+        totalPrice += (item.price || (item.cost || 0) * marginMultiplier);
         itemCount++;
       }
     }
@@ -3613,7 +3651,7 @@ export async function createDraftBillableInvoice(jobId: string): Promise<{
   }
 
   // Create Trade Partners group (subcontractors)
-  createdItemCount += await createBillCategory('Trade Partners', uninvoicedSubs, doc.id);
+  createdItemCount += await createBillCategory('Billable Items', uninvoicedSubs, doc.id);
 
   // Create Materials group
   createdItemCount += await createBillCategory('Materials', uninvoicedMaterials, doc.id);
@@ -3684,7 +3722,7 @@ export async function createDraftBillableInvoice(jobId: string): Promise<{
 
     // Use standard BKB billable labor rate: $85/hr cost, $115/hr price
     const laborUnitCost = 85;
-    const laborUnitPrice = 115;
+    const laborUnitPrice = hourlyRate; // From job custom field "Hourly Rate"
 
     await createJTCostItem({
       costGroupId: laborGroup.id,
