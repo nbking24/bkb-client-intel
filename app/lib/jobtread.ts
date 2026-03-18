@@ -3787,7 +3787,7 @@ export async function reorganizeCostPlusInvoice(documentId: string, jobId: strin
         if (!billNumMatch) continue;
 
         // Find the matching vendor bill document
-        const billDoc = vendorBillDocs.find((d: any) => d.number === billNumMatch[1].split('-')[1]);
+        const billDoc = vendorBillDocs.find((d: any) => String(d.number) === billNumMatch[1].split('-')[1]);
         if (!billDoc) continue;
 
         // Fetch the bill's cost items for their descriptions
