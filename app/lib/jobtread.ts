@@ -1654,6 +1654,7 @@ export interface JTTimeEntry {
 }
 
 export async function getTimeEntriesForJob(jobId: string, limit = 100): Promise<JTTimeEntry[]> {
+  const PAGE_SIZE = 100; // PAVE hard cap
   const teFields = {
     nodes: {
       id: {},
@@ -1667,30 +1668,54 @@ export async function getTimeEntriesForJob(jobId: string, limit = 100): Promise<
     },
   };
 
-  // Strategy 1: Try job.timeEntries sub-collection
+  // Paginated fetch: PAVE caps at 100 per query and returns oldest-first.
+  // Jobs with >100 time entries (e.g. Halvorsen with 145) silently lose the
+  // newest entries, which are often the CC23 billable hours needed for
+  // invoicing health. Paginate using where: ["id", ">", lastId].
   try {
-    const data = await pave({
-      job: {
-        $: { id: jobId },
-        timeEntries: {
-          $: { size: limit },
-          ...teFields,
+    const allEntries: JTTimeEntry[] = [];
+    let lastId: string | null = null;
+
+    for (let page = 0; page < 10; page++) { // safety cap: 10 pages = 1000 entries max
+      const params: Record<string, unknown> = { size: PAGE_SIZE };
+      if (lastId) {
+        params.where = ['id', '>', lastId];
+      }
+
+      const data = await pave({
+        job: {
+          $: { id: jobId },
+          timeEntries: {
+            $: params,
+            ...teFields,
+          },
         },
-      },
-    });
-    const entries = (data as any)?.job?.timeEntries?.nodes;
-    if (entries && Array.isArray(entries)) return entries;
+      });
+
+      const entries = (data as any)?.job?.timeEntries?.nodes;
+      if (!entries || !Array.isArray(entries) || entries.length === 0) break;
+
+      allEntries.push(...entries);
+      lastId = entries[entries.length - 1].id;
+
+      // If we got fewer than PAGE_SIZE, we've reached the end
+      if (entries.length < PAGE_SIZE) break;
+      // If we've reached the requested limit, stop
+      if (allEntries.length >= limit) break;
+    }
+
+    if (allEntries.length > 0) return allEntries.slice(0, limit);
   } catch (_err: any) {
-    // Sub-collection not supported — fall through
+    // Sub-collection not supported — fall through to org-level
   }
 
-  // Strategy 2: Organization-level with where filter
+  // Fallback: Organization-level with where filter (no pagination)
   try {
     const data = await pave({
       organization: {
         $: { id: JT_ORG() },
         timeEntries: {
-          $: { size: limit, where: ['jobId', '=', jobId] },
+          $: { size: PAGE_SIZE, where: ['jobId', '=', jobId] },
           ...teFields,
         },
       },

@@ -927,7 +927,7 @@ export async function buildInvoicingContext(): Promise<InvoicingFullContext> {
           const [documents, costItems, timeEntries] = await Promise.all([
             getDocumentsForJob(job.id),
             getCostItemsForJobLite(job.id, 200),
-            getTimeEntriesForJob(job.id, 100),
+            getTimeEntriesForJob(job.id),
           ]);
 
           if (documents.length === 0 && costItems.length === 0 && timeEntries.length === 0) {

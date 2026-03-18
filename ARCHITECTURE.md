@@ -546,11 +546,31 @@ JT API  ──→ jt_comments, jt_daily_logs (Supabase cache)
 
 22. **Cost-Plus = ALL hours billable, Fixed-Price = ONLY CC23 hours**: This is a critical business rule. Cost-Plus jobs bill all time entries regardless of cost code. Fixed-Price jobs ONLY bill time entries tagged to Cost Code 23. Nathan has explicitly corrected this twice — do not change this behavior.
 
+23. **PAVE sub-collections cap at 100 entries, oldest-first, no sort/offset**: `job.timeEntries`, `job.costItems`, and similar sub-collections return a maximum of 100 entries in creation order (oldest first). PAVE does NOT support `offset`, `after`, `pageInfo`, `sort`, or `orderBy` on these sub-collections. To paginate, use `where: ["id", ">", lastId]` which exploits PAVE's deterministic ID ordering. Always paginate any sub-collection that could exceed 100 entries — silently losing the newest entries causes subtle data bugs (e.g., Halvorsen's 102.5 CC23 hours showing as 0 because all 18 entries fell past position 100).
+
 ---
 
 ## 15. Changelog
 
 All modifications to the codebase should be logged here with date, files changed, and what was done.
+
+### 2026-03-18 — Fix: Time Entry Pagination for Jobs with >100 Entries
+
+**Problem:** The Invoicing Health Dashboard showed 0 billable labor hours for Halvorsen Roof/Exterior (Job #154), despite 102.5 hours of CC23 "23 Billable" time entries visible in JobTread. The dashboard's summary cards, alerts, and invoice creation all reported zero unbilled hours.
+
+**Root Cause:** `getTimeEntriesForJob()` called PAVE with `size: 100`, but PAVE returns entries **oldest-first** and has a hard cap of 100 per query. Halvorsen has 145 time entries total. The first 100 entries (June 2025 – Jan 9, 2026) were returned, but all 18 CC23 billable entries (Jan 21 – Feb 20, 2026) fell in positions 101–145 and were silently dropped. The `analyzeContractJob()` filter `entry.costItem?.costCode?.number === '23'` found zero matches, producing 0 hours.
+
+**Solution:** Rewrote `getTimeEntriesForJob()` to paginate through all time entries using PAVE's `where: ["id", ">", lastId]` filter. Each page fetches up to 100 entries; subsequent pages use the last entry's ID as a cursor. Loop continues until fewer than 100 entries are returned or a safety cap of 10 pages (1,000 entries) is reached. Default limit parameter kept at 100 but now represents the *minimum* guarantee — pagination ensures all entries are fetched.
+
+**PAVE pagination discovery:** PAVE does NOT support `offset`, `after`, `pageInfo`, `sort`, or `orderBy` on `job.timeEntries`. The only working pagination approach is `where: ["id", ">", lastId]` which exploits PAVE's deterministic ID ordering (same as creation order, which matches the oldest-first default sort).
+
+**Verified on Halvorsen Roof/Exterior (Job #154):** Page 1 returns 100 entries, page 2 returns 45 entries (total 145). All 18 CC23 entries now included, totaling 102.5 hours — matching JobTread UI exactly.
+
+**Changes:**
+- `app/lib/jobtread.ts` — Rewrote `getTimeEntriesForJob()`: paginated fetch loop using `["id", ">", lastId]` cursor, safety cap of 10 pages, falls back to org-level query on failure
+- `app/lib/invoicing-health.ts` — Removed explicit `100` limit arg (uses default with pagination)
+
+---
 
 ### 2026-03-18 — Enhancement: Fixed-Price Invoice Template, Custom Field Pricing, QTY Hidden
 
