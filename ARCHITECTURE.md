@@ -552,6 +552,37 @@ JT API  ──→ jt_comments, jt_daily_logs (Supabase cache)
 
 All modifications to the codebase should be logged here with date, files changed, and what was done.
 
+### 2026-03-17 — Feature: Queue-Based Invoice Creation via JT Bills & Time UI
+
+**Problem:** When invoices are created via the PAVE API (createDocument + createCostItem), JT's native "Not Invoiced" tracking in the Bills and Time tab doesn't update — bills and time entries still show as uninvoiced. Only invoices created through JT's own UI Bills & Time flow properly mark items as invoiced (even in draft status). Exhaustive testing confirmed there is no PAVE API method to replicate this linkage — `sourceCostItemId` on createCostItem is accepted but doesn't persist, `updateCostItem` rejects it as "invalid", and no document-level or time-entry-level linkage fields exist.
+
+**Solution:** Replaced direct PAVE invoice creation with a queue-based system that uses Chrome browser automation to drive JT's native Bills & Time UI flow:
+
+1. **Dashboard button** → writes a request to Supabase `invoice_creation_requests` table (with duplicate detection)
+2. **Claude scheduled task** ("create-jt-invoice") → reads pending requests from Supabase, opens Chrome to JT, navigates through + Document → Invoice → Bills and Time → Select All → Create
+3. **JT marks items as invoiced** because the invoice was created through the native UI flow
+
+**Supabase table:** `invoice_creation_requests` — columns: id (UUID), job_id, job_name, job_number, client_name, status (pending/processing/completed/failed), invoice_number, invoice_id, error, created_at, updated_at, completed_at
+
+**Changes:**
+- `app/api/dashboard/invoicing/queue-invoice/route.ts` — **NEW** POST endpoint that inserts into `invoice_creation_requests` with duplicate detection for pending/processing requests
+- `app/dashboard/invoicing/page.tsx` — Changed `CostPlusJobCard` button handler from direct PAVE call (`/api/dashboard/invoicing/create-invoice`) to queue call (`/api/dashboard/invoicing/queue-invoice`); updated success message to instruct user to run the scheduled task
+
+**Scheduled task:** `create-jt-invoice` (on-demand, no cron) — reads pending requests from Supabase REST API, processes each via Chrome browser automation through JT's Bills & Time flow, updates Supabase with result. Located at `~/Documents/Claude/Scheduled/create-jt-invoice/SKILL.md`.
+
+**Verified on Edwards Ongoing (Job #170):** Dashboard button queued request → scheduled task created Invoice 170-23 through JT UI → Bills & Time "Not Invoiced" list cleared to empty → Supabase request marked as completed.
+
+**Key finding — PAVE API has NO Bills & Time linkage support:**
+- `sourceCostItemId` on `createCostItem`: accepted silently but `sourceCostItem` reads back as null
+- `sourceCostItemId` on `updateCostItem`: rejected with "The source cost item ID provided is invalid"
+- `timeEntryIds` on `createCostItem`: rejected with "no value is ever expected there"
+- No document-level bill linkage fields exist (tested: bills, vendorBills, linkedDocuments, sourceDocuments, etc.)
+- No time entry update fields exist for marking as invoiced (tested: invoiced, isInvoiced, documentId, invoiceId, etc.)
+- No dedicated mutations exist (tested: linkBillToInvoice, invoiceBills, addBillToInvoice, etc.)
+- Even UI-created invoices have `sourceCostItem: null` and `timeEntries: {nodes: []}` on all cost items — the linkage is completely internal to JT
+
+**Commits:** `b5bbbd0`
+
 ### 2026-03-17 — Fix: Cost-Plus Invoicing Rewritten to Use Bills & Time (Not Budget Items)
 
 **Problem:** The Cost-Plus analysis (`analyzeCostPlusJob`) and invoice creation (`createDraftCostPlusInvoice`) were fundamentally wrong. They used `jobCostItemId` presence to determine what's been billed, but multiple vendor bills can share the same budget item — causing false matches. For example, on Edwards Ongoing, Wehrung's Lumber ($24.56) and Freedom Millwork ($911.39) both referenced the same "14-Trim, Finish:1403 - Materials" budget item. Since Freedom's bill was invoiced, Wehrung's was falsely flagged as invoiced too. The invoice creation function also pulled from budget items instead of actual vendor bills and time entries, which doesn't match JT's "Bills and Time" model for Cost-Plus.
