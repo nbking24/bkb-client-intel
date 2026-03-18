@@ -22,20 +22,40 @@ export async function POST(request: Request) {
 
     const supabase = createServerClient();
 
-    // Check for existing pending/processing request for this job
+    // Check for existing pending/processing request for this job.
+    // Stale requests older than 10 minutes are auto-cleared to prevent blocking.
     const { data: existing } = await supabase
       .from('invoice_creation_requests')
-      .select('id, status')
+      .select('id, status, created_at')
       .eq('job_id', jobId)
       .in('status', ['pending', 'processing'])
-      .limit(1);
+      .limit(5);
 
     if (existing && existing.length > 0) {
-      return NextResponse.json({
-        error: 'An invoice creation request is already pending for this job',
-        existingRequestId: existing[0].id,
-        status: existing[0].status,
-      }, { status: 409 });
+      const TEN_MINUTES = 10 * 60 * 1000;
+      const staleRequests = existing.filter(
+        (r) => Date.now() - new Date(r.created_at).getTime() > TEN_MINUTES
+      );
+      const freshRequests = existing.filter(
+        (r) => Date.now() - new Date(r.created_at).getTime() <= TEN_MINUTES
+      );
+
+      // Auto-mark stale requests as failed
+      for (const stale of staleRequests) {
+        await supabase
+          .from('invoice_creation_requests')
+          .update({ status: 'failed', error: 'Request timed out (stale after 10 minutes)' })
+          .eq('id', stale.id);
+      }
+
+      // Only block if there's a fresh pending/processing request
+      if (freshRequests.length > 0) {
+        return NextResponse.json({
+          error: 'An invoice creation request is already pending for this job',
+          existingRequestId: freshRequests[0].id,
+          status: freshRequests[0].status,
+        }, { status: 409 });
+      }
     }
 
     // Insert the request
