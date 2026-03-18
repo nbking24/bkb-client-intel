@@ -552,6 +552,52 @@ JT API  ──→ jt_comments, jt_daily_logs (Supabase cache)
 
 All modifications to the codebase should be logged here with date, files changed, and what was done.
 
+### 2026-03-17 — Feature: Invoice Reorganization into BKB 3-Group Format with AI Descriptions
+
+**Problem:** Invoices created through JT's Bills & Time UI have a flat structure — all vendor bill groups and time cost groups are at the top level with no categorization. Descriptions default to generic bill subjects like "Edwards - ongoing". The Behmlander Invoice 199-15 established the BKB standard: three parent categories with bullet-point descriptions, vendor bills grouped under Trade Partners or Materials, and labor under BKB Labor with work descriptions from time entry notes.
+
+**Solution:** Added `reorganizeCostPlusInvoice()` function that restructures a JT-created invoice into the BKB 3-group format via PAVE API after the Bills & Time UI creates it:
+
+1. **Trade Partners** — subcontractor and admin vendor bills (cost codes 1, 18, 20-23)
+   - Parent group gets AI-written summary of trade partner types
+   - Each bill sub-group gets AI-rewritten description from the original vendor bill's cost item descriptions (replaces generic subjects like "Edwards - ongoing")
+
+2. **Materials** — material vendor bills (cost type "Materials")
+   - Parent group gets AI-written summary of materials purchased
+   - Each bill sub-group gets AI-rewritten description from the bill's item list
+
+3. **BKB Labor** — all time entry groups
+   - Parent group gets AI-written work description built from time entry notes (only entries whose dates match the invoice's "Time Cost for [date]" groups, not all job entries)
+   - Time cost sub-groups kept as-is ("Time Cost for Wed, Nov 12, 2025" etc.)
+
+**Key technical details:**
+- `showChildren: false` on ALL sub-groups (hides individual line items, matching Behmlander pattern where only group headers show)
+- Bill descriptions fetched by matching group name bill numbers to vendor bill documents (required `String(d.number)` coercion — PAVE returns numbers as number type, not string)
+- AI rewriting uses Claude Sonnet via Anthropic API for both category-level and bill-level descriptions
+- Function is idempotent — deletes existing category groups before recreating (safe to run twice)
+- JT Bills & Time creates ALL groups flat at the top level (no nesting) — function re-parents them under new category groups using `updateCostGroup` with `parentCostGroupId`
+
+**API endpoint:** `POST /api/dashboard/invoicing/reorganize-invoice` — takes `{ documentId, jobId }`, calls `reorganizeCostPlusInvoice()`, returns success with descriptions
+
+**Full invoice creation flow:**
+1. Dashboard button → queues request in Supabase
+2. Scheduled task → creates invoice through JT Bills & Time UI (Chrome automation)
+3. Reorganize API → restructures into 3 categories, hides line items, AI-rewrites all descriptions
+
+**Verified on Edwards Ongoing (Invoice 170-28):**
+- Olde Town Painting: "Prepared and painted basement walls and ceiling in areas where horizontal chase was replaced, including trim preparation using premium Benjamin Moore Regal eggshell finish."
+- Reeds Appliance Repair: "Replaced electrode assembly on front left burner and conducted testing to ensure proper operation."
+- Wehrung's Lumber: "Supplied primed lumber materials including 1x8 boards, quarter round molding, and base shoe trim."
+- BKB Labor: Three polished bullet points from time entry notes
+
+**Changes:**
+- `app/lib/jobtread.ts` — Added `reorganizeCostPlusInvoice()`, `deleteJTCostGroup()`, `updateJTCostGroup()` helper functions; bill description fetching + AI rewriting per sub-group; `showChildren: false` on all sub-groups; idempotency (deletes old category groups); `String()` coercion for bill number matching
+- `app/api/dashboard/invoicing/reorganize-invoice/route.ts` — **NEW** POST endpoint (maxDuration=60)
+
+**Commits:** `446947d`, `a687a8f`, `448940a`, `1ed3045`, `6ced968`, `4ab0ba0`
+
+---
+
 ### 2026-03-17 — Feature: Queue-Based Invoice Creation via JT Bills & Time UI
 
 **Problem:** When invoices are created via the PAVE API (createDocument + createCostItem), JT's native "Not Invoiced" tracking in the Bills and Time tab doesn't update — bills and time entries still show as uninvoiced. Only invoices created through JT's own UI Bills & Time flow properly mark items as invoiced (even in draft status). Exhaustive testing confirmed there is no PAVE API method to replicate this linkage — `sourceCostItemId` on createCostItem is accepted but doesn't persist, `updateCostItem` rejects it as "invalid", and no document-level or time-entry-level linkage fields exist.
