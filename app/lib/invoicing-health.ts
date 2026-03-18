@@ -579,8 +579,10 @@ async function analyzeCostPlusJob(
   // per budget item, oldest entries first.
   // ============================================================
 
-  // Fetch ALL document cost items in one batch query (avoids N+1 per-document calls
-  // that caused 504 timeouts on jobs with many vendor bills)
+  // Fetch document cost items from vendor bills and non-draft invoices.
+  // Uses parallel batches of 5 to balance speed vs PAVE rate limits.
+  // (Can't use nested job.documents.costItems — causes 413 on large jobs.
+  //  Can't do sequential per-document — causes 504 timeout on 88+ bills.)
   const vendorBills = documents.filter(
     (d) => d.type === 'vendorBill' && d.status !== 'denied'
   );
@@ -588,11 +590,27 @@ async function analyzeCostPlusJob(
     (d) => d.status !== 'draft'
   );
 
-  let docCostItems: JTCostItem[] = [];
-  try {
-    docCostItems = await getDocumentCostItemsForJob(job.id);
-  } catch (err: any) {
-    console.error(`[InvoicingHealth] Failed to fetch doc cost items for ${job.name}: ${err?.message || err}`);
+  const relevantDocs = [...vendorBills, ...nonDraftInvoices];
+  const docCostItems: JTCostItem[] = [];
+  const BATCH_SIZE = 5;
+  for (let i = 0; i < relevantDocs.length; i += BATCH_SIZE) {
+    const batch = relevantDocs.slice(i, i + BATCH_SIZE);
+    const batchResults = await Promise.all(
+      batch.map(async (doc) => {
+        try {
+          const items = await getDocumentCostItemsById(doc.id);
+          return items.map((item) => ({
+            ...item,
+            document: { id: doc.id, name: doc.name || '', type: doc.type, status: doc.status },
+          }));
+        } catch {
+          return [] as JTCostItem[];
+        }
+      })
+    );
+    for (const items of batchResults) {
+      docCostItems.push(...items);
+    }
   }
 
   // Build vendor bill date lookup for FIFO ordering
