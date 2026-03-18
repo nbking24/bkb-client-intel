@@ -3404,52 +3404,127 @@ export async function createDraftBillableInvoice(jobId: string): Promise<{
     jobLocationAddress: locationAddress,
     dueDays: 2,
     subject: `Billable Items Invoice - ${job.name}`,
-    description: 'This invoice covers billable items and labor hours incurred on this project.',
+    description: 'This invoice covers additional billable items and labor hours incurred on this project beyond the original contract scope.',
   });
 
   let totalCost = 0;
   let totalPrice = 0;
   let createdItemCount = 0;
 
-  // 9. Create materials/subs group with items (if any)
-  if (uninvoicedMaterialsSubs.length > 0) {
-    const materialsGroup = await createJTCostGroup({
-      documentId: doc.id,
-      name: 'Billable Materials & Subcontractors',
-    });
+  // ============================================================
+  // 9. Create in BKB 3-group format (Trade Partners / Materials / BKB Labor)
+  // matching the Behmlander 199-15 pattern with AI descriptions
+  // ============================================================
 
-    // Sub-group by vendor bill source for clarity
-    const byVendorBill: Record<string, any[]> = {};
-    const ungrouped: any[] = [];
+  // Classify uninvoiced items into Trade Partners (subs) vs Materials
+  const uninvoicedSubs = uninvoicedMaterialsSubs.filter(
+    (item: any) => item.costType?.name === 'Subcontractor'
+  );
+  const uninvoicedMaterials = uninvoicedMaterialsSubs.filter(
+    (item: any) => item.costType?.name === 'Materials'
+  );
 
-    for (const item of uninvoicedMaterialsSubs) {
-      const billName = item.sourceDoc
-        ? `${item.sourceDoc.name} #${item.sourceDoc.number}`
-        : null;
-      if (billName) {
-        if (!byVendorBill[billName]) byVendorBill[billName] = [];
-        byVendorBill[billName].push(item);
-      } else {
-        ungrouped.push(item);
+  // Helper: create a category group with bill sub-groups, AI descriptions, and hidden line items
+  async function createBillCategory(
+    categoryName: string,
+    items: any[],
+    parentDocId: string,
+  ): Promise<number> {
+    if (items.length === 0) return 0;
+
+    const categoryGroup = await createJTCostGroup({ documentId: parentDocId, name: categoryName });
+    let itemCount = 0;
+
+    // Sub-group by vendor bill source
+    const byBill: Record<string, { items: any[]; docId: string; docNumber: string }> = {};
+    for (const item of items) {
+      const key = item.sourceDoc?.id || 'unknown';
+      if (!byBill[key]) {
+        byBill[key] = {
+          items: [],
+          docId: item.sourceDoc?.id || '',
+          docNumber: item.sourceDoc?.number || '',
+        };
       }
+      byBill[key].items.push(item);
     }
 
-    // Create sub-groups per vendor bill
-    for (const [billName, items] of Object.entries(byVendorBill)) {
+    // Collect descriptions for category-level AI summary
+    const itemDescriptions: string[] = [];
+
+    for (const [_billId, billInfo] of Object.entries(byBill)) {
+      // Find the vendor name from the documents list
+      const vendorDoc = allDocs.find((d: any) => d.id === billInfo.docId);
+      const vendorAccount = vendorDoc?.account?.name || vendorDoc?.name || `Bill #${billInfo.docNumber}`;
+
       const subGroup = await createJTCostGroup({
-        parentCostGroupId: materialsGroup.id,
-        name: billName,
+        parentCostGroupId: categoryGroup.id,
+        name: `${vendorAccount} Bill ${job.number}-${billInfo.docNumber}`,
       });
 
-      for (const item of items) {
-        const description = item.costCode?.name
-          ? `${item.costCode.number}-${item.costCode.name}`
-          : undefined;
+      // Fetch the original bill's cost item descriptions for AI rewriting
+      let billDesc = '';
+      try {
+        const billItemsData = await pave({
+          document: {
+            $: { id: billInfo.docId },
+            costItems: { $: { size: 10 }, nodes: { id: {}, description: {} } },
+          },
+        });
+        const descs = ((billItemsData as any)?.document?.costItems?.nodes || [])
+          .map((i: any) => (i.description || '').trim())
+          .filter((d: string) => d.length > 0);
+        billDesc = descs.join('\n');
+      } catch (_e) { /* skip */ }
 
+      // AI-rewrite the bill description
+      if (billDesc) {
+        try {
+          const apiKey = process.env.ANTHROPIC_API_KEY;
+          if (apiKey) {
+            const aiRes = await fetch('https://api.anthropic.com/v1/messages', {
+              method: 'POST',
+              headers: {
+                'Content-Type': 'application/json',
+                'x-api-key': apiKey,
+                'anthropic-version': '2023-06-01',
+              },
+              body: JSON.stringify({
+                model: 'claude-sonnet-4-20250514',
+                max_tokens: 256,
+                messages: [{
+                  role: 'user',
+                  content: `Rewrite this vendor bill description into a brief, professional, client-facing summary for a renovation invoice. Keep it to 1-2 concise sentences. Do not include pricing.\n\nOriginal:\n${billDesc}`,
+                }],
+              }),
+            });
+            if (aiRes.ok) {
+              const aiData = await aiRes.json();
+              const rewritten = (aiData.content?.[0]?.text || '').trim();
+              if (rewritten) {
+                await updateJTCostGroup(subGroup.id, { description: rewritten });
+              }
+            }
+          }
+        } catch (_e) { /* skip AI errors */ }
+      }
+
+      // Hide line items on the sub-group
+      await pave({ updateCostGroup: { $: { id: subGroup.id, showChildren: false } } });
+
+      // Collect for category description
+      for (const item of billInfo.items) {
+        const codeName = item.costCode?.name || item.name || '';
+        const cleaned = codeName.replace(/:\d+\s*-\s*(Sub|Materials?)/i, '').replace(/^\d+-/, '').trim();
+        if (cleaned && !itemDescriptions.includes(cleaned)) itemDescriptions.push(cleaned);
+      }
+
+      // Create cost items with bill reference in description
+      for (const item of billInfo.items) {
         await createJTCostItem({
           costGroupId: subGroup.id,
           name: item.name,
-          description,
+          description: `Source: Bill ${job.number}-${billInfo.docNumber} | ${item.costCode?.name || ''}`,
           costCodeId: item.costCode?.id || undefined,
           costTypeId: item.costType?.id || undefined,
           jobCostItemId: item.jobCostItem?.id || undefined,
@@ -3459,41 +3534,119 @@ export async function createDraftBillableInvoice(jobId: string): Promise<{
         });
         totalCost += (item.cost ?? 0);
         totalPrice += (item.price ?? 0);
-        createdItemCount++;
+        itemCount++;
       }
     }
 
-    // Add ungrouped items directly under materials group
-    for (const item of ungrouped) {
-      await createJTCostItem({
-        costGroupId: materialsGroup.id,
-        name: item.name,
-        description: item.costCode?.name
-          ? `${item.costCode.number}-${item.costCode.name}`
-          : undefined,
-        costCodeId: item.costCode?.id || undefined,
-        costTypeId: item.costType?.id || undefined,
-        jobCostItemId: item.jobCostItem?.id || undefined,
-        quantity: item.quantity ?? 1,
-        unitCost: item.unitCost ?? 0,
-        unitPrice: item.unitPrice ?? 0,
-      });
-      totalCost += (item.cost ?? 0);
-      totalPrice += (item.price ?? 0);
-      createdItemCount++;
+    // AI-rewrite the category-level description
+    if (itemDescriptions.length > 0) {
+      const rawDesc = itemDescriptions.map((d: string) => `• ${d}`).join('\n');
+      try {
+        const apiKey = process.env.ANTHROPIC_API_KEY;
+        if (apiKey) {
+          const aiRes = await fetch('https://api.anthropic.com/v1/messages', {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json',
+              'x-api-key': apiKey,
+              'anthropic-version': '2023-06-01',
+            },
+            body: JSON.stringify({
+              model: 'claude-sonnet-4-20250514',
+              max_tokens: 256,
+              messages: [{
+                role: 'user',
+                content: `Rewrite these invoice category bullet points into professional client-facing descriptions for a renovation invoice. Keep bullet format, be concise.\n\n${rawDesc}`,
+              }],
+            }),
+          });
+          if (aiRes.ok) {
+            const aiData = await aiRes.json();
+            const rewritten = (aiData.content?.[0]?.text || '').trim();
+            if (rewritten) await updateJTCostGroup(categoryGroup.id, { description: rewritten });
+          }
+        }
+      } catch (_e) { /* skip */ }
     }
+
+    return itemCount;
   }
 
-  // 10. Create labor group with hours (if any)
+  // Get vendor account names for bill sub-group naming
+  const docsWithAccounts = await pave({
+    job: {
+      $: { id: jobId },
+      documents: {
+        $: { size: 50 },
+        nodes: { id: {}, name: {}, type: {}, number: {}, account: { name: {} } },
+      },
+    },
+  });
+  const allDocsWithAccounts = (docsWithAccounts as any)?.job?.documents?.nodes || [];
+  // Merge account names into allDocs
+  for (const d of allDocsWithAccounts) {
+    const existing = allDocs.find((e: any) => e.id === d.id);
+    if (existing) existing.account = d.account;
+  }
+
+  // Create Trade Partners group (subcontractors)
+  createdItemCount += await createBillCategory('Trade Partners', uninvoicedSubs, doc.id);
+
+  // Create Materials group
+  createdItemCount += await createBillCategory('Materials', uninvoicedMaterials, doc.id);
+
+  // 10. Create BKB Labor group with hours (if any)
   if (unbilledLaborHours >= 0.1) {
     const laborGroup = await createJTCostGroup({
       documentId: doc.id,
-      name: 'BKB Billable Labor',
+      name: 'BKB Labor',
     });
 
     const roundedHours = Math.round(unbilledLaborHours * 100) / 100;
 
-    // Build a summary of who worked (for the description)
+    // Build labor description from time entry notes
+    const laborNotes: string[] = [];
+    for (const entry of cc23TimeEntries) {
+      const note = (entry.notes || '').trim();
+      if (note && !laborNotes.some((n: string) => n.toLowerCase() === note.toLowerCase())) {
+        laborNotes.push(note.charAt(0).toUpperCase() + note.slice(1).replace(/\.\s*$/, ''));
+      }
+    }
+
+    // AI-rewrite labor description
+    let laborDesc = laborNotes.map((n: string) => `• ${n}`).join('\n');
+    try {
+      const apiKey = process.env.ANTHROPIC_API_KEY;
+      if (apiKey && laborNotes.length > 0) {
+        const aiRes = await fetch('https://api.anthropic.com/v1/messages', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'x-api-key': apiKey,
+            'anthropic-version': '2023-06-01',
+          },
+          body: JSON.stringify({
+            model: 'claude-sonnet-4-20250514',
+            max_tokens: 256,
+            messages: [{
+              role: 'user',
+              content: `Rewrite these labor notes into professional client-facing bullet points for a renovation invoice. Keep bullet format, be concise.\n\n${laborDesc}`,
+            }],
+          }),
+        });
+        if (aiRes.ok) {
+          const aiData = await aiRes.json();
+          const rewritten = (aiData.content?.[0]?.text || '').trim();
+          if (rewritten) laborDesc = rewritten;
+        }
+      }
+    } catch (_e) { /* skip */ }
+
+    if (laborDesc) {
+      await updateJTCostGroup(laborGroup.id, { description: laborDesc });
+    }
+
+    // Worker breakdown in description (for team reference, hidden from client)
     const workerHours: Record<string, number> = {};
     for (const entry of cc23TimeEntries) {
       const name = entry.user?.name || 'Unknown';
@@ -3502,7 +3655,7 @@ export async function createDraftBillableInvoice(jobId: string): Promise<{
         workerHours[name] = (workerHours[name] || 0) + hours;
       }
     }
-    const laborDescription = Object.entries(workerHours)
+    const workerBreakdown = Object.entries(workerHours)
       .map(([name, hours]) => `${name}: ${Math.round(hours * 10) / 10}h`)
       .join(', ');
 
@@ -3513,7 +3666,7 @@ export async function createDraftBillableInvoice(jobId: string): Promise<{
     await createJTCostItem({
       costGroupId: laborGroup.id,
       name: '23 Billable Labor',
-      description: laborDescription || undefined,
+      description: workerBreakdown || undefined,
       costCodeId: laborCostCodeId || undefined,
       costTypeId: laborCostTypeId || undefined,
       jobCostItemId: laborBudgetItemId || undefined,
@@ -3524,6 +3677,9 @@ export async function createDraftBillableInvoice(jobId: string): Promise<{
     totalCost += roundedHours * laborUnitCost;
     totalPrice += roundedHours * laborUnitPrice;
     createdItemCount++;
+
+    // Hide the labor line items
+    await pave({ updateCostGroup: { $: { id: laborGroup.id, showChildren: false } } });
   }
 
   return {
