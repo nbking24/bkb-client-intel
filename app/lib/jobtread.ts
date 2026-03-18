@@ -3646,6 +3646,8 @@ export async function reorganizeCostPlusInvoice(documentId: string, jobId: strin
   }
 
   // 3. Fetch time entry notes for the job (for BKB Labor description)
+  // Only include notes from time entries whose dates match the invoice's
+  // "Time Cost for [date]" groups — not ALL time entries on the job.
   const teData = await pave({
     job: {
       $: { id: jobId },
@@ -3660,9 +3662,28 @@ export async function reorganizeCostPlusInvoice(documentId: string, jobId: strin
   });
   const timeEntries = (teData as any)?.job?.timeEntries?.nodes || [];
 
-  // Build labor description from time entry notes (unique, non-empty)
+  // Extract dates from the "Time Cost for [date]" group names on the invoice
+  const invoiceDates = new Set<string>();
+  for (const tg of timeGroups) {
+    // Group names like "Time Cost for Wed, Nov 12, 2025"
+    // Extract and normalize the date to match time entry startedAt
+    const dateMatch = (tg.group.name || '').match(/Time Cost for \w+,\s+(.+)/);
+    if (dateMatch) {
+      try {
+        const parsed = new Date(dateMatch[1]);
+        if (!isNaN(parsed.getTime())) {
+          invoiceDates.add(parsed.toISOString().split('T')[0]);
+        }
+      } catch (e) { /* skip */ }
+    }
+  }
+
+  // Filter time entries to only those whose date is on the invoice
   const laborNotes: string[] = [];
   for (const te of timeEntries) {
+    const teDate = te.startedAt ? te.startedAt.split('T')[0] : '';
+    if (!invoiceDates.has(teDate)) continue; // skip entries not on this invoice
+
     const note = (te.notes || '').trim();
     if (note && !laborNotes.some(n => n.toLowerCase() === note.toLowerCase())) {
       const cleaned = note.charAt(0).toUpperCase() + note.slice(1).replace(/\.\s*$/, '');
@@ -3712,22 +3733,83 @@ export async function reorganizeCostPlusInvoice(documentId: string, jobId: strin
   if (materialsDescription) await updateJTCostGroup(materialsGroup.id, { description: materialsDescription });
   if (laborDescription) await updateJTCostGroup(laborGroup.id, { description: laborDescription });
 
-  // 5. Re-parent sub-groups under the correct new top-level group
+  // 5. Re-parent sub-groups and set showChildren=false (hides line items, matching Behmlander pattern)
   const adminBills = billGroups.filter(bg => bg.category === 'admin');
   const materialBills = billGroups.filter(bg => bg.category === 'materials');
 
   for (const bg of adminBills) {
     await updateJTCostGroup(bg.group.id, { parentCostGroupId: adminGroup.id });
+    await pave({ updateCostGroup: { $: { id: bg.group.id, showChildren: false } } });
   }
   for (const bg of materialBills) {
     await updateJTCostGroup(bg.group.id, { parentCostGroupId: materialsGroup.id });
+    await pave({ updateCostGroup: { $: { id: bg.group.id, showChildren: false } } });
   }
   for (const tg of timeGroups) {
     await updateJTCostGroup(tg.group.id, { parentCostGroupId: laborGroup.id });
+    await pave({ updateCostGroup: { $: { id: tg.group.id, showChildren: false } } });
   }
 
-  // 6. No deletion needed — all original groups have been re-parented
-  // under the new category groups. Items stay with their original groups.
+  // 6. Use AI to rewrite descriptions as client-facing language
+  try {
+    const apiKey = process.env.ANTHROPIC_API_KEY;
+    if (apiKey && (adminDescription || materialsDescription || laborDescription)) {
+      const prompt = `You are writing invoice descriptions for a high-end residential renovation company (Brett King Builder-Contractor). Rewrite each section's bullet-point description to be professional, client-facing, and easy to read. Keep bullet points but make each one a polished 1-line description. Do not add items that aren't there. Be concise.
+
+PERMIT & ADMIN ITEMS:
+${adminDescription || '(none)'}
+
+MATERIAL ITEMS:
+${materialsDescription || '(none)'}
+
+LABOR NOTES (from time entries — describe the work performed):
+${laborDescription || '(none)'}
+
+Respond in this exact JSON format:
+{"admin": "• bullet1\\n• bullet2", "materials": "• bullet1\\n• bullet2", "labor": "• bullet1\\n• bullet2"}
+
+If a section is "(none)", return empty string for that key.`;
+
+      const aiRes = await fetch('https://api.anthropic.com/v1/messages', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'x-api-key': apiKey,
+          'anthropic-version': '2023-06-01',
+        },
+        body: JSON.stringify({
+          model: 'claude-sonnet-4-20250514',
+          max_tokens: 1024,
+          messages: [{ role: 'user', content: prompt }],
+        }),
+      });
+
+      if (aiRes.ok) {
+        const aiData = await aiRes.json();
+        const aiText = aiData.content?.[0]?.text || '';
+        try {
+          // Extract JSON from response (may be wrapped in markdown code block)
+          const jsonMatch = aiText.match(/\{[\s\S]*\}/);
+          if (jsonMatch) {
+            const rewritten = JSON.parse(jsonMatch[0]);
+            if (rewritten.admin && adminDescription) {
+              await updateJTCostGroup(adminGroup.id, { description: rewritten.admin });
+            }
+            if (rewritten.materials && materialsDescription) {
+              await updateJTCostGroup(materialsGroup.id, { description: rewritten.materials });
+            }
+            if (rewritten.labor && laborDescription) {
+              await updateJTCostGroup(laborGroup.id, { description: rewritten.labor });
+            }
+          }
+        } catch (parseErr) {
+          console.warn('[reorganize] AI rewrite JSON parse failed, keeping original descriptions');
+        }
+      }
+    }
+  } catch (aiErr: any) {
+    console.warn('[reorganize] AI rewrite failed, keeping original descriptions:', aiErr.message);
+  }
 
   return {
     success: true,
