@@ -552,6 +552,39 @@ JT API  ──→ jt_comments, jt_daily_logs (Supabase cache)
 
 All modifications to the codebase should be logged here with date, files changed, and what was done.
 
+### 2026-03-18 — Enhancement: Fixed-Price Invoice Template, Custom Field Pricing, QTY Hidden
+
+**Problem:** Fixed-Price billable invoices were missing company contact info (phone, email, address were blank), showed the QTY column unnecessarily, used hardcoded 25% markup and $115/hr rate instead of project-specific pricing, and the main group was named "Trade Partners" instead of "Billable Items."
+
+**Solution:**
+1. **Company info**: Sets `fromAddress` ("7843 Richlandtown Rd, Quakertown, PA 18951, USA") and `fromOrganizationName` ("Brett King Builder-Contractor Inc.") via `updateDocument` after creation. Phone/email fields don't exist on PAVE documents — they come from the JT template when created through the UI.
+
+2. **Hide QTY column**: Sets `showQuantity: false` via `updateDocument` after creation. The field exists on documents and persists correctly.
+
+3. **Custom field pricing**: Reads job custom fields "Margin" (ID: `22PAE53xn6XJ`) and "Hourly Rate" (ID: `22PAE4yybHpg`) from the job's `customFieldValues`. Materials/subs use `cost × (1 + margin/100)` for pricing (e.g., 30% margin = 1.30× multiplier). Labor uses the hourly rate directly as `unitPrice`. Defaults if fields not set: 25% margin, $115/hr.
+
+4. **Renamed group**: "Trade Partners" → "Billable Items" for Fixed-Price invoices (Cost-Plus still uses "Trade Partners")
+
+5. **Customer contact info**: Fetches phone and email from the job's account contacts via `location.account.contacts.customFieldValues` for internal reference
+
+**Bill/labor tracking (preventing duplicate billing):**
+The FIFO deduction system handles this automatically. Each time "Create Billable Invoice" is run, it compares CC23 vendor bill costs against CC23 customer invoice costs per budget item. Items already on approved/pending invoices are deducted. Draft invoices are filtered out (`status !== 'draft'`), so creating and deleting drafts has no effect on the tracking. Source bill references are embedded in each line item's description (hidden from client via `showChildren: false`, visible to team when expanding) — e.g., "Source: Bill 187-14 | 01-Gen Supplies, Admin Costs."
+
+**Verified on Sines Add Powder Room (Job #187, Margin=30%, Hourly Rate=$125):**
+- Doylestown Borough Bill: $254.50 × 1.30 = $330.85 ✅
+- Middle Department Inspection: $100 × 1.30 = $130.00 ✅
+- BKB Labor: 2h × $125 = $250.00 ✅
+- Total: $710.85 ✅
+- Company address populated, QTY hidden, "Billable Items" group name ✅
+- After draft deletion, numbers return to $354.50 + 2h ✅
+
+**Changes:**
+- `app/lib/jobtread.ts` — Updated `createDraftBillableInvoice()`: reads Margin/Hourly Rate custom fields, sets fromAddress/fromOrganizationName/showQuantity via updateDocument, renamed group to "Billable Items", margin-based pricing for materials/subs, hourly rate for labor
+
+**Commits:** `8ef842f`
+
+---
+
 ### 2026-03-18 — Feature: Fixed-Price Billable Invoice with BKB 3-Group Format
 
 **Problem:** The Fixed-Price "Create Billable Invoice" button had two issues: (1) it used budget-item-ID presence to determine what's been invoiced (same bug as the old Cost-Plus code — fails when multiple vendor bill items share a budget ID), and (2) it created invoices with a flat structure instead of the BKB 3-group format with AI descriptions.
