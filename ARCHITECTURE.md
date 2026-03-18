@@ -552,6 +552,39 @@ JT API  ──→ jt_comments, jt_daily_logs (Supabase cache)
 
 All modifications to the codebase should be logged here with date, files changed, and what was done.
 
+### 2026-03-18 — Feature: Fixed-Price Billable Invoice with BKB 3-Group Format
+
+**Problem:** The Fixed-Price "Create Billable Invoice" button had two issues: (1) it used budget-item-ID presence to determine what's been invoiced (same bug as the old Cost-Plus code — fails when multiple vendor bill items share a budget ID), and (2) it created invoices with a flat structure instead of the BKB 3-group format with AI descriptions.
+
+**Solution — FIFO deduction fix:** Replaced the `billedBudgetItemIds` Set-based filter with per-budget-item FIFO deduction (same approach as Cost-Plus). Groups CC23 vendor bill costs by budget item, deducts invoiced amounts from oldest items first, includes items not fully covered.
+
+**Solution — 3-group format:** Rewrote the invoice creation to use the same Trade Partners / Materials / BKB Labor structure as Cost-Plus:
+- **Trade Partners**: CC23 subcontractor items from vendor bills, grouped by vendor, with AI-rewritten bill descriptions and `showChildren: false`
+- **Materials**: CC23 material items from vendor bills, same formatting
+- **BKB Labor**: CC23 time entries with AI-rewritten notes from time entry descriptions, worker breakdown in hidden line item description
+
+**Pricing fix:** Vendor bill items have `unitPrice: 0` (bills don't have sell prices). Now falls back to `cost × 1.25` markup when unitPrice is missing.
+
+**AI prompt fix:** Category-level AI description prompts were too open-ended — Claude sometimes returned conversational text instead of bullet points. Updated prompts to explicitly say "Output ONLY the bullet points, nothing else."
+
+**Bill references:** Each line item's description includes the source bill reference (e.g., "Source: Bill 187-14 | 01-Gen Supplies, Admin Costs"). Hidden from client since `showChildren: false`, but visible to team when expanding.
+
+**Draft deletion tracking:** Confirmed working — the analysis filters customer invoices with `status !== 'draft'`, so drafts never affect unbilled calculations. Creating and deleting a draft leaves the numbers unchanged.
+
+**Verified on Sines Add Powder Room (Job #187):**
+- Dashboard: Billable $354.50 + Labor 2h (matches JT)
+- Draft Invoice 71: 3 items totaling $673.13 (bills with 25% markup + 2h × $115)
+- Trade Partners: Doylestown Borough ($318.13) + Middle Department Inspection ($125.00) with AI descriptions
+- BKB Labor: $230.00 with AI-rewritten time entry notes
+- After draft deletion: numbers return to $354.50 + 2h
+
+**Changes:**
+- `app/lib/jobtread.ts` — Rewrote `createDraftBillableInvoice()`: FIFO deduction for CC23 items, BKB 3-group format with AI descriptions, 25% markup on bills, bill references in line items, `showChildren: false`, fixed AI prompts for all description generation
+
+**Commits:** `576ccd8`, `4508e7d`
+
+---
+
 ### 2026-03-17 — Feature: Invoice Reorganization into BKB 3-Group Format with AI Descriptions
 
 **Problem:** Invoices created through JT's Bills & Time UI have a flat structure — all vendor bill groups and time cost groups are at the top level with no categorization. Descriptions default to generic bill subjects like "Edwards - ongoing". The Behmlander Invoice 199-15 established the BKB standard: three parent categories with bullet-point descriptions, vendor bills grouped under Trade Partners or Materials, and labor under BKB Labor with work descriptions from time entry notes.
