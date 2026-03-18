@@ -3552,11 +3552,11 @@ export async function createDraftBillableInvoice(jobId: string): Promise<{
           costTypeId: item.costType?.id || undefined,
           jobCostItemId: item.jobCostItem?.id || undefined,
           quantity: item.quantity ?? 1,
-          unitCost: item.unitCost ?? 0,
-          unitPrice: item.unitPrice ?? 0,
+          unitCost: item.unitCost || item.cost || 0,
+          unitPrice: item.unitPrice || (item.unitCost || item.cost || 0) * 1.25,
         });
         totalCost += (item.cost ?? 0);
-        totalPrice += (item.price ?? 0);
+        totalPrice += (item.price || (item.cost || 0) * 1.25);
         itemCount++;
       }
     }
@@ -3579,7 +3579,7 @@ export async function createDraftBillableInvoice(jobId: string): Promise<{
               max_tokens: 256,
               messages: [{
                 role: 'user',
-                content: `Rewrite these invoice category bullet points into professional client-facing descriptions for a renovation invoice. Keep bullet format, be concise.\n\n${rawDesc}`,
+                content: `Rewrite these construction invoice category items into a bullet-point list. Each bullet should be a brief, professional, client-facing description. Output ONLY the bullet points (using • character), nothing else. No intro text, no questions, no explanations.\n\nItems:\n${rawDesc}`,
               }],
             }),
           });
@@ -3653,7 +3653,7 @@ export async function createDraftBillableInvoice(jobId: string): Promise<{
             max_tokens: 256,
             messages: [{
               role: 'user',
-              content: `Rewrite these labor notes into professional client-facing bullet points for a renovation invoice. Keep bullet format, be concise.\n\n${laborDesc}`,
+              content: `Rewrite these labor notes into a bullet-point list for a renovation invoice. Each bullet should be a brief, professional, client-facing description. Output ONLY the bullet points (using • character), nothing else. No intro text, no questions, no explanations.\n\nNotes:\n${laborDesc}`,
             }],
           }),
         });
