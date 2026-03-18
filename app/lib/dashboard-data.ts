@@ -87,14 +87,13 @@ export async function buildUserDashboardData(userId: string): Promise<UserDashbo
   const { role, membershipId, name: userName } = user;
   const permissions = ROLE_CONFIG[role];
 
-  // Fetch tasks based on role
+  // Fetch tasks — always use per-member query to avoid PAVE 413 errors.
+  // Owner can see all JOBS but task list shows their own assigned tasks.
   let rawTasks: any[] = [];
-  if (permissions.canViewAllTasks) {
-    // Owner: see all team tasks
-    rawTasks = await getAllOpenTasks();
-  } else {
-    // Everyone else: only their assigned tasks
+  try {
     rawTasks = await getOpenTasksForMember(membershipId);
+  } catch (err: any) {
+    console.error('[DashboardData] Failed to fetch tasks:', err.message);
   }
 
   // Classify urgency and build task list
