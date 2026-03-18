@@ -627,7 +627,7 @@ function CostPlusJobCard({ job, onInvoiceCreated }: { job: CostPlusJobHealth; on
       if (data.success) {
         setCreateResult({
           success: true,
-          message: `Invoice queued — run "create-jt-invoice" task in Cowork to create it through JT`,
+          message: `Invoice queued — will be created automatically in JT within 5 minutes`,
         });
       } else {
         setCreateResult({ success: false, message: data.error || 'Failed to queue request' });
