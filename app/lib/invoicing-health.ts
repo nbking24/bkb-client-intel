@@ -579,7 +579,8 @@ async function analyzeCostPlusJob(
   // per budget item, oldest entries first.
   // ============================================================
 
-  // Fetch vendor bill cost items per-document (avoids 413 errors)
+  // Fetch ALL document cost items in one batch query (avoids N+1 per-document calls
+  // that caused 504 timeouts on jobs with many vendor bills)
   const vendorBills = documents.filter(
     (d) => d.type === 'vendorBill' && d.status !== 'denied'
   );
@@ -587,51 +588,61 @@ async function analyzeCostPlusJob(
     (d) => d.status !== 'draft'
   );
 
-  // Collect vendor bill cost items grouped by jobCostItemId (budget item)
-  // Each entry tracks the bill document for FIFO ordering by date
+  let docCostItems: JTCostItem[] = [];
+  try {
+    docCostItems = await getDocumentCostItemsForJob(job.id);
+  } catch (err: any) {
+    console.error(`[InvoicingHealth] Failed to fetch doc cost items for ${job.name}: ${err?.message || err}`);
+  }
+
+  // Build vendor bill date lookup for FIFO ordering
+  const billDateMap = new Map<string, string>();
+  for (const bill of vendorBills) {
+    billDateMap.set(bill.id, bill.createdAt || '');
+  }
+
+  // Vendor bill cost items (excluding denied/deleted bills)
+  const deniedBillIds = new Set(documents.filter(d => d.type === 'vendorBill' && d.status === 'denied').map(d => d.id));
+  const vendorBillItems = docCostItems.filter(
+    (item) => item.document?.type === 'vendorBill' && !deniedBillIds.has(item.document?.id ?? '')
+  );
+
+  // Customer invoice cost items (non-draft only)
+  const draftInvoiceIds = new Set(customerInvoices.filter(d => d.status === 'draft').map(d => d.id));
+  const invoiceCostItems = docCostItems.filter(
+    (item) => item.document?.type === 'customerInvoice' && !draftInvoiceIds.has(item.document?.id ?? '')
+  );
+
+  // Collect vendor bill cost items grouped by jobCostItemId (budget item) for FIFO deduction
   type BillCostEntry = { billDocId: string; costItemId: string; cost: number; date: string };
   const billsByBudgetItem = new Map<string, BillCostEntry[]>();
 
-  for (const bill of vendorBills) {
-    try {
-      const billItems = await getDocumentCostItemsById(bill.id);
-      for (const item of billItems) {
-        const budgetId = (item as any).jobCostItem?.id || (item as any).costCode?.number || item.id;
-        if (!billsByBudgetItem.has(budgetId)) billsByBudgetItem.set(budgetId, []);
-        billsByBudgetItem.get(budgetId)!.push({
-          billDocId: bill.id,
-          costItemId: item.id,
-          cost: item.cost || 0,
-          date: bill.createdAt || '',
-        });
-      }
-    } catch (err: any) {
-      console.error(`[InvoicingHealth] Failed to fetch bill items for ${job.name} bill ${bill.id}: ${err?.message}`);
-    }
+  for (const item of vendorBillItems) {
+    const budgetId = (item as any).jobCostItem?.id || item.id;
+    if (!billsByBudgetItem.has(budgetId)) billsByBudgetItem.set(budgetId, []);
+    billsByBudgetItem.get(budgetId)!.push({
+      billDocId: item.document?.id || '',
+      costItemId: item.id,
+      cost: item.cost || 0,
+      date: billDateMap.get(item.document?.id || '') || '',
+    });
   }
 
   // Collect invoiced amounts per budget item from non-draft customer invoices
   const invoicedByBudgetItem = new Map<string, number>();
   const invoicedHoursByBudgetItem = new Map<string, number>();
 
-  for (const inv of nonDraftInvoices) {
-    try {
-      const invItems = await getDocumentCostItemsById(inv.id);
-      for (const item of invItems) {
-        const budgetId = (item as any).jobCostItem?.id || item.id;
-        invoicedByBudgetItem.set(
-          budgetId,
-          (invoicedByBudgetItem.get(budgetId) || 0) + (item.cost || 0)
-        );
-        // Track invoiced hours (from quantity) for budget items that have time entries
-        invoicedHoursByBudgetItem.set(
-          budgetId,
-          (invoicedHoursByBudgetItem.get(budgetId) || 0) + (item.quantity || 0)
-        );
-      }
-    } catch (err: any) {
-      console.error(`[InvoicingHealth] Failed to fetch invoice items for ${job.name} inv ${inv.id}: ${err?.message}`);
-    }
+  for (const item of invoiceCostItems) {
+    const budgetId = (item as any).jobCostItem?.id || item.id;
+    invoicedByBudgetItem.set(
+      budgetId,
+      (invoicedByBudgetItem.get(budgetId) || 0) + (item.cost || 0)
+    );
+    // Track invoiced hours (from quantity) for budget items that have time entries
+    invoicedHoursByBudgetItem.set(
+      budgetId,
+      (invoicedHoursByBudgetItem.get(budgetId) || 0) + (item.quantity || 0)
+    );
   }
 
   // BILLS: Per-budget-item FIFO deduction
