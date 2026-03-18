@@ -1653,8 +1653,9 @@ export interface JTTimeEntry {
   costItem?: { id: string; name: string; costCode?: { number: string; name: string } | null } | null;
 }
 
-export async function getTimeEntriesForJob(jobId: string, limit = 100): Promise<JTTimeEntry[]> {
-  const PAGE_SIZE = 100; // PAVE hard cap
+export async function getTimeEntriesForJob(jobId: string): Promise<JTTimeEntry[]> {
+  const PAGE_SIZE = 100; // PAVE hard cap per query
+  const MAX_PAGES = 10;  // Safety cap: 1000 entries max
   const teFields = {
     nodes: {
       id: {},
@@ -1676,7 +1677,7 @@ export async function getTimeEntriesForJob(jobId: string, limit = 100): Promise<
     const allEntries: JTTimeEntry[] = [];
     let lastId: string | null = null;
 
-    for (let page = 0; page < 10; page++) { // safety cap: 10 pages = 1000 entries max
+    for (let page = 0; page < MAX_PAGES; page++) {
       const params: Record<string, unknown> = { size: PAGE_SIZE };
       if (lastId) {
         params.where = ['id', '>', lastId];
@@ -1700,11 +1701,9 @@ export async function getTimeEntriesForJob(jobId: string, limit = 100): Promise<
 
       // If we got fewer than PAGE_SIZE, we've reached the end
       if (entries.length < PAGE_SIZE) break;
-      // If we've reached the requested limit, stop
-      if (allEntries.length >= limit) break;
     }
 
-    if (allEntries.length > 0) return allEntries.slice(0, limit);
+    if (allEntries.length > 0) return allEntries;
   } catch (_err: any) {
     // Sub-collection not supported — fall through to org-level
   }
