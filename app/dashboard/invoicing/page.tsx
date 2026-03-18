@@ -613,22 +613,24 @@ function CostPlusJobCard({ job, onInvoiceCreated }: { job: CostPlusJobHealth; on
     setCreating(true);
     setCreateResult(null);
     try {
-      const res = await fetch('/api/dashboard/invoicing/create-invoice', {
+      const res = await fetch('/api/dashboard/invoicing/queue-invoice', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ jobId: job.jobId }),
+        body: JSON.stringify({
+          jobId: job.jobId,
+          jobName: job.jobName,
+          jobNumber: job.jobNumber,
+          clientName: job.clientName,
+        }),
       });
       const data = await res.json();
       if (data.success) {
         setCreateResult({
           success: true,
-          message: `Draft invoice ${data.documentNumber} created with ${data.itemCount} items (${formatCurrency(data.totalPrice)})`,
-          documentNumber: data.documentNumber,
+          message: `Invoice queued — run "create-jt-invoice" task in Cowork to create it through JT`,
         });
-        // Refresh the dashboard data after a short delay
-        setTimeout(() => onInvoiceCreated?.(), 1500);
       } else {
-        setCreateResult({ success: false, message: data.error || 'Failed to create invoice' });
+        setCreateResult({ success: false, message: data.error || 'Failed to queue request' });
       }
     } catch (err: any) {
       setCreateResult({ success: false, message: err.message || 'Network error' });
