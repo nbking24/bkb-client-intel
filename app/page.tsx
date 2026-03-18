@@ -45,36 +45,96 @@ const TEMPLATES: Tpl[] = [
 function uid() { return Math.random().toString(36).slice(2, 10) + Date.now().toString(36); }
 function getToken() { return localStorage.getItem("bkb-token") || ""; }
 
-/* ——— PIN Screen —————————————————————————————————————————————————————— */
+/* ——— Team Users for Login ————————————————————————————————————————————— */
+const LOGIN_USERS = [
+  { id: "nathan",      name: "Nathan King",      role: "Owner",            initials: "NK" },
+  { id: "terri",       name: "Terri King",       role: "Office Manager",   initials: "TK" },
+  { id: "evan",        name: "Evan Harrington",  role: "Lead Carpenter",   initials: "EH" },
+  { id: "josh",        name: "Josh King",        role: "Project Manager",  initials: "JK" },
+  { id: "dave_steich", name: "Dave Steich",      role: "Carpenter",        initials: "DS" },
+];
+
+/* ——— PIN Screen with User Selection —————————————————————————————————— */
 function PinScreen({ onAuth }: { onAuth: () => void }) {
   const [pin, setPin] = useState("");
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState("");
-  const submit = async () => {
+  const [pinVerified, setPinVerified] = useState(false);
+  const [verifiedPin, setVerifiedPin] = useState("");
+
+  // Step 1: Verify PIN
+  const submitPin = async () => {
     if (!pin.trim()) return;
     setBusy(true); setErr("");
     try {
       const r = await fetch("/api/auth", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ pin }) });
       if (!r.ok) throw new Error();
+      // PIN is valid — move to user selection
+      setVerifiedPin(pin);
+      setPinVerified(true);
+    } catch { setErr("Invalid PIN"); setPin(""); } finally { setBusy(false); }
+  };
+
+  // Step 2: Select user, get token with userId, save and proceed
+  const selectUser = async (userId: string) => {
+    setBusy(true);
+    try {
+      const r = await fetch("/api/auth", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ pin: verifiedPin, userId }) });
+      if (!r.ok) throw new Error();
       const d = await r.json();
       localStorage.setItem("bkb-token", d.token);
       onAuth();
-    } catch { setErr("Invalid PIN"); setPin(""); } finally { setBusy(false); }
+    } catch { setErr("Authentication failed"); } finally { setBusy(false); }
   };
+
+  // PIN Entry Screen
+  if (!pinVerified) {
+    return (
+      <div className="min-h-screen flex flex-col items-center justify-center p-4">
+        <img src="https://www.brettkingbuilder.com/wp-content/uploads/2021/08/logowhite.png" alt="BKB" className="h-16 w-auto mb-6" />
+        <h1 className="text-xl mb-1" style={{ color: "#CDA274", fontFamily: "Georgia, serif" }}>Operations Platform</h1>
+        <p className="text-sm mb-8" style={{ color: "#8a8078" }}>Enter your PIN to continue</p>
+        <div className="w-full max-w-xs space-y-4">
+          <input type="password" inputMode="numeric" value={pin} onChange={e => setPin(e.target.value)} onKeyDown={e => e.key === "Enter" && submitPin()} placeholder="••••" autoFocus maxLength={10}
+            className="w-full px-4 py-4 rounded-lg text-center text-2xl tracking-widest outline-none"
+            style={{ background: "#242424", border: "1px solid rgba(205,162,116,0.12)", color: "#e8e0d8" }} />
+          {err && <p className="text-center text-sm" style={{ color: "#c45c4c" }}>{err}</p>}
+          <button onClick={submitPin} disabled={!pin.trim() || busy} className="w-full py-4 rounded-lg font-semibold disabled:opacity-30" style={{ background: "#CDA274", color: "#1a1a1a" }}>
+            {busy ? "Verifying..." : "Enter"}
+          </button>
+        </div>
+      </div>
+    );
+  }
+
+  // User Selection Screen
   return (
     <div className="min-h-screen flex flex-col items-center justify-center p-4">
       <img src="https://www.brettkingbuilder.com/wp-content/uploads/2021/08/logowhite.png" alt="BKB" className="h-16 w-auto mb-6" />
-      <h1 className="text-xl mb-1" style={{ color: "#CDA274", fontFamily: "Georgia, serif" }}>Client Hub</h1>
-      <p className="text-sm mb-8" style={{ color: "#8a8078" }}>Enter your PIN to continue</p>
-      <div className="w-full max-w-xs space-y-4">
-        <input type="password" inputMode="numeric" value={pin} onChange={e => setPin(e.target.value)} onKeyDown={e => e.key === "Enter" && submit()} placeholder="••••" autoFocus maxLength={10}
-          className="w-full px-4 py-4 rounded-lg text-center text-2xl tracking-widest outline-none"
-          style={{ background: "#242424", border: "1px solid rgba(205,162,116,0.12)", color: "#e8e0d8" }} />
-        {err && <p className="text-center text-sm" style={{ color: "#c45c4c" }}>{err}</p>}
-        <button onClick={submit} disabled={!pin.trim() || busy} className="w-full py-4 rounded-lg font-semibold disabled:opacity-30" style={{ background: "#CDA274", color: "#1a1a1a" }}>
-          {busy ? "Verifying..." : "Enter"}
-        </button>
+      <h1 className="text-xl mb-1" style={{ color: "#CDA274", fontFamily: "Georgia, serif" }}>Welcome</h1>
+      <p className="text-sm mb-8" style={{ color: "#8a8078" }}>Who are you?</p>
+      <div className="w-full max-w-sm space-y-3">
+        {LOGIN_USERS.map(user => (
+          <button
+            key={user.id}
+            onClick={() => selectUser(user.id)}
+            disabled={busy}
+            className="w-full flex items-center gap-4 px-4 py-3.5 rounded-lg transition-colors disabled:opacity-50"
+            style={{ background: "#242424", border: "1px solid rgba(205,162,116,0.12)" }}
+            onMouseEnter={e => (e.currentTarget.style.borderColor = "rgba(205,162,116,0.4)")}
+            onMouseLeave={e => (e.currentTarget.style.borderColor = "rgba(205,162,116,0.12)")}
+          >
+            <div className="w-10 h-10 rounded-full flex items-center justify-center text-sm font-bold flex-shrink-0" style={{ background: "#CDA274", color: "#1a1a1a" }}>
+              {user.initials}
+            </div>
+            <div className="text-left">
+              <p className="font-medium text-sm" style={{ color: "#e8e0d8" }}>{user.name}</p>
+              <p className="text-xs" style={{ color: "#8a8078" }}>{user.role}</p>
+            </div>
+          </button>
+        ))}
       </div>
+      {err && <p className="text-center text-sm mt-4" style={{ color: "#c45c4c" }}>{err}</p>}
     </div>
   );
 }

@@ -7,6 +7,7 @@ import {
   LayoutDashboard, FolderKanban, Bell, MessageSquare,
   FileText, Menu, X, ChevronRight, ClipboardEdit, DollarSign, Calculator
 } from 'lucide-react';
+import { useAuth } from '../hooks/useAuth';
 
 const NAV_ITEMS = [
   { href: '/dashboard', label: 'Overview', icon: LayoutDashboard },
@@ -22,6 +23,7 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
   const pathname = usePathname();
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [notifCount] = useState(3); // TODO: wire to Supabase realtime
+  const auth = useAuth();
 
   return (
     <div className="min-h-screen" style={{ background: '#141414', color: '#e8e0d8' }}>
@@ -66,7 +68,7 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
             className="w-8 h-8 rounded-full flex items-center justify-center text-xs font-bold"
             style={{ background: '#1B3A5C', color: '#C9A84C' }}
           >
-            NK
+            {auth.user?.initials || 'BK'}
           </div>
         </div>
       </header>

@@ -3,7 +3,7 @@ import { validateAuth } from '../lib/auth';
 import { searchContacts } from '../lib/ghl';
 
 export async function GET(req: NextRequest) {
-  if (!validateAuth(req.headers.get('authorization'))) {
+  if (!validateAuth(req.headers.get('authorization')).valid) {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
   }
   const q = req.nextUrl.searchParams.get('q') || '';

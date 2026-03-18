@@ -5,7 +5,7 @@ import { getSupabase } from '../../lib/supabase';
 
 // POST /api/conversations/setup — create the chat_conversations tables
 export async function POST(req: NextRequest) {
-  if (!validateAuth(req.headers.get('authorization'))) {
+  if (!validateAuth(req.headers.get('authorization')).valid) {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
   }
 

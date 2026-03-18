@@ -13,7 +13,7 @@ function headers() {
 }
 
 export async function GET(req: NextRequest) {
-  if (!validateAuth(req.headers.get('authorization'))) {
+  if (!validateAuth(req.headers.get('authorization')).valid) {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
   }
 

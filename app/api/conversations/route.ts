@@ -5,7 +5,7 @@ import { listConversations, createConversation } from '../lib/supabase';
 
 // GET /api/conversations — list recent conversations
 export async function GET(req: NextRequest) {
-  if (!validateAuth(req.headers.get('authorization'))) {
+  if (!validateAuth(req.headers.get('authorization')).valid) {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
   }
   try {
@@ -19,7 +19,7 @@ export async function GET(req: NextRequest) {
 
 // POST /api/conversations — create a new conversation
 export async function POST(req: NextRequest) {
-  if (!validateAuth(req.headers.get('authorization'))) {
+  if (!validateAuth(req.headers.get('authorization')).valid) {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
   }
   try {

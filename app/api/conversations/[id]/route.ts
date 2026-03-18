@@ -5,7 +5,7 @@ import { getConversationWithMessages, addConversationMessage, deleteConversation
 
 // GET /api/conversations/[id] — get conversation with all messages
 export async function GET(req: NextRequest, { params }: { params: { id: string } }) {
-  if (!validateAuth(req.headers.get('authorization'))) {
+  if (!validateAuth(req.headers.get('authorization')).valid) {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
   }
   try {
@@ -20,7 +20,7 @@ export async function GET(req: NextRequest, { params }: { params: { id: string }
 
 // POST /api/conversations/[id] — add a message to a conversation
 export async function POST(req: NextRequest, { params }: { params: { id: string } }) {
-  if (!validateAuth(req.headers.get('authorization'))) {
+  if (!validateAuth(req.headers.get('authorization')).valid) {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
   }
   try {
@@ -36,7 +36,7 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
 
 // DELETE /api/conversations/[id] — delete a conversation
 export async function DELETE(req: NextRequest, { params }: { params: { id: string } }) {
-  if (!validateAuth(req.headers.get('authorization'))) {
+  if (!validateAuth(req.headers.get('authorization')).valid) {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
   }
   try {

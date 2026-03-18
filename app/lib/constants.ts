@@ -136,6 +136,22 @@ export const JT_MEMBERS = {
   jimmy: '22P5sPMTN8mH',
 } as const;
 
+// Team user profiles — maps userId to display info, role, and JT membershipId
+export type TeamRole = keyof typeof ROLE_CONFIG;
+export interface TeamUser {
+  name: string;
+  initials: string;
+  role: TeamRole;
+  membershipId: string;
+}
+export const TEAM_USERS: Record<string, TeamUser> = {
+  nathan:      { name: 'Nathan King',      initials: 'NK', role: 'owner',     membershipId: JT_MEMBERS.nathan },
+  terri:       { name: 'Terri King',       initials: 'TK', role: 'admin',     membershipId: JT_MEMBERS.terri },
+  evan:        { name: 'Evan Harrington',  initials: 'EH', role: 'field_sup', membershipId: JT_MEMBERS.evan },
+  josh:        { name: 'Josh King',        initials: 'JK', role: 'field_sup', membershipId: JT_MEMBERS.josh },
+  dave_steich: { name: 'Dave Steich',      initials: 'DS', role: 'field',     membershipId: JT_MEMBERS.dave_steich },
+};
+
 // ============================================================
 // Design Manager Agent — Configuration
 // ============================================================
