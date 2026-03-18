@@ -613,25 +613,36 @@ function CostPlusJobCard({ job, onInvoiceCreated }: { job: CostPlusJobHealth; on
     setCreating(true);
     setCreateResult(null);
     try {
-      const res = await fetch('/api/dashboard/invoicing/queue-invoice', {
+      // Step 1: Create the invoice via PAVE (instant, no Chrome needed)
+      const res = await fetch('/api/dashboard/invoicing/create-invoice', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          jobId: job.jobId,
-          jobName: job.jobName,
-          jobNumber: job.jobNumber,
-          clientName: job.clientName,
-        }),
+        body: JSON.stringify({ jobId: job.jobId }),
       });
       const data = await res.json();
-      if (data.success) {
-        setCreateResult({
-          success: true,
-          message: `Invoice queued — will be created automatically in JT within 5 minutes`,
-        });
-      } else {
-        setCreateResult({ success: false, message: data.error || 'Failed to queue request' });
+      if (!data.success) {
+        setCreateResult({ success: false, message: data.error || 'Failed to create invoice' });
+        return;
       }
+
+      // Step 2: Reorganize the invoice into BKB format with AI descriptions
+      try {
+        await fetch('/api/dashboard/invoicing/reorganize-invoice', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ documentId: data.documentId, jobId: job.jobId }),
+        });
+      } catch {
+        // Reorganization is non-critical — invoice still exists without formatting
+      }
+
+      setCreateResult({
+        success: true,
+        message: `Draft Invoice ${data.documentNumber} created with ${data.itemCount} items`,
+        documentNumber: data.documentNumber,
+      });
+      // Refresh the dashboard data after a short delay
+      setTimeout(() => onInvoiceCreated?.(), 1500);
     } catch (err: any) {
       setCreateResult({ success: false, message: err.message || 'Network error' });
     } finally {
