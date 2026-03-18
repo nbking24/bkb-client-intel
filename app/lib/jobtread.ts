@@ -3607,22 +3607,21 @@ export async function reorganizeCostPlusInvoice(documentId: string, jobId: strin
   const groups = (invoiceData as any)?.document?.costGroups?.nodes || [];
   const items = (invoiceData as any)?.document?.costItems?.nodes || [];
 
-  // 2. Identify existing sub-groups (bill groups + time groups)
-  const topLevelGroups = groups.filter((g: any) => !g.parentCostGroup?.id);
-  const subGroups = groups.filter((g: any) => g.parentCostGroup?.id);
-
-  // Classify sub-groups into categories
+  // 2. Classify ALL existing groups into categories.
+  // JT Bills & Time creates everything FLAT at the top level — no nesting.
+  // Bill groups are named like "Vendor Name Bill XXX-XX (ref)"
+  // Time groups are named like "Time Cost for Day, Mon DD, YYYY"
   type Category = 'admin' | 'materials' | 'labor';
   const billGroups: Array<{ group: any; category: Category }> = [];
   const timeGroups: Array<{ group: any }> = [];
 
-  for (const sg of subGroups) {
-    const name = (sg.name || '').toLowerCase();
+  for (const g of groups) {
+    const name = (g.name || '').toLowerCase();
     if (name.includes('time cost for')) {
-      timeGroups.push({ group: sg });
+      timeGroups.push({ group: g });
     } else {
-      // Determine category from the bill's items' cost codes/types
-      const groupItems = items.filter((i: any) => i.costGroup?.id === sg.id);
+      // Determine category from the group's items' cost codes/types
+      const groupItems = items.filter((i: any) => i.costGroup?.id === g.id);
       let category: Category = 'materials'; // default
 
       for (const item of groupItems) {
@@ -3637,13 +3636,12 @@ export async function reorganizeCostPlusInvoice(documentId: string, jobId: strin
         } else if (costTypeName.includes('material')) {
           category = 'materials';
         } else if (costTypeName.includes('subcontract')) {
-          // Subcontractors that aren't admin go to admin by default
           category = 'admin';
         }
         break; // first item determines category
       }
 
-      billGroups.push({ group: sg, category });
+      billGroups.push({ group: g, category });
     }
   }
 
@@ -3728,14 +3726,8 @@ export async function reorganizeCostPlusInvoice(documentId: string, jobId: strin
     await updateJTCostGroup(tg.group.id, { parentCostGroupId: laborGroup.id });
   }
 
-  // 6. Delete the old (now empty) top-level groups
-  for (const oldGroup of topLevelGroups) {
-    try {
-      await deleteJTCostGroup(oldGroup.id);
-    } catch (e: any) {
-      console.warn(`[reorganize] Could not delete old group ${oldGroup.name}: ${e.message}`);
-    }
-  }
+  // 6. No deletion needed — all original groups have been re-parented
+  // under the new category groups. Items stay with their original groups.
 
   return {
     success: true,
