@@ -41,8 +41,9 @@ app/
 │   ├── layout.tsx                    # Minimal full-screen layout
 │   └── ask/page.tsx                  # Mobile Ask Agent (/m/ask)
 ├── dashboard/
-│   ├── layout.tsx                    # Dashboard shell (header + sidebar + nav)
-│   ├── page.tsx                      # Overview — task cards, urgency badges
+│   ├── layout.tsx                    # Dashboard shell (header + sidebar + nav + auth gate)
+│   ├── page.tsx                      # Overview — AI briefing, tasks, messages, calendar
+│   ├── login/page.tsx                # Per-user PIN login (setup + sign-in flow)
 │   ├── ask/page.tsx                  # Desktop Ask Agent (/dashboard/ask)
 │   ├── documents/page.tsx            # Document intelligence (placeholder)
 │   ├── precon/                       # Pre-Construction module
@@ -590,6 +591,76 @@ Added early detection: if the invoice has "Vendor Bills" or "BKB Labor" parent g
 **Files changed:**
 - `app/lib/jobtread.ts` — Added AI description rewriting to `createDraftCostPlusInvoice()`: vendor sub-groups (bill description lookup + Claude rewrite), BKB Labor group (time entry notes + Claude rewrite), worker labor line items (per-worker notes + Claude rewrite); added `notes` to time entry PAVE query; added `notes` to `TEInfo` type; fixed `Set` spread for TypeScript compatibility (`Array.from()`); added API-created invoice detection + light-touch reorganization path in `reorganizeCostPlusInvoice()`
 - `ARCHITECTURE.md` — Updated project structure (added reorganize-invoice + queue-invoice routes), API endpoints table, changelog
+
+### 2026-03-19 — Feature: Dashboard Overhaul — Per-User PIN Auth, Live Tasks, JT Comments, Task Actions
+
+**Problem:** The dashboard had multiple fundamental issues:
+1. No login page — navigating to `/dashboard` on a fresh browser showed infinite "Loading" because `useAuth()` returned no userId and there was no redirect to a login page
+2. The single shared PIN (APP_PIN env var) meant nobody knew their PIN and there was no way to create one
+3. Tasks showed 0 — two bugs: the org-level PAVE query capped at 100 results (oldest first, Nathan's tasks on newer jobs were excluded), and tasks with `progress: null` (unstarted schedule tasks) were excluded by the `progress < 1` filter
+4. JT comments showed "Unknown" author and empty job names because they were read from a stale Supabase cache that didn't store those fields
+5. Users had to re-login every page load because the auth check ran async after the redirect had already fired
+
+**Solution — Per-User PIN Authentication:**
+- Created `/dashboard/login` page with 4-step flow: select user → enter PIN (if exists) → or create PIN (4+ digits) → confirm PIN
+- PINs stored per-user in Supabase `agent_cache` table with key pattern `user-pin:{userId}`
+- Auth API (`/api/auth`) updated with 3 flows: login (validate per-user PIN), setup (create/update PIN), check (has PIN?)
+- Legacy shared APP_PIN still works for backward compatibility
+- `validateAuth()` updated to accept both per-user tokens and legacy tokens
+
+**Solution — Persistent Login:**
+- Added `loading` state to `useAuth()` hook — initial state is `loading: true`
+- Dashboard layout waits for `auth.loading` to be `false` before redirecting to login
+- Token stored in `localStorage` persists across browser sessions — no re-login required
+
+**Solution — Task Query Fix (12→14 tasks found):**
+- Changed from org-level query (100-item cap, oldest first) to per-active-job scan
+- Queries each active job's tasks in parallel batches of 5 (lightweight: IDs + memberships only)
+- Filters client-side for `progress < 1 OR progress === null` to catch unstarted schedule tasks
+- Pass 2 fetches full details (name, dates, assignees) only for matched tasks (~14)
+- Skips closed jobs entirely — only scans the ~49 active jobs
+- Added `job.number` to task query for display
+
+**Solution — Live JT Comments with Author Names:**
+- Replaced stale Supabase cache query with live PAVE queries per active job
+- Fetches `createdByMembership.user.name` for real author names
+- Filters to messages mentioning the user's first name (directed at them)
+- Excludes messages written by the user themselves
+- Returns job name and number for each comment
+
+**Solution — AI Analysis Improvements:**
+- Role-specific prompts rewritten for Nathan (owner) and Terri (admin) with specific context about their responsibilities
+- Daily logs: AI instructed to only surface actionable items, not summarize routine logs
+- Added `emailsNeedingReply` section to analysis output (data model ready, Gmail integration pending)
+- Task summaries include assignee names so AI knows who's responsible
+- All prompt sections explicitly reference the user's name and use actual job names/numbers from data
+
+**Solution — Task Actions from Dashboard:**
+- Added complete button (circle checkbox) on each task — click marks as done in JT (progress=1)
+- Task fades out and removes from list immediately on completion
+- Added clickable due date that opens inline date picker — updates both startDate and endDate in JT
+- Urgency badge recalculates locally after date change
+- New PATCH endpoint at `/api/dashboard/tasks` handles both `complete` and `update` actions
+
+**API Changes:**
+| Endpoint | Change |
+|----------|--------|
+| `POST /api/auth` | Added per-user PIN flows: login, setup, check |
+| `PATCH /api/dashboard/tasks` | **NEW** — Complete tasks and update due dates |
+| `GET /api/dashboard/overview` | Now returns live JT data with author names and all user tasks |
+
+**Files changed:**
+- `app/api/auth/route.ts` — Rewritten for per-user PIN auth with Supabase storage
+- `app/api/lib/auth.ts` — Updated `validateAuth()` to accept per-user tokens
+- `app/api/dashboard/tasks/route.ts` — Added PATCH handler for complete/update actions
+- `app/dashboard/login/page.tsx` — **NEW** Per-user PIN login page with setup flow
+- `app/dashboard/layout.tsx` — Added auth gate with loading state, login page bypass
+- `app/dashboard/page.tsx` — Added task complete button, due date editor, `emailsNeedingReply` type
+- `app/hooks/useAuth.ts` — Added `loading` state for persistent login
+- `app/lib/dashboard-data.ts` — Rewritten: live PAVE comments, per-job task scan, Gmail/email data model
+- `app/lib/dashboard-analysis.ts` — Rewritten: role-specific prompts for Nathan/Terri, daily log actionable-only, email section
+- `app/lib/jobtread.ts` — Added `getOpenTasksForMemberAcrossJobs()` (paginated per-job scan with null progress handling), exported `pave()`, increased `getAllOpenTasks` to 100 with null progress filter
+- `ARCHITECTURE.md` — Added login page to project structure, full changelog entry
 
 ### 2026-03-18 — Feature: User Login with Team Selection + Personalized AI Dashboard
 
