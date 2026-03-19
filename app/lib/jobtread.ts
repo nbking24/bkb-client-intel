@@ -3068,7 +3068,7 @@ export async function createDraftCostPlusInvoice(jobId: string): Promise<{
       timeEntries: {
         $: { size: 100 },
         nodes: {
-          id: {}, startedAt: {}, endedAt: {}, type: {}, cost: {},
+          id: {}, startedAt: {}, endedAt: {}, type: {}, cost: {}, notes: {},
           user: { id: {}, name: {} },
           costItem: { id: {}, name: {}, costCode: { number: {}, name: {} } },
         },
@@ -3078,7 +3078,7 @@ export async function createDraftCostPlusInvoice(jobId: string): Promise<{
   const timeEntries = (teData as any)?.job?.timeEntries?.nodes || [];
 
   // Group time entries by budget cost item
-  type TEInfo = { id: string; user: string; hours: number; cost: number; date: string; costItemId: string; costItemName: string };
+  type TEInfo = { id: string; user: string; hours: number; cost: number; date: string; costItemId: string; costItemName: string; notes: string };
   const timeByBudgetItem = new Map<string, TEInfo[]>();
   for (const te of timeEntries) {
     if (!te.startedAt || !te.endedAt) continue;
@@ -3093,6 +3093,7 @@ export async function createDraftCostPlusInvoice(jobId: string): Promise<{
       date: te.startedAt,
       costItemId: te.costItem?.id || '',
       costItemName: te.costItem?.name || '',
+      notes: te.notes || '',
     });
   }
 
@@ -3159,6 +3160,55 @@ export async function createDraftCostPlusInvoice(jobId: string): Promise<{
         parentCostGroupId: billsGroup.id,
         name: vendorName,
       });
+
+      // AI-rewrite vendor group description from original bill cost item descriptions
+      const billDocIds = Array.from(new Set(items.map(i => i.billDocId)));
+      const allBillDescs: string[] = [];
+      for (const billDocId of billDocIds) {
+        try {
+          const billItemsData = await pave({
+            document: {
+              $: { id: billDocId },
+              costItems: { $: { size: 10 }, nodes: { id: {}, description: {} } },
+            },
+          });
+          const descs = ((billItemsData as any)?.document?.costItems?.nodes || [])
+            .map((i: any) => (i.description || '').trim())
+            .filter((d: string) => d.length > 0);
+          allBillDescs.push(...descs);
+        } catch (_e) { /* skip */ }
+      }
+      if (allBillDescs.length > 0) {
+        try {
+          const apiKey = process.env.ANTHROPIC_API_KEY;
+          if (apiKey) {
+            const aiRes = await fetch('https://api.anthropic.com/v1/messages', {
+              method: 'POST',
+              headers: {
+                'Content-Type': 'application/json',
+                'x-api-key': apiKey,
+                'anthropic-version': '2023-06-01',
+              },
+              body: JSON.stringify({
+                model: 'claude-sonnet-4-20250514',
+                max_tokens: 256,
+                messages: [{
+                  role: 'user',
+                  content: `Rewrite this vendor bill description into a brief, professional, client-facing summary for a renovation invoice. Keep it to 1-2 concise sentences. Do not include pricing. Just describe the work or materials provided.\n\nOriginal:\n${allBillDescs.join('\n')}`,
+                }],
+              }),
+            });
+            if (aiRes.ok) {
+              const aiData = await aiRes.json();
+              const rewritten = (aiData.content?.[0]?.text || '').trim();
+              if (rewritten) {
+                await updateJTCostGroup(vendorGroup.id, { description: rewritten });
+              }
+            }
+          }
+        } catch (_e) { /* skip AI errors */ }
+      }
+
       for (const item of items) {
         await createJTCostItem({
           costGroupId: vendorGroup.id,
@@ -3184,6 +3234,45 @@ export async function createDraftCostPlusInvoice(jobId: string): Promise<{
       documentId: doc.id,
       name: 'BKB Labor',
     });
+
+    // AI-rewrite labor group description from time entry notes
+    const laborNotes: string[] = [];
+    for (const te of uninvoicedTime) {
+      const note = (te.notes || '').trim();
+      if (note && !laborNotes.some((n: string) => n.toLowerCase() === note.toLowerCase())) {
+        laborNotes.push(note.charAt(0).toUpperCase() + note.slice(1).replace(/\.\s*$/, ''));
+      }
+    }
+    if (laborNotes.length > 0) {
+      let laborDesc = laborNotes.map((n: string) => `• ${n}`).join('\n');
+      try {
+        const apiKey = process.env.ANTHROPIC_API_KEY;
+        if (apiKey) {
+          const aiRes = await fetch('https://api.anthropic.com/v1/messages', {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json',
+              'x-api-key': apiKey,
+              'anthropic-version': '2023-06-01',
+            },
+            body: JSON.stringify({
+              model: 'claude-sonnet-4-20250514',
+              max_tokens: 256,
+              messages: [{
+                role: 'user',
+                content: `Rewrite these labor notes into a bullet-point list for a renovation invoice. Each bullet should be a brief, professional, client-facing description. Output ONLY the bullet points (using • character), nothing else. No intro text, no questions, no explanations.\n\nNotes:\n${laborDesc}`,
+              }],
+            }),
+          });
+          if (aiRes.ok) {
+            const aiData = await aiRes.json();
+            const rewritten = (aiData.content?.[0]?.text || '').trim();
+            if (rewritten) laborDesc = rewritten;
+          }
+        }
+      } catch (_e) { /* skip AI errors */ }
+      await updateJTCostGroup(laborGroup.id, { description: laborDesc });
+    }
 
     // Group by user
     const byUser: Record<string, TEInfo[]> = {};
