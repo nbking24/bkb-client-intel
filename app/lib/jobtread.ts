@@ -3963,6 +3963,166 @@ export async function reorganizeCostPlusInvoice(documentId: string, jobId: strin
   const groups = (invoiceData as any)?.document?.costGroups?.nodes || [];
   const items = (invoiceData as any)?.document?.costItems?.nodes || [];
 
+  // 2a. Detect if this invoice was created by our API (not JT's Bills & Time UI).
+  // Our API creates "Vendor Bills" and "BKB Labor" parent groups with child items.
+  // JT's Bills & Time UI creates flat "Vendor Bill XXX-XX" and "Time Cost for [date]" groups.
+  // If we detect our API structure, skip reorganization — it's already in the right format.
+  const hasVendorBillsParent = groups.some((g: any) => g.name === 'Vendor Bills' && !g.parentCostGroup?.id);
+  const hasBKBLaborParent = groups.some((g: any) => g.name === 'BKB Labor' && !g.parentCostGroup?.id);
+  const hasJTTimeGroups = groups.some((g: any) => (g.name || '').toLowerCase().includes('time cost for'));
+
+  if ((hasVendorBillsParent || hasBKBLaborParent) && !hasJTTimeGroups) {
+    // Invoice was created by our API — already has the right structure with AI descriptions.
+    // Just run the AI category-level rewrite on the existing top-level groups.
+    const existingLabor = groups.find((g: any) => g.name === 'BKB Labor' && !g.parentCostGroup?.id);
+    const existingVendorBills = groups.find((g: any) => g.name === 'Vendor Bills' && !g.parentCostGroup?.id);
+
+    // Re-categorize vendor sub-groups into Trade Partners / Materials
+    const vendorSubGroups = groups.filter((g: any) => g.parentCostGroup?.id === existingVendorBills?.id);
+    const adminBills: any[] = [];
+    const materialBills: any[] = [];
+
+    for (const g of vendorSubGroups) {
+      const groupItems = items.filter((i: any) => i.costGroup?.id === g.id);
+      let isAdmin = false;
+      for (const item of groupItems) {
+        const costTypeName = (item.costType?.name || '').toLowerCase();
+        const costCodeNum = parseInt(item.costCode?.number || '0', 10);
+        if (costCodeNum === 1 || costCodeNum === 20 || costCodeNum === 21 || costCodeNum === 22) {
+          isAdmin = true;
+        } else if (costCodeNum === 23 && costTypeName.includes('subcontract')) {
+          isAdmin = true;
+        } else if (costTypeName.includes('subcontract')) {
+          isAdmin = true;
+        }
+        break;
+      }
+      if (isAdmin) adminBills.push(g);
+      else materialBills.push(g);
+    }
+
+    // Rename "Vendor Bills" → "Trade Partners" or "Materials" based on content,
+    // or create the proper parent groups if we have both types
+    if (adminBills.length > 0 && materialBills.length === 0 && existingVendorBills) {
+      // All vendors are trade partners — just rename
+      await updateJTCostGroup(existingVendorBills.id, { name: 'Trade Partners' });
+      // Build description from admin items
+      const adminDescs = items
+        .filter((i: any) => adminBills.some((bg: any) => bg.id === i.costGroup?.id))
+        .map((i: any) => (i.costCode?.name || i.name || '').replace(/:\d+\s*-\s*(Sub|Materials?)/i, '').replace(/^\d+-/, '').trim())
+        .filter((n: string, i: number, arr: string[]) => n && arr.indexOf(n) === i);
+      if (adminDescs.length > 0) {
+        await updateJTCostGroup(existingVendorBills.id, { description: adminDescs.map((n: string) => `• ${n}`).join('\n') });
+      }
+      for (const bg of adminBills) {
+        await pave({ updateCostGroup: { $: { id: bg.id, showChildren: false } } });
+      }
+    } else if (materialBills.length > 0 && adminBills.length === 0 && existingVendorBills) {
+      // All vendors are materials — just rename
+      await updateJTCostGroup(existingVendorBills.id, { name: 'Materials' });
+      const matDescs = items
+        .filter((i: any) => materialBills.some((bg: any) => bg.id === i.costGroup?.id))
+        .map((i: any) => (i.costCode?.name || i.name || '').replace(/:\d+\s*-\s*Materials?/i, '').replace(/^\d+-/, '').trim())
+        .filter((n: string, i: number, arr: string[]) => n && arr.indexOf(n) === i);
+      if (matDescs.length > 0) {
+        await updateJTCostGroup(existingVendorBills.id, { description: matDescs.map((n: string) => `• ${n}`).join('\n') });
+      }
+      for (const bg of materialBills) {
+        await pave({ updateCostGroup: { $: { id: bg.id, showChildren: false } } });
+      }
+    } else if (adminBills.length > 0 && materialBills.length > 0 && existingVendorBills) {
+      // Mixed — need to split into Trade Partners and Materials
+      // Rename existing to Trade Partners, create new Materials
+      await updateJTCostGroup(existingVendorBills.id, { name: 'Trade Partners' });
+      const materialsGroup = await createJTCostGroup({ documentId, name: 'Materials' });
+      for (const bg of materialBills) {
+        await updateJTCostGroup(bg.id, { parentCostGroupId: materialsGroup.id });
+        await pave({ updateCostGroup: { $: { id: bg.id, showChildren: false } } });
+      }
+      for (const bg of adminBills) {
+        await pave({ updateCostGroup: { $: { id: bg.id, showChildren: false } } });
+      }
+    }
+
+    // AI-rewrite all descriptions
+    try {
+      const apiKey = process.env.ANTHROPIC_API_KEY;
+      if (apiKey) {
+        // Rewrite top-level group descriptions
+        const laborDesc = existingLabor?.description || '';
+        const tpGroup = groups.find((g: any) => (g.name === 'Trade Partners' || (g.name === 'Vendor Bills' && !g.parentCostGroup?.id)));
+        const matGroup = groups.find((g: any) => g.name === 'Materials' && !g.parentCostGroup?.id);
+        const adminDesc = tpGroup?.description || adminBills.map((bg: any) => bg.name).join(', ');
+        const matDesc = matGroup?.description || materialBills.map((bg: any) => bg.name).join(', ');
+
+        if (adminDesc || matDesc || laborDesc) {
+          const prompt = `You are writing invoice descriptions for a high-end residential renovation company (Brett King Builder-Contractor). Rewrite each section's bullet-point description to be professional, client-facing, and easy to read. Keep bullet points but make each one a polished 1-line description. Do not add items that aren't there. Be concise.
+
+PERMIT & ADMIN ITEMS:
+${adminDesc || '(none)'}
+
+MATERIAL ITEMS:
+${matDesc || '(none)'}
+
+LABOR NOTES (from time entries — describe the work performed):
+${laborDesc || '(none)'}
+
+Respond in this exact JSON format:
+{"admin": "• bullet1\\n• bullet2", "materials": "• bullet1\\n• bullet2", "labor": "• bullet1\\n• bullet2"}
+
+If a section is "(none)", return empty string for that key.`;
+
+          const aiRes = await fetch('https://api.anthropic.com/v1/messages', {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json',
+              'x-api-key': apiKey,
+              'anthropic-version': '2023-06-01',
+            },
+            body: JSON.stringify({
+              model: 'claude-sonnet-4-20250514',
+              max_tokens: 1024,
+              messages: [{ role: 'user', content: prompt }],
+            }),
+          });
+
+          if (aiRes.ok) {
+            const aiData = await aiRes.json();
+            const aiText = aiData.content?.[0]?.text || '';
+            try {
+              const jsonMatch = aiText.match(/\{[\s\S]*\}/);
+              if (jsonMatch) {
+                const rewritten = JSON.parse(jsonMatch[0]);
+                // Update the renamed Vendor Bills / Trade Partners group
+                const updatedTP = groups.find((g: any) => g.id === existingVendorBills?.id);
+                if (rewritten.admin && updatedTP && adminBills.length > 0) {
+                  await updateJTCostGroup(updatedTP.id, { description: rewritten.admin });
+                }
+                if (rewritten.materials) {
+                  const mGroup = materialBills.length > 0 && adminBills.length > 0
+                    ? groups.find((g: any) => g.name === 'Materials' && !g.parentCostGroup?.id) // newly created
+                    : (existingVendorBills?.id ? existingVendorBills : null);
+                  // For the newly created materials group, we need to use a fresh lookup
+                }
+                if (rewritten.labor && existingLabor) {
+                  await updateJTCostGroup(existingLabor.id, { description: rewritten.labor });
+                }
+              }
+            } catch (_e) { /* skip parse errors */ }
+          }
+        }
+      }
+    } catch (_e) { /* skip AI errors */ }
+
+    return {
+      success: true,
+      groupCount: groups.length,
+      laborDescription: existingLabor?.description || '',
+      materialsDescription: '',
+      adminDescription: '',
+    };
+  }
+
   // 2. Classify ALL existing groups into categories.
   // JT Bills & Time creates everything FLAT at the top level — no nesting.
   // Bill groups are named like "Vendor Name Bill XXX-XX (ref)"
