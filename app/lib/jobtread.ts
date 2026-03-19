@@ -2950,7 +2950,7 @@ export async function createDraftCostPlusInvoice(jobId: string): Promise<{
   // 5. Create invoice with uninvoiced bills + time entries
   // ============================================================
 
-  // 1. Get job details
+  // 1. Get job details including custom fields (Margin, Hourly Rate)
   const jobData = await pave({
     job: {
       $: { id: jobId },
@@ -2959,10 +2959,21 @@ export async function createDraftCostPlusInvoice(jobId: string): Promise<{
         id: {}, name: {}, address: {},
         account: { id: {}, name: {} },
       },
+      customFieldValues: {
+        nodes: { value: {}, customField: { id: {}, name: {} } },
+      },
     },
   });
   const job = (jobData as any)?.job;
   if (!job) throw new Error('Job not found: ' + jobId);
+
+  // Read Margin (%) and Hourly Rate ($) from job custom fields
+  const customFields = job.customFieldValues?.nodes || [];
+  const marginField = customFields.find((cf: any) => cf.customField?.name === 'Margin');
+  const hourlyRateField = customFields.find((cf: any) => cf.customField?.name === 'Hourly Rate');
+  const marginPercent = marginField ? parseFloat(marginField.value) : 25; // default 25%
+  const hourlyRate = hourlyRateField ? parseFloat(hourlyRateField.value) : 115; // default $115
+  const marginMultiplier = 1 + (marginPercent / 100);
 
   const customerName = job.location?.account?.name || 'Client';
   const locationName = job.location?.name || '';
@@ -3121,7 +3132,7 @@ export async function createDraftCostPlusInvoice(jobId: string): Promise<{
     jobLocationAddress: locationAddress,
     dueDays: 2,
     subject: `Cost Plus Invoice - ${job.name}`,
-    description: 'This invoice reflects charges under a Cost Plus Fee agreement. You are billed for all actual project costs—including materials, subcontractors, labor, insurance, and permits - plus a 25% contractor\'s fee applied to those costs. Labor is billed at $115/hr (Master Craftsman) or $55/hr (Journeyman/Administrative).',
+    description: `This invoice reflects charges under a Cost Plus Fee agreement. You are billed for all actual project costs—including materials, subcontractors, labor, insurance, and permits—plus a ${marginPercent}% contractor's fee applied to those costs. Labor is billed at $${hourlyRate}/hr.`,
   });
 
   // 8. Create cost items from uninvoiced bills (grouped by vendor)
@@ -3149,7 +3160,6 @@ export async function createDraftCostPlusInvoice(jobId: string): Promise<{
         name: vendorName,
       });
       for (const item of items) {
-        const markup = 1.25; // 25% contractor's fee
         await createJTCostItem({
           costGroupId: vendorGroup.id,
           name: item.costItemName || `Bill #${item.billNumber}`,
@@ -3159,10 +3169,10 @@ export async function createDraftCostPlusInvoice(jobId: string): Promise<{
           jobCostItemId: item.jobCostItemId,
           quantity: item.quantity || 1,
           unitCost: item.unitCost || item.cost,
-          unitPrice: (item.unitCost || item.cost) * markup,
+          unitPrice: (item.unitCost || item.cost) * marginMultiplier,
         });
         totalCost += item.cost;
-        totalPrice += item.cost * markup;
+        totalPrice += item.cost * marginMultiplier;
         createdItemCount++;
       }
     }
@@ -3185,9 +3195,8 @@ export async function createDraftCostPlusInvoice(jobId: string): Promise<{
     for (const [userName, entries] of Object.entries(byUser)) {
       const totalHours = entries.reduce((s, e) => s + e.hours, 0);
       const totalTimeCost = entries.reduce((s, e) => s + e.cost, 0);
-      // Determine billing rate: $115/hr Master Craftsman, $55/hr Journeyman
-      const isLead = userName.toLowerCase().includes('evan') || userName.toLowerCase().includes('josh') || userName.toLowerCase().includes('brett');
-      const billRate = isLead ? 115 : 55;
+      // Use Hourly Rate from job custom field for all workers
+      const billRate = hourlyRate;
       // Build description with date breakdown
       const dateBreakdown = entries
         .map(e => {
@@ -3990,33 +3999,49 @@ export async function reorganizeCostPlusInvoice(documentId: string, jobId: strin
     }
   }
 
-  // Create fresh category groups
-  const adminGroup = await createJTCostGroup({ documentId, name: 'Trade Partners' });
-  const materialsGroup = await createJTCostGroup({ documentId, name: 'Materials' });
-  const laborGroup = await createJTCostGroup({ documentId, name: 'BKB Labor' });
-
-  if (adminDescription) await updateJTCostGroup(adminGroup.id, { description: adminDescription });
-  if (materialsDescription) await updateJTCostGroup(materialsGroup.id, { description: materialsDescription });
-  if (laborDescription) await updateJTCostGroup(laborGroup.id, { description: laborDescription });
-
-  // 5. Re-parent sub-groups and set showChildren=false (hides line items, matching Behmlander pattern)
+  // Create category groups ONLY if they have sub-groups to contain (skip empty categories)
   const adminBills = billGroups.filter(bg => bg.category === 'admin');
   const materialBills = billGroups.filter(bg => bg.category === 'materials');
+
+  let adminGroup: { id: string } | null = null;
+  let materialsGroup: { id: string } | null = null;
+  let laborGroup: { id: string } | null = null;
+
+  if (adminBills.length > 0) {
+    adminGroup = await createJTCostGroup({ documentId, name: 'Trade Partners' });
+    if (adminDescription) await updateJTCostGroup(adminGroup.id, { description: adminDescription });
+  }
+  if (materialBills.length > 0) {
+    materialsGroup = await createJTCostGroup({ documentId, name: 'Materials' });
+    if (materialsDescription) await updateJTCostGroup(materialsGroup.id, { description: materialsDescription });
+  }
+  if (timeGroups.length > 0) {
+    laborGroup = await createJTCostGroup({ documentId, name: 'BKB Labor' });
+    if (laborDescription) await updateJTCostGroup(laborGroup.id, { description: laborDescription });
+  }
+
+  // 5. Re-parent sub-groups and set showChildren=false (hides line items, matching Behmlander pattern)
 
   // Collect all bill sub-groups for description rewriting
   const allBillGroups = [...adminBills, ...materialBills];
 
   for (const bg of adminBills) {
-    await updateJTCostGroup(bg.group.id, { parentCostGroupId: adminGroup.id });
-    await pave({ updateCostGroup: { $: { id: bg.group.id, showChildren: false } } });
+    if (adminGroup) {
+      await updateJTCostGroup(bg.group.id, { parentCostGroupId: adminGroup.id });
+      await pave({ updateCostGroup: { $: { id: bg.group.id, showChildren: false } } });
+    }
   }
   for (const bg of materialBills) {
-    await updateJTCostGroup(bg.group.id, { parentCostGroupId: materialsGroup.id });
-    await pave({ updateCostGroup: { $: { id: bg.group.id, showChildren: false } } });
+    if (materialsGroup) {
+      await updateJTCostGroup(bg.group.id, { parentCostGroupId: materialsGroup.id });
+      await pave({ updateCostGroup: { $: { id: bg.group.id, showChildren: false } } });
+    }
   }
   for (const tg of timeGroups) {
-    await updateJTCostGroup(tg.group.id, { parentCostGroupId: laborGroup.id });
-    await pave({ updateCostGroup: { $: { id: tg.group.id, showChildren: false } } });
+    if (laborGroup) {
+      await updateJTCostGroup(tg.group.id, { parentCostGroupId: laborGroup.id });
+      await pave({ updateCostGroup: { $: { id: tg.group.id, showChildren: false } } });
+    }
   }
 
   // 5b. Fetch vendor bill cost item descriptions and AI-rewrite for each bill sub-group.
@@ -4138,13 +4163,13 @@ If a section is "(none)", return empty string for that key.`;
           const jsonMatch = aiText.match(/\{[\s\S]*\}/);
           if (jsonMatch) {
             const rewritten = JSON.parse(jsonMatch[0]);
-            if (rewritten.admin && adminDescription) {
+            if (rewritten.admin && adminDescription && adminGroup) {
               await updateJTCostGroup(adminGroup.id, { description: rewritten.admin });
             }
-            if (rewritten.materials && materialsDescription) {
+            if (rewritten.materials && materialsDescription && materialsGroup) {
               await updateJTCostGroup(materialsGroup.id, { description: rewritten.materials });
             }
-            if (rewritten.labor && laborDescription) {
+            if (rewritten.labor && laborDescription && laborGroup) {
               await updateJTCostGroup(laborGroup.id, { description: rewritten.labor });
             }
           }
@@ -4159,7 +4184,7 @@ If a section is "(none)", return empty string for that key.`;
 
   return {
     success: true,
-    groupCount: adminBills.length + materialBills.length + timeGroups.length + 3,
+    groupCount: adminBills.length + materialBills.length + timeGroups.length + (adminGroup ? 1 : 0) + (materialsGroup ? 1 : 0) + (laborGroup ? 1 : 0),
     laborDescription,
     materialsDescription,
     adminDescription,
