@@ -1,8 +1,8 @@
 'use client';
 
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import Link from 'next/link';
-import { usePathname } from 'next/navigation';
+import { usePathname, useRouter } from 'next/navigation';
 import {
   LayoutDashboard, FolderKanban, Bell, MessageSquare,
   FileText, Menu, X, ChevronRight, ClipboardEdit, DollarSign, Calculator
@@ -21,9 +21,32 @@ const NAV_ITEMS = [
 
 export default function DashboardLayout({ children }: { children: React.ReactNode }) {
   const pathname = usePathname();
+  const router = useRouter();
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [notifCount] = useState(3); // TODO: wire to Supabase realtime
   const auth = useAuth();
+  const isLoginPage = pathname === '/dashboard/login';
+
+  // Redirect to login if not authenticated (must be before any early returns to satisfy hooks rules)
+  useEffect(() => {
+    if (!auth.isAuthenticated && !isLoginPage) {
+      router.push('/dashboard/login');
+    }
+  }, [auth.isAuthenticated, isLoginPage, router]);
+
+  // If on the login page, render children directly (no sidebar/nav shell)
+  if (isLoginPage) {
+    return <>{children}</>;
+  }
+
+  // Show nothing while checking auth / redirecting
+  if (!auth.isAuthenticated) {
+    return (
+      <div className="min-h-screen flex items-center justify-center" style={{ background: '#141414' }}>
+        <div className="text-sm" style={{ color: '#8a8078' }}>Loading...</div>
+      </div>
+    );
+  }
 
   return (
     <div className="min-h-screen" style={{ background: '#141414', color: '#e8e0d8' }}>
