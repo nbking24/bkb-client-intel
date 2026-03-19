@@ -4,7 +4,7 @@ import { useState, useEffect } from 'react';
 import {
   AlertTriangle, Clock, CheckCircle2, ArrowRight, Loader2,
   RefreshCw, AlertCircle, Calendar, MessageSquare, Zap,
-  DollarSign, ClipboardList, ChevronRight
+  DollarSign, ClipboardList, ChevronRight, Mail, MapPin
 } from 'lucide-react';
 import { useAuth } from '@/app/hooks/useAuth';
 import Link from 'next/link';
@@ -55,10 +55,20 @@ interface DashboardData {
     tasksToday: number;
     recentMessageCount: number;
     activeJobCount: number;
+    unreadEmailCount: number;
+    upcomingEventsCount: number;
   };
   tasks: Array<{
     id: string; name: string; jobName: string; jobNumber: string;
     endDate: string | null; progress: number; urgency: string; daysUntilDue: number | null;
+  }>;
+  recentEmails: Array<{
+    id: string; threadId: string; from: string; subject: string;
+    snippet: string; date: string; isUnread: boolean;
+  }>;
+  calendarEvents: Array<{
+    id: string; summary: string; start: string; end: string;
+    allDay: boolean; location: string; attendeeCount: number;
   }>;
 }
 
@@ -187,6 +197,8 @@ export default function DashboardOverview() {
   const analysis = overview?.analysis;
   const stats = overview?.data?.stats;
   const tasks = overview?.data?.tasks || [];
+  const emails = overview?.data?.recentEmails || [];
+  const calendarEvents = overview?.data?.calendarEvents || [];
 
   return (
     <div className="p-4 md:p-6 max-w-6xl mx-auto space-y-6">
@@ -328,6 +340,72 @@ export default function DashboardOverview() {
                       <p className="text-xs mt-1" style={{ color: '#8a8078' }}>{msg.reason}</p>
                     </div>
                   ))}
+                </div>
+              </section>
+            )}
+          </div>
+
+          {/* Calendar & Email — two-column layout */}
+          <div className="grid md:grid-cols-2 gap-4">
+            {/* Upcoming Schedule */}
+            {calendarEvents.length > 0 && (
+              <section className="rounded-lg p-4" style={CARD_STYLE}>
+                <h2 className="text-sm font-semibold mb-3 flex items-center gap-2" style={{ color: '#8b5cf6' }}>
+                  <Calendar size={14} /> Upcoming Schedule ({calendarEvents.length})
+                </h2>
+                <div className="space-y-2">
+                  {calendarEvents.slice(0, 8).map((event) => {
+                    const start = new Date(event.start);
+                    const isToday = start.toDateString() === new Date().toDateString();
+                    const isTomorrow = start.toDateString() === new Date(Date.now() + 86400000).toDateString();
+                    const dayLabel = isToday ? 'Today' : isTomorrow ? 'Tomorrow' : start.toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' });
+                    const timeLabel = event.allDay ? 'All day' : start.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' });
+                    return (
+                      <div key={event.id} className="flex items-start gap-3 px-3 py-2 rounded-lg" style={{ background: isToday ? 'rgba(139,92,246,0.08)' : 'rgba(139,92,246,0.03)' }}>
+                        <div className="flex-shrink-0 text-center pt-0.5" style={{ minWidth: '48px' }}>
+                          <p className="text-[10px] font-medium" style={{ color: isToday ? '#8b5cf6' : '#8a8078' }}>{dayLabel}</p>
+                          {!event.allDay && <p className="text-xs font-semibold" style={{ color: '#e8e0d8' }}>{timeLabel}</p>}
+                        </div>
+                        <div className="flex-1 min-w-0">
+                          <p className="text-sm truncate" style={{ color: '#e8e0d8' }}>{event.summary}</p>
+                          {event.location && (
+                            <p className="text-xs truncate flex items-center gap-1 mt-0.5" style={{ color: '#8a8078' }}>
+                              <MapPin size={10} /> {event.location.slice(0, 50)}
+                            </p>
+                          )}
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              </section>
+            )}
+
+            {/* Recent Emails */}
+            {emails.length > 0 && (
+              <section className="rounded-lg p-4" style={CARD_STYLE}>
+                <h2 className="text-sm font-semibold mb-3 flex items-center gap-2" style={{ color: '#22c55e' }}>
+                  <Mail size={14} /> Inbox ({stats?.unreadEmailCount ?? 0} unread)
+                </h2>
+                <div className="space-y-1">
+                  {emails.slice(0, 8).map((email) => {
+                    // Extract just the name from "Name <email>" format
+                    const fromName = email.from.replace(/<[^>]+>/, '').replace(/"/g, '').trim();
+                    return (
+                      <div key={email.id} className="flex items-start gap-3 px-3 py-2 rounded-lg hover:bg-white/[0.02]" style={email.isUnread ? { background: 'rgba(34,197,94,0.05)' } : {}}>
+                        {email.isUnread && (
+                          <div className="w-2 h-2 rounded-full flex-shrink-0 mt-1.5" style={{ background: '#22c55e' }} />
+                        )}
+                        <div className="flex-1 min-w-0">
+                          <div className="flex items-center gap-2">
+                            <p className="text-xs font-medium truncate" style={{ color: email.isUnread ? '#e8e0d8' : '#8a8078' }}>{fromName}</p>
+                          </div>
+                          <p className="text-sm truncate" style={{ color: email.isUnread ? '#e8e0d8' : '#a09890' }}>{email.subject}</p>
+                          <p className="text-xs truncate mt-0.5" style={{ color: '#6a6058' }}>{email.snippet.slice(0, 80)}</p>
+                        </div>
+                      </div>
+                    );
+                  })}
                 </div>
               </section>
             )}
