@@ -4,7 +4,7 @@
 >
 > **Nathan:** If starting a new conversation, mention this doc or say "review the architecture doc" so the assistant knows to read it first.
 
-**Last updated:** 2026-03-17
+**Last updated:** 2026-03-19
 **Repo:** `github.com/nbking24/bkb-client-intel`
 **Deploy:** Vercel (auto-deploy on push to `main`)
 **Live URL:** `https://bkb-client-intel.vercel.app`
@@ -93,8 +93,10 @@ app/
 │   │   ├── invoicing/
 │   │   │   ├── route.ts             # Invoicing health data endpoint (cached)
 │   │   │   ├── create-task/route.ts # Create $ schedule task for unmatched draft invoices
-│   │   │   ├── create-invoice/route.ts        # One-click draft invoice for Cost-Plus jobs
-│   │   │   └── create-billable-invoice/route.ts # One-click draft invoice for Fixed-Price CC23 billable items
+│   │   │   ├── create-invoice/route.ts        # One-click draft invoice for Cost-Plus jobs (with AI descriptions)
+│   │   │   ├── create-billable-invoice/route.ts # One-click draft invoice for Fixed-Price CC23 billable items
+│   │   │   ├── reorganize-invoice/route.ts    # Reorganize Cost-Plus invoice into BKB 3-group format
+│   │   │   └── queue-invoice/route.ts         # Queue invoice creation request (Supabase → scheduled task)
 │   │   ├── projects/route.ts        # Active projects list
 │   │   ├── tasks/route.ts           # Task list with urgency
 │   │   ├── schedule/route.ts        # Schedule multi-view endpoint
@@ -371,8 +373,10 @@ Core analysis function `buildInvoicingContext()` fetches all active jobs via PAV
 | `GET /api/dashboard/invoicing?cached=true` | Serve cached invoicing data from Supabase |
 | `GET /api/dashboard/invoicing?refresh=true` | Run fresh analysis, update cache, return data |
 | `POST /api/dashboard/invoicing/create-task` | Create `$` schedule task for unmatched draft invoice |
-| `POST /api/dashboard/invoicing/create-invoice` | Create draft Cost-Plus invoice (all unbilled budget items) |
-| `POST /api/dashboard/invoicing/create-billable-invoice` | Create draft Fixed-Price invoice (CC23 billable items + labor) |
+| `POST /api/dashboard/invoicing/create-invoice` | Create draft Cost-Plus invoice with AI-rewritten descriptions (vendor bills + time entries) |
+| `POST /api/dashboard/invoicing/create-billable-invoice` | Create draft Fixed-Price invoice (CC23 billable items + labor) with AI descriptions |
+| `POST /api/dashboard/invoicing/reorganize-invoice` | Reorganize Cost-Plus invoice into BKB 3-group format (Trade Partners / Materials / BKB Labor) |
+| `POST /api/dashboard/invoicing/queue-invoice` | Queue invoice creation request into Supabase for scheduled task processing |
 | `POST /api/agent/invoicing` | Run Claude analysis on invoicing data |
 | `GET /api/cron/invoicing-health` | Daily 1 AM EST cron to refresh cache |
 
@@ -553,6 +557,39 @@ JT API  ──→ jt_comments, jt_daily_logs (Supabase cache)
 ## 15. Changelog
 
 All modifications to the codebase should be logged here with date, files changed, and what was done.
+
+### 2026-03-19 — Feature: AI Description Rewriting for Cost-Plus Invoices
+
+**Problem:** Cost-Plus invoices created via `createDraftCostPlusInvoice()` had raw, internal-facing descriptions — vendor sub-groups showed "Bill 1 - Vendor Name" and labor line items showed raw date breakdowns like "Mar 13: 2.0h". The Fixed-Price/Billable flow already had AI description rewriting, but Cost-Plus did not.
+
+**Solution — AI Descriptions at Creation Time (`createDraftCostPlusInvoice`):**
+
+1. **Vendor sub-group descriptions**: After creating each vendor group, fetches the original vendor bill's cost item descriptions from JT via PAVE, sends them to Claude Sonnet (`claude-sonnet-4-20250514`), and gets back a 1-2 sentence client-facing summary. Same prompt pattern as the billable flow.
+
+2. **BKB Labor group description**: Collects unique time entry notes from all uninvoiced time entries, sends to Claude for bullet-point rewriting, sets as the labor group description. Added `notes` field to the time entry PAVE query (was missing).
+
+3. **Worker labor line item descriptions**: Each worker's time entry notes are collected and rewritten by Claude into a 1-2 sentence professional description of work performed. Falls back to date breakdown if no notes exist or AI call fails.
+
+All AI calls gracefully degrade — if Anthropic API fails, the invoice still creates with original/fallback descriptions.
+
+**Solution — Reorganize Step Fix:**
+
+The `reorganizeCostPlusInvoice()` function was designed for JT's native "Bills & Time" UI which creates flat "Time Cost for [date]" and "Vendor Bill XXX" groups. When our API creates invoices with structured "Vendor Bills" and "BKB Labor" parent groups, the reorganize step's idempotency cleanup (line ~4084) was deleting these groups and their AI descriptions.
+
+Added early detection: if the invoice has "Vendor Bills" or "BKB Labor" parent groups WITHOUT "Time Cost for..." groups, it's an API-created invoice. In this case, the reorganize function uses a lighter-touch path that:
+- Preserves existing group structure and AI descriptions
+- Renames "Vendor Bills" → "Trade Partners" or "Materials" based on cost code/type classification
+- Splits into both Trade Partners + Materials if mixed vendor types
+- Sets `showChildren: false` on vendor sub-groups
+- Runs AI category-level description rewriting on top-level groups
+
+**End-to-end flow (Cost-Plus one-click invoice):**
+1. Dashboard button → `POST /api/dashboard/invoicing/create-invoice` → creates invoice with AI descriptions on all groups and line items
+2. Reorganize → `POST /api/dashboard/invoicing/reorganize-invoice` → renames Vendor Bills to Trade Partners/Materials, preserves AI descriptions
+
+**Files changed:**
+- `app/lib/jobtread.ts` — Added AI description rewriting to `createDraftCostPlusInvoice()`: vendor sub-groups (bill description lookup + Claude rewrite), BKB Labor group (time entry notes + Claude rewrite), worker labor line items (per-worker notes + Claude rewrite); added `notes` to time entry PAVE query; added `notes` to `TEInfo` type; fixed `Set` spread for TypeScript compatibility (`Array.from()`); added API-created invoice detection + light-touch reorganization path in `reorganizeCostPlusInvoice()`
+- `ARCHITECTURE.md` — Updated project structure (added reorganize-invoice + queue-invoice routes), API endpoints table, changelog
 
 ### 2026-03-18 — Feature: User Login with Team Selection + Personalized AI Dashboard
 
