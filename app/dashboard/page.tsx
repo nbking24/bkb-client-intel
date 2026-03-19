@@ -92,6 +92,68 @@ export default function DashboardOverview() {
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [completingTaskId, setCompletingTaskId] = useState<string | null>(null);
+  const [editingDateTaskId, setEditingDateTaskId] = useState<string | null>(null);
+  const [pendingDate, setPendingDate] = useState('');
+
+  async function completeTask(taskId: string) {
+    setCompletingTaskId(taskId);
+    try {
+      const res = await fetch('/api/dashboard/tasks', {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${getToken()}` },
+        body: JSON.stringify({ taskId, action: 'complete' }),
+      });
+      if (!res.ok) throw new Error('Failed to complete task');
+      // Remove from local state immediately
+      if (overview) {
+        const updatedTasks = overview.data.tasks.filter(t => t.id !== taskId);
+        setOverview({
+          ...overview,
+          data: {
+            ...overview.data,
+            tasks: updatedTasks,
+            stats: { ...overview.data.stats, totalTasks: updatedTasks.length },
+          },
+        });
+      }
+    } catch (err: any) {
+      console.error('Complete task failed:', err);
+    } finally {
+      setCompletingTaskId(null);
+    }
+  }
+
+  async function updateTaskDate(taskId: string, newDate: string) {
+    try {
+      const res = await fetch('/api/dashboard/tasks', {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${getToken()}` },
+        body: JSON.stringify({ taskId, action: 'update', endDate: newDate }),
+      });
+      if (!res.ok) throw new Error('Failed to update task date');
+      // Update in local state
+      if (overview) {
+        const updatedTasks = overview.data.tasks.map(t =>
+          t.id === taskId ? { ...t, endDate: newDate, ...recalcUrgency(newDate) } : t
+        );
+        setOverview({ ...overview, data: { ...overview.data, tasks: updatedTasks } });
+      }
+    } catch (err: any) {
+      console.error('Update task date failed:', err);
+    } finally {
+      setEditingDateTaskId(null);
+      setPendingDate('');
+    }
+  }
+
+  function recalcUrgency(endDate: string) {
+    const today = new Date(); today.setHours(0, 0, 0, 0);
+    const due = new Date(endDate); due.setHours(0, 0, 0, 0);
+    const days = Math.ceil((due.getTime() - today.getTime()) / (1000 * 60 * 60 * 24));
+    const urgency = (days < 0 || days <= 2) ? 'urgent' : days <= 5 ? 'high' : 'normal';
+    return { urgency, daysUntilDue: days };
+  }
 
   async function fetchOverview(forceRefresh = false) {
     if (!auth.userId) return;
@@ -279,20 +341,66 @@ export default function DashboardOverview() {
             <div className="space-y-1">
               {tasks.slice(0, 15).map(task => {
                 const urgStyle = task.urgency === 'urgent' ? URGENCY.urgent : task.urgency === 'high' ? URGENCY.high : { bg: 'transparent', text: '#8a8078', border: 'transparent' };
+                const isCompleting = completingTaskId === task.id;
+                const isEditingDate = editingDateTaskId === task.id;
                 return (
-                  <div key={task.id} className="flex items-center gap-3 px-3 py-2 rounded-lg hover:bg-white/[0.02]">
+                  <div key={task.id} className="flex items-center gap-3 px-3 py-2 rounded-lg hover:bg-white/[0.02] group" style={isCompleting ? { opacity: 0.4 } : {}}>
+                    {/* Complete button */}
+                    <button
+                      onClick={() => completeTask(task.id)}
+                      disabled={isCompleting}
+                      className="flex-shrink-0 w-5 h-5 rounded-full border flex items-center justify-center hover:bg-green-500/20 transition-colors"
+                      style={{ borderColor: 'rgba(205,162,116,0.25)' }}
+                      title="Mark complete"
+                    >
+                      {isCompleting
+                        ? <Loader2 size={10} className="animate-spin" style={{ color: '#8a8078' }} />
+                        : <CheckCircle2 size={10} className="opacity-0 group-hover:opacity-100 transition-opacity" style={{ color: '#22c55e' }} />
+                      }
+                    </button>
+                    {/* Urgency badge */}
                     <span className="text-[10px] px-1.5 py-0.5 rounded font-medium flex-shrink-0" style={{ background: urgStyle.bg, color: urgStyle.text }}>
                       {task.urgency === 'urgent' ? 'URG' : task.urgency === 'high' ? 'HIGH' : ''}
                     </span>
+                    {/* Task info */}
                     <div className="flex-1 min-w-0">
                       <p className="text-sm truncate" style={{ color: '#e8e0d8' }}>{task.name}</p>
                       <p className="text-xs truncate" style={{ color: '#8a8078' }}>{task.jobName} #{task.jobNumber}</p>
                     </div>
-                    <span className="text-xs flex-shrink-0" style={{ color: task.urgency === 'urgent' ? '#ef4444' : '#8a8078' }}>
-                      {task.daysUntilDue !== null
-                        ? (task.daysUntilDue < 0 ? `${Math.abs(task.daysUntilDue)}d overdue` : task.daysUntilDue === 0 ? 'Today' : `${task.daysUntilDue}d`)
-                        : formatDate(task.endDate)}
-                    </span>
+                    {/* Due date — clickable to edit */}
+                    {isEditingDate ? (
+                      <input
+                        type="date"
+                        autoFocus
+                        defaultValue={task.endDate || ''}
+                        onChange={(e) => setPendingDate(e.target.value)}
+                        onBlur={() => {
+                          if (pendingDate && pendingDate !== task.endDate) {
+                            updateTaskDate(task.id, pendingDate);
+                          } else {
+                            setEditingDateTaskId(null);
+                            setPendingDate('');
+                          }
+                        }}
+                        onKeyDown={(e) => {
+                          if (e.key === 'Enter' && pendingDate) updateTaskDate(task.id, pendingDate);
+                          if (e.key === 'Escape') { setEditingDateTaskId(null); setPendingDate(''); }
+                        }}
+                        className="text-xs px-2 py-1 rounded outline-none w-32 flex-shrink-0"
+                        style={{ background: '#2a2a2a', border: '1px solid rgba(205,162,116,0.3)', color: '#e8e0d8' }}
+                      />
+                    ) : (
+                      <button
+                        onClick={() => { setEditingDateTaskId(task.id); setPendingDate(task.endDate || ''); }}
+                        className="text-xs flex-shrink-0 hover:underline cursor-pointer"
+                        style={{ color: task.urgency === 'urgent' ? '#ef4444' : '#8a8078' }}
+                        title="Click to change due date"
+                      >
+                        {task.daysUntilDue !== null
+                          ? (task.daysUntilDue < 0 ? `${Math.abs(task.daysUntilDue)}d overdue` : task.daysUntilDue === 0 ? 'Today' : `${task.daysUntilDue}d`)
+                          : task.endDate ? formatDate(task.endDate) : 'No date'}
+                      </button>
+                    )}
                   </div>
                 );
               })}
