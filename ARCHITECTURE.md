@@ -58,7 +58,9 @@ app/
 │       └── contract/page.tsx         # Contract Spec Builder (cost-item based)
 ├── api/
 │   ├── chat/route.ts                 # ★ Main chat endpoint → agent router
-│   ├── auth/route.ts                 # PIN auth token generation
+│   ├── auth/
+│   │   ├── route.ts                  # Per-user PIN auth (login, setup, check)
+│   │   └── google-callback/route.ts  # Google OAuth callback (one-time setup for Gmail/Calendar)
 │   ├── extract-pdf/route.ts          # PDF → text extraction (shared)
 │   ├── conversations/
 │   │   ├── route.ts                  # List/create conversations
@@ -117,6 +119,9 @@ app/
 │   └── jobtread-test/route.ts       # PAVE API diagnostic
 └── lib/
     ├── invoicing-health.ts           # Invoicing health analysis (contract + cost-plus, CC23 billable, released invoices)
+    ├── google-api.ts                # Google OAuth2 helper — Gmail inbox + Calendar events fetcher
+    ├── dashboard-data.ts            # Dashboard data aggregation (JT tasks, comments, Gmail, Calendar)
+    ├── dashboard-analysis.ts        # AI analysis engine (Claude) for personalized briefings
     ├── bkb-spec-guide.ts            # BKB 23-category spec system + prompts
     ├── bkb-standards.ts             # Standard construction practices
     ├── bkb-brand-voice.ts           # Brand voice + email writing guide
@@ -558,6 +563,49 @@ JT API  ──→ jt_comments, jt_daily_logs (Supabase cache)
 ## 15. Changelog
 
 All modifications to the codebase should be logged here with date, files changed, and what was done.
+
+### 2026-03-19 — Feature: Gmail Inbox + Google Calendar Integration for Dashboard
+
+**Problem:** The dashboard AI briefing only had JT data (tasks, comments, daily logs). Nathan wanted Gmail and Calendar context so the AI knows what emails need replies and what meetings are coming up.
+
+**Solution — Google Cloud OAuth Setup:**
+- Created Google Cloud project "My Project 54683" (project ID: `bold-tooling-490717-n5`) under brettkingbuilder.com organization
+- Enabled Gmail API and Google Calendar API
+- Configured OAuth consent screen (Internal audience, app name "BKB Client Hub")
+- Created OAuth2 web application credentials with redirect URIs for both OAuth Playground and BKB callback
+- Built `/api/auth/google-callback` endpoint that handles the full OAuth flow: redirects to Google consent, exchanges code for tokens, displays refresh token for admin setup
+- Obtained refresh token with scopes: `gmail.readonly` + `calendar.readonly`
+- Stored credentials as Vercel env vars: `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET`, `GOOGLE_REFRESH_TOKEN`
+
+**Solution — Google API Helper (`app/lib/google-api.ts`):**
+- OAuth2 token refresh using stored refresh token (auto-caches access token until expiry)
+- `fetchGmailInbox(maxResults)`: Fetches recent primary inbox emails (last 3 days), skips promotions/social/updates. Returns from, subject, snippet, date, unread status.
+- `fetchCalendarEvents(daysAhead)`: Fetches upcoming calendar events for next N days. Returns summary, start/end times, location, attendee count.
+
+**Solution — Dashboard Data Layer Updates:**
+- `buildUserDashboardData()` now fetches Gmail + Calendar in addition to JT data
+- Added `calendarEvents` array and `upcomingEventsCount` stat to `UserDashboardData`
+- `recentEmails` now populated from live Gmail API (was empty placeholder)
+- `unreadEmailCount` stat now computed from actual Gmail data
+
+**Solution — AI Analysis Prompt Updates:**
+- Added CALENDAR section with event details (day, time, location, attendee count)
+- Prompt instructs AI to mention prep needed, conflicts, and follow-ups for calendar events
+- Improved GMAIL section prompt to "identify which ones need a reply or action"
+- Added `upcomingEventsCount` to stats summary
+
+**Environment Variables Added:**
+| Variable | Purpose |
+|----------|---------|
+| `GOOGLE_CLIENT_ID` | OAuth2 client ID for Google APIs |
+| `GOOGLE_CLIENT_SECRET` | OAuth2 client secret |
+| `GOOGLE_REFRESH_TOKEN` | Long-lived token for server-side API access |
+
+**Files changed:**
+- `app/lib/google-api.ts` — **NEW** Google OAuth2 helper with Gmail inbox and Calendar events fetchers
+- `app/api/auth/google-callback/route.ts` — **NEW** OAuth callback endpoint for one-time token setup
+- `app/lib/dashboard-data.ts` — Added Gmail + Calendar fetching, new calendarEvents field, updated stats
+- `app/lib/dashboard-analysis.ts` — Added CALENDAR section to AI prompt, improved email prompt
 
 ### 2026-03-19 — Feature: AI Description Rewriting for Cost-Plus Invoices
 
