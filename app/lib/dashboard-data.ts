@@ -1,12 +1,12 @@
 /**
  * Dashboard Data Aggregation Layer
  *
- * Gathers per-user data from JobTread (tasks, jobs, comments, daily logs)
- * and GHL (messages) for the personalized AI dashboard.
+ * Gathers per-user data from JobTread (tasks, jobs, comments, daily logs),
+ * Gmail (unread emails), for the personalized AI dashboard.
  *
- * Role-based filtering:
- * - owner: all jobs, all team tasks, financials
- * - admin: all jobs, billing data
+ * Data sources per role:
+ * - owner (Nathan): JT tasks, all jobs, JT comments directed at them, Gmail inbox, daily logs (actionable only)
+ * - admin (Terri): JT tasks, all jobs, JT comments directed at them, daily logs (actionable only)
  * - field_sup: their assigned jobs/tasks, daily logs
  * - field: their tasks only
  */
@@ -15,6 +15,7 @@ import {
   getOpenTasksForMember,
   getAllOpenTasks,
   getActiveJobs,
+  pave,
   type JTJob,
 } from './jobtread';
 import { TEAM_USERS, ROLE_CONFIG, type TeamRole } from './constants';
@@ -38,8 +39,19 @@ export interface DashboardMessage {
   content: string;
   authorName: string;
   jobName: string;
+  jobNumber: string;
   createdAt: string;
-  type: 'jt_comment' | 'ghl_message';
+  type: 'jt_comment' | 'gmail';
+}
+
+export interface DashboardEmail {
+  id: string;
+  threadId: string;
+  from: string;
+  subject: string;
+  snippet: string;
+  date: string;
+  isUnread: boolean;
 }
 
 export interface DashboardDailyLog {
@@ -57,6 +69,7 @@ export interface UserDashboardData {
   tasks: DashboardTask[];
   recentMessages: DashboardMessage[];
   recentDailyLogs: DashboardDailyLog[];
+  recentEmails: DashboardEmail[];
   activeJobs: Array<{ id: string; name: string; number: string; status?: string }>;
   stats: {
     totalTasks: number;
@@ -65,6 +78,7 @@ export interface UserDashboardData {
     tasksToday: number;
     recentMessageCount: number;
     activeJobCount: number;
+    unreadEmailCount: number;
   };
 }
 
@@ -80,25 +94,110 @@ function classifyUrgency(endDate: string | null, progress: number): { urgency: '
   return { urgency: 'normal', daysUntilDue: days };
 }
 
+/**
+ * Fetch JT comments directed at a specific user from recent active jobs.
+ * Uses PAVE to get comments with full context (author membership, job info).
+ * Filters to messages that mention the user's first name (directed at them),
+ * excluding messages written by the user themselves.
+ */
+async function fetchJTCommentsForUser(
+  userName: string,
+  membershipId: string,
+  activeJobIds: string[]
+): Promise<DashboardMessage[]> {
+  const firstName = userName.split(' ')[0].toLowerCase();
+  const messages: DashboardMessage[] = [];
+  const sevenDaysAgo = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000);
+
+  // Query comments from the 25 most recent active jobs, one at a time
+  for (const jobId of activeJobIds.slice(0, 25)) {
+    try {
+      const result = await pave({
+        job: {
+          $: { id: jobId },
+          name: {},
+          number: {},
+          comments: {
+            $: { size: 20 },
+            nodes: {
+              id: {},
+              message: {},
+              createdAt: {},
+              isPinned: {},
+              createdByMembership: { id: {}, user: { name: {} } },
+            },
+          },
+        },
+      });
+
+      const job = (result as any)?.job;
+      if (!job?.comments?.nodes) continue;
+      const jobName = job.name || '';
+      const jobNumber = job.number || '';
+
+      for (const c of job.comments.nodes) {
+        const createdAt = new Date(c.createdAt);
+        if (createdAt < sevenDaysAgo) continue;
+
+        const authorMembershipId = c.createdByMembership?.id || '';
+        const authorName = c.createdByMembership?.user?.name || 'Unknown';
+        const msgLower = (c.message || '').toLowerCase();
+
+        // Skip messages BY this user (they already know what they wrote)
+        if (authorMembershipId === membershipId) continue;
+
+        // Include if message mentions user's first name (directed at them)
+        const mentionsUser = msgLower.includes(firstName);
+
+        if (mentionsUser) {
+          messages.push({
+            id: c.id,
+            content: (c.message || '').slice(0, 300),
+            authorName,
+            jobName,
+            jobNumber,
+            createdAt: c.createdAt,
+            type: 'jt_comment',
+          });
+        }
+      }
+    } catch (jobErr: any) {
+      // Skip individual job errors silently
+    }
+  }
+
+  // Sort by date, newest first
+  messages.sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
+  return messages.slice(0, 20);
+}
+
 export async function buildUserDashboardData(userId: string): Promise<UserDashboardData> {
   const user = TEAM_USERS[userId];
   if (!user) throw new Error(`Unknown userId: ${userId}`);
 
   const { role, membershipId, name: userName } = user;
-  const permissions = ROLE_CONFIG[role];
 
-  // Fetch tasks — always use per-member query to avoid PAVE 413 errors.
-  // Owner can see all JOBS but task list shows their own assigned tasks.
+  // Fetch tasks from JT
+  // Owner sees ALL org to-dos (they oversee everything)
+  // Other roles see only their assigned tasks
   let rawTasks: any[] = [];
   try {
-    rawTasks = await getOpenTasksForMember(membershipId);
+    if (role === 'owner') {
+      rawTasks = await getAllOpenTasks();
+    } else {
+      rawTasks = await getOpenTasksForMember(membershipId);
+    }
   } catch (err: any) {
     console.error('[DashboardData] Failed to fetch tasks:', err.message);
   }
 
-  // Classify urgency and build task list
   const tasks: DashboardTask[] = rawTasks.map((t: any) => {
     const { urgency, daysUntilDue } = classifyUrgency(t.endDate, t.progress ?? 0);
+    // Extract assignee names from membership data
+    const assigneeNames = (t.assignedMemberships?.nodes || [])
+      .map((m: any) => m.user?.name || '')
+      .filter(Boolean)
+      .join(', ');
     return {
       id: t.id,
       name: t.name,
@@ -109,11 +208,10 @@ export async function buildUserDashboardData(userId: string): Promise<UserDashbo
       progress: t.progress ?? 0,
       urgency,
       daysUntilDue,
-      assignee: t.assignee || undefined,
+      assignee: assigneeNames || t.assignee || undefined,
     };
   });
 
-  // Sort: urgent → high → normal, then by due date
   const urgencyOrder = { urgent: 0, high: 1, normal: 2 };
   tasks.sort((a, b) => {
     const uDiff = urgencyOrder[a.urgency] - urgencyOrder[b.urgency];
@@ -138,33 +236,20 @@ export async function buildUserDashboardData(userId: string): Promise<UserDashbo
     console.error('[DashboardData] Failed to fetch active jobs:', err.message);
   }
 
-  // Fetch recent JT comments from Supabase cache
+  // Fetch JT comments directed at this user (live from PAVE with author names)
   let recentMessages: DashboardMessage[] = [];
   try {
-    const supabase = createServerClient();
-    const sevenDaysAgo = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000).toISOString();
-    const { data: comments } = await supabase
-      .from('jt_comments')
-      .select('*')
-      .gte('created_at', sevenDaysAgo)
-      .order('created_at', { ascending: false })
-      .limit(30);
-
-    if (comments) {
-      recentMessages = comments.map((c: any) => ({
-        id: c.id,
-        content: (c.content || c.message || '').slice(0, 200),
-        authorName: c.author_name || c.member_name || 'Unknown',
-        jobName: c.job_name || '',
-        createdAt: c.created_at,
-        type: 'jt_comment' as const,
-      }));
-    }
+    recentMessages = await fetchJTCommentsForUser(
+      userName,
+      membershipId,
+      activeJobs.map(j => j.id)
+    );
   } catch (err: any) {
-    console.error('[DashboardData] Failed to fetch comments:', err.message);
+    console.error('[DashboardData] Failed to fetch JT comments:', err.message);
   }
 
   // Fetch recent daily logs from Supabase cache
+  // These are only passed to AI for context — AI is instructed to only flag actionable items
   let recentDailyLogs: DashboardDailyLog[] = [];
   try {
     const supabase = createServerClient();
@@ -189,6 +274,9 @@ export async function buildUserDashboardData(userId: string): Promise<UserDashbo
     console.error('[DashboardData] Failed to fetch daily logs:', err.message);
   }
 
+  // Gmail emails — populated by the overview API endpoint which has access to MCP
+  const recentEmails: DashboardEmail[] = [];
+
   // Compute stats
   const today = new Date().toISOString().split('T')[0];
   const stats = {
@@ -198,15 +286,17 @@ export async function buildUserDashboardData(userId: string): Promise<UserDashbo
     tasksToday: tasks.filter(t => t.endDate?.startsWith(today)).length,
     recentMessageCount: recentMessages.length,
     activeJobCount: activeJobs.length,
+    unreadEmailCount: 0, // Updated by overview endpoint after Gmail fetch
   };
 
   return {
     userId,
     userName,
     role,
-    tasks: tasks.slice(0, 50), // Cap at 50 for AI context
+    tasks: tasks.slice(0, 50),
     recentMessages,
     recentDailyLogs,
+    recentEmails,
     activeJobs,
     stats,
   };

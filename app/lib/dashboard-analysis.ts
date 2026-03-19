@@ -2,7 +2,7 @@
  * Dashboard AI Analysis Engine
  *
  * Takes aggregated user data and produces a structured AI analysis
- * with urgent items, deadlines, flagged messages, and action items.
+ * with urgent items, deadlines, flagged messages, emails needing replies, and action items.
  * Uses role-specific prompts for personalized insights.
  */
 
@@ -14,19 +14,22 @@ export interface DashboardAnalysis {
   urgentItems: Array<{ title: string; description: string; jobName?: string }>;
   upcomingDeadlines: Array<{ title: string; dueDate: string; daysUntilDue: number; jobName?: string }>;
   flaggedMessages: Array<{ preview: string; jobName: string; authorName: string; reason: string }>;
+  emailsNeedingReply: Array<{ from: string; subject: string; snippet: string; reason: string }>;
   actionItems: Array<{ action: string; priority: 'high' | 'medium' | 'low'; jobName?: string }>;
 }
 
 function getRoleContext(role: TeamRole): string {
   switch (role) {
     case 'owner':
-      return `You are providing a dashboard briefing for the OWNER of a high-end residential renovation company.
-Focus on: overall business health, team performance, financial overview, projects needing attention,
-urgent decisions, and items that could impact client relationships. Include cross-project insights.`;
+      return `You are providing a dashboard briefing for NATHAN KING, the OWNER of Brett King Builder-Contractor (BKB), a high-end residential renovation company.
+Nathan is the primary decision maker and handles: client relationships, project oversight, design direction, team coordination, and business development.
+Focus on: items needing his direct attention, client communications requiring response, team coordination needs, upcoming meetings/deadlines, and business-critical decisions.
+Be direct and specific — Nathan is hands-on and wants actionable items, not generic advice.`;
     case 'admin':
-      return `You are providing a dashboard briefing for the OFFICE MANAGER of a renovation company.
-Focus on: billing and invoicing priorities, overdue payments, AP/AR status, documents needing attention,
-upcoming payment milestones, and administrative tasks. Financial accuracy is key.`;
+      return `You are providing a dashboard briefing for TERRI KING (Terri Dalavai), the OFFICE MANAGER of Brett King Builder-Contractor (BKB).
+Terri handles: invoicing, billing, accounts payable/receivable, client scheduling, permit submissions, vendor coordination, and administrative communication.
+Focus on: billing and invoicing priorities, client/vendor follow-ups needed, scheduling tasks, permit status, and items other team members have asked her to handle.
+Be specific about which clients and projects need attention.`;
     case 'field_sup':
       return `You are providing a dashboard briefing for a LEAD CARPENTER / PROJECT MANAGER in the field.
 Focus on: today's job site priorities, upcoming task deadlines, material needs, crew coordination,
@@ -48,18 +51,26 @@ export async function analyzeUserDashboard(data: UserDashboardData): Promise<Das
 
   const roleContext = getRoleContext(data.role);
 
-  // Build data summary for Claude
+  // Build task summary
   const taskSummary = data.tasks.slice(0, 30).map(t => {
     const duePart = t.daysUntilDue !== null
       ? (t.daysUntilDue < 0 ? `${Math.abs(t.daysUntilDue)} days OVERDUE` : t.daysUntilDue === 0 ? 'DUE TODAY' : `due in ${t.daysUntilDue} days`)
       : 'no due date';
-    return `- [${t.urgency.toUpperCase()}] ${t.name} (${t.jobName} #${t.jobNumber}) — ${duePart}, ${Math.round(t.progress * 100)}% complete`;
+    const assigneePart = t.assignee ? ` | Assigned: ${t.assignee}` : '';
+    return `- [${t.urgency.toUpperCase()}] ${t.name} (${t.jobName} #${t.jobNumber}) — ${duePart}, ${Math.round(t.progress * 100)}% complete${assigneePart}`;
   }).join('\n');
 
+  // Build JT messages summary — these are comments directed AT the user
   const messageSummary = data.recentMessages.slice(0, 15).map(m =>
-    `- [${m.type}] ${m.authorName} on ${m.jobName}: "${m.content.slice(0, 100)}..." (${new Date(m.createdAt).toLocaleDateString()})`
+    `- FROM: ${m.authorName} | JOB: ${m.jobName} (#${m.jobNumber}) | DATE: ${new Date(m.createdAt).toLocaleDateString()} | MESSAGE: "${m.content.slice(0, 150)}"`
   ).join('\n');
 
+  // Build email summary
+  const emailSummary = data.recentEmails.slice(0, 15).map(e =>
+    `- FROM: ${e.from} | SUBJECT: ${e.subject} | DATE: ${new Date(e.date).toLocaleDateString()} | ${e.isUnread ? 'UNREAD' : 'READ'} | PREVIEW: "${e.snippet.slice(0, 100)}"`
+  ).join('\n');
+
+  // Build daily log summary
   const logSummary = data.recentDailyLogs.slice(0, 10).map(l =>
     `- ${l.authorName} on ${l.jobName} (${new Date(l.date).toLocaleDateString()}): ${l.notes.slice(0, 100)}...`
   ).join('\n');
@@ -70,30 +81,40 @@ Today is ${new Date().toLocaleDateString('en-US', { weekday: 'long', month: 'lon
 User: ${data.userName} (${data.role})
 
 STATS:
-- ${data.stats.totalTasks} open tasks (${data.stats.urgentTasks} urgent, ${data.stats.highPriorityTasks} high priority)
+- ${data.stats.totalTasks} open tasks assigned to ${data.userName} (${data.stats.urgentTasks} urgent, ${data.stats.highPriorityTasks} high priority)
 - ${data.stats.tasksToday} tasks due today
 - ${data.stats.activeJobCount} active jobs
-- ${data.stats.recentMessageCount} recent messages (last 7 days)
+- ${data.stats.recentMessageCount} JT messages directed at ${data.userName} (last 7 days)
+- ${data.stats.unreadEmailCount} unread emails
 
-TASKS:
-${taskSummary || '(no tasks)'}
+TASKS ASSIGNED TO ${data.userName.toUpperCase()}:
+${taskSummary || '(no tasks currently assigned in JobTread)'}
 
-RECENT MESSAGES/COMMENTS:
-${messageSummary || '(no recent messages)'}
+JT MESSAGES DIRECTED AT ${data.userName.toUpperCase()} (from other team members/clients — these need review/response):
+${messageSummary || '(no messages directed at user in last 7 days)'}
 
-RECENT DAILY LOGS:
+GMAIL INBOX (recent emails that may need replies):
+${emailSummary || '(no email data available)'}
+
+DAILY LOGS (ONLY mention if something requires action — do NOT summarize routine logs):
 ${logSummary || '(no recent logs)'}
 
 Based on this data, provide a personalized dashboard briefing. Output ONLY valid JSON in this exact format (no markdown, no code fences):
 {
-  "summary": "2-3 sentence overview of what needs attention today",
+  "summary": "2-3 sentence overview of what needs attention today — be specific about names, projects, and actions",
   "urgentItems": [{"title": "...", "description": "...", "jobName": "..."}],
   "upcomingDeadlines": [{"title": "...", "dueDate": "YYYY-MM-DD", "daysUntilDue": N, "jobName": "..."}],
-  "flaggedMessages": [{"preview": "...", "jobName": "...", "authorName": "...", "reason": "why this needs attention"}],
-  "actionItems": [{"action": "specific thing to do", "priority": "high|medium|low", "jobName": "..."}]
+  "flaggedMessages": [{"preview": "first ~50 chars of the message", "jobName": "actual job name from data", "authorName": "actual author name", "reason": "why this needs attention/response"}],
+  "emailsNeedingReply": [{"from": "sender", "subject": "subject line", "snippet": "preview", "reason": "why this needs a reply"}],
+  "actionItems": [{"action": "specific thing to do today", "priority": "high|medium|low", "jobName": "..."}]
 }
 
-Keep each array to 5 items max. Be specific and actionable. Reference actual job names and task names from the data.`;
+IMPORTANT RULES:
+- flaggedMessages should ONLY contain JT messages from others that need a response or action from ${data.userName}
+- emailsNeedingReply should ONLY contain emails that genuinely need a reply (not newsletters, automated notifications, etc.)
+- Do NOT include daily log entries in flaggedMessages — only include them in urgentItems or actionItems if they reveal a problem
+- Keep each array to 5 items max. Be specific and actionable. Use actual job names and people names from the data.
+- If there are no tasks assigned, still provide insights from messages, emails, and job data.`;
 
   try {
     const res = await fetch('https://api.anthropic.com/v1/messages', {
@@ -118,7 +139,6 @@ Keep each array to 5 items max. Be specific and actionable. Reference actual job
     const aiData = await res.json();
     const aiText = (aiData.content?.[0]?.text || '').trim();
 
-    // Parse JSON from response (may have markdown wrapping)
     const jsonMatch = aiText.match(/\{[\s\S]*\}/);
     if (jsonMatch) {
       const parsed = JSON.parse(jsonMatch[0]);
@@ -127,6 +147,7 @@ Keep each array to 5 items max. Be specific and actionable. Reference actual job
         urgentItems: parsed.urgentItems || [],
         upcomingDeadlines: parsed.upcomingDeadlines || [],
         flaggedMessages: parsed.flaggedMessages || [],
+        emailsNeedingReply: parsed.emailsNeedingReply || [],
         actionItems: parsed.actionItems || [],
       };
     }
@@ -174,6 +195,7 @@ function buildFallbackAnalysis(data: UserDashboardData): DashboardAnalysis {
     urgentItems,
     upcomingDeadlines,
     flaggedMessages: [],
+    emailsNeedingReply: [],
     actionItems,
   };
 }

@@ -43,6 +43,7 @@ interface DashboardAnalysis {
   urgentItems: Array<{ title: string; description: string; jobName?: string }>;
   upcomingDeadlines: Array<{ title: string; dueDate: string; daysUntilDue: number; jobName?: string }>;
   flaggedMessages: Array<{ preview: string; jobName: string; authorName: string; reason: string }>;
+  emailsNeedingReply?: Array<{ from: string; subject: string; snippet: string; reason: string }>;
   actionItems: Array<{ action: string; priority: 'high' | 'medium' | 'low'; jobName?: string }>;
 }
 
