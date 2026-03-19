@@ -22,7 +22,7 @@ const JT_KEY = () => process.env.JOBTREAD_API_KEY || '';
 const JT_ORG = () => process.env.JOBTREAD_ORG_ID || '22P5SRwhLaYe';
 
 // -- Core PAVE query helper --
-async function pave(query: Record<string, unknown>) {
+export async function pave(query: Record<string, unknown>) {
   const body = {
     query: {
       $: { grantKey: JT_KEY() },
