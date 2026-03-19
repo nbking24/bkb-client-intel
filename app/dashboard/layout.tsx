@@ -27,20 +27,20 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
   const auth = useAuth();
   const isLoginPage = pathname === '/dashboard/login';
 
-  // Redirect to login if not authenticated (must be before any early returns to satisfy hooks rules)
+  // Redirect to login ONLY after auth has finished loading and user is not authenticated
   useEffect(() => {
-    if (!auth.isAuthenticated && !isLoginPage) {
+    if (!auth.loading && !auth.isAuthenticated && !isLoginPage) {
       router.push('/dashboard/login');
     }
-  }, [auth.isAuthenticated, isLoginPage, router]);
+  }, [auth.loading, auth.isAuthenticated, isLoginPage, router]);
 
   // If on the login page, render children directly (no sidebar/nav shell)
   if (isLoginPage) {
     return <>{children}</>;
   }
 
-  // Show nothing while checking auth / redirecting
-  if (!auth.isAuthenticated) {
+  // Show loading while checking auth (reading localStorage)
+  if (auth.loading || !auth.isAuthenticated) {
     return (
       <div className="min-h-screen flex items-center justify-center" style={{ background: '#141414' }}>
         <div className="text-sm" style={{ color: '#8a8078' }}>Loading...</div>

@@ -10,6 +10,7 @@ export interface AuthState {
   role: TeamRole | null;
   membershipId: string | null;
   permissions: typeof ROLE_CONFIG[TeamRole] | null;
+  loading: boolean;
 }
 
 function decodeToken(token: string): { pin: string; userId?: string; timestamp: string } | null {
@@ -28,7 +29,24 @@ function decodeToken(token: string): { pin: string; userId?: string; timestamp: 
   }
 }
 
+function buildAuthFromToken(token: string | null): Omit<AuthState, 'loading'> {
+  if (!token) {
+    return { isAuthenticated: false, userId: null, user: null, role: null, membershipId: null, permissions: null };
+  }
+  const decoded = decodeToken(token);
+  if (!decoded) {
+    return { isAuthenticated: false, userId: null, user: null, role: null, membershipId: null, permissions: null };
+  }
+  const userId = decoded.userId || null;
+  const user = userId ? TEAM_USERS[userId] || null : null;
+  const role = user?.role || null;
+  const membershipId = user?.membershipId || null;
+  const permissions = role ? ROLE_CONFIG[role] : null;
+  return { isAuthenticated: true, userId, user, role, membershipId, permissions };
+}
+
 export function useAuth(): AuthState {
+  // Start with loading=true; we can't read localStorage during SSR
   const [auth, setAuth] = useState<AuthState>({
     isAuthenticated: false,
     userId: null,
@@ -36,35 +54,14 @@ export function useAuth(): AuthState {
     role: null,
     membershipId: null,
     permissions: null,
+    loading: true,
   });
 
   useEffect(() => {
+    // Read token from localStorage on mount (client-side only)
     const token = localStorage.getItem('bkb-token');
-    if (!token) {
-      setAuth({ isAuthenticated: false, userId: null, user: null, role: null, membershipId: null, permissions: null });
-      return;
-    }
-
-    const decoded = decodeToken(token);
-    if (!decoded) {
-      setAuth({ isAuthenticated: false, userId: null, user: null, role: null, membershipId: null, permissions: null });
-      return;
-    }
-
-    const userId = decoded.userId || null;
-    const user = userId ? TEAM_USERS[userId] || null : null;
-    const role = user?.role || null;
-    const membershipId = user?.membershipId || null;
-    const permissions = role ? ROLE_CONFIG[role] : null;
-
-    setAuth({
-      isAuthenticated: true,
-      userId,
-      user,
-      role,
-      membershipId,
-      permissions,
-    });
+    const state = buildAuthFromToken(token);
+    setAuth({ ...state, loading: false });
   }, []);
 
   return auth;
