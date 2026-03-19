@@ -21,6 +21,7 @@ import {
 } from './jobtread';
 import { TEAM_USERS, ROLE_CONFIG, type TeamRole } from './constants';
 import { createServerClient } from './supabase';
+import { fetchGmailInbox, fetchCalendarEvents, type GmailMessage, type CalendarEvent } from './google-api';
 
 export interface DashboardTask {
   id: string;
@@ -71,6 +72,7 @@ export interface UserDashboardData {
   recentMessages: DashboardMessage[];
   recentDailyLogs: DashboardDailyLog[];
   recentEmails: DashboardEmail[];
+  calendarEvents: CalendarEvent[];
   activeJobs: Array<{ id: string; name: string; number: string; status?: string }>;
   stats: {
     totalTasks: number;
@@ -80,6 +82,7 @@ export interface UserDashboardData {
     recentMessageCount: number;
     activeJobCount: number;
     unreadEmailCount: number;
+    upcomingEventsCount: number;
   };
 }
 
@@ -274,8 +277,30 @@ export async function buildUserDashboardData(userId: string): Promise<UserDashbo
     console.error('[DashboardData] Failed to fetch daily logs:', err.message);
   }
 
-  // Gmail emails — populated by the overview API endpoint which has access to MCP
-  const recentEmails: DashboardEmail[] = [];
+  // Fetch Gmail inbox (recent primary emails — skip promotions/social)
+  let recentEmails: DashboardEmail[] = [];
+  try {
+    const gmailMessages = await fetchGmailInbox(15);
+    recentEmails = gmailMessages.map(m => ({
+      id: m.id,
+      threadId: m.threadId,
+      from: m.from,
+      subject: m.subject,
+      snippet: m.snippet,
+      date: m.date,
+      isUnread: m.isUnread,
+    }));
+  } catch (err: any) {
+    console.error('[DashboardData] Failed to fetch Gmail:', err.message);
+  }
+
+  // Fetch Google Calendar events (next 7 days)
+  let calendarEvents: CalendarEvent[] = [];
+  try {
+    calendarEvents = await fetchCalendarEvents(7);
+  } catch (err: any) {
+    console.error('[DashboardData] Failed to fetch calendar:', err.message);
+  }
 
   // Compute stats
   const today = new Date().toISOString().split('T')[0];
@@ -286,7 +311,8 @@ export async function buildUserDashboardData(userId: string): Promise<UserDashbo
     tasksToday: tasks.filter(t => t.endDate?.startsWith(today)).length,
     recentMessageCount: recentMessages.length,
     activeJobCount: activeJobs.length,
-    unreadEmailCount: 0, // Updated by overview endpoint after Gmail fetch
+    unreadEmailCount: recentEmails.filter(e => e.isUnread).length,
+    upcomingEventsCount: calendarEvents.length,
   };
 
   return {
@@ -297,6 +323,7 @@ export async function buildUserDashboardData(userId: string): Promise<UserDashbo
     recentMessages,
     recentDailyLogs,
     recentEmails,
+    calendarEvents,
     activeJobs,
     stats,
   };

@@ -70,6 +70,15 @@ export async function analyzeUserDashboard(data: UserDashboardData): Promise<Das
     `- FROM: ${e.from} | SUBJECT: ${e.subject} | DATE: ${new Date(e.date).toLocaleDateString()} | ${e.isUnread ? 'UNREAD' : 'READ'} | PREVIEW: "${e.snippet.slice(0, 100)}"`
   ).join('\n');
 
+  // Build calendar summary
+  const calendarSummary = (data.calendarEvents || []).slice(0, 15).map(e => {
+    const start = new Date(e.start);
+    const day = start.toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' });
+    const time = e.allDay ? 'All day' : start.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' });
+    const loc = e.location ? ` | Location: ${e.location.slice(0, 60)}` : '';
+    return `- ${day} ${time}: ${e.summary}${loc}${e.attendeeCount > 1 ? ` (${e.attendeeCount} attendees)` : ''}`;
+  }).join('\n');
+
   // Build daily log summary
   const logSummary = data.recentDailyLogs.slice(0, 10).map(l =>
     `- ${l.authorName} on ${l.jobName} (${new Date(l.date).toLocaleDateString()}): ${l.notes.slice(0, 100)}...`
@@ -85,7 +94,8 @@ STATS:
 - ${data.stats.tasksToday} tasks due today
 - ${data.stats.activeJobCount} active jobs
 - ${data.stats.recentMessageCount} JT messages directed at ${data.userName} (last 7 days)
-- ${data.stats.unreadEmailCount} unread emails
+- ${data.stats.unreadEmailCount} unread emails in primary inbox
+- ${data.stats.upcomingEventsCount} calendar events this week
 
 TASKS ASSIGNED TO ${data.userName.toUpperCase()}:
 ${taskSummary || '(no tasks currently assigned in JobTread)'}
@@ -93,8 +103,11 @@ ${taskSummary || '(no tasks currently assigned in JobTread)'}
 JT MESSAGES DIRECTED AT ${data.userName.toUpperCase()} (from other team members/clients — these need review/response):
 ${messageSummary || '(no messages directed at user in last 7 days)'}
 
-GMAIL INBOX (recent emails that may need replies):
+GMAIL INBOX (recent primary emails — identify which ones need a reply or action):
 ${emailSummary || '(no email data available)'}
+
+CALENDAR (upcoming meetings and events — mention prep needed, conflicts, or follow-ups):
+${calendarSummary || '(no calendar data available)'}
 
 DAILY LOGS (ONLY mention if something requires action — do NOT summarize routine logs):
 ${logSummary || '(no recent logs)'}
