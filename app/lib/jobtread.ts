@@ -236,64 +236,93 @@ export async function getOpenTasksForMember(membershipId: string): Promise<JTTas
 }
 
 /**
- * Get open tasks assigned to a specific member by scanning active jobs.
- * This is more thorough than getOpenTasksForMember because the org-level
- * query caps at 100 tasks (oldest first) and misses tasks on newer jobs.
- * Queries each active job's tasks and filters by assignedMemberships.
+ * Get open/incomplete tasks assigned to a specific member using paginated org query.
+ *
+ * PAVE quirks this handles:
+ * 1. progress=null (unstarted tasks) is NOT matched by progress < 1, so we use OR filter
+ * 2. Org query caps at 100 results per page, so we paginate using where: id > lastId
+ * 3. Response is too large with user sub-field, so we only fetch membership IDs
+ *
+ * Strategy: Two-pass approach for speed
+ * Pass 1: Fetch only task IDs + membership IDs (tiny payload) across all pages to find matches
+ * Pass 2: Fetch full details only for matched task IDs
  */
 export async function getOpenTasksForMemberAcrossJobs(
   membershipId: string,
-  activeJobIds: string[]
+  _activeJobIds: string[]
 ): Promise<JTTask[]> {
-  const tasks: JTTask[] = [];
+  const ORG_ID = '22P5SRwhLaYe';
 
-  for (const jobId of activeJobIds) {
+  // Pass 1: Scan all pages for task IDs assigned to this member (lightweight)
+  const matchedTaskIds: string[] = [];
+  let lastId: string | null = null;
+  const MAX_PAGES = 15;
+
+  for (let page = 0; page < MAX_PAGES; page++) {
     try {
+      const progressFilter = { or: [['progress', '<', 1], ['progress', '=', null]] };
+      const whereClause = lastId
+        ? { and: [progressFilter, ['id', '>', lastId]] }
+        : progressFilter;
+
       const result = await pave({
-        job: {
-          $: { id: jobId },
-          name: {},
-          number: {},
+        organization: {
+          $: { id: ORG_ID },
           tasks: {
-            $: { size: 100, where: ['progress', '<', 1] },
+            $: { size: 100, where: whereClause },
             nodes: {
               id: {},
-              name: {},
-              startDate: {},
-              endDate: {},
-              progress: {},
-              isToDo: {},
               isGroup: {},
-              assignedMemberships: {
-                nodes: {
-                  id: {},
-                  user: { id: {}, name: {} },
-                },
-              },
+              assignedMemberships: { nodes: { id: {} } },
             },
           },
         },
       });
 
-      const job = (result as any)?.job;
-      if (!job?.tasks?.nodes) continue;
+      const nodes = (result as any)?.organization?.tasks?.nodes || [];
+      if (nodes.length === 0) break;
 
-      for (const t of job.tasks.nodes) {
-        // Skip group tasks
+      for (const t of nodes) {
         if (t.isGroup) continue;
-        // Check if assigned to the target member
         const isAssigned = t.assignedMemberships?.nodes?.some(
           (m: any) => m.id === membershipId
         );
         if (isAssigned) {
-          tasks.push({
-            ...t,
-            job: { id: jobId, name: job.name, number: job.number },
-          });
+          matchedTaskIds.push(t.id);
         }
       }
+
+      if (nodes.length < 100) break;
+      lastId = nodes[nodes.length - 1].id;
+    } catch (err: any) {
+      console.error(`[getOpenTasksForMemberAcrossJobs] Scan page ${page} failed:`, err.message);
+      break;
+    }
+  }
+
+  if (matchedTaskIds.length === 0) return [];
+
+  // Pass 2: Fetch full details for matched tasks (one query per task, but small set)
+  const tasks: JTTask[] = [];
+  for (const taskId of matchedTaskIds) {
+    try {
+      const result = await pave({
+        task: {
+          $: { id: taskId },
+          id: {},
+          name: {},
+          startDate: {},
+          endDate: {},
+          progress: {},
+          isToDo: {},
+          job: { id: {}, name: {}, number: {} },
+          assignedMemberships: { nodes: { id: {}, user: { name: {} } } },
+        },
+      });
+      const t = (result as any)?.task;
+      if (t) tasks.push(t);
     } catch {
-      // Skip individual job errors
+      // Skip individual task fetch errors
     }
   }
 
@@ -301,11 +330,13 @@ export async function getOpenTasksForMemberAcrossJobs(
 }
 
 // Get all open tasks across all active jobs (for Nathan's team workload view)
+// Note: uses progress < 1 only — may miss tasks with progress=null.
+// For complete results, use getOpenTasksForMemberAcrossJobs which handles null progress.
 export async function getAllOpenTasks(): Promise<JTTask[]> {
   const result = await orgQuery('tasks', {
     $: {
       size: 100,
-      where: ['progress', '<', 1],
+      where: { or: [['progress', '<', 1], ['progress', '=', null]] },
     },
     nodes: {
       id: {},
@@ -317,7 +348,6 @@ export async function getAllOpenTasks(): Promise<JTTask[]> {
       assignedMemberships: {
         nodes: {
           id: {},
-          user: { id: {}, name: {} },
         },
       },
     },
