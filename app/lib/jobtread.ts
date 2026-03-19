@@ -235,6 +235,71 @@ export async function getOpenTasksForMember(membershipId: string): Promise<JTTas
   );
 }
 
+/**
+ * Get open tasks assigned to a specific member by scanning active jobs.
+ * This is more thorough than getOpenTasksForMember because the org-level
+ * query caps at 100 tasks (oldest first) and misses tasks on newer jobs.
+ * Queries each active job's tasks and filters by assignedMemberships.
+ */
+export async function getOpenTasksForMemberAcrossJobs(
+  membershipId: string,
+  activeJobIds: string[]
+): Promise<JTTask[]> {
+  const tasks: JTTask[] = [];
+
+  for (const jobId of activeJobIds) {
+    try {
+      const result = await pave({
+        job: {
+          $: { id: jobId },
+          name: {},
+          number: {},
+          tasks: {
+            $: { size: 100, where: ['progress', '<', 1] },
+            nodes: {
+              id: {},
+              name: {},
+              startDate: {},
+              endDate: {},
+              progress: {},
+              isToDo: {},
+              isGroup: {},
+              assignedMemberships: {
+                nodes: {
+                  id: {},
+                  user: { id: {}, name: {} },
+                },
+              },
+            },
+          },
+        },
+      });
+
+      const job = (result as any)?.job;
+      if (!job?.tasks?.nodes) continue;
+
+      for (const t of job.tasks.nodes) {
+        // Skip group tasks
+        if (t.isGroup) continue;
+        // Check if assigned to the target member
+        const isAssigned = t.assignedMemberships?.nodes?.some(
+          (m: any) => m.id === membershipId
+        );
+        if (isAssigned) {
+          tasks.push({
+            ...t,
+            job: { id: jobId, name: job.name, number: job.number },
+          });
+        }
+      }
+    } catch {
+      // Skip individual job errors
+    }
+  }
+
+  return tasks;
+}
+
 // Get all open tasks across all active jobs (for Nathan's team workload view)
 export async function getAllOpenTasks(): Promise<JTTask[]> {
   const result = await orgQuery('tasks', {

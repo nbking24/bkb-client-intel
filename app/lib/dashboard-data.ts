@@ -13,6 +13,7 @@
 
 import {
   getOpenTasksForMember,
+  getOpenTasksForMemberAcrossJobs,
   getAllOpenTasks,
   getActiveJobs,
   pave,
@@ -177,16 +178,29 @@ export async function buildUserDashboardData(userId: string): Promise<UserDashbo
 
   const { role, membershipId, name: userName } = user;
 
-  // Fetch tasks from JT
-  // Owner sees ALL org to-dos (they oversee everything)
-  // Other roles see only their assigned tasks
+  // Fetch active jobs FIRST — needed for both per-job task scan and comment fetching
+  let activeJobs: Array<{ id: string; name: string; number: string; status?: string }> = [];
+  try {
+    const jobs = await getActiveJobs(50);
+    activeJobs = jobs.map((j: JTJob) => ({
+      id: j.id,
+      name: j.name,
+      number: j.number,
+      status: j.customStatus || undefined,
+    }));
+  } catch (err: any) {
+    console.error('[DashboardData] Failed to fetch active jobs:', err.message);
+  }
+
+  // Fetch tasks assigned to user by scanning each active job.
+  // The org-level query caps at 100 tasks (oldest first) and misses newer jobs,
+  // so we query per-job to get the complete picture.
   let rawTasks: any[] = [];
   try {
-    if (role === 'owner') {
-      rawTasks = await getAllOpenTasks();
-    } else {
-      rawTasks = await getOpenTasksForMember(membershipId);
-    }
+    rawTasks = await getOpenTasksForMemberAcrossJobs(
+      membershipId,
+      activeJobs.map(j => j.id)
+    );
   } catch (err: any) {
     console.error('[DashboardData] Failed to fetch tasks:', err.message);
   }
@@ -221,20 +235,6 @@ export async function buildUserDashboardData(userId: string): Promise<UserDashbo
     if (b.daysUntilDue === null) return -1;
     return a.daysUntilDue - b.daysUntilDue;
   });
-
-  // Fetch active jobs
-  let activeJobs: Array<{ id: string; name: string; number: string; status?: string }> = [];
-  try {
-    const jobs = await getActiveJobs(50);
-    activeJobs = jobs.map((j: JTJob) => ({
-      id: j.id,
-      name: j.name,
-      number: j.number,
-      status: j.customStatus || undefined,
-    }));
-  } catch (err: any) {
-    console.error('[DashboardData] Failed to fetch active jobs:', err.message);
-  }
 
   // Fetch JT comments directed at this user (live from PAVE with author names)
   let recentMessages: DashboardMessage[] = [];
