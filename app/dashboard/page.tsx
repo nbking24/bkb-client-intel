@@ -65,6 +65,13 @@ interface SuggestedAction {
   priority: 'high' | 'medium' | 'low';
 }
 
+interface MeetingPrepNote {
+  eventSummary: string;
+  time: string;
+  prepNote: string;
+  relatedJobName?: string;
+}
+
 interface DashboardAnalysis {
   summary: string;
   urgentItems: Array<{ title: string; description: string; jobName?: string }>;
@@ -73,6 +80,7 @@ interface DashboardAnalysis {
   emailsNeedingReply?: Array<{ from: string; subject: string; snippet: string; reason: string }>;
   actionItems: Array<{ action: string; priority: 'high' | 'medium' | 'low'; jobName?: string }>;
   suggestedActions?: SuggestedAction[];
+  meetingPrepNotes?: MeetingPrepNote[];
   tomorrowBriefing?: TomorrowBriefing;
 }
 
@@ -220,6 +228,18 @@ export default function DashboardOverview() {
 
   useEffect(() => {
     if (auth.userId) fetchOverview();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [auth.userId]);
+
+  // Auto-refresh every 15 minutes during work hours (8am-6pm)
+  useEffect(() => {
+    const interval = setInterval(() => {
+      const hour = new Date().getHours();
+      if (hour >= 8 && hour < 18 && auth.userId && !refreshing) {
+        fetchOverview(true);
+      }
+    }, 15 * 60 * 1000); // 15 minutes
+    return () => clearInterval(interval);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [auth.userId]);
 
@@ -504,7 +524,7 @@ export default function DashboardOverview() {
 
           {/* Calendar & Email — two-column layout */}
           <div className="grid md:grid-cols-2 gap-4">
-            {/* Upcoming Schedule */}
+            {/* Upcoming Schedule with AI prep notes */}
             {calendarEvents.length > 0 && (
               <section className="rounded-lg p-4" style={CARD_STYLE}>
                 <h2 className="text-sm font-semibold mb-3 flex items-center gap-2" style={{ color: '#8b5cf6' }}>
@@ -517,6 +537,11 @@ export default function DashboardOverview() {
                     const isTomorrow = start.toDateString() === new Date(Date.now() + 86400000).toDateString();
                     const dayLabel = isToday ? 'Today' : isTomorrow ? 'Tomorrow' : start.toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' });
                     const timeLabel = event.allDay ? 'All day' : start.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' });
+                    // Find matching prep note from AI
+                    const prepNote = analysis?.meetingPrepNotes?.find(p =>
+                      event.summary.toLowerCase().includes(p.eventSummary.toLowerCase()) ||
+                      p.eventSummary.toLowerCase().includes(event.summary.toLowerCase().slice(0, 15))
+                    );
                     return (
                       <div key={event.id} className="flex items-start gap-3 px-3 py-2 rounded-lg" style={{ background: isToday ? 'rgba(139,92,246,0.08)' : 'rgba(139,92,246,0.03)' }}>
                         <div className="flex-shrink-0 text-center pt-0.5" style={{ minWidth: '48px' }}>
@@ -528,6 +553,11 @@ export default function DashboardOverview() {
                           {event.location && (
                             <p className="text-xs truncate flex items-center gap-1 mt-0.5" style={{ color: '#8a8078' }}>
                               <MapPin size={10} /> {event.location.slice(0, 50)}
+                            </p>
+                          )}
+                          {prepNote && (
+                            <p className="text-xs mt-1 px-2 py-1 rounded" style={{ background: 'rgba(139,92,246,0.1)', color: '#a78bfa' }}>
+                              {prepNote.prepNote}
                             </p>
                           )}
                         </div>
@@ -625,16 +655,33 @@ export default function DashboardOverview() {
                         style={{ background: '#2a2a2a', border: '1px solid rgba(205,162,116,0.3)', color: '#e8e0d8' }}
                       />
                     ) : (
-                      <button
-                        onClick={() => { setEditingDateTaskId(task.id); setPendingDate(task.endDate || ''); }}
-                        className="text-xs flex-shrink-0 hover:underline cursor-pointer"
-                        style={{ color: task.urgency === 'urgent' ? '#ef4444' : '#8a8078' }}
-                        title="Click to change due date"
-                      >
-                        {task.daysUntilDue !== null
-                          ? (task.daysUntilDue < 0 ? `${Math.abs(task.daysUntilDue)}d overdue` : task.daysUntilDue === 0 ? 'Today' : `${task.daysUntilDue}d`)
-                          : task.endDate ? formatDate(task.endDate) : 'No date'}
-                      </button>
+                      <div className="flex items-center gap-1.5 flex-shrink-0">
+                        {/* Quick reschedule buttons for overdue tasks */}
+                        {task.daysUntilDue !== null && task.daysUntilDue < 0 && (
+                          <button
+                            onClick={() => {
+                              const next = new Date();
+                              next.setDate(next.getDate() + 1);
+                              updateTaskDate(task.id, next.toISOString().split('T')[0]);
+                            }}
+                            className="text-[10px] px-1.5 py-0.5 rounded hover:bg-white/10"
+                            style={{ color: '#eab308', border: '1px solid rgba(234,179,8,0.2)' }}
+                            title="Reschedule to tomorrow"
+                          >
+                            +1d
+                          </button>
+                        )}
+                        <button
+                          onClick={() => { setEditingDateTaskId(task.id); setPendingDate(task.endDate || ''); }}
+                          className="text-xs hover:underline cursor-pointer"
+                          style={{ color: task.urgency === 'urgent' ? '#ef4444' : '#8a8078' }}
+                          title="Click to change due date"
+                        >
+                          {task.daysUntilDue !== null
+                            ? (task.daysUntilDue < 0 ? `${Math.abs(task.daysUntilDue)}d overdue` : task.daysUntilDue === 0 ? 'Today' : `${task.daysUntilDue}d`)
+                            : task.endDate ? formatDate(task.endDate) : 'No date'}
+                        </button>
+                      </div>
                     )}
                   </div>
                 );

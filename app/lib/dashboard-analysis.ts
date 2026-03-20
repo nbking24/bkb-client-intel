@@ -31,6 +31,13 @@ export interface SuggestedAction {
   priority: 'high' | 'medium' | 'low';
 }
 
+export interface MeetingPrepNote {
+  eventSummary: string;
+  time: string;
+  prepNote: string;
+  relatedJobName?: string;
+}
+
 export interface DashboardAnalysis {
   summary: string;
   urgentItems: Array<{ title: string; description: string; jobName?: string }>;
@@ -39,6 +46,7 @@ export interface DashboardAnalysis {
   emailsNeedingReply: Array<{ from: string; subject: string; snippet: string; reason: string }>;
   actionItems: Array<{ action: string; priority: 'high' | 'medium' | 'low'; jobName?: string }>;
   suggestedActions: SuggestedAction[];
+  meetingPrepNotes: MeetingPrepNote[];
   tomorrowBriefing: TomorrowBriefing;
 }
 
@@ -190,6 +198,9 @@ Based on this data, provide a personalized dashboard briefing. Output ONLY valid
       "priority": "high|medium|low"
     }
   ],
+  "meetingPrepNotes": [
+    {"eventSummary": "meeting name from calendar", "time": "10:00 AM", "prepNote": "1-2 sentence prep tip: what to review, bring, or discuss", "relatedJobName": "BKB job name if applicable"}
+  ],
   "tomorrowBriefing": {
     "headline": "1 sentence: what ${tc.tomorrowLabel} looks like overall",
     "calendarWalkthrough": [{"time": "10:00 AM", "event": "event name", "prepNote": "what to prepare or bring"}],
@@ -210,6 +221,7 @@ IMPORTANT RULES:
   - "follow-up": include recipient/jobName and suggestedText for JT comment or email follow-up
   - "prep-meeting": include jobName for upcoming meetings needing preparation
   - "review-document": include jobName for documents needing review
+- meetingPrepNotes: for each upcoming meeting/consultation in today's calendar, provide a specific prep note (what to review, bring, or discuss). Match to BKB jobs where possible. Skip generic events like "Out of Office".
 - tomorrowBriefing: walk through ${tc.tomorrowLabel}'s calendar chronologically with prep notes for each event
 - prepTonightOrAM: specific things ${data.userName} should do tonight or first thing ${tc.tomorrowLabel} morning to be prepared`;
 
@@ -247,6 +259,7 @@ IMPORTANT RULES:
         emailsNeedingReply: parsed.emailsNeedingReply || [],
         actionItems: parsed.actionItems || [],
         suggestedActions: parsed.suggestedActions || [],
+        meetingPrepNotes: parsed.meetingPrepNotes || [],
         tomorrowBriefing: parsed.tomorrowBriefing || { headline: '', calendarWalkthrough: [], tasksDue: [], prepTonightOrAM: [] },
       };
     }
@@ -297,6 +310,7 @@ function buildFallbackAnalysis(data: UserDashboardData): DashboardAnalysis {
     emailsNeedingReply: [],
     actionItems,
     suggestedActions: [],
+    meetingPrepNotes: [],
     tomorrowBriefing: { headline: '', calendarWalkthrough: [], tasksDue: [], prepTonightOrAM: [] },
   };
 }
