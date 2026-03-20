@@ -16,6 +16,21 @@ export interface TomorrowBriefing {
   prepTonightOrAM: string[];
 }
 
+export interface SuggestedAction {
+  title: string;
+  actionType: 'reply-email' | 'complete-task' | 'reschedule-task' | 'follow-up' | 'prep-meeting' | 'review-document';
+  context: {
+    taskId?: string;
+    taskName?: string;
+    emailSubject?: string;
+    recipient?: string;
+    jobName?: string;
+    suggestedDate?: string;
+    suggestedText?: string;
+  };
+  priority: 'high' | 'medium' | 'low';
+}
+
 export interface DashboardAnalysis {
   summary: string;
   urgentItems: Array<{ title: string; description: string; jobName?: string }>;
@@ -23,6 +38,7 @@ export interface DashboardAnalysis {
   flaggedMessages: Array<{ preview: string; jobName: string; authorName: string; reason: string }>;
   emailsNeedingReply: Array<{ from: string; subject: string; snippet: string; reason: string }>;
   actionItems: Array<{ action: string; priority: 'high' | 'medium' | 'low'; jobName?: string }>;
+  suggestedActions: SuggestedAction[];
   tomorrowBriefing: TomorrowBriefing;
 }
 
@@ -166,6 +182,14 @@ Based on this data, provide a personalized dashboard briefing. Output ONLY valid
   "flaggedMessages": [{"preview": "first ~50 chars of the message", "jobName": "actual job name from data", "authorName": "actual author name", "reason": "why this needs attention/response"}],
   "emailsNeedingReply": [{"from": "sender", "subject": "subject line", "snippet": "preview", "reason": "why this needs a reply"}],
   "actionItems": [{"action": "specific thing to do ${tc.period === 'evening' ? tc.tomorrowLabel : 'today'}", "priority": "high|medium|low", "jobName": "..."}],
+  "suggestedActions": [
+    {
+      "title": "short action label for button",
+      "actionType": "reply-email|complete-task|reschedule-task|follow-up|prep-meeting|review-document",
+      "context": {"taskName": "if task", "emailSubject": "if email", "recipient": "if email", "jobName": "relevant job", "suggestedText": "draft reply text if email/follow-up"},
+      "priority": "high|medium|low"
+    }
+  ],
   "tomorrowBriefing": {
     "headline": "1 sentence: what ${tc.tomorrowLabel} looks like overall",
     "calendarWalkthrough": [{"time": "10:00 AM", "event": "event name", "prepNote": "what to prepare or bring"}],
@@ -179,6 +203,13 @@ IMPORTANT RULES:
 - emailsNeedingReply: ONLY emails that genuinely need a reply (not newsletters, automated notifications)
 - Do NOT include daily log entries in flaggedMessages
 - Keep each array to 5 items max. Be specific and actionable. Use actual names from the data.
+- suggestedActions: 3-5 highest-impact things ${data.userName} should DO RIGHT NOW. Each must have a clear actionType:
+  - "reply-email": include recipient and suggestedText (2-3 sentence professional draft)
+  - "complete-task": include taskName for tasks that can be marked done
+  - "reschedule-task": include taskName and suggestedDate for overdue tasks
+  - "follow-up": include recipient/jobName and suggestedText for JT comment or email follow-up
+  - "prep-meeting": include jobName for upcoming meetings needing preparation
+  - "review-document": include jobName for documents needing review
 - tomorrowBriefing: walk through ${tc.tomorrowLabel}'s calendar chronologically with prep notes for each event
 - prepTonightOrAM: specific things ${data.userName} should do tonight or first thing ${tc.tomorrowLabel} morning to be prepared`;
 
@@ -215,6 +246,7 @@ IMPORTANT RULES:
         flaggedMessages: parsed.flaggedMessages || [],
         emailsNeedingReply: parsed.emailsNeedingReply || [],
         actionItems: parsed.actionItems || [],
+        suggestedActions: parsed.suggestedActions || [],
         tomorrowBriefing: parsed.tomorrowBriefing || { headline: '', calendarWalkthrough: [], tasksDue: [], prepTonightOrAM: [] },
       };
     }
@@ -264,6 +296,7 @@ function buildFallbackAnalysis(data: UserDashboardData): DashboardAnalysis {
     flaggedMessages: [],
     emailsNeedingReply: [],
     actionItems,
+    suggestedActions: [],
     tomorrowBriefing: { headline: '', calendarWalkthrough: [], tasksDue: [], prepTonightOrAM: [] },
   };
 }

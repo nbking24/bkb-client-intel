@@ -55,6 +55,16 @@ interface TomorrowBriefing {
   prepTonightOrAM: string[];
 }
 
+interface SuggestedAction {
+  title: string;
+  actionType: 'reply-email' | 'complete-task' | 'reschedule-task' | 'follow-up' | 'prep-meeting' | 'review-document';
+  context: {
+    taskId?: string; taskName?: string; emailSubject?: string;
+    recipient?: string; jobName?: string; suggestedDate?: string; suggestedText?: string;
+  };
+  priority: 'high' | 'medium' | 'low';
+}
+
 interface DashboardAnalysis {
   summary: string;
   urgentItems: Array<{ title: string; description: string; jobName?: string }>;
@@ -62,6 +72,7 @@ interface DashboardAnalysis {
   flaggedMessages: Array<{ preview: string; jobName: string; authorName: string; reason: string }>;
   emailsNeedingReply?: Array<{ from: string; subject: string; snippet: string; reason: string }>;
   actionItems: Array<{ action: string; priority: 'high' | 'medium' | 'low'; jobName?: string }>;
+  suggestedActions?: SuggestedAction[];
   tomorrowBriefing?: TomorrowBriefing;
 }
 
@@ -91,6 +102,7 @@ interface DashboardData {
     id: string; summary: string; start: string; end: string;
     allDay: boolean; location: string; attendeeCount: number;
   }>;
+  activeJobs?: Array<{ id: string; name: string; number: string }>;
 }
 
 interface OverviewResponse {
@@ -285,6 +297,63 @@ export default function DashboardOverview() {
               </div>
               <p className="text-sm leading-relaxed" style={{ color: '#e8e0d8' }}>{analysis.summary}</p>
             </div>
+          )}
+
+          {/* Do Now — AI-suggested quick actions */}
+          {(analysis?.suggestedActions?.length ?? 0) > 0 && (
+            <section className="rounded-lg p-4" style={{ background: '#1a2218', border: '1px solid rgba(34,197,94,0.15)' }}>
+              <h2 className="text-sm font-semibold mb-3 flex items-center gap-2" style={{ color: '#22c55e' }}>
+                <Zap size={14} /> Do Now
+              </h2>
+              <div className="grid md:grid-cols-2 lg:grid-cols-3 gap-2">
+                {analysis!.suggestedActions!.map((action, i) => {
+                  const iconMap: Record<string, string> = {
+                    'reply-email': '✉️', 'complete-task': '✅', 'reschedule-task': '📅',
+                    'follow-up': '💬', 'prep-meeting': '📋', 'review-document': '📄',
+                  };
+                  const icon = iconMap[action.actionType] || '⚡';
+                  const priorityColor = action.priority === 'high' ? '#ef4444' : action.priority === 'medium' ? '#eab308' : '#22c55e';
+
+                  const handleAction = () => {
+                    if (action.actionType === 'reply-email' && action.context.recipient) {
+                      const subject = action.context.emailSubject ? `Re: ${action.context.emailSubject}` : '';
+                      const body = action.context.suggestedText || '';
+                      window.open(`https://mail.google.com/mail/?view=cm&to=${encodeURIComponent(action.context.recipient)}&su=${encodeURIComponent(subject)}&body=${encodeURIComponent(body)}`, '_blank');
+                    } else if (action.actionType === 'complete-task' && action.context.taskName) {
+                      const task = tasks.find(t => t.name.toLowerCase().includes(action.context.taskName!.toLowerCase()));
+                      if (task) completeTask(task.id);
+                    } else if (action.actionType === 'follow-up' && action.context.recipient) {
+                      const body = action.context.suggestedText || '';
+                      window.open(`https://mail.google.com/mail/?view=cm&to=${encodeURIComponent(action.context.recipient)}&body=${encodeURIComponent(body)}`, '_blank');
+                    } else if (action.actionType === 'prep-meeting' || action.actionType === 'review-document') {
+                      // Open JT job if we have a job name
+                      const job = overview?.data?.activeJobs?.find((j: any) =>
+                        action.context.jobName && j.name.toLowerCase().includes(action.context.jobName.toLowerCase())
+                      );
+                      if (job) window.open(`https://app.jobtread.com/jobs/${job.id}`, '_blank');
+                    }
+                  };
+
+                  return (
+                    <button
+                      key={i}
+                      onClick={handleAction}
+                      className="flex items-start gap-3 px-3 py-2.5 rounded-lg text-left transition-all hover:bg-white/[0.05]"
+                      style={{ background: 'rgba(34,197,94,0.05)', border: '1px solid rgba(34,197,94,0.1)' }}
+                    >
+                      <span className="text-base flex-shrink-0 mt-0.5">{icon}</span>
+                      <div className="min-w-0 flex-1">
+                        <p className="text-sm font-medium" style={{ color: '#e8e0d8' }}>{action.title}</p>
+                        {action.context.jobName && (
+                          <p className="text-xs mt-0.5" style={{ color: '#8a8078' }}>{action.context.jobName}</p>
+                        )}
+                      </div>
+                      <div className="w-1.5 h-1.5 rounded-full flex-shrink-0 mt-2" style={{ background: priorityColor }} />
+                    </button>
+                  );
+                })}
+              </div>
+            </section>
           )}
 
           {/* Two-column layout for insights */}
