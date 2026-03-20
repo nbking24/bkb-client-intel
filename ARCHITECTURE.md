@@ -564,6 +564,40 @@ JT API  ──→ jt_comments, jt_daily_logs (Supabase cache)
 
 All modifications to the codebase should be logged here with date, files changed, and what was done.
 
+### 2026-03-19 — Feature: Time-Aware Daily Operations Assistant + Tomorrow Preview
+
+**Problem:** The dashboard showed the same data regardless of when Nathan looked at it. He uses it at three times: morning (what's ahead), during the day (updates), and evening (tomorrow prep). The AI briefing and UI needed to adapt to these usage patterns.
+
+**Solution — Time-Aware Briefings:**
+- Added `TimeContext` to dashboard data: `period` (morning/midday/evening), `tomorrowLabel` ("tomorrow" or "Monday" on Fridays), `tomorrowDate`
+- AI prompt now includes time-period-specific instructions:
+  - **Morning**: "First look at the day" — prioritizes today's calendar, urgent tasks, same-day email replies
+  - **Midday**: "Quick status check" — focuses on what needs attention right now, new messages
+  - **Evening**: "Tomorrow prep" — emphasizes tomorrow's schedule and what to prepare tonight
+- Summary and action items adapt to the time period (evening actions say "prepare for tomorrow")
+
+**Solution — Tomorrow Preview:**
+- Dashboard data layer fetches tomorrow's calendar events specifically (`fetchCalendarEvents` with custom date range)
+- Filters tasks due tomorrow from the existing task list
+- AI generates `tomorrowBriefing` object with:
+  - `headline`: "What tomorrow looks like overall"
+  - `calendarWalkthrough`: Chronological events with AI-generated prep notes ("Review plans, bring budget spreadsheet")
+  - `tasksDue`: Tasks due tomorrow with job names
+  - `prepTonightOrAM`: Specific prep actions for tonight or first thing tomorrow
+- Friday evening automatically shows Monday's preview (not Saturday)
+
+**Solution — Time-Aware UI:**
+- Header changes by time: "Good morning — Your day ahead" / "Afternoon check-in" / "Evening prep — Preparing for tomorrow"
+- Tomorrow Preview section with two-column layout: SCHEDULE (chronological walkthrough) + PREP (tonight's checklist + tasks due)
+- Evening mode highlights tomorrow preview with purple accent border
+- Calendar events include AI-generated prep notes per event
+
+**Files changed:**
+- `app/lib/google-api.ts` — `fetchCalendarEvents()` now accepts custom start/end Date params for tomorrow-specific queries
+- `app/lib/dashboard-data.ts` — Added `TimeContext` type, `getTimeContext()` function, `tomorrowTasks`, `tomorrowCalendarEvents`, `tasksTomorrow` and `tomorrowEventsCount` stats
+- `app/lib/dashboard-analysis.ts` — Added `TomorrowBriefing` interface, time-period-specific prompt instructions (morning/midday/evening), `tomorrowBriefing` in AI output with calendar walkthrough and prep actions, increased max_tokens to 3000
+- `app/dashboard/page.tsx` — Time-aware header with `getSubGreeting()`, `TomorrowBriefing` interface, Tomorrow Preview section with schedule walkthrough and prep checklist, time context variables
+
 ### 2026-03-19 — Feature: Gmail Inbox + Google Calendar Integration for Dashboard
 
 **Problem:** The dashboard AI briefing only had JT data (tasks, comments, daily logs). Nathan wanted Gmail and Calendar context so the AI knows what emails need replies and what meetings are coming up.
