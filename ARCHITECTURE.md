@@ -598,6 +598,56 @@ All modifications to the codebase should be logged here with date, files changed
 - `app/lib/dashboard-analysis.ts` — Added `TomorrowBriefing` interface, time-period-specific prompt instructions (morning/midday/evening), `tomorrowBriefing` in AI output with calendar walkthrough and prep actions, increased max_tokens to 3000
 - `app/dashboard/page.tsx` — Time-aware header with `getSubGreeting()`, `TomorrowBriefing` interface, Tomorrow Preview section with schedule walkthrough and prep checklist, time context variables
 
+### 2026-03-19 — Feature: Smart Quick Actions ("Do Now" Section)
+
+**Problem:** The dashboard showed what needs attention but didn't help Nathan take action quickly. He had to mentally parse the briefing, then navigate to Gmail/JT/Calendar separately to act on each item.
+
+**Solution — AI-Suggested Quick Actions:**
+- AI now generates 3-5 `suggestedActions` based on analysis of tasks, emails, calendar, and messages
+- Each action has a type that determines one-click behavior:
+  - `reply-email`: Opens Gmail compose (`mail.google.com/?view=cm`) with pre-drafted reply text, recipient, and subject pre-filled
+  - `complete-task`: Marks JT task as done (finds matching task by name, calls existing PATCH endpoint)
+  - `follow-up`: Opens Gmail compose for follow-up email with AI-drafted body
+  - `prep-meeting`: Opens JT job page for the relevant project
+  - `review-document`: Opens JT job page for document review
+  - `reschedule-task`: (future) inline date picker for overdue tasks
+- AI generates `suggestedText` for email actions — 2-3 sentence professional drafts in BKB voice
+
+**Solution — "Do Now" UI Section:**
+- Green-themed section right after AI Briefing, before insights grid
+- 2-3 column responsive grid of clickable action cards
+- Each card shows: action type emoji, title, job name, priority dot (red/yellow/green)
+- Clicking performs the action immediately — no confirmation for non-destructive actions
+
+**Files changed:**
+- `app/lib/dashboard-analysis.ts` — Added `SuggestedAction` interface with actionType/context/priority, added to AI prompt with detailed instructions per action type, added to response parser and fallback
+- `app/dashboard/page.tsx` — Added `SuggestedAction` interface, "Do Now" section with action handler logic (Gmail compose URLs, task completion, JT job navigation), priority indicators
+
+### 2026-03-19 — Feature: Meeting Prep Notes, Deadline Alerts, Auto-Refresh
+
+**Problem:** Calendar events showed times and locations but no context about what Nathan should prepare. Overdue tasks required multiple clicks to reschedule. Dashboard data went stale unless manually refreshed.
+
+**Solution — Meeting Prep Notes:**
+- AI generates `meetingPrepNotes` for each upcoming meeting/consultation in today's calendar
+- Each note includes: event name, time, 1-2 sentence prep tip (what to review, bring, or discuss), related BKB job name
+- Shown as purple badges directly under calendar events in the Upcoming Schedule section
+- Matches events by name to find the corresponding prep note from AI
+- Skips generic events like "Out of Office"
+
+**Solution — Deadline Quick-Reschedule:**
+- Overdue tasks now show a "+1d" button that pushes the task to tomorrow with one click
+- Updates both startDate and endDate in JT via existing PATCH endpoint
+- Combines with the existing inline date picker for custom date selection
+
+**Solution — Auto-Refresh:**
+- Dashboard auto-refreshes every 15 minutes during work hours (8am-6pm EST)
+- Uses `setInterval` with hour check — no unnecessary API calls outside work hours
+- Refresh runs silently in background without spinner (uses `fetchOverview(true)`)
+
+**Files changed:**
+- `app/lib/dashboard-analysis.ts` — Added `MeetingPrepNote` interface, `meetingPrepNotes` to AI output and prompt rules, added to response parser and fallback
+- `app/dashboard/page.tsx` — Calendar events now show AI prep notes as purple badges, overdue tasks show "+1d" quick-reschedule button, added 15-minute auto-refresh interval during work hours, added `MeetingPrepNote` and `activeJobs` to client-side types
+
 ### 2026-03-19 — Feature: Gmail Inbox + Google Calendar Integration for Dashboard
 
 **Problem:** The dashboard AI briefing only had JT data (tasks, comments, daily logs). Nathan wanted Gmail and Calendar context so the AI knows what emails need replies and what meetings are coming up.
