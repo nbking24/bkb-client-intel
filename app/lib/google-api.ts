@@ -154,15 +154,20 @@ export interface CalendarEvent {
 }
 
 /**
- * Fetch upcoming calendar events for the next 7 days.
+ * Fetch calendar events for a date range.
+ * Default: next 7 days from now.
+ * Can specify custom start/end for tomorrow-only queries.
  */
-export async function fetchCalendarEvents(daysAhead = 7): Promise<CalendarEvent[]> {
+export async function fetchCalendarEvents(
+  daysAhead = 7,
+  customStart?: Date,
+  customEnd?: Date
+): Promise<CalendarEvent[]> {
   try {
     const token = await getAccessToken();
 
-    const now = new Date();
-    const timeMin = now.toISOString();
-    const timeMax = new Date(now.getTime() + daysAhead * 24 * 60 * 60 * 1000).toISOString();
+    const timeMin = (customStart || new Date()).toISOString();
+    const timeMax = (customEnd || new Date(Date.now() + daysAhead * 24 * 60 * 60 * 1000)).toISOString();
 
     const calRes = await fetch(
       `https://www.googleapis.com/calendar/v3/calendars/primary/events?timeMin=${encodeURIComponent(timeMin)}&timeMax=${encodeURIComponent(timeMax)}&singleEvents=true&orderBy=startTime&maxResults=20`,

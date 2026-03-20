@@ -6,8 +6,15 @@
  * Uses role-specific prompts for personalized insights.
  */
 
-import type { UserDashboardData } from './dashboard-data';
+import type { UserDashboardData, TimePeriod } from './dashboard-data';
 import type { TeamRole } from './constants';
+
+export interface TomorrowBriefing {
+  headline: string;
+  calendarWalkthrough: Array<{ time: string; event: string; prepNote: string }>;
+  tasksDue: Array<{ task: string; jobName: string }>;
+  prepTonightOrAM: string[];
+}
 
 export interface DashboardAnalysis {
   summary: string;
@@ -16,6 +23,7 @@ export interface DashboardAnalysis {
   flaggedMessages: Array<{ preview: string; jobName: string; authorName: string; reason: string }>;
   emailsNeedingReply: Array<{ from: string; subject: string; snippet: string; reason: string }>;
   actionItems: Array<{ action: string; priority: 'high' | 'medium' | 'low'; jobName?: string }>;
+  tomorrowBriefing: TomorrowBriefing;
 }
 
 function getRoleContext(role: TeamRole): string {
@@ -79,23 +87,55 @@ export async function analyzeUserDashboard(data: UserDashboardData): Promise<Das
     return `- ${day} ${time}: ${e.summary}${loc}${e.attendeeCount > 1 ? ` (${e.attendeeCount} attendees)` : ''}`;
   }).join('\n');
 
+  // Build tomorrow calendar summary
+  const tomorrowCalSummary = (data.tomorrowCalendarEvents || []).map(e => {
+    const start = new Date(e.start);
+    const time = e.allDay ? 'All day' : start.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' });
+    const loc = e.location ? ` | Location: ${e.location.slice(0, 60)}` : '';
+    return `- ${time}: ${e.summary}${loc}${e.attendeeCount > 1 ? ` (${e.attendeeCount} attendees)` : ''}`;
+  }).join('\n');
+
+  // Build tomorrow tasks summary
+  const tomorrowTaskSummary = (data.tomorrowTasks || []).map(t =>
+    `- ${t.name} (${t.jobName} #${t.jobNumber})${t.assignee ? ` | Assigned: ${t.assignee}` : ''}`
+  ).join('\n');
+
   // Build daily log summary
   const logSummary = data.recentDailyLogs.slice(0, 10).map(l =>
     `- ${l.authorName} on ${l.jobName} (${new Date(l.date).toLocaleDateString()}): ${l.notes.slice(0, 100)}...`
   ).join('\n');
 
+  // Time-period-specific instructions
+  const tc = data.timeContext;
+  const periodInstructions = tc.period === 'morning'
+    ? `BRIEFING MODE: MORNING — This is ${data.userName}'s first look at the day.
+Focus on: what's happening TODAY (calendar, urgent tasks, emails needing same-day reply).
+The summary should read like a morning briefing from a chief of staff.
+Include a brief "${tc.tomorrowLabel} preview" note at the end of the summary.`
+    : tc.period === 'midday'
+    ? `BRIEFING MODE: MIDDAY CHECK-IN — ${data.userName} is checking in during the day.
+Focus on: what needs attention RIGHT NOW, any new messages since morning, afternoon priorities.
+Be concise — this is a quick status check, not a full briefing.`
+    : `BRIEFING MODE: EVENING PREP — ${data.userName} is wrapping up and preparing for ${tc.tomorrowLabel}.
+Focus heavily on ${tc.tomorrowLabel}'s schedule and what needs to be prepared tonight or first thing in the morning.
+The summary should emphasize ${tc.tomorrowLabel}'s priorities and any prep Nathan should do before bed or first thing.`;
+
   const prompt = `${roleContext}
 
+${periodInstructions}
+
 Today is ${new Date().toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric', year: 'numeric' })}.
+Current time: ${new Date().toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' })}
 User: ${data.userName} (${data.role})
 
 STATS:
-- ${data.stats.totalTasks} open tasks assigned to ${data.userName} (${data.stats.urgentTasks} urgent, ${data.stats.highPriorityTasks} high priority)
-- ${data.stats.tasksToday} tasks due today
+- ${data.stats.totalTasks} open tasks (${data.stats.urgentTasks} urgent, ${data.stats.highPriorityTasks} high priority)
+- ${data.stats.tasksToday} tasks due today, ${data.stats.tasksTomorrow} due ${tc.tomorrowLabel}
 - ${data.stats.activeJobCount} active jobs
 - ${data.stats.recentMessageCount} JT messages directed at ${data.userName} (last 7 days)
 - ${data.stats.unreadEmailCount} unread emails in primary inbox
 - ${data.stats.upcomingEventsCount} calendar events this week
+- ${data.stats.tomorrowEventsCount} events ${tc.tomorrowLabel}
 
 TASKS ASSIGNED TO ${data.userName.toUpperCase()}:
 ${taskSummary || '(no tasks currently assigned in JobTread)'}
@@ -106,28 +146,41 @@ ${messageSummary || '(no messages directed at user in last 7 days)'}
 GMAIL INBOX (recent primary emails — identify which ones need a reply or action):
 ${emailSummary || '(no email data available)'}
 
-CALENDAR (upcoming meetings and events — mention prep needed, conflicts, or follow-ups):
+TODAY'S CALENDAR:
 ${calendarSummary || '(no calendar data available)'}
+
+${tc.tomorrowLabel.toUpperCase()}'S CALENDAR (${tc.tomorrowDate}):
+${tomorrowCalSummary || '(no events)'}
+
+TASKS DUE ${tc.tomorrowLabel.toUpperCase()}:
+${tomorrowTaskSummary || '(none)'}
 
 DAILY LOGS (ONLY mention if something requires action — do NOT summarize routine logs):
 ${logSummary || '(no recent logs)'}
 
 Based on this data, provide a personalized dashboard briefing. Output ONLY valid JSON in this exact format (no markdown, no code fences):
 {
-  "summary": "2-3 sentence overview of what needs attention today — be specific about names, projects, and actions",
+  "summary": "2-3 sentence briefing appropriate for ${tc.period} — be specific about names, projects, and actions",
   "urgentItems": [{"title": "...", "description": "...", "jobName": "..."}],
   "upcomingDeadlines": [{"title": "...", "dueDate": "YYYY-MM-DD", "daysUntilDue": N, "jobName": "..."}],
   "flaggedMessages": [{"preview": "first ~50 chars of the message", "jobName": "actual job name from data", "authorName": "actual author name", "reason": "why this needs attention/response"}],
   "emailsNeedingReply": [{"from": "sender", "subject": "subject line", "snippet": "preview", "reason": "why this needs a reply"}],
-  "actionItems": [{"action": "specific thing to do today", "priority": "high|medium|low", "jobName": "..."}]
+  "actionItems": [{"action": "specific thing to do ${tc.period === 'evening' ? tc.tomorrowLabel : 'today'}", "priority": "high|medium|low", "jobName": "..."}],
+  "tomorrowBriefing": {
+    "headline": "1 sentence: what ${tc.tomorrowLabel} looks like overall",
+    "calendarWalkthrough": [{"time": "10:00 AM", "event": "event name", "prepNote": "what to prepare or bring"}],
+    "tasksDue": [{"task": "task name", "jobName": "job name"}],
+    "prepTonightOrAM": ["specific prep action 1", "specific prep action 2"]
+  }
 }
 
 IMPORTANT RULES:
-- flaggedMessages should ONLY contain JT messages from others that need a response or action from ${data.userName}
-- emailsNeedingReply should ONLY contain emails that genuinely need a reply (not newsletters, automated notifications, etc.)
-- Do NOT include daily log entries in flaggedMessages — only include them in urgentItems or actionItems if they reveal a problem
-- Keep each array to 5 items max. Be specific and actionable. Use actual job names and people names from the data.
-- If there are no tasks assigned, still provide insights from messages, emails, and job data.`;
+- flaggedMessages: ONLY JT messages from others that need a response from ${data.userName}
+- emailsNeedingReply: ONLY emails that genuinely need a reply (not newsletters, automated notifications)
+- Do NOT include daily log entries in flaggedMessages
+- Keep each array to 5 items max. Be specific and actionable. Use actual names from the data.
+- tomorrowBriefing: walk through ${tc.tomorrowLabel}'s calendar chronologically with prep notes for each event
+- prepTonightOrAM: specific things ${data.userName} should do tonight or first thing ${tc.tomorrowLabel} morning to be prepared`;
 
   try {
     const res = await fetch('https://api.anthropic.com/v1/messages', {
@@ -139,7 +192,7 @@ IMPORTANT RULES:
       },
       body: JSON.stringify({
         model: 'claude-sonnet-4-20250514',
-        max_tokens: 2048,
+        max_tokens: 3000,
         messages: [{ role: 'user', content: prompt }],
       }),
     });
@@ -162,6 +215,7 @@ IMPORTANT RULES:
         flaggedMessages: parsed.flaggedMessages || [],
         emailsNeedingReply: parsed.emailsNeedingReply || [],
         actionItems: parsed.actionItems || [],
+        tomorrowBriefing: parsed.tomorrowBriefing || { headline: '', calendarWalkthrough: [], tasksDue: [], prepTonightOrAM: [] },
       };
     }
   } catch (err: any) {
@@ -210,5 +264,6 @@ function buildFallbackAnalysis(data: UserDashboardData): DashboardAnalysis {
     flaggedMessages: [],
     emailsNeedingReply: [],
     actionItems,
+    tomorrowBriefing: { headline: '', calendarWalkthrough: [], tasksDue: [], prepTonightOrAM: [] },
   };
 }

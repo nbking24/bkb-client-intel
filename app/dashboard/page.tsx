@@ -11,11 +11,21 @@ import Link from 'next/link';
 
 function getToken() { return typeof window !== 'undefined' ? localStorage.getItem('bkb-token') || '' : ''; }
 
-function getGreeting() {
+function getGreeting(period?: string) {
+  if (period === 'morning') return 'Good morning';
+  if (period === 'midday') return 'Afternoon check-in';
+  if (period === 'evening') return 'Evening prep';
   const h = new Date().getHours();
   if (h < 12) return 'Good morning';
   if (h < 17) return 'Good afternoon';
   return 'Good evening';
+}
+
+function getSubGreeting(period?: string, tomorrowLabel?: string) {
+  if (period === 'morning') return 'Your day ahead';
+  if (period === 'midday') return 'What needs attention now';
+  if (period === 'evening') return `Preparing for ${tomorrowLabel || 'tomorrow'}`;
+  return '';
 }
 
 function formatDate(d: string | null) {
@@ -38,6 +48,13 @@ function timeAgo(dateStr: string) {
 // Types
 // ============================================================
 
+interface TomorrowBriefing {
+  headline: string;
+  calendarWalkthrough: Array<{ time: string; event: string; prepNote: string }>;
+  tasksDue: Array<{ task: string; jobName: string }>;
+  prepTonightOrAM: string[];
+}
+
 interface DashboardAnalysis {
   summary: string;
   urgentItems: Array<{ title: string; description: string; jobName?: string }>;
@@ -45,18 +62,22 @@ interface DashboardAnalysis {
   flaggedMessages: Array<{ preview: string; jobName: string; authorName: string; reason: string }>;
   emailsNeedingReply?: Array<{ from: string; subject: string; snippet: string; reason: string }>;
   actionItems: Array<{ action: string; priority: 'high' | 'medium' | 'low'; jobName?: string }>;
+  tomorrowBriefing?: TomorrowBriefing;
 }
 
 interface DashboardData {
+  timeContext?: { period: string; tomorrowLabel: string; tomorrowDate: string };
   stats: {
     totalTasks: number;
     urgentTasks: number;
     highPriorityTasks: number;
     tasksToday: number;
+    tasksTomorrow: number;
     recentMessageCount: number;
     activeJobCount: number;
     unreadEmailCount: number;
     upcomingEventsCount: number;
+    tomorrowEventsCount: number;
   };
   tasks: Array<{
     id: string; name: string; jobName: string; jobNumber: string;
@@ -199,20 +220,24 @@ export default function DashboardOverview() {
   const tasks = overview?.data?.tasks || [];
   const emails = overview?.data?.recentEmails || [];
   const calendarEvents = overview?.data?.calendarEvents || [];
+  const tc = overview?.data?.timeContext;
+  const tomorrowBriefing = analysis?.tomorrowBriefing;
 
   return (
     <div className="p-4 md:p-6 max-w-6xl mx-auto space-y-6">
-      {/* Header */}
+      {/* Header — time-aware */}
       <div className="flex items-center justify-between">
         <div>
           <h1 className="text-xl font-semibold" style={{ color: '#e8e0d8' }}>
-            {getGreeting()}, {auth.user?.name?.split(' ')[0]}
+            {getGreeting(tc?.period)}, {auth.user?.name?.split(' ')[0]}
           </h1>
-          <p className="text-sm mt-0.5" style={{ color: '#8a8078' }}>
+          <p className="text-sm mt-0.5" style={{ color: '#CDA274' }}>
+            {getSubGreeting(tc?.period, tc?.tomorrowLabel) || (loading ? 'Loading...' : '')}
+          </p>
+          <p className="text-xs mt-0.5" style={{ color: '#6a6058' }}>
             {overview?._cached && overview._cachedAt
               ? `Updated ${timeAgo(overview._cachedAt)}`
-              : loading ? 'Loading...' : 'Fresh analysis'}
-            {overview?._analysisTimeMs ? ` (${(overview._analysisTimeMs / 1000).toFixed(1)}s)` : ''}
+              : loading ? '' : 'Fresh analysis'}
           </p>
         </div>
         <button
@@ -344,6 +369,69 @@ export default function DashboardOverview() {
               </section>
             )}
           </div>
+
+          {/* Tomorrow Preview — prominent in evening, collapsed in morning/midday */}
+          {tomorrowBriefing && (tomorrowBriefing.headline || tomorrowBriefing.calendarWalkthrough?.length > 0 || tomorrowBriefing.prepTonightOrAM?.length > 0) && (
+            <section className="rounded-lg p-4" style={{ background: tc?.period === 'evening' ? '#1a2332' : '#1e1e1e', border: tc?.period === 'evening' ? '1px solid rgba(139,92,246,0.2)' : '1px solid rgba(205,162,116,0.08)' }}>
+              <h2 className="text-sm font-semibold mb-3 flex items-center gap-2" style={{ color: '#8b5cf6' }}>
+                <Calendar size={14} /> {tc?.tomorrowLabel ? `${tc.tomorrowLabel.charAt(0).toUpperCase() + tc.tomorrowLabel.slice(1)}'s Preview` : "Tomorrow's Preview"}
+              </h2>
+              {tomorrowBriefing.headline && (
+                <p className="text-sm mb-3" style={{ color: '#e8e0d8' }}>{tomorrowBriefing.headline}</p>
+              )}
+              <div className="grid md:grid-cols-2 gap-4">
+                {/* Calendar walkthrough */}
+                {tomorrowBriefing.calendarWalkthrough?.length > 0 && (
+                  <div>
+                    <p className="text-xs font-medium mb-2" style={{ color: '#8a8078' }}>SCHEDULE</p>
+                    <div className="space-y-2">
+                      {tomorrowBriefing.calendarWalkthrough.map((item, i) => (
+                        <div key={i} className="flex gap-3 px-2 py-1.5 rounded" style={{ background: 'rgba(139,92,246,0.05)' }}>
+                          <span className="text-xs font-medium flex-shrink-0 pt-0.5" style={{ color: '#8b5cf6', minWidth: '60px' }}>{item.time}</span>
+                          <div className="min-w-0">
+                            <p className="text-sm" style={{ color: '#e8e0d8' }}>{item.event}</p>
+                            {item.prepNote && <p className="text-xs mt-0.5" style={{ color: '#8a8078' }}>{item.prepNote}</p>}
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
+                {/* Prep tasks */}
+                {(tomorrowBriefing.prepTonightOrAM?.length > 0 || tomorrowBriefing.tasksDue?.length > 0) && (
+                  <div>
+                    {tomorrowBriefing.prepTonightOrAM?.length > 0 && (
+                      <>
+                        <p className="text-xs font-medium mb-2" style={{ color: '#8a8078' }}>
+                          {tc?.period === 'evening' ? 'PREP TONIGHT' : 'PREP FOR TOMORROW'}
+                        </p>
+                        <div className="space-y-1.5">
+                          {tomorrowBriefing.prepTonightOrAM.map((item, i) => (
+                            <div key={i} className="flex items-start gap-2 px-2 py-1.5 rounded" style={{ background: 'rgba(234,179,8,0.05)' }}>
+                              <CheckCircle2 size={12} className="flex-shrink-0 mt-0.5" style={{ color: '#eab308' }} />
+                              <p className="text-sm" style={{ color: '#e8e0d8' }}>{item}</p>
+                            </div>
+                          ))}
+                        </div>
+                      </>
+                    )}
+                    {tomorrowBriefing.tasksDue?.length > 0 && (
+                      <div className="mt-3">
+                        <p className="text-xs font-medium mb-2" style={{ color: '#8a8078' }}>TASKS DUE</p>
+                        <div className="space-y-1">
+                          {tomorrowBriefing.tasksDue.map((item, i) => (
+                            <div key={i} className="px-2 py-1 text-sm" style={{ color: '#a09890' }}>
+                              {item.task} <span style={{ color: '#6a6058' }}>— {item.jobName}</span>
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                )}
+              </div>
+            </section>
+          )}
 
           {/* Calendar & Email — two-column layout */}
           <div className="grid md:grid-cols-2 gap-4">

@@ -64,25 +64,41 @@ export interface DashboardDailyLog {
   authorName: string;
 }
 
+export type TimePeriod = 'morning' | 'midday' | 'evening';
+
+export interface TimeContext {
+  period: TimePeriod;
+  hour: number;
+  dayOfWeek: string;
+  isWeekend: boolean;
+  tomorrowLabel: string; // "tomorrow" or "Monday" if it's Friday
+  tomorrowDate: string;  // YYYY-MM-DD
+}
+
 export interface UserDashboardData {
   userId: string;
   userName: string;
   role: TeamRole;
+  timeContext: TimeContext;
   tasks: DashboardTask[];
+  tomorrowTasks: DashboardTask[];
   recentMessages: DashboardMessage[];
   recentDailyLogs: DashboardDailyLog[];
   recentEmails: DashboardEmail[];
   calendarEvents: CalendarEvent[];
+  tomorrowCalendarEvents: CalendarEvent[];
   activeJobs: Array<{ id: string; name: string; number: string; status?: string }>;
   stats: {
     totalTasks: number;
     urgentTasks: number;
     highPriorityTasks: number;
     tasksToday: number;
+    tasksTomorrow: number;
     recentMessageCount: number;
     activeJobCount: number;
     unreadEmailCount: number;
     upcomingEventsCount: number;
+    tomorrowEventsCount: number;
   };
 }
 
@@ -175,11 +191,42 @@ async function fetchJTCommentsForUser(
   return messages.slice(0, 20);
 }
 
+function getTimeContext(): TimeContext {
+  const now = new Date();
+  const hour = now.getHours();
+  const dayOfWeek = now.toLocaleDateString('en-US', { weekday: 'long' });
+  const isWeekend = now.getDay() === 0 || now.getDay() === 6;
+  const isFriday = now.getDay() === 5;
+
+  // Tomorrow = next business day (Friday→Monday, otherwise next day)
+  const tomorrowDate = new Date(now);
+  if (isFriday) {
+    tomorrowDate.setDate(tomorrowDate.getDate() + 3); // Skip to Monday
+  } else if (now.getDay() === 6) {
+    tomorrowDate.setDate(tomorrowDate.getDate() + 2); // Saturday→Monday
+  } else {
+    tomorrowDate.setDate(tomorrowDate.getDate() + 1);
+  }
+
+  const tomorrowLabel = isFriday ? 'Monday' : 'tomorrow';
+  const period: TimePeriod = hour < 12 ? 'morning' : hour < 17 ? 'midday' : 'evening';
+
+  return {
+    period,
+    hour,
+    dayOfWeek,
+    isWeekend,
+    tomorrowLabel,
+    tomorrowDate: tomorrowDate.toISOString().split('T')[0],
+  };
+}
+
 export async function buildUserDashboardData(userId: string): Promise<UserDashboardData> {
   const user = TEAM_USERS[userId];
   if (!user) throw new Error(`Unknown userId: ${userId}`);
 
   const { role, membershipId, name: userName } = user;
+  const timeContext = getTimeContext();
 
   // Fetch active jobs FIRST — needed for both per-job task scan and comment fetching
   let activeJobs: Array<{ id: string; name: string; number: string; status?: string }> = [];
@@ -302,6 +349,19 @@ export async function buildUserDashboardData(userId: string): Promise<UserDashbo
     console.error('[DashboardData] Failed to fetch calendar:', err.message);
   }
 
+  // Fetch tomorrow's calendar events specifically
+  let tomorrowCalendarEvents: CalendarEvent[] = [];
+  try {
+    const tmDate = new Date(timeContext.tomorrowDate + 'T00:00:00');
+    const tmEnd = new Date(timeContext.tomorrowDate + 'T23:59:59');
+    tomorrowCalendarEvents = await fetchCalendarEvents(1, tmDate, tmEnd);
+  } catch (err: any) {
+    console.error('[DashboardData] Failed to fetch tomorrow calendar:', err.message);
+  }
+
+  // Filter tomorrow's tasks
+  const tomorrowTasks = tasks.filter(t => t.endDate?.startsWith(timeContext.tomorrowDate));
+
   // Compute stats
   const today = new Date().toISOString().split('T')[0];
   const stats = {
@@ -309,21 +369,26 @@ export async function buildUserDashboardData(userId: string): Promise<UserDashbo
     urgentTasks: tasks.filter(t => t.urgency === 'urgent').length,
     highPriorityTasks: tasks.filter(t => t.urgency === 'high').length,
     tasksToday: tasks.filter(t => t.endDate?.startsWith(today)).length,
+    tasksTomorrow: tomorrowTasks.length,
     recentMessageCount: recentMessages.length,
     activeJobCount: activeJobs.length,
     unreadEmailCount: recentEmails.filter(e => e.isUnread).length,
     upcomingEventsCount: calendarEvents.length,
+    tomorrowEventsCount: tomorrowCalendarEvents.length,
   };
 
   return {
     userId,
     userName,
     role,
+    timeContext,
     tasks: tasks.slice(0, 50),
+    tomorrowTasks,
     recentMessages,
     recentDailyLogs,
     recentEmails,
     calendarEvents,
+    tomorrowCalendarEvents,
     activeJobs,
     stats,
   };
