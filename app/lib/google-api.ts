@@ -137,6 +137,117 @@ export async function fetchGmailInbox(maxResults = 15): Promise<GmailMessage[]> 
   }
 }
 
+/**
+ * Archive emails by removing the INBOX label (moves to "All Mail").
+ * Emails remain searchable but disappear from the inbox.
+ */
+export async function archiveEmails(messageIds: string[]): Promise<{ archived: number; failed: number }> {
+  let archived = 0;
+  let failed = 0;
+
+  try {
+    const token = await getAccessToken();
+
+    // Gmail batch modify — remove INBOX label from multiple messages at once
+    // API supports up to 1000 IDs per batch
+    const batchSize = 50;
+    for (let i = 0; i < messageIds.length; i += batchSize) {
+      const batch = messageIds.slice(i, i + batchSize);
+      try {
+        const res = await fetch(
+          'https://gmail.googleapis.com/gmail/v1/users/me/messages/batchModify',
+          {
+            method: 'POST',
+            headers: {
+              Authorization: `Bearer ${token}`,
+              'Content-Type': 'application/json',
+            },
+            body: JSON.stringify({
+              ids: batch,
+              removeLabelIds: ['INBOX'],
+            }),
+          }
+        );
+        if (res.ok) {
+          archived += batch.length;
+        } else {
+          console.error('[GoogleAPI] Batch archive failed:', res.status);
+          failed += batch.length;
+        }
+      } catch {
+        failed += batch.length;
+      }
+    }
+  } catch (err: any) {
+    console.error('[GoogleAPI] Archive error:', err.message);
+    failed = messageIds.length;
+  }
+
+  return { archived, failed };
+}
+
+/**
+ * Fetch broader inbox for cleanup analysis — includes promotions, social, updates.
+ * Unlike fetchGmailInbox which filters to primary only, this gets everything.
+ */
+export async function fetchFullInbox(maxResults = 30): Promise<GmailMessage[]> {
+  try {
+    const token = await getAccessToken();
+
+    const query = 'in:inbox newer_than:3d';
+    const listRes = await fetch(
+      `https://gmail.googleapis.com/gmail/v1/users/me/messages?q=${encodeURIComponent(query)}&maxResults=${maxResults}`,
+      { headers: { Authorization: `Bearer ${token}` } }
+    );
+
+    if (!listRes.ok) return [];
+
+    const listData = await listRes.json();
+    const messageIds = (listData.messages || []).map((m: any) => m.id);
+    if (messageIds.length === 0) return [];
+
+    const messages: GmailMessage[] = [];
+    const batchSize = 10;
+    for (let i = 0; i < messageIds.length; i += batchSize) {
+      const batch = messageIds.slice(i, i + batchSize);
+      const details = await Promise.all(
+        batch.map(async (id: string) => {
+          try {
+            const msgRes = await fetch(
+              `https://gmail.googleapis.com/gmail/v1/users/me/messages/${id}?format=metadata&metadataHeaders=From&metadataHeaders=Subject&metadataHeaders=Date&metadataHeaders=List-Unsubscribe`,
+              { headers: { Authorization: `Bearer ${token}` } }
+            );
+            if (!msgRes.ok) return null;
+            return msgRes.json();
+          } catch { return null; }
+        })
+      );
+
+      for (const msg of details) {
+        if (!msg) continue;
+        const headers = msg.payload?.headers || [];
+        const getHeader = (name: string) => headers.find((h: any) => h.name.toLowerCase() === name.toLowerCase())?.value || '';
+
+        messages.push({
+          id: msg.id,
+          threadId: msg.threadId,
+          from: getHeader('From'),
+          subject: getHeader('Subject'),
+          snippet: msg.snippet || '',
+          date: getHeader('Date'),
+          isUnread: (msg.labelIds || []).includes('UNREAD'),
+          labels: msg.labelIds || [],
+        });
+      }
+    }
+
+    return messages;
+  } catch (err: any) {
+    console.error('[GoogleAPI] Full inbox fetch error:', err.message);
+    return [];
+  }
+}
+
 // ============================================================
 // Google Calendar
 // ============================================================

@@ -146,6 +146,44 @@ export default function DashboardOverview() {
   const [completingTaskId, setCompletingTaskId] = useState<string | null>(null);
   const [editingDateTaskId, setEditingDateTaskId] = useState<string | null>(null);
   const [pendingDate, setPendingDate] = useState('');
+  const [cleanupState, setCleanupState] = useState<'idle' | 'scanning' | 'preview' | 'cleaning' | 'done'>('idle');
+  const [cleanupData, setCleanupData] = useState<{ toArchive: Array<{ id: string; from: string; subject: string; reason: string }>; toKeep: any[] } | null>(null);
+
+  async function scanInbox() {
+    setCleanupState('scanning');
+    try {
+      const res = await fetch('/api/dashboard/inbox-cleanup', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${getToken()}` },
+        body: JSON.stringify({ mode: 'preview' }),
+      });
+      if (!res.ok) throw new Error('Scan failed');
+      const data = await res.json();
+      setCleanupData(data);
+      setCleanupState('preview');
+    } catch {
+      setCleanupState('idle');
+    }
+  }
+
+  async function executeCleanup() {
+    setCleanupState('cleaning');
+    try {
+      const res = await fetch('/api/dashboard/inbox-cleanup', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${getToken()}` },
+        body: JSON.stringify({ mode: 'execute' }),
+      });
+      if (!res.ok) throw new Error('Cleanup failed');
+      const data = await res.json();
+      setCleanupData(data);
+      setCleanupState('done');
+      // Auto-reset after 5 seconds
+      setTimeout(() => { setCleanupState('idle'); setCleanupData(null); }, 5000);
+    } catch {
+      setCleanupState('idle');
+    }
+  }
 
   async function completeTask(taskId: string) {
     setCompletingTaskId(taskId);
@@ -568,12 +606,72 @@ export default function DashboardOverview() {
               </section>
             )}
 
-            {/* Recent Emails */}
+            {/* Recent Emails with AI Cleanup */}
             {emails.length > 0 && (
               <section className="rounded-lg p-4" style={CARD_STYLE}>
-                <h2 className="text-sm font-semibold mb-3 flex items-center gap-2" style={{ color: '#22c55e' }}>
-                  <Mail size={14} /> Inbox ({stats?.unreadEmailCount ?? 0} unread)
-                </h2>
+                <div className="flex items-center justify-between mb-3">
+                  <h2 className="text-sm font-semibold flex items-center gap-2" style={{ color: '#22c55e' }}>
+                    <Mail size={14} /> Inbox ({stats?.unreadEmailCount ?? 0} unread)
+                  </h2>
+                  {cleanupState === 'idle' && (
+                    <button
+                      onClick={scanInbox}
+                      className="text-[10px] px-2 py-1 rounded hover:bg-white/10 active:bg-white/20 flex items-center gap-1"
+                      style={{ color: '#8a8078', border: '1px solid rgba(205,162,116,0.15)' }}
+                    >
+                      <Zap size={10} /> Clean Inbox
+                    </button>
+                  )}
+                  {cleanupState === 'scanning' && (
+                    <span className="text-[10px] flex items-center gap-1" style={{ color: '#8a8078' }}>
+                      <Loader2 size={10} className="animate-spin" /> AI scanning...
+                    </span>
+                  )}
+                  {cleanupState === 'done' && (
+                    <span className="text-[10px]" style={{ color: '#22c55e' }}>
+                      Cleaned {cleanupData?.toArchive?.length || 0} emails
+                    </span>
+                  )}
+                </div>
+
+                {/* Cleanup Preview */}
+                {cleanupState === 'preview' && cleanupData && (
+                  <div className="mb-3 p-3 rounded-lg" style={{ background: 'rgba(234,179,8,0.05)', border: '1px solid rgba(234,179,8,0.15)' }}>
+                    <p className="text-xs font-medium mb-2" style={{ color: '#eab308' }}>
+                      AI found {cleanupData.toArchive.length} emails to archive:
+                    </p>
+                    <div className="space-y-1 mb-2 max-h-32 overflow-y-auto">
+                      {cleanupData.toArchive.map((e, i) => (
+                        <p key={i} className="text-xs truncate" style={{ color: '#a09890' }}>
+                          {e.from}: {e.subject}
+                        </p>
+                      ))}
+                    </div>
+                    <div className="flex gap-2">
+                      <button
+                        onClick={executeCleanup}
+                        className="text-xs px-3 py-1.5 rounded font-medium active:bg-green-700"
+                        style={{ background: '#22c55e', color: '#1a1a1a' }}
+                      >
+                        Archive {cleanupData.toArchive.length} emails
+                      </button>
+                      <button
+                        onClick={() => { setCleanupState('idle'); setCleanupData(null); }}
+                        className="text-xs px-3 py-1.5 rounded"
+                        style={{ color: '#8a8078' }}
+                      >
+                        Cancel
+                      </button>
+                    </div>
+                  </div>
+                )}
+
+                {cleanupState === 'cleaning' && (
+                  <div className="mb-3 p-3 rounded-lg flex items-center gap-2" style={{ background: 'rgba(34,197,94,0.05)' }}>
+                    <Loader2 size={12} className="animate-spin" style={{ color: '#22c55e' }} />
+                    <span className="text-xs" style={{ color: '#22c55e' }}>Archiving emails...</span>
+                  </div>
+                )}
                 <div className="space-y-1">
                   {emails.slice(0, 8).map((email) => {
                     // Extract just the name from "Name <email>" format
