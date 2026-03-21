@@ -102,11 +102,12 @@ export async function analyzeUserDashboard(data: UserDashboardData): Promise<Das
     `- FROM: ${e.from} | SUBJECT: ${e.subject} | DATE: ${new Date(e.date).toLocaleDateString()} | ${e.isUnread ? 'UNREAD' : 'READ'} | PREVIEW: "${e.snippet.slice(0, 100)}"`
   ).join('\n');
 
-  // Build calendar summary
+  // Build calendar summary (force Eastern timezone for display)
+  const TZ = 'America/New_York';
   const calendarSummary = (data.calendarEvents || []).slice(0, 15).map(e => {
     const start = new Date(e.start);
-    const day = start.toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' });
-    const time = e.allDay ? 'All day' : start.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' });
+    const day = start.toLocaleDateString('en-US', { timeZone: TZ, weekday: 'short', month: 'short', day: 'numeric' });
+    const time = e.allDay ? 'All day' : start.toLocaleTimeString('en-US', { timeZone: TZ, hour: 'numeric', minute: '2-digit' });
     const loc = e.location ? ` | Location: ${e.location.slice(0, 60)}` : '';
     return `- ${day} ${time}: ${e.summary}${loc}${e.attendeeCount > 1 ? ` (${e.attendeeCount} attendees)` : ''}`;
   }).join('\n');
@@ -114,7 +115,7 @@ export async function analyzeUserDashboard(data: UserDashboardData): Promise<Das
   // Build tomorrow calendar summary
   const tomorrowCalSummary = (data.tomorrowCalendarEvents || []).map(e => {
     const start = new Date(e.start);
-    const time = e.allDay ? 'All day' : start.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' });
+    const time = e.allDay ? 'All day' : start.toLocaleTimeString('en-US', { timeZone: TZ, hour: 'numeric', minute: '2-digit' });
     const loc = e.location ? ` | Location: ${e.location.slice(0, 60)}` : '';
     return `- ${time}: ${e.summary}${loc}${e.attendeeCount > 1 ? ` (${e.attendeeCount} attendees)` : ''}`;
   }).join('\n');
@@ -148,8 +149,8 @@ The summary should emphasize ${tc.tomorrowLabel}'s priorities and any prep Natha
 
 ${periodInstructions}
 
-Today is ${new Date().toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric', year: 'numeric' })}.
-Current time: ${new Date().toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' })}
+Today is ${new Date().toLocaleDateString('en-US', { timeZone: 'America/New_York', weekday: 'long', month: 'long', day: 'numeric', year: 'numeric' })}.
+Current time: ${new Date().toLocaleTimeString('en-US', { timeZone: 'America/New_York', hour: 'numeric', minute: '2-digit' })} ET
 User: ${data.userName} (${data.role})
 
 STATS:

@@ -192,24 +192,48 @@ async function fetchJTCommentsForUser(
 }
 
 function getTimeContext(): TimeContext {
-  const now = new Date();
-  const hour = now.getHours();
-  const dayOfWeek = now.toLocaleDateString('en-US', { weekday: 'long' });
-  const isWeekend = now.getDay() === 0 || now.getDay() === 6;
-  const isFriday = now.getDay() === 5;
+  // CRITICAL: Vercel runs in UTC. BKB is in Eastern time (America/New_York).
+  // All time-of-day logic must use Eastern time, not UTC.
+  const nowUTC = new Date();
+  const eastern = new Intl.DateTimeFormat('en-US', {
+    timeZone: 'America/New_York',
+    year: 'numeric', month: '2-digit', day: '2-digit',
+    hour: '2-digit', minute: '2-digit', hour12: false,
+    weekday: 'long',
+  }).formatToParts(nowUTC);
 
-  // Tomorrow = next business day (Friday→Monday, otherwise next day)
-  const tomorrowDate = new Date(now);
+  const get = (type: string) => eastern.find(p => p.type === type)?.value || '';
+  const hour = parseInt(get('hour'), 10);
+  const dayOfWeek = get('weekday');
+  const year = parseInt(get('year'), 10);
+  const month = parseInt(get('month'), 10);
+  const day = parseInt(get('day'), 10);
+
+  // Create a Date object representing "now" in Eastern time components
+  const etNow = new Date(year, month - 1, day);
+  const dayNum = etNow.getDay(); // 0=Sun, 5=Fri, 6=Sat
+  const isWeekend = dayNum === 0 || dayNum === 6;
+  const isFriday = dayNum === 5;
+
+  // Tomorrow = next business day (Friday→Monday, Sat→Monday, Sun→Monday, otherwise next day)
+  const tomorrowDate = new Date(etNow);
   if (isFriday) {
-    tomorrowDate.setDate(tomorrowDate.getDate() + 3); // Skip to Monday
-  } else if (now.getDay() === 6) {
-    tomorrowDate.setDate(tomorrowDate.getDate() + 2); // Saturday→Monday
+    tomorrowDate.setDate(tomorrowDate.getDate() + 3);
+  } else if (dayNum === 6) {
+    tomorrowDate.setDate(tomorrowDate.getDate() + 2);
+  } else if (dayNum === 0) {
+    tomorrowDate.setDate(tomorrowDate.getDate() + 1); // Sunday→Monday
   } else {
     tomorrowDate.setDate(tomorrowDate.getDate() + 1);
   }
 
-  const tomorrowLabel = isFriday ? 'Monday' : 'tomorrow';
+  const tomorrowLabel = (isFriday || dayNum === 6 || dayNum === 0) ? 'Monday' : 'tomorrow';
   const period: TimePeriod = hour < 12 ? 'morning' : hour < 17 ? 'midday' : 'evening';
+
+  // Format tomorrowDate as YYYY-MM-DD
+  const tmY = tomorrowDate.getFullYear();
+  const tmM = String(tomorrowDate.getMonth() + 1).padStart(2, '0');
+  const tmD = String(tomorrowDate.getDate()).padStart(2, '0');
 
   return {
     period,
@@ -217,7 +241,7 @@ function getTimeContext(): TimeContext {
     dayOfWeek,
     isWeekend,
     tomorrowLabel,
-    tomorrowDate: tomorrowDate.toISOString().split('T')[0],
+    tomorrowDate: `${tmY}-${tmM}-${tmD}`,
   };
 }
 
