@@ -325,7 +325,7 @@ export default function DashboardOverview() {
               <h2 className="text-sm font-semibold mb-3 flex items-center gap-2" style={{ color: '#22c55e' }}>
                 <Zap size={14} /> Do Now
               </h2>
-              <div className="grid md:grid-cols-2 lg:grid-cols-3 gap-2">
+              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-2">
                 {analysis!.suggestedActions!.map((action, i) => {
                   const iconMap: Record<string, string> = {
                     'reply-email': '✉️', 'complete-task': '✅', 'reschedule-task': '📅',
@@ -358,7 +358,7 @@ export default function DashboardOverview() {
                     <button
                       key={i}
                       onClick={handleAction}
-                      className="flex items-start gap-3 px-3 py-2.5 rounded-lg text-left transition-all hover:bg-white/[0.05]"
+                      className="flex items-start gap-3 px-4 py-3 md:px-3 md:py-2.5 rounded-lg text-left transition-all hover:bg-white/[0.05] active:bg-white/[0.08]"
                       style={{ background: 'rgba(34,197,94,0.05)', border: '1px solid rgba(34,197,94,0.1)' }}
                     >
                       <span className="text-base flex-shrink-0 mt-0.5">{icon}</span>
@@ -579,7 +579,7 @@ export default function DashboardOverview() {
                     // Extract just the name from "Name <email>" format
                     const fromName = email.from.replace(/<[^>]+>/, '').replace(/"/g, '').trim();
                     return (
-                      <div key={email.id} className="flex items-start gap-3 px-3 py-2 rounded-lg hover:bg-white/[0.02]" style={email.isUnread ? { background: 'rgba(34,197,94,0.05)' } : {}}>
+                      <div key={email.id} className="flex items-start gap-3 px-3 py-3 md:py-2 rounded-lg hover:bg-white/[0.02]" style={email.isUnread ? { background: 'rgba(34,197,94,0.05)' } : {}}>
                         {email.isUnread && (
                           <div className="w-2 h-2 rounded-full flex-shrink-0 mt-1.5" style={{ background: '#22c55e' }} />
                         )}
@@ -609,18 +609,18 @@ export default function DashboardOverview() {
                 const isCompleting = completingTaskId === task.id;
                 const isEditingDate = editingDateTaskId === task.id;
                 return (
-                  <div key={task.id} className="flex items-center gap-3 px-3 py-2 rounded-lg hover:bg-white/[0.02] group" style={isCompleting ? { opacity: 0.4 } : {}}>
+                  <div key={task.id} className="flex items-center gap-2 md:gap-3 px-2 md:px-3 py-3 md:py-2 rounded-lg hover:bg-white/[0.02] group" style={isCompleting ? { opacity: 0.4 } : {}}>
                     {/* Complete button */}
                     <button
                       onClick={() => completeTask(task.id)}
                       disabled={isCompleting}
-                      className="flex-shrink-0 w-5 h-5 rounded-full border flex items-center justify-center hover:bg-green-500/20 transition-colors"
+                      className="flex-shrink-0 w-7 h-7 md:w-5 md:h-5 rounded-full border flex items-center justify-center hover:bg-green-500/20 active:bg-green-500/30 transition-colors"
                       style={{ borderColor: 'rgba(205,162,116,0.25)' }}
                       title="Mark complete"
                     >
                       {isCompleting
-                        ? <Loader2 size={10} className="animate-spin" style={{ color: '#8a8078' }} />
-                        : <CheckCircle2 size={10} className="opacity-0 group-hover:opacity-100 transition-opacity" style={{ color: '#22c55e' }} />
+                        ? <Loader2 size={12} className="animate-spin" style={{ color: '#8a8078' }} />
+                        : <CheckCircle2 size={12} className="md:opacity-0 md:group-hover:opacity-100 transition-opacity" style={{ color: '#22c55e' }} />
                       }
                     </button>
                     {/* Urgency badge */}
@@ -664,7 +664,7 @@ export default function DashboardOverview() {
                               next.setDate(next.getDate() + 1);
                               updateTaskDate(task.id, next.toISOString().split('T')[0]);
                             }}
-                            className="text-[10px] px-1.5 py-0.5 rounded hover:bg-white/10"
+                            className="text-[10px] md:text-[10px] px-2 py-1 md:px-1.5 md:py-0.5 rounded hover:bg-white/10 active:bg-white/20"
                             style={{ color: '#eab308', border: '1px solid rgba(234,179,8,0.2)' }}
                             title="Reschedule to tomorrow"
                           >
@@ -673,7 +673,7 @@ export default function DashboardOverview() {
                         )}
                         <button
                           onClick={() => { setEditingDateTaskId(task.id); setPendingDate(task.endDate || ''); }}
-                          className="text-xs hover:underline cursor-pointer"
+                          className="text-xs px-2 py-1 md:px-0 md:py-0 rounded hover:underline cursor-pointer"
                           style={{ color: task.urgency === 'urgent' ? '#ef4444' : '#8a8078' }}
                           title="Click to change due date"
                         >
