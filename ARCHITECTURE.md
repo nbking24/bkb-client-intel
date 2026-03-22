@@ -4,7 +4,7 @@
 >
 > **Nathan:** If starting a new conversation, mention this doc or say "review the architecture doc" so the assistant knows to read it first.
 
-**Last updated:** 2026-03-19
+**Last updated:** 2026-03-21
 **Repo:** `github.com/nbking24/bkb-client-intel`
 **Deploy:** Vercel (auto-deploy on push to `main`)
 **Live URL:** `https://bkb-client-intel.vercel.app`
@@ -42,8 +42,10 @@ app/
 │   └── ask/page.tsx                  # Mobile Ask Agent (/m/ask)
 ├── dashboard/
 │   ├── layout.tsx                    # Dashboard shell (header + sidebar + nav + auth gate)
-│   ├── page.tsx                      # Overview — AI briefing, tasks, messages, calendar
+│   ├── page.tsx                      # Overview — time-aware AI briefing, tasks, calendar, email, chat
 │   ├── login/page.tsx                # Per-user PIN login (setup + sign-in flow)
+│   ├── components/
+│   │   └── DashboardChat.tsx         # Floating chat widget (separate from Ask Agent)
 │   ├── ask/page.tsx                  # Desktop Ask Agent (/dashboard/ask)
 │   ├── documents/page.tsx            # Document intelligence (placeholder)
 │   ├── precon/                       # Pre-Construction module
@@ -101,7 +103,11 @@ app/
 │   │   │   ├── reorganize-invoice/route.ts    # Reorganize Cost-Plus invoice into BKB 3-group format
 │   │   │   └── queue-invoice/route.ts         # Queue invoice creation request (Supabase → scheduled task)
 │   │   ├── projects/route.ts        # Active projects list
-│   │   ├── tasks/route.ts           # Task list with urgency
+│   │   ├── tasks/route.ts           # Task list + PATCH for complete/update
+│   │   ├── chat/route.ts           # Dashboard chat widget endpoint (separate from Ask Agent)
+│   │   ├── inbox-cleanup/route.ts  # AI-powered email triage + archive
+│   │   ├── quick-action/route.ts   # Do Now action handler (Gmail draft creation)
+│   │   ├── overview/route.ts       # Dashboard overview data + AI analysis (cached)
 │   │   ├── schedule/route.ts        # Schedule multi-view endpoint
 │   │   └── schedule-setup/route.ts  # Survey-based schedule builder
 │   ├── agent/
@@ -109,7 +115,8 @@ app/
 │   │   └── invoicing/route.ts       # Invoicing health Claude analysis
 │   ├── cron/
 │   │   ├── design-agent/route.ts    # Daily 6 AM — design analysis
-│   │   ├── invoicing-health/route.ts # Daily 1 AM EST — invoicing data refresh
+│   │   ├── invoicing-health/route.ts # Daily 6 AM — invoicing data refresh
+│   │   ├── inbox-cleanup/route.ts   # Hourly — AI email triage + auto-archive
 │   │   └── sync-incremental/route.ts # Daily 5 AM — incremental sync
 │   ├── contacts/route.ts            # Contact search
 │   ├── notes/route.ts               # Create contact notes (chunked)
@@ -119,9 +126,11 @@ app/
 │   └── jobtread-test/route.ts       # PAVE API diagnostic
 └── lib/
     ├── invoicing-health.ts           # Invoicing health analysis (contract + cost-plus, CC23 billable, released invoices)
-    ├── google-api.ts                # Google OAuth2 helper — Gmail inbox + Calendar events fetcher
-    ├── dashboard-data.ts            # Dashboard data aggregation (JT tasks, comments, Gmail, Calendar)
-    ├── dashboard-analysis.ts        # AI analysis engine (Claude) for personalized briefings
+    ├── google-api.ts                # Google OAuth2 helper — Gmail inbox/archive/drafts + Calendar events
+    ├── dashboard-data.ts            # Dashboard data aggregation (JT tasks, comments, Gmail, Calendar, time context)
+    ├── dashboard-analysis.ts        # AI analysis engine — time-aware briefings, quick actions, tomorrow preview
+    ├── nathan-voice.ts              # Nathan's brand voice rules for AI writing (condensed from v5 doc)
+    ├── nathan-brand-voice.md        # Full brand voice document (reference)
     ├── bkb-spec-guide.ts            # BKB 23-category spec system + prompts
     ├── bkb-standards.ts             # Standard construction practices
     ├── bkb-brand-voice.ts           # Brand voice + email writing guide
@@ -563,6 +572,102 @@ JT API  ──→ jt_comments, jt_daily_logs (Supabase cache)
 ## 15. Changelog
 
 All modifications to the codebase should be logged here with date, files changed, and what was done.
+
+### 2026-03-21 — Feature: Nathan's Brand Voice for AI Writing
+
+**Problem:** The chat assistant and email drafts didn't sound like Nathan. AI-generated content was generic instead of matching Nathan's actual writing style.
+
+**Solution:** Created `nathan-voice.ts` with condensed brand voice rules derived from Nathan's comprehensive Brand Voice & Correspondence Guide (v5). Full document stored at `nathan-brand-voice.md`. The voice rules cover: writing characteristics, always/never use rules, email patterns by situation, key relationships, and content philosophy. Key rule: NEVER use em dashes - always use regular dashes.
+
+**Files changed:**
+- `app/lib/nathan-voice.ts` — **NEW** Condensed NATHAN_BRAND_VOICE constant for system prompts
+- `app/lib/nathan-brand-voice.md` — **NEW** Full brand voice document (1375 lines)
+- `app/api/dashboard/chat/route.ts` — Imports and injects NATHAN_BRAND_VOICE into chat system prompt
+- `app/lib/dashboard-analysis.ts` — Email draft voice rules added to suggestedActions prompt
+
+### 2026-03-21 — Feature: Dashboard Chat Widget
+
+**Problem:** Nathan had to leave the Overview dashboard to ask questions or get help. The existing Ask Agent at `/dashboard/ask` works well but requires navigating away.
+
+**Solution:** Built a self-contained floating chat widget on the Overview page. Completely separate from the existing Ask Agent - does not touch `/api/chat`, `useAskAgent.ts`, or any Ask Agent files.
+
+- Floating gold "Ask Assistant" button in bottom-right corner
+- Opens to a chat panel (full-screen mobile, 520px on desktop)
+- Suggestion chips for common questions (project status, email drafts, schedule, tasks)
+- Full context of dashboard data: JT tasks, Gmail, Calendar, active jobs, JT comments
+- Maintains conversation history (last 10 messages)
+- Eastern timezone aware
+- Dark theme matching dashboard
+- Uses Claude Sonnet for responses
+
+**Files changed:**
+- `app/api/dashboard/chat/route.ts` — **NEW** Chat endpoint with dashboard context + brand voice
+- `app/dashboard/components/DashboardChat.tsx` — **NEW** Floating chat widget component
+- `app/dashboard/page.tsx` — Added DashboardChat import and render
+
+### 2026-03-21 — Feature: AI-Powered Inbox Cleanup + Auto-Archive
+
+**Problem:** Nathan spends significant time deleting junk emails. Marketing, automated notifications, social media alerts, and cold outreach clutter the inbox.
+
+**Solution — Manual Cleanup:**
+- "Clean Inbox" button on the dashboard Inbox section
+- Click to scan → AI classifies each email as keep/archive → preview list → confirm to archive
+- Uses Claude to classify based on BKB-specific rules (keep client/vendor/team emails, archive newsletters/promos/notifications)
+- `archiveEmails()` batch-removes INBOX label (emails move to All Mail, not deleted)
+- `fetchFullInbox()` fetches all categories (not just primary) for thorough cleanup
+
+**Solution — Automated Cleanup:**
+- Vercel cron job runs hourly (`/api/cron/inbox-cleanup`)
+- Dashboard auto-refresh (every 15 min when open) also triggers cleanup silently
+- Only processes during work hours (7am-9pm ET)
+- Combined: hourly background + 15-min when dashboard is open
+
+**OAuth Scope Upgrade:** Gmail scope upgraded from `gmail.readonly` to `gmail.modify` to enable archiving. Required re-authorization via `/api/auth/google-callback`.
+
+**Files changed:**
+- `app/lib/google-api.ts` — Added `archiveEmails()`, `fetchFullInbox()`, `createGmailDraft()`
+- `app/api/dashboard/inbox-cleanup/route.ts` — **NEW** POST endpoint (preview + execute modes)
+- `app/api/cron/inbox-cleanup/route.ts` — **NEW** Hourly cron for automated cleanup
+- `app/api/dashboard/quick-action/route.ts` — **NEW** POST endpoint for Do Now actions (draft-email)
+- `app/api/auth/google-callback/route.ts` — Upgraded scope to gmail.modify
+- `app/dashboard/page.tsx` — Clean Inbox button, scanning/preview/cleaning states
+- `vercel.json` — Added hourly inbox-cleanup cron
+
+### 2026-03-21 — Feature: Do Now Email Drafts via Gmail API
+
+**Problem:** The "Do Now" email action buttons opened Gmail compose URLs which didn't reliably carry pre-filled text, especially on mobile.
+
+**Solution:** Email actions now create real Gmail drafts via the API. Click a "Reply to..." button → API creates a draft with AI-written text → Gmail opens directly to that draft → review and send. Falls back to compose URL if draft creation fails.
+
+**Files changed:**
+- `app/lib/google-api.ts` — Added `createGmailDraft()` (RFC 2822 format, base64url encode)
+- `app/api/dashboard/quick-action/route.ts` — **NEW** Handles draft-email action type
+- `app/dashboard/page.tsx` — Updated action handler to call quick-action API for email drafts
+
+### 2026-03-21 — Enhancement: Mobile Optimization
+
+**Problem:** Dashboard was functional on mobile but touch targets were too small and some elements lacked tap feedback.
+
+**Solution:** Responsive improvements using Tailwind `md:` prefixes so all changes apply to both desktop and mobile from the same component:
+- Task complete button: 28px on mobile (was 20px), checkmark always visible (was hover-only)
+- Task rows: increased vertical padding on mobile
+- Due date button: added padding for easier tapping
+- +1d reschedule button: larger touch target
+- Do Now actions: full-width on mobile, increased padding, active states for tap feedback
+- Email rows: increased vertical padding
+
+**Files changed:**
+- `app/dashboard/page.tsx` — Responsive class updates throughout
+
+### 2026-03-21 — Fix: Timezone Bug (Server UTC vs Eastern Time)
+
+**Problem:** Vercel servers run in UTC. When Nathan checked the dashboard at 8pm ET Saturday, the server thought it was 1am Sunday (UTC). This caused wrong day-of-week, wrong time period, wrong "tomorrow" calculation, and calendar times displayed 4-5 hours off.
+
+**Solution:** All time context logic now uses `Intl.DateTimeFormat` with `timeZone: 'America/New_York'`. Calendar time formatting in AI prompt also forces Eastern timezone. Weekend handling fixed: Saturday and Sunday both show "Monday" as tomorrowLabel.
+
+**Files changed:**
+- `app/lib/dashboard-data.ts` — `getTimeContext()` rewritten with Eastern timezone
+- `app/lib/dashboard-analysis.ts` — All date/time formatting uses `timeZone: 'America/New_York'`
 
 ### 2026-03-19 — Feature: Time-Aware Daily Operations Assistant + Tomorrow Preview
 
