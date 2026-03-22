@@ -65,6 +65,22 @@ export default function DashboardChat({ userId }: { userId: string }) {
     }
   }
 
+  // Send a message directly (from suggestion chips)
+  function sendDirect(text: string) {
+    setInput('');
+    setMessages(prev => [...prev, { role: 'user', content: text }]);
+    setLoading(true);
+    fetch('/api/dashboard/chat', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${getToken()}` },
+      body: JSON.stringify({ userId, message: text, history: messages }),
+    })
+      .then(r => r.json())
+      .then(data => setMessages(prev => [...prev, { role: 'assistant', content: data.reply || 'No response' }]))
+      .catch(() => setMessages(prev => [...prev, { role: 'assistant', content: 'Sorry, something went wrong.' }]))
+      .finally(() => setLoading(false));
+  }
+
   // Collapsed button
   if (!isOpen) {
     return (
@@ -125,7 +141,7 @@ export default function DashboardChat({ userId }: { userId: string }) {
                 ].map((suggestion, i) => (
                   <button
                     key={i}
-                    onClick={() => { setInput(suggestion); }}
+                    onClick={() => sendDirect(suggestion)}
                     className="block w-full text-left text-xs px-3 py-2 rounded-lg hover:bg-white/[0.05] active:bg-white/[0.08]"
                     style={{ color: '#a09890', border: '1px solid rgba(205,162,116,0.08)' }}
                   >
