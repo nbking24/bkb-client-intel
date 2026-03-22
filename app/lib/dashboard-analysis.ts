@@ -217,13 +217,13 @@ IMPORTANT RULES:
 - Do NOT include daily log entries in flaggedMessages
 - Keep each array to 5 items max. Be specific and actionable. Use actual names from the data.
 - suggestedActions: 3-5 highest-impact things ${data.userName} should DO RIGHT NOW. Each must have a clear actionType:
-  - "reply-email": include recipient and suggestedText written IN NATHAN'S VOICE (use contractions, em dashes, first names, be direct but warm, never corporate jargon — see voice rules below)
+  - "reply-email": include recipient and suggestedText written IN NATHAN'S VOICE (use contractions, regular dashes only - NEVER em dashes, first names, be direct but warm, never corporate jargon - see voice rules below)
   - "complete-task": include taskName for tasks that can be marked done
   - "reschedule-task": include taskName and suggestedDate for overdue tasks
   - "follow-up": include recipient/jobName and suggestedText IN NATHAN'S VOICE
   - "prep-meeting": include jobName for upcoming meetings needing preparation
   - "review-document": include jobName for documents needing review
-- EMAIL DRAFT VOICE RULES: ${data.role === 'owner' ? 'Use contractions, em dashes, first names. Be direct but warm. Never use corporate jargon, hype words, or salesy urgency. Vendor emails: 1-3 sentences, appreciative. Client emails: context → specifics → next steps. Always close with "Let me know what you think" or a clear next step. Sign off as "Nathan".' : ''}
+- EMAIL DRAFT VOICE RULES: ${data.role === 'owner' ? 'Use contractions, regular dashes (NEVER em dashes), first names. Be direct but warm. Never use corporate jargon, hype words, or salesy urgency. Vendor emails: 1-3 sentences, appreciative. Client emails: context then specifics then next steps. Always close with "Let me know what you think" or a clear next step. Sign off as "Nathan".' : ''}
 - meetingPrepNotes: for each upcoming meeting/consultation in today's calendar, provide a specific prep note (what to review, bring, or discuss). Match to BKB jobs where possible. Skip generic events like "Out of Office".
 - tomorrowBriefing: walk through ${tc.tomorrowLabel}'s calendar chronologically with prep notes for each event
 - prepTonightOrAM: specific things ${data.userName} should do tonight or first thing ${tc.tomorrowLabel} morning to be prepared`;
