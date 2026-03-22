@@ -8,6 +8,7 @@ import {
 } from 'lucide-react';
 import { useAuth } from '@/app/hooks/useAuth';
 import Link from 'next/link';
+import DashboardChat from './components/DashboardChat';
 
 function getToken() { return typeof window !== 'undefined' ? localStorage.getItem('bkb-token') || '' : ''; }
 
@@ -826,6 +827,9 @@ export default function DashboardOverview() {
           </div>
         </>
       )}
+
+      {/* Chat widget — floating, doesn't affect layout */}
+      {auth.userId && <DashboardChat userId={auth.userId} />}
     </div>
   );
 }
