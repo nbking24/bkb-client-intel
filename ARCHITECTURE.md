@@ -1630,6 +1630,21 @@ The FIFO deduction system handles this automatically. Each time "Create Billable
 - Know-it-All data access limits removed (`870c971`)
 - Backfill progress tracking fix (`5c3602a`)
 
+### 2026-03-22 — Enhancement: Gmail Cleanup Labels Instead of Archive
+
+**Problem:** The inbox cleanup was archiving junk emails (removing INBOX label), which moved them to All Mail where they were hard to find if Nathan wanted to review what was cleaned up.
+
+**Solution:** Changed `archiveEmails()` in `google-api.ts` to apply a **"BKB Cleanup"** label to junk emails AND remove the INBOX label. Emails are now:
+- Removed from the inbox (same as before)
+- Labeled under "BKB Cleanup" in Gmail's sidebar for easy review
+- The label is auto-created on first use (with a dark rose color for visibility)
+- No changes needed to the cleanup endpoints — they call the same `archiveEmails()` function
+
+**Files changed:**
+- `app/lib/google-api.ts` — Added `getCleanupLabelId()` helper (creates/caches the label), updated `archiveEmails()` to add cleanup label + remove INBOX instead of just removing INBOX
+
+**Commits:** `0376051`
+
 ### 2026-03-22 — Session: iMessage Sync to Dashboard
 
 **Purpose:** Enable Nathan's Mac iMessage/SMS texts to flow into the BKB Client Hub dashboard so the AI briefing has context about recent text conversations with clients, subs, and team members.
