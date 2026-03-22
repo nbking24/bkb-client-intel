@@ -270,11 +270,14 @@ export default function DashboardOverview() {
   }, [auth.userId]);
 
   // Auto-refresh every 15 minutes during work hours (8am-6pm)
+  // Also triggers inbox cleanup silently in the background
   useEffect(() => {
     const interval = setInterval(() => {
       const hour = new Date().getHours();
       if (hour >= 8 && hour < 18 && auth.userId && !refreshing) {
         fetchOverview(true);
+        // Trigger inbox cleanup silently (fire-and-forget)
+        fetch('/api/cron/inbox-cleanup?internal=true').catch(() => {});
       }
     }, 15 * 60 * 1000); // 15 minutes
     return () => clearInterval(interval);

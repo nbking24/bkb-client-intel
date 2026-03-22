@@ -32,6 +32,10 @@
                     {
                                     "path": "/api/cron/sync-incremental",
                                     "schedule": "0 5 * * *"
+                    },
+                    {
+                                    "path": "/api/cron/inbox-cleanup",
+                                    "schedule": "0 * * * *"
                     }
         ]
 }
