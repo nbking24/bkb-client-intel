@@ -138,6 +138,66 @@ export async function fetchGmailInbox(maxResults = 15): Promise<GmailMessage[]> 
 }
 
 /**
+ * Create a Gmail draft with the given recipient, subject, and body.
+ * Returns the draft ID and a link to open it in Gmail.
+ */
+export async function createGmailDraft(params: {
+  to: string;
+  subject: string;
+  body: string;
+}): Promise<{ draftId: string; gmailUrl: string } | null> {
+  try {
+    const token = await getAccessToken();
+
+    // Build RFC 2822 email message
+    const email = [
+      `To: ${params.to}`,
+      `Subject: ${params.subject}`,
+      'Content-Type: text/plain; charset=utf-8',
+      '',
+      params.body,
+    ].join('\r\n');
+
+    // Base64url encode
+    const encoded = Buffer.from(email)
+      .toString('base64')
+      .replace(/\+/g, '-')
+      .replace(/\//g, '_')
+      .replace(/=+$/, '');
+
+    const res = await fetch('https://gmail.googleapis.com/gmail/v1/users/me/drafts', {
+      method: 'POST',
+      headers: {
+        Authorization: `Bearer ${token}`,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        message: { raw: encoded },
+      }),
+    });
+
+    if (!res.ok) {
+      console.error('[GoogleAPI] Create draft failed:', res.status);
+      return null;
+    }
+
+    const data = await res.json();
+    const draftId = data.id;
+    const messageId = data.message?.id;
+
+    // Gmail URL to open the draft
+    const gmailUrl = messageId
+      ? `https://mail.google.com/mail/#drafts/${messageId}`
+      : 'https://mail.google.com/mail/#drafts';
+
+    return { draftId, gmailUrl };
+  } catch (err: any) {
+    console.error('[GoogleAPI] Create draft error:', err.message);
+    return null;
+  }
+}
+
+/**
  * Archive emails by removing the INBOX label (moves to "All Mail").
  * Emails remain searchable but disappear from the inbox.
  */

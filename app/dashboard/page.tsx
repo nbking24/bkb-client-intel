@@ -375,19 +375,39 @@ export default function DashboardOverview() {
                   const icon = iconMap[action.actionType] || '⚡';
                   const priorityColor = action.priority === 'high' ? '#ef4444' : action.priority === 'medium' ? '#eab308' : '#22c55e';
 
-                  const handleAction = () => {
-                    if (action.actionType === 'reply-email' && action.context.recipient) {
-                      const subject = action.context.emailSubject ? `Re: ${action.context.emailSubject}` : '';
-                      const body = action.context.suggestedText || '';
-                      window.open(`https://mail.google.com/mail/?view=cm&to=${encodeURIComponent(action.context.recipient)}&su=${encodeURIComponent(subject)}&body=${encodeURIComponent(body)}`, '_blank');
+                  const handleAction = async () => {
+                    if ((action.actionType === 'reply-email' || action.actionType === 'follow-up') && action.context.recipient) {
+                      // Create a Gmail draft via API, then open it
+                      try {
+                        const subject = action.context.emailSubject ? `Re: ${action.context.emailSubject}` : (action.context.jobName ? `Re: ${action.context.jobName}` : '');
+                        const body = action.context.suggestedText || '';
+                        const res = await fetch('/api/dashboard/quick-action', {
+                          method: 'POST',
+                          headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${getToken()}` },
+                          body: JSON.stringify({
+                            actionType: 'draft-email',
+                            to: action.context.recipient,
+                            subject,
+                            body,
+                          }),
+                        });
+                        const data = await res.json();
+                        if (data.gmailUrl) {
+                          window.open(data.gmailUrl, '_blank');
+                        } else {
+                          // Fallback to compose URL
+                          window.open(`https://mail.google.com/mail/?view=cm&to=${encodeURIComponent(action.context.recipient)}&su=${encodeURIComponent(subject)}&body=${encodeURIComponent(body)}`, '_blank');
+                        }
+                      } catch {
+                        // Fallback to compose URL
+                        const subject = action.context.emailSubject ? `Re: ${action.context.emailSubject}` : '';
+                        const body = action.context.suggestedText || '';
+                        window.open(`https://mail.google.com/mail/?view=cm&to=${encodeURIComponent(action.context.recipient)}&su=${encodeURIComponent(subject)}&body=${encodeURIComponent(body)}`, '_blank');
+                      }
                     } else if (action.actionType === 'complete-task' && action.context.taskName) {
                       const task = tasks.find(t => t.name.toLowerCase().includes(action.context.taskName!.toLowerCase()));
                       if (task) completeTask(task.id);
-                    } else if (action.actionType === 'follow-up' && action.context.recipient) {
-                      const body = action.context.suggestedText || '';
-                      window.open(`https://mail.google.com/mail/?view=cm&to=${encodeURIComponent(action.context.recipient)}&body=${encodeURIComponent(body)}`, '_blank');
                     } else if (action.actionType === 'prep-meeting' || action.actionType === 'review-document') {
-                      // Open JT job if we have a job name
                       const job = overview?.data?.activeJobs?.find((j: any) =>
                         action.context.jobName && j.name.toLowerCase().includes(action.context.jobName.toLowerCase())
                       );
