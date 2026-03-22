@@ -197,9 +197,70 @@ export async function createGmailDraft(params: {
   }
 }
 
+const CLEANUP_LABEL_NAME = 'BKB Cleanup';
+let cachedCleanupLabelId: string | null = null;
+
 /**
- * Archive emails by removing the INBOX label (moves to "All Mail").
- * Emails remain searchable but disappear from the inbox.
+ * Get or create the "BKB Cleanup" Gmail label.
+ * Caches the label ID for the lifetime of the serverless function.
+ */
+async function getCleanupLabelId(): Promise<string> {
+  if (cachedCleanupLabelId) return cachedCleanupLabelId;
+
+  const token = await getAccessToken();
+
+  // List existing labels to find it
+  const listRes = await fetch(
+    'https://gmail.googleapis.com/gmail/v1/users/me/labels',
+    { headers: { Authorization: `Bearer ${token}` } }
+  );
+
+  if (listRes.ok) {
+    const listData = await listRes.json();
+    const existing = (listData.labels || []).find(
+      (l: any) => l.name === CLEANUP_LABEL_NAME
+    );
+    if (existing) {
+      cachedCleanupLabelId = existing.id;
+      return existing.id;
+    }
+  }
+
+  // Label doesn't exist — create it
+  const createRes = await fetch(
+    'https://gmail.googleapis.com/gmail/v1/users/me/labels',
+    {
+      method: 'POST',
+      headers: {
+        Authorization: `Bearer ${token}`,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        name: CLEANUP_LABEL_NAME,
+        labelListVisibility: 'labelShow',
+        messageListVisibility: 'show',
+        color: {
+          textColor: '#ffffff',
+          backgroundColor: '#994a64',
+        },
+      }),
+    }
+  );
+
+  if (!createRes.ok) {
+    const err = await createRes.json().catch(() => ({}));
+    throw new Error(`Failed to create cleanup label: ${createRes.status} ${JSON.stringify(err)}`);
+  }
+
+  const labelData = await createRes.json();
+  cachedCleanupLabelId = labelData.id;
+  return labelData.id;
+}
+
+/**
+ * Move emails out of inbox into the "BKB Cleanup" label.
+ * Adds the cleanup label AND removes INBOX so they're out of the way
+ * but still accessible under the "BKB Cleanup" label in Gmail.
  */
 export async function archiveEmails(messageIds: string[]): Promise<{ archived: number; failed: number }> {
   let archived = 0;
@@ -207,9 +268,9 @@ export async function archiveEmails(messageIds: string[]): Promise<{ archived: n
 
   try {
     const token = await getAccessToken();
+    const cleanupLabelId = await getCleanupLabelId();
 
-    // Gmail batch modify — remove INBOX label from multiple messages at once
-    // API supports up to 1000 IDs per batch
+    // Gmail batch modify — add cleanup label + remove INBOX
     const batchSize = 50;
     for (let i = 0; i < messageIds.length; i += batchSize) {
       const batch = messageIds.slice(i, i + batchSize);
@@ -224,6 +285,7 @@ export async function archiveEmails(messageIds: string[]): Promise<{ archived: n
             },
             body: JSON.stringify({
               ids: batch,
+              addLabelIds: [cleanupLabelId],
               removeLabelIds: ['INBOX'],
             }),
           }
@@ -231,7 +293,7 @@ export async function archiveEmails(messageIds: string[]): Promise<{ archived: n
         if (res.ok) {
           archived += batch.length;
         } else {
-          console.error('[GoogleAPI] Batch archive failed:', res.status);
+          console.error('[GoogleAPI] Batch cleanup failed:', res.status);
           failed += batch.length;
         }
       } catch {
@@ -239,7 +301,7 @@ export async function archiveEmails(messageIds: string[]): Promise<{ archived: n
       }
     }
   } catch (err: any) {
-    console.error('[GoogleAPI] Archive error:', err.message);
+    console.error('[GoogleAPI] Cleanup error:', err.message);
     failed = messageIds.length;
   }
 
