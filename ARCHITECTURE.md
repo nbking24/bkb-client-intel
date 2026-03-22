@@ -1630,6 +1630,70 @@ The FIFO deduction system handles this automatically. Each time "Create Billable
 - Know-it-All data access limits removed (`870c971`)
 - Backfill progress tracking fix (`5c3602a`)
 
+### 2026-03-22 — Session: iMessage Sync to Dashboard
+
+**Purpose:** Enable Nathan's Mac iMessage/SMS texts to flow into the BKB Client Hub dashboard so the AI briefing has context about recent text conversations with clients, subs, and team members.
+
+**Architecture:**
+- **Local Mac script** (`~/Applications/bkb-messages-sync/sync-messages.py`) reads `~/Library/Messages/chat.db` (read-only), extracts messages from last 48 hours, filters junk/spam, and pushes clean messages to Supabase via REST API.
+- **LaunchAgent** (`com.bkb.messages-sync.plist`) runs the sync script every 5 minutes automatically in the background.
+- **API endpoint** (`app/api/sync/texts/route.ts`) — `POST /api/sync/texts` — receives messages from the Mac sync script, authenticated via `x-sync-key` header (env var `TEXT_SYNC_SECRET`), and stores them in the `agent_cache` table under key `nathan-recent-texts`.
+- **Dashboard integration** — `app/lib/dashboard-data.ts` already reads from `agent_cache` key `nathan-recent-texts` and includes text messages in the briefing. `app/lib/dashboard-analysis.ts` includes them in the AI analysis prompt under "TEXT MESSAGES" section.
+
+**Junk Filtering (sync script):**
+- Short codes (5-6 digit numbers) automatically blocked
+- Regex-based content filtering: opt-out language, 2FA codes, delivery notifications, promotions/deals, political fundraising, automated appointment reminders
+- Configurable `BLOCKED_NUMBERS` set for manually blocking specific numbers
+- Filters run before push — junk never reaches the dashboard
+
+**Data Flow:**
+```
+Mac Messages DB → sync-messages.py (filter junk) → Supabase agent_cache → Dashboard briefing AI
+```
+
+**Data Format (agent_cache key: `nathan-recent-texts`):**
+```json
+{
+  "messages": [
+    {
+      "id": "12345",
+      "text": "message content",
+      "is_from_me": false,
+      "date": "2026-03-22T14:30:00",
+      "contact_id": "+12155551234",
+      "contact_display": "John Smith",
+      "service": "iMessage",
+      "chat_name": "",
+      "has_attachment": false
+    }
+  ],
+  "syncedAt": "2026-03-22T14:35:00",
+  "count": 47
+}
+```
+
+**Files Changed/Created:**
+- Created `app/api/sync/texts/route.ts` — API endpoint for receiving text messages from Mac sync script
+- Created (local Mac) `sync-messages.py` — Python script to read iMessage DB and push to dashboard
+- Created (local Mac) `setup.sh` — Installer for LaunchAgent automatic sync
+- Created (local Mac) `com.bkb.messages-sync.plist` — LaunchAgent configuration
+
+**Prerequisites:**
+- Terminal must have Full Disk Access (System Settings > Privacy & Security > Full Disk Access)
+- Terminal must be restarted after granting access
+- Python 3 (ships with macOS, no pip packages needed)
+
+**Useful Commands:**
+| Action | Command |
+|--------|---------|
+| Stop syncing | `launchctl unload ~/Library/LaunchAgents/com.bkb.messages-sync.plist` |
+| Start syncing | `launchctl load ~/Library/LaunchAgents/com.bkb.messages-sync.plist` |
+| Check if running | `launchctl list | grep bkb` |
+| View logs | `tail -20 /tmp/bkb-messages-sync.log` |
+| Run manually | `cd ~/Applications/bkb-messages-sync && python3 sync-messages.py` |
+
+**Commits:** `45a57cc`
+
 ---
 
 *End of document. Keep this updated after every session.*
