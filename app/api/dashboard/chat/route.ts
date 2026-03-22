@@ -187,5 +187,14 @@ function buildContextString(data: any): string {
     }
   }
 
+  // Text messages (top 10)
+  if (data.recentTexts?.length > 0) {
+    parts.push('\nRECENT TEXT MESSAGES:');
+    for (const t of data.recentTexts.slice(0, 10)) {
+      const dir = t.isFromMe ? 'SENT' : 'RECEIVED';
+      parts.push(`- ${dir} ${t.contactDisplay}: "${t.text.slice(0, 80)}"`);
+    }
+  }
+
   return parts.join('\n');
 }

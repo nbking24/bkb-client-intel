@@ -131,6 +131,13 @@ export async function analyzeUserDashboard(data: UserDashboardData): Promise<Das
     `- ${l.authorName} on ${l.jobName} (${new Date(l.date).toLocaleDateString()}): ${l.notes.slice(0, 100)}...`
   ).join('\n');
 
+  // Build text messages summary
+  const textSummary = (data.recentTexts || []).slice(0, 15).map(t => {
+    const direction = t.isFromMe ? 'SENT' : 'RECEIVED';
+    const date = new Date(t.date).toLocaleString('en-US', { timeZone: TZ, month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' });
+    return `- ${direction} ${t.contactDisplay} (${date}): "${t.text.slice(0, 80)}"`;
+  }).join('\n');
+
   // Time-period-specific instructions
   const tc = data.timeContext;
   const periodInstructions = tc.period === 'morning'
@@ -180,6 +187,9 @@ ${tomorrowCalSummary || '(no events)'}
 
 TASKS DUE ${tc.tomorrowLabel.toUpperCase()}:
 ${tomorrowTaskSummary || '(none)'}
+
+TEXT MESSAGES (recent iMessage/SMS — note any that need a reply or relate to active projects):
+${textSummary || '(no text message data — sync not yet configured)'}
 
 DAILY LOGS (ONLY mention if something requires action — do NOT summarize routine logs):
 ${logSummary || '(no recent logs)'}

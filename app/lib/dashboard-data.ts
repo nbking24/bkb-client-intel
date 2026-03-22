@@ -75,6 +75,15 @@ export interface TimeContext {
   tomorrowDate: string;  // YYYY-MM-DD
 }
 
+export interface TextMessage {
+  id: string;
+  text: string;
+  isFromMe: boolean;
+  date: string;
+  contactId: string;
+  contactDisplay: string;
+}
+
 export interface UserDashboardData {
   userId: string;
   userName: string;
@@ -85,6 +94,7 @@ export interface UserDashboardData {
   recentMessages: DashboardMessage[];
   recentDailyLogs: DashboardDailyLog[];
   recentEmails: DashboardEmail[];
+  recentTexts: TextMessage[];
   calendarEvents: CalendarEvent[];
   tomorrowCalendarEvents: CalendarEvent[];
   activeJobs: Array<{ id: string; name: string; number: string; status?: string }>;
@@ -99,6 +109,7 @@ export interface UserDashboardData {
     unreadEmailCount: number;
     upcomingEventsCount: number;
     tomorrowEventsCount: number;
+    recentTextCount: number;
   };
 }
 
@@ -365,6 +376,34 @@ export async function buildUserDashboardData(userId: string): Promise<UserDashbo
     console.error('[DashboardData] Failed to fetch Gmail:', err.message);
   }
 
+  // Fetch recent text messages from Supabase (synced from Mac Messages database)
+  let recentTexts: TextMessage[] = [];
+  try {
+    const supabase = createServerClient();
+    const { data: textCache } = await supabase
+      .from('agent_cache')
+      .select('data')
+      .eq('key', 'nathan-recent-texts')
+      .single();
+
+    if (textCache?.data?.messages) {
+      const twentyFourHoursAgo = new Date(Date.now() - 24 * 60 * 60 * 1000);
+      recentTexts = (textCache.data.messages as any[])
+        .filter((m: any) => m.text && m.date && new Date(m.date) > twentyFourHoursAgo)
+        .slice(0, 30)
+        .map((m: any) => ({
+          id: m.id,
+          text: m.text.slice(0, 300),
+          isFromMe: m.is_from_me,
+          date: m.date,
+          contactId: m.contact_id || '',
+          contactDisplay: m.contact_display || 'Unknown',
+        }));
+    }
+  } catch (err: any) {
+    console.error('[DashboardData] Failed to fetch texts:', err.message);
+  }
+
   // Fetch Google Calendar events (next 7 days)
   let calendarEvents: CalendarEvent[] = [];
   try {
@@ -399,6 +438,7 @@ export async function buildUserDashboardData(userId: string): Promise<UserDashbo
     unreadEmailCount: recentEmails.filter(e => e.isUnread).length,
     upcomingEventsCount: calendarEvents.length,
     tomorrowEventsCount: tomorrowCalendarEvents.length,
+    recentTextCount: recentTexts.length,
   };
 
   return {
@@ -411,6 +451,7 @@ export async function buildUserDashboardData(userId: string): Promise<UserDashbo
     recentMessages,
     recentDailyLogs,
     recentEmails,
+    recentTexts,
     calendarEvents,
     tomorrowCalendarEvents,
     activeJobs,
