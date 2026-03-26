@@ -25,6 +25,7 @@ import {
   Mail,
   Copy,
   FileText,
+  Shield,
 } from 'lucide-react';
 
 // ============================================================
@@ -482,6 +483,190 @@ function ProjectCard({
 }
 
 // ============================================================
+// Schedule Compliance Panel
+// ============================================================
+function ScheduleCompliancePanel({
+  report,
+  loading,
+  onRefresh,
+  onFixJob,
+  showToast,
+}: {
+  report: any;
+  loading: boolean;
+  onRefresh: () => void;
+  onFixJob: (jobId: string) => void;
+  showToast: (msg: string) => void;
+}) {
+  const [expanded, setExpanded] = useState(true);
+
+  if (loading) {
+    return (
+      <div
+        className="rounded-lg p-4 flex items-center gap-3"
+        style={{ background: '#1a1a1a', border: '1px solid rgba(205,162,116,0.1)' }}
+      >
+        <Loader2 size={16} className="animate-spin" style={{ color: '#C9A84C' }} />
+        <span className="text-sm" style={{ color: '#8a8078' }}>Loading schedule compliance...</span>
+      </div>
+    );
+  }
+
+  if (!report) return null;
+
+  const nonCompliantJobs = report.jobs || [];
+  const compliantCount = report.compliantJobs || 0;
+  const totalScanned = report.totalJobs || 0;
+  const allCompliant = nonCompliantJobs.length === 0;
+
+  return (
+    <div
+      className="rounded-lg overflow-hidden"
+      style={{ background: '#1a1a1a', border: '1px solid rgba(205,162,116,0.1)' }}
+    >
+      <button
+        onClick={() => setExpanded(!expanded)}
+        className="w-full text-left px-4 py-3 flex items-center justify-between hover:bg-[#222] transition-colors"
+      >
+        <div className="flex items-center gap-2">
+          {expanded ? (
+            <ChevronDown size={16} style={{ color: '#8a8078' }} />
+          ) : (
+            <ChevronRight size={16} style={{ color: '#8a8078' }} />
+          )}
+          <Shield size={14} style={{ color: '#C9A84C' }} />
+          <h3 className="text-sm font-semibold" style={{ color: '#C9A84C' }}>
+            Schedule Compliance
+          </h3>
+          {allCompliant && (
+            <span className="text-xs px-2 py-0.5 rounded-full" style={{ background: 'rgba(34,197,94,0.15)', color: '#22c55e' }}>
+              All Compliant
+            </span>
+          )}
+        </div>
+      </button>
+
+      {expanded && (
+        <div className="px-4 py-3 space-y-3" style={{ borderTop: '1px solid rgba(205,162,116,0.08)' }}>
+          {/* Summary stats */}
+          <div className="grid grid-cols-3 gap-2">
+            <div
+              className="rounded p-2 text-center"
+              style={{ background: 'rgba(26,26,26,0.6)', border: '1px solid rgba(205,162,116,0.1)' }}
+            >
+              <div className="text-xs" style={{ color: '#8a8078' }}>Scanned</div>
+              <div className="text-lg font-bold" style={{ color: '#C9A84C' }}>
+                {totalScanned}
+              </div>
+            </div>
+            <div
+              className="rounded p-2 text-center"
+              style={{ background: 'rgba(26,26,26,0.6)', border: '1px solid rgba(34,197,94,0.15)' }}
+            >
+              <div className="text-xs" style={{ color: '#8a8078' }}>Compliant</div>
+              <div className="text-lg font-bold" style={{ color: '#22c55e' }}>
+                {compliantCount}
+              </div>
+            </div>
+            <div
+              className="rounded p-2 text-center"
+              style={{ background: 'rgba(26,26,26,0.6)', border: '1px solid rgba(239,68,68,0.15)' }}
+            >
+              <div className="text-xs" style={{ color: '#8a8078' }}>Non-Compliant</div>
+              <div className="text-lg font-bold" style={{ color: '#ef4444' }}>
+                {nonCompliantJobs.length}
+              </div>
+            </div>
+          </div>
+
+          {/* Compliant message */}
+          {allCompliant && (
+            <div
+              className="p-3 rounded text-center"
+              style={{ background: 'rgba(34,197,94,0.1)', border: '1px solid rgba(34,197,94,0.2)' }}
+            >
+              <p className="text-sm" style={{ color: '#22c55e' }}>
+                ✓ All projects have compliant schedules
+              </p>
+            </div>
+          )}
+
+          {/* Non-compliant jobs list */}
+          {nonCompliantJobs.length > 0 && (
+            <div className="space-y-2">
+              {nonCompliantJobs.map((job: any) => (
+                <div
+                  key={job.jobId}
+                  className="p-2.5 rounded"
+                  style={{ background: 'rgba(26,26,26,0.6)', border: '1px solid rgba(239,68,68,0.1)' }}
+                >
+                  <div className="flex items-start justify-between gap-2 mb-1.5">
+                    <div className="flex-1">
+                      <p className="text-sm font-medium" style={{ color: '#d4ccc4' }}>
+                        {job.jobName}
+                      </p>
+                      <p className="text-xs" style={{ color: '#8a8078' }}>
+                        {job.jobNumber} · {job.clientName}
+                      </p>
+                    </div>
+                    <button
+                      onClick={() => onFixJob(job.jobId)}
+                      className="flex items-center gap-1 text-[10px] px-2 py-1 rounded font-medium hover:opacity-80 transition-opacity flex-shrink-0"
+                      style={{
+                        background: 'rgba(251,146,60,0.15)',
+                        color: '#fb923c',
+                        border: '1px solid rgba(251,146,60,0.3)',
+                      }}
+                    >
+                      <Wrench size={10} />
+                      Fix
+                    </button>
+                  </div>
+                  <div className="text-xs space-y-1" style={{ color: '#8a8078' }}>
+                    {job.missingPhases?.length > 0 && (
+                      <div>
+                        <span style={{ color: '#ef4444' }}>Missing Phases ({job.missingPhases.length}): </span>
+                        {job.missingPhases.map((p: any) => p.name).join(', ')}
+                      </div>
+                    )}
+                    {job.orphanTasks?.length > 0 && (
+                      <div>
+                        <span style={{ color: '#ef4444' }}>Orphan Tasks: </span>
+                        {job.orphanTasks.length}
+                      </div>
+                    )}
+                    {job.misplacedTasks?.length > 0 && (
+                      <div>
+                        <span style={{ color: '#ef4444' }}>Misplaced Tasks: </span>
+                        {job.misplacedTasks.length}
+                      </div>
+                    )}
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
+
+          {/* Re-scan button */}
+          <button
+            onClick={onRefresh}
+            className="w-full flex items-center justify-center gap-2 px-3 py-2 rounded text-xs font-medium hover:opacity-80 transition-opacity"
+            style={{
+              background: 'rgba(201,168,76,0.1)',
+              color: '#C9A84C',
+              border: '1px solid rgba(201,168,76,0.2)',
+            }}
+          >
+            <RefreshCw size={12} />
+            Re-scan
+          </button>
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ============================================================
 // Main Page
 // ============================================================
 export default function PreConDashboard() {
@@ -493,6 +678,9 @@ export default function PreConDashboard() {
   const [readyOpen, setReadyOpen] = useState(true);
   const [toast, setToast] = useState<string | null>(null);
   const [searchQuery, setSearchQuery] = useState('');
+  const [bulkRunning, setBulkRunning] = useState(false);
+  const [complianceReport, setComplianceReport] = useState<any>(null);
+  const [complianceLoading, setComplianceLoading] = useState(true);
 
   // Load cached report on mount (instant)
   async function loadCachedReport() {
@@ -522,6 +710,7 @@ export default function PreConDashboard() {
 
   useEffect(() => {
     loadCachedReport().finally(() => setLoading(false));
+    loadComplianceReport();
   }, []);
 
   async function handleRefresh() {
@@ -630,6 +819,60 @@ export default function PreConDashboard() {
     });
   }
 
+  // Load compliance report
+  async function loadComplianceReport() {
+    try {
+      const res = await fetch('/api/dashboard/schedule-compliance');
+      const json = await res.json();
+      if (!json.error) setComplianceReport(json);
+    } catch {}
+    setComplianceLoading(false);
+  }
+
+  // Handle bulk standardize
+  async function handleBulkStandardize() {
+    setBulkRunning(true);
+    try {
+      const res = await fetch('/api/dashboard/schedule-compliance', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ action: 'bulkStandardize' }),
+      });
+      const json = await res.json();
+      if (json.totals) {
+        const t = json.totals;
+        showToast(`Standardized ${json.totalJobs} jobs: ${t.phasesCreated} phases created, ${t.orphansMoved + t.misplacedMoved} tasks moved`);
+      }
+      // Refresh compliance report after bulk standardize
+      loadComplianceReport();
+    } catch (err: any) {
+      showToast(`Bulk standardize failed: ${err.message}`);
+    }
+    setBulkRunning(false);
+  }
+
+  // Handle fix single job
+  async function handleFixJob(jobId: string) {
+    try {
+      const res = await fetch('/api/dashboard/schedule-compliance', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ action: 'autoFix', jobId }),
+      });
+      const json = await res.json();
+      if (json.totals) {
+        const t = json.totals;
+        const jobName = json.jobResults?.[0]?.jobName || 'Job';
+        showToast(`Fixed ${jobName}: ${t.phasesCreated} phases created, ${t.orphansMoved + t.misplacedMoved} tasks moved`);
+        loadComplianceReport();
+      } else {
+        showToast(`Fix failed: ${json.error || 'Unknown error'}`);
+      }
+    } catch (err: any) {
+      showToast(`Error fixing job: ${err.message}`);
+    }
+  }
+
   // Filter projects by search query (matches job name, job number, or client name)
   const normalizedQuery = searchQuery.trim().toLowerCase();
 
@@ -687,6 +930,23 @@ export default function PreConDashboard() {
             Standardize Schedule
           </Link>
           <button
+            onClick={handleBulkStandardize}
+            disabled={bulkRunning}
+            className="flex items-center gap-2 px-3 py-2 rounded-lg text-xs font-medium hover:opacity-90 transition-opacity disabled:opacity-50"
+            style={{
+              background: 'rgba(34,197,94,0.15)',
+              color: '#22c55e',
+              border: '1px solid rgba(34,197,94,0.3)',
+            }}
+          >
+            {bulkRunning ? (
+              <Loader2 size={14} className="animate-spin" />
+            ) : (
+              <Wrench size={14} />
+            )}
+            {bulkRunning ? 'Standardizing...' : 'Standardize All'}
+          </button>
+          <button
             onClick={handleRefresh}
             disabled={refreshing}
             className="flex items-center gap-2 px-3 py-2 rounded-lg text-xs font-medium hover:opacity-90 transition-opacity disabled:opacity-50"
@@ -703,6 +963,13 @@ export default function PreConDashboard() {
       </div>
 
           <OrphanTaskPanel />
+          <ScheduleCompliancePanel
+            report={complianceReport}
+            loading={complianceLoading}
+            onRefresh={loadComplianceReport}
+            onFixJob={handleFixJob}
+            showToast={showToast}
+          />
       {loading ? (
         <div className="flex flex-col items-center justify-center py-16 gap-3">
           <Loader2 size={28} className="animate-spin" style={{ color: '#C9A84C' }} />

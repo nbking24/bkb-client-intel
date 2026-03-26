@@ -18,6 +18,12 @@
                     },
                     "app/api/sync/backfill/route.ts": {
                                     "maxDuration": 60
+                    },
+                    "app/api/dashboard/schedule-compliance/route.ts": {
+                                    "maxDuration": 300
+                    },
+                    "app/api/cron/schedule-compliance/route.ts": {
+                                    "maxDuration": 300
                     }
         },
         "crons": [
@@ -36,6 +42,10 @@
                     {
                                     "path": "/api/cron/inbox-cleanup",
                                     "schedule": "0 * * * *"
+                    },
+                    {
+                                    "path": "/api/cron/schedule-compliance",
+                                    "schedule": "30 6 * * *"
                     }
         ]
 }
