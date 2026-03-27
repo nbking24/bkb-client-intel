@@ -113,10 +113,15 @@ app/
 │   ├── agent/
 │   │   ├── design-manager/route.ts  # Design Manager analysis + actions
 │   │   └── invoicing/route.ts       # Invoicing health Claude analysis
+│   ├── pml/                            # ★ Project Memory Layer (PLANNED)
+│   │   ├── route.ts                    # CRUD for project_events (GET list, POST create)
+│   │   ├── [eventId]/route.ts          # GET/PATCH single event (resolve, update)
+│   │   └── open-items/route.ts         # GET all unresolved open items
 │   ├── cron/
 │   │   ├── design-agent/route.ts    # Daily 6 AM — design analysis
 │   │   ├── invoicing-health/route.ts # Daily 6 AM — invoicing data refresh
 │   │   ├── inbox-cleanup/route.ts   # Hourly — AI email triage + auto-archive
+│   │   ├── gmail-to-pml/route.ts    # ★ Hourly — Gmail sent+inbox → project_events (PLANNED)
 │   │   └── sync-incremental/route.ts # Daily 5 AM — incremental sync
 │   ├── contacts/route.ts            # Contact search
 │   ├── notes/route.ts               # Create contact notes (chunked)
@@ -125,6 +130,8 @@ app/
 │   ├── debug/route.ts               # Environment health check
 │   └── jobtread-test/route.ts       # PAVE API diagnostic
 └── lib/
+    ├── project-memory.ts             # ★ PML service: queries, event creation, resolution, matching (PLANNED)
+    ├── gmail-sync.ts                 # ★ Gmail sent+inbox sync, thread tracking, reply detection (PLANNED)
     ├── invoicing-health.ts           # Invoicing health analysis (contract + cost-plus, CC23 billable, released invoices)
     ├── google-api.ts                # Google OAuth2 helper — Gmail inbox/archive/drafts + Calendar events
     ├── dashboard-data.ts            # Dashboard data aggregation (JT tasks, comments, Gmail, Calendar, time context)
@@ -429,7 +436,13 @@ Core analysis function `buildInvoicingContext()` fetches all active jobs via PAV
 | `sync_log` | Audit trail of sync operations |
 | `sync_state` | Active sync tracking with retry |
 
-### 7.4 Document Intelligence (Future)
+### 7.4 Project Memory Layer (Planned)
+
+| Table | Purpose |
+|-------|---------|
+| `project_events` | Unified project communication events from all channels (Gmail, JT, texts, phone, meetings, manual notes). See Section 15 for full schema. |
+
+### 7.5 Document Intelligence (Future)
 
 | Table | Purpose |
 |-------|---------|
@@ -565,11 +578,266 @@ JT API  ──→ jt_comments, jt_daily_logs (Supabase cache)
 
 22. **Cost-Plus = ALL hours billable, Fixed-Price = ONLY CC23 hours**: This is a critical business rule. Cost-Plus jobs bill all time entries regardless of cost code. Fixed-Price jobs ONLY bill time entries tagged to Cost Code 23. Nathan has explicitly corrected this twice — do not change this behavior.
 
-23. **PAVE sub-collections cap at 100 entries, oldest-first, no sort/offset**: `job.timeEntries`, `job.costItems`, and similar sub-collections return a maximum of 100 entries in creation order (oldest first). PAVE does NOT support `offset`, `after`, `pageInfo`, `sort`, or `orderBy` on these sub-collections. To paginate, use `where: ["id", ">", lastId]` which exploits PAVE's deterministic ID ordering. Always paginate any sub-collection that could exceed 100 entries — silently losing the newest entries causes subtle data bugs (e.g., Halvorsen's 102.5 CC23 hours showing as 0 because all 18 entries fell past position 100).
+23. **PML: Never auto-send follow-up emails**: The Project Memory Layer may surface open items where an email was sent but no reply received. Follow-up draft emails must ALWAYS be suggested as "Do Now" actions requiring Nathan's approval — NEVER auto-sent. The system cannot know if the answer came via phone call, text, or in-person conversation. This is a hard rule.
+
+24. **PML: Gmail deduplication uses `source_ref.message_id`**: Each Gmail message has a unique message ID. The sync must check for existing `project_events` with matching `source_ref.message_id` before creating new entries. Without this, re-syncs create duplicate events.
+
+25. **PML: `project_events` is append-mostly**: Events should rarely be deleted. Resolution is done by setting `resolved: true`, not by removing the event. The full history is valuable for project status analysis. Only deduplication cleanup should delete rows.
+
+26. **PML: Email-to-project matching is probabilistic**: Not every email will match a project. Events with `job_id: null` are valid — they still appear in global agent context. Nathan can manually link them later via conversation. Do not force-match ambiguous emails.
+
+27. **PAVE sub-collections cap at 100 entries, oldest-first, no sort/offset**: `job.timeEntries`, `job.costItems`, and similar sub-collections return a maximum of 100 entries in creation order (oldest first). PAVE does NOT support `offset`, `after`, `pageInfo`, `sort`, or `orderBy` on these sub-collections. To paginate, use `where: ["id", ">", lastId]` which exploits PAVE's deterministic ID ordering. Always paginate any sub-collection that could exceed 100 entries — silently losing the newest entries causes subtle data bugs (e.g., Halvorsen's 102.5 CC23 hours showing as 0 because all 18 entries fell past position 100).
 
 ---
 
-## 15. Changelog
+## 15. Project Memory Layer (PML)
+
+> **Status:** Architecture approved, not yet implemented. This section defines the target design for a unified project communication intelligence system.
+
+### 15.1 Problem Statement
+
+Project communication at BKB is fragmented across multiple channels: Gmail (sent and received), JobTread comments, iMessages/texts, phone calls, in-person conversations, and client meetings. Currently:
+
+- The dashboard briefing only sees the last 3 days of inbox emails and 7 days of JT comments — no persistent memory
+- Sent emails are invisible to the system (Gmail integration is inbox-only)
+- There is no way to link an email thread or text conversation to a specific JT job
+- Meeting transcripts (from Plaud.ai) have no storage location and are lost after the meeting
+- Phone call outcomes and in-person decisions are completely invisible to the AI
+- Nathan must manually search Gmail, then JobTread, then recall conversations to piece together a project's current status
+
+The Project Memory Layer (PML) solves this by creating a single unified knowledge base where every meaningful project event is captured, regardless of channel. The AI agent queries this one layer to have the full story on any project.
+
+### 15.2 Core Design: `project_events` Table
+
+One Supabase table captures all project communication and context:
+
+```sql
+create table project_events (
+  id uuid primary key default gen_random_uuid(),
+  job_id text,                          -- linked JT job ID
+  job_name text,                        -- denormalized for display
+  job_number text,                      -- denormalized for display
+  channel text not null,                -- 'gmail' | 'jobtread' | 'text' | 'phone' | 'in_person' | 'meeting' | 'manual_note'
+  event_type text not null,             -- 'message_sent' | 'message_received' | 'meeting_held' | 'decision_made' |
+                                        -- 'question_asked' | 'question_answered' | 'commitment_made' | 'status_update' | 'note'
+  summary text not null,                -- AI-generated or human-written short summary (1-2 sentences)
+  detail text,                          -- full content (email body, transcript text, note)
+  participants text[],                  -- who was involved (names)
+  source_ref jsonb,                     -- channel-specific reference:
+                                        --   gmail: { thread_id, message_id, subject, from, to }
+                                        --   jobtread: { comment_id, daily_log_id }
+                                        --   text: { contact_id, contact_display }
+                                        --   meeting: { transcript_length, plaud_source: true }
+  related_event_id uuid references project_events(id),  -- links answer→question, reply→original
+  open_item boolean default false,      -- is this waiting on something?
+  open_item_description text,           -- "Waiting on closet pricing from supplier"
+  resolved boolean default false,
+  resolved_at timestamptz,
+  resolved_note text,                   -- "Supplier called with pricing, $4,200"
+  auto_resolved boolean default false,  -- true when resolved by Gmail reply detection vs manual
+  created_at timestamptz default now(),
+  updated_at timestamptz default now()
+);
+
+-- Indexes for common query patterns
+create index idx_project_events_job_id on project_events(job_id);
+create index idx_project_events_open_items on project_events(open_item, resolved) where open_item = true and resolved = false;
+create index idx_project_events_channel on project_events(channel);
+create index idx_project_events_created on project_events(created_at desc);
+create index idx_project_events_source_ref on project_events using gin(source_ref);
+```
+
+### 15.3 Data Flows — How Information Enters PML
+
+#### Auto-Synced Channels (no user action required)
+
+**Gmail Sync (sent + received)**
+- Extend `google-api.ts` to fetch sent mail in addition to inbox
+- A cron job (extend the existing hourly inbox cleanup or 5 AM sync) reads both inbox and sent folders
+- AI classifies each email: which project does it relate to? Is it asking a question that expects a reply? What's the summary?
+- Project matching: cross-reference sender/recipient email addresses and names against JT job accounts and contacts
+- Creates `project_events` entries with `channel: 'gmail'`
+- Outbound emails asking questions get `open_item: true` with AI-estimated `reply_by` (default: 3 business days)
+- When a reply is detected on a watched thread (matched by `source_ref.thread_id`), the original open item is auto-resolved with `auto_resolved: true`
+- Deduplication: `source_ref.message_id` prevents duplicate entries on re-sync
+
+**JobTread Comments & Daily Logs**
+- Already synced to `jt_comments` and `jt_daily_logs` cache tables
+- Additionally write to `project_events` with `channel: 'jobtread'` during the existing sync
+- Existing cache tables remain for backward compatibility with current dashboard queries
+
+**iMessages/Texts**
+- Already synced via Mac LaunchAgent to `agent_cache` key `nathan-recent-texts`
+- Additionally write to `project_events` with `channel: 'text'` during sync
+- AI-based project matching using contact name/number against JT job accounts
+
+#### Manual Channels (Nathan tells the agent)
+
+**Meeting Transcripts (from Plaud.ai)**
+- Nathan copy/pastes transcript into the Ask Agent: "Here's the transcript from the Oakes client meeting on Tuesday"
+- Agent identifies the project (by name or asks Nathan to confirm)
+- Agent processes the transcript with Claude to extract:
+  - `summary`: 2-3 sentence meeting summary
+  - `key_decisions`: extracted as separate `decision_made` events
+  - `action_items`: offered as JT task creation (with confirmation flow)
+  - `commitments`: things promised to the client or by the client — logged as open items if follow-up is needed
+- Creates a `project_events` entry with `channel: 'meeting'`, full transcript in `detail`
+- Decision and commitment sub-events link back via `related_event_id`
+
+**Phone Calls & In-Person Conversations**
+- Nathan tells the agent: "I spoke with the tile supplier about Oakes, they said closet pricing is $4,200 and lead time is 6 weeks"
+- Agent logs as `project_events` with `channel: 'phone'` or `channel: 'in_person'`
+- If there's an existing open item about that topic, the agent marks it `resolved: true` with the resolution note
+- This is the key mechanism for the "I got the answer on the phone" scenario
+
+**Manual Notes**
+- Nathan tells the agent anything to remember: "The Oakes client mentioned they might want a wet bar in the basement"
+- Logged as `channel: 'manual_note'`, `event_type: 'note'`
+
+### 15.4 Agent Integration — Know-it-All Tools
+
+Two new tools added to Know-it-All (in addition to existing 39 tools):
+
+**`get_project_memory`**
+- Input: `jobId` (required), `channel` (optional filter), `event_type` (optional filter), `include_resolved` (boolean, default false), `days_back` (number, default 30)
+- Returns: chronological list of `project_events` for that job
+- Use case: "What's happening with Oakes?" → agent pulls full communication timeline
+
+**`log_project_event`**
+- Input: `jobId`, `channel`, `event_type`, `summary`, `detail` (optional), `participants` (optional), `open_item` (boolean), `open_item_description` (optional), `resolves_event_id` (optional — marks an existing open item as resolved)
+- Use case: Nathan says "I talked to Dave, the permit is approved" → agent logs the event and resolves any open item about the permit
+
+**`get_open_items`**
+- Input: `jobId` (optional — if omitted, returns all open items across all projects)
+- Returns: all unresolved open items, sorted by age (oldest first)
+- Use case: dashboard briefing pulls all open items to show "Pending Follow-Ups" section
+
+**`resolve_open_item`**
+- Input: `eventId`, `resolved_note`
+- Use case: Nathan says "The supplier got back to me on that" → agent resolves the specific open item
+
+### 15.5 Dashboard Integration
+
+**Dashboard Briefing (`dashboard-analysis.ts`)**
+New sections added to the AI analysis prompt:
+
+- **PENDING FOLLOW-UPS**: All open items across projects from `get_open_items()`, with age in days. AI incorporates these into the briefing: "You're still waiting on closet pricing from [supplier] for Oakes — sent 4 days ago, no reply yet."
+- **RECENT PROJECT ACTIVITY**: Significant events from the last 24h across all active projects (new emails, meeting decisions, manual notes). Replaces/augments the current JT comments section with richer multi-channel context.
+
+**Do Now Actions (`dashboard-analysis.ts`)**
+- Suggested follow-up actions for overdue open items: "Follow up on Oakes closet pricing? (5 days, no reply)" — action creates a Gmail draft for review, NEVER auto-sends
+- Resolution actions: "Mark as resolved" button on open items in the dashboard (for when Nathan resolved something outside the agent)
+
+**Project Status Intelligence**
+The Design Manager agent and overview analysis can now answer:
+- "Which projects have gone quiet?" — no events in 7+ days
+- "What's stalled?" — open items unresolved for 5+ business days
+- "What happened this week on Oakes?" — full event timeline
+- "What did we decide about the kitchen layout?" — searches meeting transcripts and decision events
+- "Give me a project summary for Oakes" — combines JT budget/schedule data with PML communication timeline
+
+### 15.6 Open Item Lifecycle
+
+```
+Email sent / Question asked / Commitment made
+  ↓
+open_item: true, resolved: false
+  ↓
+Surfaces in dashboard briefing + agent context
+  ↓
+Resolution happens via ONE of:
+  ├── Gmail reply detected → auto_resolved: true (automatic)
+  ├── Nathan tells agent "they called me back" → resolved: true (conversational)
+  ├── Nathan clicks "Resolve" in dashboard → resolved: true (manual)
+  └── Nathan tells agent to dismiss → resolved: true, resolved_note: "dismissed"
+  ↓
+Item no longer appears in active open items
+(Still queryable in project history with include_resolved: true)
+```
+
+**Critical rule:** Follow-up draft emails are SUGGESTED, never auto-sent. Nathan may have received the answer via phone, text, or in-person — channels the system cannot automatically verify. All follow-up actions require Nathan's approval.
+
+### 15.7 Cron Jobs
+
+| Cron | Schedule | Purpose |
+|------|----------|---------|
+| `gmail-to-pml` | Hourly during work hours (7am-9pm ET) | Sync inbox + sent mail → `project_events`, check for replies on open threads |
+| `pml-open-items-digest` | Daily 6 AM ET | Generate open items summary for dashboard briefing context |
+
+These piggyback on existing Vercel cron infrastructure. The Gmail sync can be combined with the existing `inbox-cleanup` cron to avoid redundant Gmail API calls.
+
+### 15.8 Email-to-Project Matching
+
+AI-based matching using this priority order:
+
+1. **Exact email match**: Sender/recipient email address matches a contact on a JT job account
+2. **Name match**: Sender/recipient name fuzzy-matches a JT job account contact name (reuse existing `contact-mapper.ts` logic)
+3. **Subject line match**: Subject contains a job name, job number, or project address
+4. **Thread continuity**: If a previous message in the same Gmail thread was already matched to a project, inherit that match
+5. **Unmatched**: If no match found, store with `job_id: null` — still visible in the agent's global context, and Nathan can manually link it later via conversation ("that email about the tile was for Oakes")
+
+### 15.9 Meeting Transcript Processing Pipeline
+
+```
+Nathan pastes transcript into Ask Agent
+  ↓
+Agent confirms project: "This looks like the Oakes meeting. Correct?"
+  ↓
+Claude processes transcript → extracts:
+  ├── summary (2-3 sentences)
+  ├── key_decisions[] → each becomes a 'decision_made' event
+  ├── action_items[] → offered as JT task creation (standard confirmation flow)
+  ├── commitments[] → logged as open items if follow-up needed
+  └── participants[] (extracted from transcript context)
+  ↓
+Creates project_events:
+  ├── 1 primary event (channel: 'meeting', event_type: 'meeting_held', detail: full transcript)
+  ├── N decision events (related_event_id → primary)
+  └── M commitment events (open_item: true, related_event_id → primary)
+```
+
+### 15.10 Build Plan (Priority Order)
+
+| Phase | What | Why First | Depends On |
+|-------|------|-----------|------------|
+| 1 | Supabase `project_events` table + `log_project_event` API endpoint | Foundation — enables manual event logging immediately via Ask Agent | Nothing |
+| 2 | Know-it-All tools: `log_project_event`, `get_project_memory`, `get_open_items`, `resolve_open_item` | Nathan can start logging phone calls, notes, and querying project context | Phase 1 |
+| 3 | Meeting transcript processing in Know-it-All | Nathan is ready to paste from Plaud now — immediate value | Phase 1, 2 |
+| 4 | Gmail sent mail sync → `project_events` + reply detection | Auto-captures outbound email context, biggest gap in current system | Phase 1 |
+| 5 | Open items in dashboard briefing + Do Now follow-up actions | Proactive reminders surface in daily workflow | Phase 1, 4 |
+| 6 | Backfill existing sources (JT comments, daily logs, iMessages) into `project_events` | Unified timeline includes all channels | Phase 1 |
+| 7 | Project intelligence: stalled detection, weekly summaries, "what's the status" answers | Full value of the unified memory layer | Phase 1-6 |
+
+### 15.11 What Doesn't Change
+
+- Existing JT comment and daily log sync continues (cache tables remain for backward compatibility)
+- iMessage Mac sync script continues (also writes to PML)
+- Gmail inbox read + cleanup continues (extended to also track sent mail)
+- Know-it-All's existing 39 tools stay — PML adds 4 new tools
+- Dashboard briefing structure stays — gains richer context from PML
+- All existing cron jobs continue on current schedules
+
+### 15.12 New Files (Planned)
+
+```
+app/
+├── api/
+│   ├── pml/
+│   │   ├── route.ts                    # CRUD for project_events (GET list, POST create)
+│   │   ├── [eventId]/route.ts          # GET/PATCH single event (resolve, update)
+│   │   └── open-items/route.ts         # GET all unresolved open items
+│   ├── cron/
+│   │   └── gmail-to-pml/route.ts       # Hourly Gmail → project_events sync
+│   └── sync/
+│       └── pml-backfill/route.ts       # One-time backfill of JT/text data into PML
+├── lib/
+│   ├── project-memory.ts               # PML service: queries, event creation, resolution, project matching
+│   └── gmail-sync.ts                   # Gmail sent+inbox sync, thread tracking, reply detection
+```
+
+---
+
+## 16. Changelog
 
 All modifications to the codebase should be logged here with date, files changed, and what was done.
 
