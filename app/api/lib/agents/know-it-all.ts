@@ -78,6 +78,23 @@ import {
   createDailyLogWithCache,
 } from '@/app/lib/jobtread';
 import { getBrandVoicePrompt } from '@/app/lib/bkb-brand-voice';
+import {
+  createProjectEvent,
+  getProjectMemory,
+  getOpenItems,
+  resolveOpenItem,
+  searchProjectEvents,
+  formatEventsForContext,
+  formatOpenItemsForContext,
+} from '@/app/lib/project-memory';
+import {
+  generateProjectIntelligenceReport,
+  getProjectStatusSummary,
+  detectStalledProjects,
+  formatIntelligenceReportForContext,
+  formatProjectSummaryForContext,
+  formatStalledProjectsForContext,
+} from '@/app/lib/project-intelligence';
 
 // -- TOKEN-AWARE CONTEXT BUDGETING ------------------------------------
 // Claude Sonnet has ~200k context. We budget ~120k chars (~30k tokens)
@@ -656,7 +673,31 @@ const knowItAll: AgentModule = {
       'For date ranges, use Eastern Time (ET). Default range if not specified: today through 14 days out.\n' +
       'MEETING SYNC: Use sync_ghl_meetings_to_jt to push GHL appointments into JobTread as tasks.\n' +
       'This runs automatically each morning at 5 AM, but can also be triggered on-demand.\n' +
-      'Synced tasks are prefixed with 📅 and include meeting details in the description.\n\n';
+      'Synced tasks are prefixed with 📅 and include meeting details in the description.\n\n' +
+      '=== PROJECT MEMORY LAYER (PML) ===\n' +
+      'You have access to a unified project communication history that captures events from ALL channels:\n' +
+      'Gmail (sent + received), JobTread comments, texts, phone calls, in-person conversations, meetings, and manual notes.\n\n' +
+      'TOOLS:\n' +
+      '- get_project_memory: Pull the full communication timeline for a project. Use when asked "what\'s happening with [project]?", "status update on [project]", "what was decided about..."\n' +
+      '- log_project_event: Log phone calls, in-person conversations, meeting outcomes, or any information Nathan tells you. ALWAYS use this when Nathan shares info about a project conversation.\n' +
+      '- get_open_items: See all unresolved items awaiting response across all projects. Use for "what am I waiting on?", "any pending follow-ups?"\n' +
+      '- resolve_open_item: Mark an open item as resolved when Nathan says "I got the answer" or "they got back to me".\n' +
+      '- search_project_events: Search across all project communications by keyword.\n' +
+      '- get_project_intelligence: Get a full intelligence report across all active projects. Shows stalled projects, projects needing attention, health scores. Use for "which projects have gone quiet?", "any stalled projects?", "project health overview".\n' +
+      '- get_project_status: Get a detailed status summary for a single project with health score, communication breakdown, and recent highlights.\n\n' +
+      'LOGGING RULES:\n' +
+      '- When Nathan says "I spoke with [person] about [project]" or "I heard back from..." → ALWAYS log it as a project event.\n' +
+      '- When Nathan pastes a meeting transcript → Process it: extract summary, key decisions, action items. Log the meeting and decisions as separate events.\n' +
+      '- When logging an event that answers an open question → Also call resolve_open_item on the related open item.\n' +
+      '- NEVER auto-send follow-up emails. Only suggest drafts for Nathan\'s review.\n\n' +
+      'MEETING TRANSCRIPT PROCESSING:\n' +
+      'When Nathan pastes a meeting transcript:\n' +
+      '1. Identify the project (by name, or ask Nathan to confirm)\n' +
+      '2. Extract: summary (2-3 sentences), key decisions, action items, commitments made\n' +
+      '3. Log the meeting as a project event with channel="meeting"\n' +
+      '4. Log each key decision as a separate "decision_made" event linked to the meeting\n' +
+      '5. For action items, offer to create JT tasks (standard confirmation flow)\n' +
+      '6. For commitments awaiting follow-up, log as open items\n\n';
 
     // Task creation rules (always needed for write operations)
     const taskRules =
@@ -1086,6 +1127,100 @@ const knowItAll: AgentModule = {
         required: ['jobId'],
       },
     },
+    // ── PROJECT MEMORY LAYER (PML) TOOLS ──────────────────────
+    {
+      name: 'get_project_memory',
+      description: 'Get the full communication timeline for a project from all channels (Gmail, JT, texts, phone, meetings, notes). Use when asked about project status, history, or "what\'s happening with [project]?".',
+      input_schema: {
+        type: 'object',
+        properties: {
+          jobId: { type: 'string', description: 'The JobTread Job ID' },
+          channel: { type: 'string', description: 'Filter by channel: gmail, jobtread, text, phone, in_person, meeting, manual_note (optional)' },
+          eventType: { type: 'string', description: 'Filter by type: message_sent, message_received, meeting_held, decision_made, question_asked, question_answered, commitment_made, status_update, note (optional)' },
+          daysBack: { type: 'number', description: 'How many days of history to retrieve (default 30)' },
+          includeResolved: { type: 'boolean', description: 'Include resolved open items (default true)' },
+        },
+        required: ['jobId'],
+      },
+    },
+    {
+      name: 'log_project_event',
+      description: 'Log a project communication event — phone call, in-person conversation, meeting transcript, decision, or note. Use ALWAYS when Nathan shares info about a project conversation or pastes a meeting transcript.',
+      input_schema: {
+        type: 'object',
+        properties: {
+          jobId: { type: 'string', description: 'The JobTread Job ID (use search_jobs to find if needed)' },
+          jobName: { type: 'string', description: 'Job name for display' },
+          jobNumber: { type: 'string', description: 'Job number for display' },
+          channel: { type: 'string', description: 'Communication channel: gmail, jobtread, text, phone, in_person, meeting, manual_note' },
+          eventType: { type: 'string', description: 'Event type: message_sent, message_received, meeting_held, decision_made, question_asked, question_answered, commitment_made, status_update, note' },
+          summary: { type: 'string', description: 'Short summary (1-2 sentences) of what happened' },
+          detail: { type: 'string', description: 'Full details (email body, transcript text, meeting notes, etc.)' },
+          participants: { type: 'array', items: { type: 'string' }, description: 'Names of people involved' },
+          openItem: { type: 'boolean', description: 'Is this waiting on a response or follow-up? (default false)' },
+          openItemDescription: { type: 'string', description: 'What is being waited on, e.g. "Waiting on closet pricing from supplier"' },
+          resolvesEventId: { type: 'string', description: 'If this event resolves a previous open item, provide that event ID to auto-resolve it' },
+        },
+        required: ['channel', 'eventType', 'summary'],
+      },
+    },
+    {
+      name: 'get_open_items',
+      description: 'Get all unresolved open items awaiting response across projects. Use for "what am I waiting on?", "pending follow-ups?", or to check project bottlenecks.',
+      input_schema: {
+        type: 'object',
+        properties: {
+          jobId: { type: 'string', description: 'Filter to a specific job (optional — omit to see all projects)' },
+        },
+        required: [],
+      },
+    },
+    {
+      name: 'resolve_open_item',
+      description: 'Mark an open item as resolved. Use when Nathan says he got an answer (phone call, text, in-person, etc.) or when a reply is detected.',
+      input_schema: {
+        type: 'object',
+        properties: {
+          eventId: { type: 'string', description: 'The project event ID of the open item to resolve' },
+          resolvedNote: { type: 'string', description: 'How it was resolved, e.g. "Supplier called back, pricing is $4,200"' },
+        },
+        required: ['eventId', 'resolvedNote'],
+      },
+    },
+    {
+      name: 'search_project_events',
+      description: 'Search across all project communication events by keyword. Use for "what did we discuss about the kitchen?", "any mention of tile in project communications?"',
+      input_schema: {
+        type: 'object',
+        properties: {
+          query: { type: 'string', description: 'Search keyword or phrase' },
+          jobId: { type: 'string', description: 'Filter to a specific job (optional)' },
+        },
+        required: ['query'],
+      },
+    },
+    {
+      name: 'get_project_intelligence',
+      description: 'Generate a full intelligence report across all active projects. Shows stalled projects, projects needing attention, health scores, open item counts. Use for "which projects have gone quiet?", "any stalled projects?", "project health overview", "what needs attention?"',
+      input_schema: {
+        type: 'object',
+        properties: {},
+        required: [],
+      },
+    },
+    {
+      name: 'get_project_status',
+      description: 'Get a detailed status summary for a specific project including health score, communication channel breakdown, open items, and recent highlights.',
+      input_schema: {
+        type: 'object',
+        properties: {
+          jobId: { type: 'string', description: 'The JobTread job ID' },
+          jobName: { type: 'string', description: 'The job name (for display)' },
+          jobNumber: { type: 'string', description: 'The job number (for display)' },
+        },
+        required: ['jobId'],
+      },
+    },
   ],
 
   canHandle: (message: string) => {
@@ -1106,6 +1241,13 @@ const knowItAll: AgentModule = {
     if (/mark.*(complete|done|finished|progress)|complete.*task|finish.*task|update.*progress/i.test(lower)) return 0.9;
     if (/apply.*template|standard.*template|create.*phase|add.*phase/i.test(lower)) return 0.9;
     if (/(create|add|write|log|new).*(daily.*log|daily.*report|site.*log|field.*report)/i.test(lower)) return 0.95;
+    // Project Memory Layer — communication history, open items, follow-ups, meeting transcripts
+    if (/(i spoke|i talked|i met|i called|they called|got back to me|heard back|got an answer|they replied|vendor said|supplier said|client said)/i.test(lower)) return 0.95;
+    if (/(transcript|meeting notes|here'?s the transcript|meeting with|meeting summary)/i.test(lower)) return 0.95;
+    if (/(waiting on|pending|follow.?up|open item|what am i waiting|any replies|unresolved|stalled)/i.test(lower)) return 0.9;
+    if (/(which projects.*quiet|gone quiet|stalled projects|project health|projects need.*attention|intelligence report|what needs attention)/i.test(lower)) return 0.95;
+    if (/(communication|correspondence|what happened|what.?s happening|project status|full story|timeline)/i.test(lower)) return 0.85;
+    if (/(log this|remember this|note that|keep track|resolved|got the answer|mark.*resolved)/i.test(lower)) return 0.9;
     // Calendar, meetings, appointments — always use Know-it-All for GHL calendar access
     if (/\b(meeting|appointment|consult|site visit|calendar|what.*coming up|what.*scheduled|schedule.*this week|schedule.*today|schedule.*tomorrow|client.*schedule|sync.*meeting|push.*meeting|sync.*calendar)\b/i.test(lower)) return 0.9;
     if (/(add|create|post|write|leave).*(comment|note)/i.test(lower)) return 0.9;
@@ -1898,6 +2040,122 @@ const knowItAll: AgentModule = {
         if (Object.keys(fields).length === 0) return JSON.stringify({ success: false, error: 'No fields to update.' });
         const result = await updateTaskFull(input.taskId, fields);
         return JSON.stringify({ success: true, result, message: 'Task updated (advanced).' });
+      }
+
+      // ========== PROJECT MEMORY LAYER (PML) TOOLS ==========
+
+      if (name === 'get_project_memory') {
+        const events = await getProjectMemory({
+          jobId: input.jobId,
+          channel: input.channel || undefined,
+          eventType: input.eventType || undefined,
+          daysBack: input.daysBack || 30,
+          includeResolved: input.includeResolved !== false,
+        });
+        if (events.length === 0) {
+          return JSON.stringify({ success: true, message: 'No project events found for this job in the last ' + (input.daysBack || 30) + ' days.' });
+        }
+        return JSON.stringify({
+          success: true,
+          count: events.length,
+          timeline: formatEventsForContext(events),
+        });
+      }
+
+      if (name === 'log_project_event') {
+        // If this event resolves an existing open item, resolve it first
+        if (input.resolvesEventId) {
+          try {
+            await resolveOpenItem(input.resolvesEventId, input.summary, false);
+          } catch (e) {
+            console.error('Failed to resolve linked open item:', e);
+          }
+        }
+
+        const event = await createProjectEvent({
+          job_id: input.jobId || null,
+          job_name: input.jobName || null,
+          job_number: input.jobNumber || null,
+          channel: input.channel,
+          event_type: input.eventType,
+          summary: input.summary,
+          detail: input.detail || null,
+          participants: input.participants || null,
+          open_item: input.openItem || false,
+          open_item_description: input.openItemDescription || null,
+        });
+        return JSON.stringify({
+          success: true,
+          eventId: event.id,
+          message: 'Event logged: ' + event.summary + (event.open_item ? ' (open item — tracking for follow-up)' : ''),
+        });
+      }
+
+      if (name === 'get_open_items') {
+        const items = await getOpenItems({ jobId: input.jobId || undefined });
+        if (items.length === 0) {
+          return JSON.stringify({ success: true, message: 'No open items pending. All follow-ups are resolved.' });
+        }
+        return JSON.stringify({
+          success: true,
+          count: items.length,
+          items: formatOpenItemsForContext(items),
+        });
+      }
+
+      if (name === 'resolve_open_item') {
+        const resolved = await resolveOpenItem(input.eventId, input.resolvedNote, false);
+        return JSON.stringify({
+          success: true,
+          message: 'Open item resolved: ' + resolved.summary + ' → ' + input.resolvedNote,
+        });
+      }
+
+      if (name === 'search_project_events') {
+        const results = await searchProjectEvents(input.query, { jobId: input.jobId || undefined });
+        if (results.length === 0) {
+          return JSON.stringify({ success: true, message: 'No project events found matching "' + input.query + '".' });
+        }
+        return JSON.stringify({
+          success: true,
+          count: results.length,
+          results: formatEventsForContext(results),
+        });
+      }
+
+      // ── Project Intelligence Tools ──────────────────────────────
+      if (name === 'get_project_intelligence') {
+        // Fetch active jobs for the intelligence report
+        const jobs = await getActiveJobs(50);
+        const activeJobs = (jobs || []).map((j: any) => ({
+          id: j.id,
+          name: j.name || '',
+          number: j.number || '',
+        }));
+        const report = await generateProjectIntelligenceReport(activeJobs);
+        return JSON.stringify({
+          success: true,
+          report: formatIntelligenceReportForContext(report),
+          stats: report.overallStats,
+          stalledCount: report.stalledProjects.length,
+          needsAttentionCount: report.projectsNeedingAttention.length,
+        });
+      }
+
+      if (name === 'get_project_status') {
+        const summary = await getProjectStatusSummary(
+          input.jobId,
+          input.jobName || '',
+          input.jobNumber || ''
+        );
+        return JSON.stringify({
+          success: true,
+          summary: formatProjectSummaryForContext(summary),
+          healthScore: summary.healthScore,
+          openItemCount: summary.openItemCount,
+          totalEvents: summary.totalEvents,
+          recentEvents: summary.recentEvents,
+        });
       }
 
       return JSON.stringify({ error: 'Unknown tool: ' + name });

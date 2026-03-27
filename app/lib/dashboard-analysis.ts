@@ -191,6 +191,9 @@ ${tomorrowTaskSummary || '(none)'}
 TEXT MESSAGES (recent iMessage/SMS — note any that need a reply or relate to active projects):
 ${textSummary || '(no text message data — sync not yet configured)'}
 
+PENDING FOLLOW-UPS (items awaiting response from vendors, clients, subs — flag any overdue ones, suggest follow-up actions):
+${data.openItemsFormatted || '(no open items tracked yet)'}
+
 DAILY LOGS (ONLY mention if something requires action — do NOT summarize routine logs):
 ${logSummary || '(no recent logs)'}
 

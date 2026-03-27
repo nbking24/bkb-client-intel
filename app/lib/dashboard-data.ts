@@ -22,6 +22,7 @@ import {
 import { TEAM_USERS, ROLE_CONFIG, type TeamRole } from './constants';
 import { createServerClient } from './supabase';
 import { fetchGmailInbox, fetchCalendarEvents, type GmailMessage, type CalendarEvent } from './google-api';
+import { getOpenItems, formatOpenItemsForContext, type ProjectEvent } from './project-memory';
 
 export interface DashboardTask {
   id: string;
@@ -98,6 +99,8 @@ export interface UserDashboardData {
   calendarEvents: CalendarEvent[];
   tomorrowCalendarEvents: CalendarEvent[];
   activeJobs: Array<{ id: string; name: string; number: string; status?: string }>;
+  openItems: ProjectEvent[];
+  openItemsFormatted: string;
   stats: {
     totalTasks: number;
     urgentTasks: number;
@@ -110,6 +113,7 @@ export interface UserDashboardData {
     upcomingEventsCount: number;
     tomorrowEventsCount: number;
     recentTextCount: number;
+    openItemCount: number;
   };
 }
 
@@ -422,6 +426,16 @@ export async function buildUserDashboardData(userId: string): Promise<UserDashbo
     console.error('[DashboardData] Failed to fetch tomorrow calendar:', err.message);
   }
 
+  // Fetch PML open items (pending follow-ups across all projects)
+  let openItems: ProjectEvent[] = [];
+  let openItemsFormatted = '';
+  try {
+    openItems = await getOpenItems({ limit: 30 });
+    openItemsFormatted = formatOpenItemsForContext(openItems);
+  } catch (err: any) {
+    console.error('[DashboardData] Failed to fetch PML open items:', err.message);
+  }
+
   // Filter tomorrow's tasks
   const tomorrowTasks = tasks.filter(t => t.endDate?.startsWith(timeContext.tomorrowDate));
 
@@ -439,6 +453,7 @@ export async function buildUserDashboardData(userId: string): Promise<UserDashbo
     upcomingEventsCount: calendarEvents.length,
     tomorrowEventsCount: tomorrowCalendarEvents.length,
     recentTextCount: recentTexts.length,
+    openItemCount: openItems.length,
   };
 
   return {
@@ -455,6 +470,8 @@ export async function buildUserDashboardData(userId: string): Promise<UserDashbo
     calendarEvents,
     tomorrowCalendarEvents,
     activeJobs,
+    openItems,
+    openItemsFormatted,
     stats,
   };
 }
