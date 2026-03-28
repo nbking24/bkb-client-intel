@@ -1,6 +1,6 @@
 // @ts-nocheck
 import { NextRequest, NextResponse } from 'next/server';
-import { validateAuth } from '../../lib/auth';
+import { validateAuth } from '../lib/auth';
 import { updateTaskProgress } from '@/app/lib/jobtread';
 
 /**
