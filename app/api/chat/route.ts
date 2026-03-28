@@ -1,12 +1,13 @@
 // @ts-nocheck
 import { NextRequest, NextResponse } from 'next/server';
-import { validateAuth } from '../lib/auth';
+import { validateAuth, isFieldStaffRole } from '../lib/auth';
 import { AgentContext, getCommChannel } from '../lib/agents/types';
 import { routeMessage } from '../lib/agents/router';
 import { findJTJobByName } from '../lib/supabase';
 
 export async function POST(req: NextRequest) {
-  if (!validateAuth(req.headers.get('authorization')).valid) {
+  const auth = validateAuth(req.headers.get('authorization'));
+  if (!auth.valid) {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
   }
 
@@ -21,7 +22,7 @@ export async function POST(req: NextRequest) {
       jtJobId,
       pipelineStage,
       lastAgent,
-      forcedAgent, // NEW: manual agent selection from the UI
+      forcedAgent, // manual agent selection from the UI
     } = body;
 
     if (!Array.isArray(messages) || messages.length === 0) {
@@ -31,8 +32,6 @@ export async function POST(req: NextRequest) {
     // Try to resolve jtJobId from the message context if not explicitly provided
     let resolvedJtJobId = jtJobId || undefined;
     if (!resolvedJtJobId) {
-      // Search ALL messages (not just the last one) for job context hints
-      // This is important because follow-up messages (e.g. task approval) won't have the context
       for (let i = messages.length - 1; i >= 0 && !resolvedJtJobId; i--) {
         const msgContent = messages[i]?.content || '';
         const jobIdMatch = msgContent.match(/\[Context:.*?ID:\s*([A-Za-z0-9]+)/);
@@ -61,7 +60,14 @@ export async function POST(req: NextRequest) {
       communicationChannel: getCommChannel(pipelineStage || ''),
     };
 
-    // Route to the best agent (pass lastAgent for confirmation continuity, forcedAgent for manual selection)
+    // ── ROLE-BASED AGENT RESTRICTION ──
+    // Field staff (Evan, Terri, Dave) are ALWAYS routed to the field-staff agent.
+    // They cannot access the full Know-it-All or other admin agents.
+    const effectiveForcedAgent = isFieldStaffRole(auth.role)
+      ? 'field-staff'
+      : (forcedAgent || undefined);
+
+    // Route to the best agent
     const result = await routeMessage(
       messages.map((m: { role: string; content: string }) => ({
         role: m.role,
@@ -69,13 +75,12 @@ export async function POST(req: NextRequest) {
       })),
       ctx,
       lastAgent || undefined,
-      forcedAgent || undefined
+      effectiveForcedAgent
     );
 
     // Extract task confirmation block from reply (if present)
     let reply = result.reply;
     let taskConfirm = null;
-    // Handle block inside code fences OR raw
     const fencedMatch = reply.match(/```\w*\s*@@TASK_CONFIRM@@\s*([\s\S]*?)\s*@@END_CONFIRM@@\s*```/);
     const rawMatch = reply.match(/@@TASK_CONFIRM@@\s*([\s\S]*?)\s*@@END_CONFIRM@@/);
     const confirmMatch = fencedMatch || rawMatch;
@@ -83,7 +88,6 @@ export async function POST(req: NextRequest) {
       try {
         taskConfirm = JSON.parse(confirmMatch[1].trim());
       } catch { /* non-fatal: malformed JSON */ }
-      // Strip the block from the reply text (both fenced and raw patterns)
       reply = reply.replace(/```\w*\s*@@TASK_CONFIRM@@[\s\S]*?@@END_CONFIRM@@\s*```/g, '');
       reply = reply.replace(/@@TASK_CONFIRM@@[\s\S]*?@@END_CONFIRM@@/g, '');
       reply = reply.trim();
