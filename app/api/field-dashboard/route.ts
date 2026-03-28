@@ -1,6 +1,6 @@
 // @ts-nocheck
 import { NextRequest, NextResponse } from 'next/server';
-import { validateAuth, isFieldStaffRole } from '../../lib/auth';
+import { validateAuth, isFieldStaffRole } from '../lib/auth';
 import { getActiveJobs, getTasksForJob, getOpenTasksForMember } from '@/app/lib/jobtread';
 import { TEAM_USERS } from '@/app/lib/constants';
 
