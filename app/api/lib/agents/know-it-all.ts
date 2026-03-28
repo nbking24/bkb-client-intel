@@ -1235,19 +1235,20 @@ const knowItAll: AgentModule = {
     // Very high for explicit task/JT operations (formerly jt-entry patterns)
     if (/create.*task|add.*task|schedule.*task|new.*task|make.*task/i.test(lower)) return 0.95;
     if (/(create|add|update|edit|delete|remove|schedule|assign|change|modify).*(jobtread|job\s*tread|budget|comment|item|phase)/i.test(lower)) return 0.95;
-    // Selections, ordering status, materials ordering
-    if (/(order|ordered|finalized|selection|selected|vendor|where.*order|was.*order|has.*been.*order|material.*status|fixture)/i.test(lower)) return 0.9;
-    if (/(update|change|move|reschedule|push|set|adjust).*(task|date|due|deadline|end date|start date|schedule)/i.test(lower)) return 0.95;
-    if (/mark.*(complete|done|finished|progress)|complete.*task|finish.*task|update.*progress/i.test(lower)) return 0.9;
-    if (/apply.*template|standard.*template|create.*phase|add.*phase/i.test(lower)) return 0.9;
-    if (/(create|add|write|log|new).*(daily.*log|daily.*report|site.*log|field.*report)/i.test(lower)) return 0.95;
     // Project Memory Layer — communication history, open items, follow-ups, meeting transcripts
+    // IMPORTANT: These must come BEFORE selections/fixture patterns so PML logging wins over fixture lookups
     if (/(i\s+(?:just\s+)?spoke|i\s+(?:just\s+)?talked|i\s+(?:just\s+)?met|i\s+(?:just\s+)?called|they\s+(?:just\s+)?called|got back to me|heard back|got an answer|they replied|vendor said|supplier said|client said|he said|she said|dave said|brett said|josh said)/i.test(lower)) return 0.95;
     if (/(transcript|meeting notes|here'?s the transcript|meeting with|meeting summary)/i.test(lower)) return 0.95;
     if (/(waiting on|pending|follow.?up|open item|what am i waiting|any replies|unresolved|stalled)/i.test(lower)) return 0.9;
     if (/(which projects.*quiet|gone quiet|stalled projects|project health|projects need.*attention|intelligence report|what needs attention)/i.test(lower)) return 0.95;
     if (/(communication|correspondence|what happened|what.?s happening|project status|full story|timeline)/i.test(lower)) return 0.85;
     if (/(log this|remember this|note that|keep track|resolved|got the answer|mark.*resolved)/i.test(lower)) return 0.9;
+    // Selections, ordering status, materials ordering
+    if (/(order|ordered|finalized|selection|selected|vendor|where.*order|was.*order|has.*been.*order|material.*status|fixture)/i.test(lower)) return 0.9;
+    if (/(update|change|move|reschedule|push|set|adjust).*(task|date|due|deadline|end date|start date|schedule)/i.test(lower)) return 0.95;
+    if (/mark.*(complete|done|finished|progress)|complete.*task|finish.*task|update.*progress/i.test(lower)) return 0.9;
+    if (/apply.*template|standard.*template|create.*phase|add.*phase/i.test(lower)) return 0.9;
+    if (/(create|add|write|log|new).*(daily.*log|daily.*report|site.*log|field.*report)/i.test(lower)) return 0.95;
     // Calendar, meetings, appointments — always use Know-it-All for GHL calendar access
     if (/\b(meeting|appointment|consult|site visit|calendar|what.*coming up|what.*scheduled|schedule.*this week|schedule.*today|schedule.*tomorrow|client.*schedule|sync.*meeting|push.*meeting|sync.*calendar)\b/i.test(lower)) return 0.9;
     if (/(add|create|post|write|leave).*(comment|note)/i.test(lower)) return 0.9;
