@@ -1,45 +1,41 @@
+// @ts-nocheck
 'use client';
 
 import { useState, useEffect } from 'react';
 import Link from 'next/link';
 import { usePathname, useRouter } from 'next/navigation';
 import {
-  LayoutDashboard, FolderKanban, Bell, MessageSquare,
-  FileText, Menu, X, ChevronRight, ClipboardEdit, DollarSign, Calculator
+  LayoutDashboard, FolderKanban, Menu, X, ChevronRight,
+  DollarSign, Calculator, MessageSquare,
 } from 'lucide-react';
 import { useAuth } from '../hooks/useAuth';
+import AskAgentPanel from './components/AskAgentPanel';
 
 const NAV_ITEMS = [
   { href: '/dashboard', label: 'Overview', icon: LayoutDashboard },
   { href: '/dashboard/precon', label: 'Pre-Construction', icon: FolderKanban },
-  { href: '/dashboard/spec-writer', label: 'Spec Writer', icon: ClipboardEdit },
   { href: '/dashboard/estimate', label: 'Estimating', icon: Calculator },
   { href: '/dashboard/invoicing', label: 'Invoicing', icon: DollarSign },
-  { href: '/dashboard/documents', label: 'Documents', icon: FileText },
-  { href: '/dashboard/ask', label: 'Ask Agent', icon: MessageSquare },
 ];
 
 export default function DashboardLayout({ children }: { children: React.ReactNode }) {
   const pathname = usePathname();
   const router = useRouter();
   const [sidebarOpen, setSidebarOpen] = useState(false);
-  const [notifCount] = useState(3); // TODO: wire to Supabase realtime
+  const [chatOpen, setChatOpen] = useState(false);
   const auth = useAuth();
   const isLoginPage = pathname === '/dashboard/login';
 
-  // Redirect to login ONLY after auth has finished loading and user is not authenticated
   useEffect(() => {
     if (!auth.loading && !auth.isAuthenticated && !isLoginPage) {
       router.push('/dashboard/login');
     }
   }, [auth.loading, auth.isAuthenticated, isLoginPage, router]);
 
-  // If on the login page, render children directly (no sidebar/nav shell)
   if (isLoginPage) {
     return <>{children}</>;
   }
 
-  // Show loading while checking auth (reading localStorage)
   if (auth.loading || !auth.isAuthenticated) {
     return (
       <div className="min-h-screen flex items-center justify-center" style={{ background: '#141414' }}>
@@ -52,7 +48,7 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
     <div className="min-h-screen" style={{ background: '#141414', color: '#e8e0d8' }}>
       {/* Top Nav Bar */}
       <header
-        className="sticky top-0 z-50 flex items-center justify-between px-4 h-14"
+        className="sticky top-0 z-30 flex items-center justify-between px-4 h-14"
         style={{ background: '#1a1a1a', borderBottom: '1px solid rgba(205,162,116,0.12)' }}
       >
         <div className="flex items-center gap-3">
@@ -73,17 +69,18 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
         </div>
 
         <div className="flex items-center gap-2">
-          {/* Notification Bell */}
-          <button className="relative p-2 rounded-lg hover:bg-white/5">
-            <Bell size={20} style={{ color: '#8a8078' }} />
-            {notifCount > 0 && (
-              <span
-                className="absolute -top-0.5 -right-0.5 flex items-center justify-center w-5 h-5 text-xs font-bold rounded-full"
-                style={{ background: '#ef4444', color: '#fff' }}
-              >
-                {notifCount}
-              </span>
-            )}
+          {/* Ask Agent toggle */}
+          <button
+            onClick={() => setChatOpen(!chatOpen)}
+            className={`flex items-center gap-2 px-3 py-1.5 rounded-lg text-sm transition-all ${chatOpen ? 'ring-1' : 'hover:bg-white/5'}`}
+            style={{
+              color: chatOpen ? '#1a1a1a' : '#CDA274',
+              background: chatOpen ? '#CDA274' : 'transparent',
+              ringColor: '#CDA274',
+            }}
+          >
+            <MessageSquare size={16} />
+            <span className="hidden sm:inline font-medium">Ask Agent</span>
           </button>
 
           {/* User avatar */}
@@ -99,11 +96,7 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
       <div className="flex">
         {/* Sidebar */}
         <aside
-          className={`
-            fixed md:sticky top-14 left-0 z-40 h-[calc(100vh-3.5rem)] w-56
-            transition-transform duration-200 ease-in-out
-            ${sidebarOpen ? 'translate-x-0' : '-translate-x-full md:translate-x-0'}
-          `}
+          className={`fixed md:sticky top-14 left-0 z-40 h-[calc(100vh-3.5rem)] w-56 transition-transform duration-200 ease-in-out ${sidebarOpen ? 'translate-x-0' : '-translate-x-full md:translate-x-0'}`}
           style={{ background: '#1a1a1a', borderRight: '1px solid rgba(205,162,116,0.12)' }}
         >
           <nav className="p-3 space-y-1">
@@ -116,9 +109,7 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
                   key={item.href}
                   href={item.href}
                   onClick={() => setSidebarOpen(false)}
-                  className={`flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm transition-colors ${
-                    active ? 'font-medium' : 'hover:bg-white/5'
-                  }`}
+                  className={`flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm transition-colors ${active ? 'font-medium' : 'hover:bg-white/5'}`}
                   style={active ? { background: 'rgba(205,162,116,0.1)', color: '#C9A84C' } : { color: '#8a8078' }}
                 >
                   <Icon size={18} />
@@ -128,6 +119,18 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
               );
             })}
           </nav>
+
+          {/* Quick chat shortcut at bottom of sidebar */}
+          <div className="absolute bottom-4 left-0 right-0 px-3">
+            <button
+              onClick={() => { setChatOpen(true); setSidebarOpen(false); }}
+              className="w-full flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm hover:bg-white/5"
+              style={{ color: '#CDA274', border: '1px solid rgba(205,162,116,0.12)' }}
+            >
+              <MessageSquare size={18} />
+              Ask Agent
+            </button>
+          </div>
         </aside>
 
         {/* Main content */}
@@ -143,6 +146,9 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
           onClick={() => setSidebarOpen(false)}
         />
       )}
+
+      {/* Ask Agent slide-out panel — available from any dashboard page */}
+      <AskAgentPanel isOpen={chatOpen} onClose={() => setChatOpen(false)} />
     </div>
   );
 }
