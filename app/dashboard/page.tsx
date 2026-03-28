@@ -8,7 +8,6 @@ import {
 } from 'lucide-react';
 import { useAuth } from '@/app/hooks/useAuth';
 import Link from 'next/link';
-import DashboardChat from './components/DashboardChat';
 
 function getToken() { return typeof window !== 'undefined' ? localStorage.getItem('bkb-token') || '' : ''; }
 
@@ -30,7 +29,7 @@ function getSubGreeting(period?: string, tomorrowLabel?: string) {
 }
 
 function formatDate(d: string | null) {
-  if (!d) return '—';
+  if (!d) return 'â';
   const date = new Date(d);
   return date.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
 }
@@ -299,7 +298,7 @@ export default function DashboardOverview() {
 
   return (
     <div className="p-4 md:p-6 max-w-6xl mx-auto space-y-6">
-      {/* Header — time-aware */}
+      {/* Header â time-aware */}
       <div className="flex items-center justify-between">
         <div>
           <h1 className="text-xl font-semibold" style={{ color: '#e8e0d8' }}>
@@ -361,7 +360,7 @@ export default function DashboardOverview() {
             </div>
           )}
 
-          {/* Do Now — AI-suggested quick actions */}
+          {/* Do Now â AI-suggested quick actions */}
           {(analysis?.suggestedActions?.length ?? 0) > 0 && (
             <section className="rounded-lg p-4" style={{ background: '#1a2218', border: '1px solid rgba(34,197,94,0.15)' }}>
               <h2 className="text-sm font-semibold mb-3 flex items-center gap-2" style={{ color: '#22c55e' }}>
@@ -370,10 +369,10 @@ export default function DashboardOverview() {
               <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-2">
                 {analysis!.suggestedActions!.map((action, i) => {
                   const iconMap: Record<string, string> = {
-                    'reply-email': '✉️', 'complete-task': '✅', 'reschedule-task': '📅',
-                    'follow-up': '💬', 'prep-meeting': '📋', 'review-document': '📄',
+                    'reply-email': 'âï¸', 'complete-task': 'â', 'reschedule-task': 'ð',
+                    'follow-up': 'ð¬', 'prep-meeting': 'ð', 'review-document': 'ð',
                   };
-                  const icon = iconMap[action.actionType] || '⚡';
+                  const icon = iconMap[action.actionType] || 'â¡';
                   const priorityColor = action.priority === 'high' ? '#ef4444' : action.priority === 'medium' ? '#eab308' : '#22c55e';
 
                   const handleAction = async () => {
@@ -450,7 +449,7 @@ export default function DashboardOverview() {
                   {analysis!.urgentItems.map((item, i) => (
                     <div key={i} className="px-3 py-2 rounded-lg" style={{ background: URGENCY.urgent.bg, border: `1px solid ${URGENCY.urgent.border}` }}>
                       <p className="text-sm font-medium" style={{ color: '#e8e0d8' }}>{item.title}</p>
-                      <p className="text-xs mt-0.5" style={{ color: '#8a8078' }}>{item.description}{item.jobName ? ` — ${item.jobName}` : ''}</p>
+                      <p className="text-xs mt-0.5" style={{ color: '#8a8078' }}>{item.description}{item.jobName ? ` â ${item.jobName}` : ''}</p>
                     </div>
                   ))}
                 </div>
@@ -521,7 +520,7 @@ export default function DashboardOverview() {
             )}
           </div>
 
-          {/* Tomorrow Preview — prominent in evening, collapsed in morning/midday */}
+          {/* Tomorrow Preview â prominent in evening, collapsed in morning/midday */}
           {tomorrowBriefing && (tomorrowBriefing.headline || tomorrowBriefing.calendarWalkthrough?.length > 0 || tomorrowBriefing.prepTonightOrAM?.length > 0) && (
             <section className="rounded-lg p-4" style={{ background: tc?.period === 'evening' ? '#1a2332' : '#1e1e1e', border: tc?.period === 'evening' ? '1px solid rgba(139,92,246,0.2)' : '1px solid rgba(205,162,116,0.08)' }}>
               <h2 className="text-sm font-semibold mb-3 flex items-center gap-2" style={{ color: '#8b5cf6' }}>
@@ -572,7 +571,7 @@ export default function DashboardOverview() {
                         <div className="space-y-1">
                           {tomorrowBriefing.tasksDue.map((item, i) => (
                             <div key={i} className="px-2 py-1 text-sm" style={{ color: '#a09890' }}>
-                              {item.task} <span style={{ color: '#6a6058' }}>— {item.jobName}</span>
+                              {item.task} <span style={{ color: '#6a6058' }}>â {item.jobName}</span>
                             </div>
                           ))}
                         </div>
@@ -584,7 +583,7 @@ export default function DashboardOverview() {
             </section>
           )}
 
-          {/* Calendar & Email — two-column layout */}
+          {/* Calendar & Email â two-column layout */}
           <div className="grid md:grid-cols-2 gap-4">
             {/* Upcoming Schedule with AI prep notes */}
             {calendarEvents.length > 0 && (
@@ -754,7 +753,7 @@ export default function DashboardOverview() {
                       <p className="text-sm truncate" style={{ color: '#e8e0d8' }}>{task.name}</p>
                       <p className="text-xs truncate" style={{ color: '#8a8078' }}>{task.jobName} #{task.jobNumber}</p>
                     </div>
-                    {/* Due date — clickable to edit */}
+                    {/* Due date â clickable to edit */}
                     {isEditingDate ? (
                       <input
                         type="date"
@@ -827,9 +826,6 @@ export default function DashboardOverview() {
           </div>
         </>
       )}
-
-      {/* Chat widget — floating, doesn't affect layout */}
-      {auth.userId && <DashboardChat userId={auth.userId} />}
     </div>
   );
 }
