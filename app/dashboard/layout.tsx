@@ -6,16 +6,22 @@ import Link from 'next/link';
 import { usePathname, useRouter } from 'next/navigation';
 import {
   LayoutDashboard, FolderKanban, Menu, X, ChevronRight,
-  DollarSign, Calculator, MessageSquare,
+  DollarSign, Calculator, MessageSquare, ClipboardList,
 } from 'lucide-react';
 import { useAuth } from '../hooks/useAuth';
 import AskAgentPanel from './components/AskAgentPanel';
 
-const NAV_ITEMS = [
+// Full nav for admin/owner roles
+const ADMIN_NAV = [
   { href: '/dashboard', label: 'Overview', icon: LayoutDashboard },
   { href: '/dashboard/precon', label: 'Pre-Construction', icon: FolderKanban },
   { href: '/dashboard/estimate', label: 'Estimating', icon: Calculator },
   { href: '/dashboard/invoicing', label: 'Invoicing', icon: DollarSign },
+];
+
+// Simplified nav for field staff
+const FIELD_NAV = [
+  { href: '/dashboard/field', label: 'My Tasks', icon: ClipboardList },
 ];
 
 export default function DashboardLayout({ children }: { children: React.ReactNode }) {
@@ -26,16 +32,29 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
   const auth = useAuth();
   const isLoginPage = pathname === '/dashboard/login';
 
+  // Determine if user is field staff
+  const isFieldStaff = auth.role === 'field_sup' || auth.role === 'field';
+
+  // Redirect to login ONLY after auth has finished loading and user is not authenticated
   useEffect(() => {
     if (!auth.loading && !auth.isAuthenticated && !isLoginPage) {
       router.push('/dashboard/login');
     }
   }, [auth.loading, auth.isAuthenticated, isLoginPage, router]);
 
+  // Field staff: redirect to their dashboard if they land on the admin overview
+  useEffect(() => {
+    if (!auth.loading && auth.isAuthenticated && isFieldStaff && pathname === '/dashboard') {
+      router.replace('/dashboard/field');
+    }
+  }, [auth.loading, auth.isAuthenticated, isFieldStaff, pathname, router]);
+
+  // If on the login page, render children directly (no sidebar/nav shell)
   if (isLoginPage) {
     return <>{children}</>;
   }
 
+  // Show loading while checking auth (reading localStorage)
   if (auth.loading || !auth.isAuthenticated) {
     return (
       <div className="min-h-screen flex items-center justify-center" style={{ background: '#141414' }}>
@@ -43,6 +62,8 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
       </div>
     );
   }
+
+  const NAV_ITEMS = isFieldStaff ? FIELD_NAV : ADMIN_NAV;
 
   return (
     <div className="min-h-screen" style={{ background: '#141414', color: '#e8e0d8' }}>
@@ -64,7 +85,7 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
             className="h-8 w-auto"
           />
           <span className="hidden sm:inline text-sm font-medium" style={{ color: '#C9A84C' }}>
-            Operations Platform
+            {isFieldStaff ? 'Field Hub' : 'Operations Platform'}
           </span>
         </div>
 
@@ -72,7 +93,9 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
           {/* Ask Agent toggle */}
           <button
             onClick={() => setChatOpen(!chatOpen)}
-            className={`flex items-center gap-2 px-3 py-1.5 rounded-lg text-sm transition-all ${chatOpen ? 'ring-1' : 'hover:bg-white/5'}`}
+            className={`flex items-center gap-2 px-3 py-1.5 rounded-lg text-sm transition-all ${
+              chatOpen ? 'ring-1' : 'hover:bg-white/5'
+            }`}
             style={{
               color: chatOpen ? '#1a1a1a' : '#CDA274',
               background: chatOpen ? '#CDA274' : 'transparent',
@@ -96,20 +119,26 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
       <div className="flex">
         {/* Sidebar */}
         <aside
-          className={`fixed md:sticky top-14 left-0 z-40 h-[calc(100vh-3.5rem)] w-56 transition-transform duration-200 ease-in-out ${sidebarOpen ? 'translate-x-0' : '-translate-x-full md:translate-x-0'}`}
+          className={`
+            fixed md:sticky top-14 left-0 z-40 h-[calc(100vh-3.5rem)] w-56
+            transition-transform duration-200 ease-in-out
+            ${sidebarOpen ? 'translate-x-0' : '-translate-x-full md:translate-x-0'}
+          `}
           style={{ background: '#1a1a1a', borderRight: '1px solid rgba(205,162,116,0.12)' }}
         >
           <nav className="p-3 space-y-1">
             {NAV_ITEMS.map((item) => {
               const active = pathname === item.href ||
-                (item.href !== '/dashboard' && pathname.startsWith(item.href));
+                (item.href !== '/dashboard' && item.href !== '/dashboard/field' && pathname.startsWith(item.href));
               const Icon = item.icon;
               return (
                 <Link
                   key={item.href}
                   href={item.href}
                   onClick={() => setSidebarOpen(false)}
-                  className={`flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm transition-colors ${active ? 'font-medium' : 'hover:bg-white/5'}`}
+                  className={`flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm transition-colors ${
+                    active ? 'font-medium' : 'hover:bg-white/5'
+                  }`}
                   style={active ? { background: 'rgba(205,162,116,0.1)', color: '#C9A84C' } : { color: '#8a8078' }}
                 >
                   <Icon size={18} />
