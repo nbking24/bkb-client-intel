@@ -1242,7 +1242,7 @@ const knowItAll: AgentModule = {
     if (/apply.*template|standard.*template|create.*phase|add.*phase/i.test(lower)) return 0.9;
     if (/(create|add|write|log|new).*(daily.*log|daily.*report|site.*log|field.*report)/i.test(lower)) return 0.95;
     // Project Memory Layer — communication history, open items, follow-ups, meeting transcripts
-    if (/(i spoke|i talked|i met|i called|they called|got back to me|heard back|got an answer|they replied|vendor said|supplier said|client said)/i.test(lower)) return 0.95;
+    if (/(i\s+(?:just\s+)?spoke|i\s+(?:just\s+)?talked|i\s+(?:just\s+)?met|i\s+(?:just\s+)?called|they\s+(?:just\s+)?called|got back to me|heard back|got an answer|they replied|vendor said|supplier said|client said|he said|she said|dave said|brett said|josh said)/i.test(lower)) return 0.95;
     if (/(transcript|meeting notes|here'?s the transcript|meeting with|meeting summary)/i.test(lower)) return 0.95;
     if (/(waiting on|pending|follow.?up|open item|what am i waiting|any replies|unresolved|stalled)/i.test(lower)) return 0.9;
     if (/(which projects.*quiet|gone quiet|stalled projects|project health|projects need.*attention|intelligence report|what needs attention)/i.test(lower)) return 0.95;
