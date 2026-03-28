@@ -2,6 +2,7 @@
 'use client';
 
 import { useState, useRef, useEffect, useCallback } from 'react';
+import { useAuth } from '@/app/hooks/useAuth';
 import { X, Send, Loader2, MessageSquare, ChevronDown, Search, Bot, Brain, FileSearch } from 'lucide-react';
 
 /* ── Types ── */
@@ -36,11 +37,23 @@ export default function AskAgentPanel({
   isOpen: boolean;
   onClose: () => void;
 }) {
+  const auth = useAuth();
+  const isFieldStaff = auth.role === 'field_sup' || auth.role === 'field';
+
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [input, setInput] = useState('');
   const [loading, setLoading] = useState(false);
   const [lastAgent, setLastAgent] = useState<string>('');
-  const [agentMode, setAgentMode] = useState<'know-it-all' | 'project-details'>('know-it-all');
+  const [agentMode, setAgentMode] = useState<'know-it-all' | 'project-details' | 'field-staff'>(
+    'know-it-all'
+  );
+
+  // Force field staff to their restricted agent mode
+  useEffect(() => {
+    if (isFieldStaff && agentMode !== 'field-staff') {
+      setAgentMode('field-staff' as any);
+    }
+  }, [isFieldStaff]);
 
   // Job selection
   const [jobs, setJobs] = useState<JobOption[]>([]);
@@ -171,7 +184,14 @@ export default function AskAgentPanel({
     setLastAgent('');
   };
 
-  const suggestions = agentMode === 'know-it-all'
+  const suggestions = isFieldStaff
+    ? [
+        'What are my tasks for today?',
+        'What siding is specified?',
+        'Mark my tasks as complete',
+        'What plumbing fixtures are approved?',
+      ]
+    : agentMode === 'know-it-all'
     ? [
         'What am I waiting on?',
         'Which projects have gone quiet?',
@@ -246,7 +266,8 @@ export default function AskAgentPanel({
           </div>
         </div>
 
-        {/* Agent mode toggle */}
+        {/* Agent mode toggle — hidden for field staff */}
+        {!isFieldStaff && (
         <div
           className="px-4 py-2 flex-shrink-0 flex gap-2"
           style={{ borderBottom: '1px solid rgba(205,162,116,0.08)' }}
@@ -272,6 +293,7 @@ export default function AskAgentPanel({
             <FileSearch size={13} /> Approved Specs
           </button>
         </div>
+        )}
 
         {/* Job selector */}
         <div
