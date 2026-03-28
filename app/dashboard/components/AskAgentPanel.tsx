@@ -2,8 +2,9 @@
 'use client';
 
 import { useState, useRef, useEffect, useCallback } from 'react';
-import { X, Send, Loader2, MessageSquare, ChevronDown, Search, Bot } from 'lucide-react';
+import { X, Send, Loader2, MessageSquare, ChevronDown, Search, Bot, Brain, FileSearch } from 'lucide-react';
 
+/* ── Types ── */
 interface ChatMessage {
   role: 'user' | 'assistant';
   content: string;
@@ -20,12 +21,14 @@ function getToken() {
   return typeof window !== 'undefined' ? localStorage.getItem('bkb-token') || '' : '';
 }
 
+/* ── Simple Markdown-ish rendering ── */
 function renderContent(text: string) {
   let html = text.replace(/\*\*(.*?)\*\*/g, '<strong>$1</strong>');
   html = html.replace(/\n/g, '<br/>');
   return <span dangerouslySetInnerHTML={{ __html: html }} />;
 }
 
+/* ── COMPONENT ── */
 export default function AskAgentPanel({
   isOpen,
   onClose,
@@ -37,7 +40,9 @@ export default function AskAgentPanel({
   const [input, setInput] = useState('');
   const [loading, setLoading] = useState(false);
   const [lastAgent, setLastAgent] = useState<string>('');
+  const [agentMode, setAgentMode] = useState<'know-it-all' | 'project-details'>('know-it-all');
 
+  // Job selection
   const [jobs, setJobs] = useState<JobOption[]>([]);
   const [selectedJob, setSelectedJob] = useState<JobOption | null>(null);
   const [jobSearch, setJobSearch] = useState('');
@@ -47,16 +52,19 @@ export default function AskAgentPanel({
   const inputRef = useRef<HTMLTextAreaElement>(null);
   const jobSearchRef = useRef<HTMLInputElement>(null);
 
+  // Auto-scroll on new messages
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
   }, [messages]);
 
+  // Focus input when panel opens
   useEffect(() => {
     if (isOpen && inputRef.current) {
       setTimeout(() => inputRef.current?.focus(), 200);
     }
   }, [isOpen]);
 
+  // Fetch jobs on mount
   useEffect(() => {
     fetch('/api/dashboard/projects', {
       headers: { Authorization: `Bearer ${getToken()}` },
@@ -72,6 +80,7 @@ export default function AskAgentPanel({
       .catch(() => {});
   }, []);
 
+  // Close job dropdown on click outside
   useEffect(() => {
     if (!jobDropdownOpen) return;
     const handler = (e: MouseEvent) => {
@@ -90,6 +99,7 @@ export default function AskAgentPanel({
       j.number.includes(jobSearch)
   );
 
+  /* ── Send message ── */
   const sendMessage = useCallback(
     async (text?: string) => {
       const msg = (text || input).trim();
@@ -118,6 +128,7 @@ export default function AskAgentPanel({
             messages: allMessages.slice(-20),
             lastAgent: lastAgent || undefined,
             jtJobId: selectedJob?.id || undefined,
+            forcedAgent: agentMode,
           }),
         });
 
@@ -138,7 +149,7 @@ export default function AskAgentPanel({
         setLoading(false);
       }
     },
-    [input, loading, messages, selectedJob, lastAgent]
+    [input, loading, messages, selectedJob, lastAgent, agentMode]
   );
 
   const handleKeyDown = (e: React.KeyboardEvent) => {
@@ -153,12 +164,26 @@ export default function AskAgentPanel({
     setLastAgent('');
   };
 
-  const suggestions = [
-    'What am I waiting on?',
-    'Which projects have gone quiet?',
-    'What tasks are overdue?',
-    "What's on my calendar today?",
-  ];
+  const switchAgent = (mode: 'know-it-all' | 'project-details') => {
+    if (mode === agentMode) return;
+    setAgentMode(mode);
+    setMessages([]);
+    setLastAgent('');
+  };
+
+  const suggestions = agentMode === 'know-it-all'
+    ? [
+        'What am I waiting on?',
+        'Which projects have gone quiet?',
+        'What tasks are overdue?',
+        "What's on my calendar today?",
+      ]
+    : [
+        'What siding is specified?',
+        'What are the flooring selections?',
+        'Show me the countertop specs',
+        'What plumbing fixtures are approved?',
+      ];
 
   return (
     <>
@@ -172,7 +197,11 @@ export default function AskAgentPanel({
 
       {/* Panel */}
       <div
-        className={`fixed top-0 right-0 z-50 h-full w-full md:w-[420px] flex flex-col transition-transform duration-300 ease-in-out ${isOpen ? 'translate-x-0' : 'translate-x-full'}`}
+        className={`
+          fixed top-0 right-0 z-50 h-full w-full md:w-[420px] flex flex-col
+          transition-transform duration-300 ease-in-out
+          ${isOpen ? 'translate-x-0' : 'translate-x-full'}
+        `}
         style={{
           background: '#1a1a1a',
           borderLeft: '1px solid rgba(205,162,116,0.15)',
@@ -186,7 +215,9 @@ export default function AskAgentPanel({
         >
           <div className="flex items-center gap-2">
             <Bot size={18} style={{ color: '#CDA274' }} />
-            <span className="text-sm font-semibold" style={{ color: '#e8e0d8' }}>Ask Agent</span>
+            <span className="text-sm font-semibold" style={{ color: '#e8e0d8' }}>
+              Ask Agent
+            </span>
             {lastAgent && (
               <span
                 className="text-xs px-2 py-0.5 rounded-full"
@@ -202,12 +233,44 @@ export default function AskAgentPanel({
                 onClick={clearChat}
                 className="text-xs px-2 py-1 rounded hover:bg-white/10"
                 style={{ color: '#8a8078' }}
-              >Clear</button>
+              >
+                Clear
+              </button>
             )}
-            <button onClick={onClose} className="p-1.5 rounded-lg hover:bg-white/10">
+            <button
+              onClick={onClose}
+              className="p-1.5 rounded-lg hover:bg-white/10"
+            >
               <X size={18} style={{ color: '#8a8078' }} />
             </button>
           </div>
+        </div>
+
+        {/* Agent mode toggle */}
+        <div
+          className="px-4 py-2 flex-shrink-0 flex gap-2"
+          style={{ borderBottom: '1px solid rgba(205,162,116,0.08)' }}
+        >
+          <button
+            onClick={() => switchAgent('know-it-all')}
+            className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium transition-all flex-1 justify-center"
+            style={agentMode === 'know-it-all'
+              ? { background: 'rgba(201,168,76,0.15)', color: '#C9A84C', border: '1px solid rgba(201,168,76,0.4)' }
+              : { background: '#242424', color: '#8a8078', border: '1px solid rgba(205,162,116,0.12)' }
+            }
+          >
+            <Brain size={13} /> Know-it-All
+          </button>
+          <button
+            onClick={() => switchAgent('project-details')}
+            className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium transition-all flex-1 justify-center"
+            style={agentMode === 'project-details'
+              ? { background: 'rgba(201,168,76,0.15)', color: '#C9A84C', border: '1px solid rgba(201,168,76,0.4)' }
+              : { background: '#242424', color: '#8a8078', border: '1px solid rgba(205,162,116,0.12)' }
+            }
+          >
+            <FileSearch size={13} /> Approved Specs
+          </button>
         </div>
 
         {/* Job selector */}
@@ -217,12 +280,21 @@ export default function AskAgentPanel({
         >
           <div className="relative">
             <button
-              onClick={() => { setJobDropdownOpen(!jobDropdownOpen); setTimeout(() => jobSearchRef.current?.focus(), 100); }}
+              onClick={() => {
+                setJobDropdownOpen(!jobDropdownOpen);
+                setTimeout(() => jobSearchRef.current?.focus(), 100);
+              }}
               className="w-full flex items-center justify-between px-3 py-2 rounded-lg text-sm"
-              style={{ background: '#141414', border: '1px solid rgba(205,162,116,0.12)', color: selectedJob ? '#e8e0d8' : '#8a8078' }}
+              style={{
+                background: '#141414',
+                border: '1px solid rgba(205,162,116,0.12)',
+                color: selectedJob ? '#e8e0d8' : '#8a8078',
+              }}
             >
               <span className="truncate">
-                {selectedJob ? `${selectedJob.name} #${selectedJob.number}` : 'All projects (select to focus)'}
+                {selectedJob
+                  ? `${selectedJob.name} #${selectedJob.number}`
+                  : 'All projects (select to focus)'}
               </span>
               <ChevronDown size={14} style={{ color: '#8a8078' }} />
             </button>
@@ -230,24 +302,53 @@ export default function AskAgentPanel({
             {jobDropdownOpen && (
               <div
                 className="absolute top-full left-0 right-0 mt-1 rounded-lg overflow-hidden shadow-xl z-10"
-                style={{ background: '#242424', border: '1px solid rgba(205,162,116,0.15)', maxHeight: '240px' }}
+                style={{
+                  background: '#242424',
+                  border: '1px solid rgba(205,162,116,0.15)',
+                  maxHeight: '240px',
+                }}
               >
                 <div className="p-2" style={{ borderBottom: '1px solid rgba(205,162,116,0.08)' }}>
                   <div className="flex items-center gap-2 px-2 py-1.5 rounded-lg" style={{ background: '#1a1a1a' }}>
                     <Search size={12} style={{ color: '#8a8078' }} />
-                    <input ref={jobSearchRef} type="text" value={jobSearch} onChange={(e) => setJobSearch(e.target.value)}
-                      placeholder="Search jobs..." className="flex-1 bg-transparent text-sm outline-none" style={{ color: '#e8e0d8' }} />
+                    <input
+                      ref={jobSearchRef}
+                      type="text"
+                      value={jobSearch}
+                      onChange={(e) => setJobSearch(e.target.value)}
+                      placeholder="Search jobs..."
+                      className="flex-1 bg-transparent text-sm outline-none"
+                      style={{ color: '#e8e0d8' }}
+                    />
                   </div>
                 </div>
                 <div className="overflow-y-auto" style={{ maxHeight: '180px' }}>
-                  <button onClick={() => { setSelectedJob(null); setJobDropdownOpen(false); setJobSearch(''); }}
+                  <button
+                    onClick={() => {
+                      setSelectedJob(null);
+                      setJobDropdownOpen(false);
+                      setJobSearch('');
+                    }}
                     className="w-full text-left px-3 py-2 text-sm hover:bg-white/5"
-                    style={{ color: !selectedJob ? '#CDA274' : '#8a8078' }}>All projects</button>
+                    style={{ color: !selectedJob ? '#CDA274' : '#8a8078' }}
+                  >
+                    All projects
+                  </button>
                   {filteredJobs.map((j) => (
-                    <button key={j.id} onClick={() => { setSelectedJob(j); setJobDropdownOpen(false); setJobSearch(''); }}
+                    <button
+                      key={j.id}
+                      onClick={() => {
+                        setSelectedJob(j);
+                        setJobDropdownOpen(false);
+                        setJobSearch('');
+                      }}
                       className="w-full text-left px-3 py-2 text-sm hover:bg-white/5 truncate"
-                      style={{ color: selectedJob?.id === j.id ? '#CDA274' : '#e8e0d8' }}>
-                      {j.name} <span style={{ color: '#8a8078' }}>#{j.number}</span>
+                      style={{
+                        color: selectedJob?.id === j.id ? '#CDA274' : '#e8e0d8',
+                      }}
+                    >
+                      {j.name}{' '}
+                      <span style={{ color: '#8a8078' }}>#{j.number}</span>
                     </button>
                   ))}
                 </div>
@@ -260,29 +361,61 @@ export default function AskAgentPanel({
         <div className="flex-1 overflow-y-auto px-4 py-3 space-y-3" style={{ minHeight: 0 }}>
           {messages.length === 0 && (
             <div className="text-center py-8">
-              <Bot size={28} className="mx-auto mb-3" style={{ color: '#CDA274', opacity: 0.4 }} />
-              <p className="text-sm mb-1" style={{ color: '#e8e0d8' }}>Ask me anything</p>
-              <p className="text-xs mb-4" style={{ color: '#8a8078' }}>Projects, tasks, emails, schedule, specs, or log updates</p>
+              {agentMode === 'know-it-all'
+                ? <Brain size={28} className="mx-auto mb-3" style={{ color: '#CDA274', opacity: 0.4 }} />
+                : <FileSearch size={28} className="mx-auto mb-3" style={{ color: '#CDA274', opacity: 0.4 }} />
+              }
+              <p className="text-sm mb-1" style={{ color: '#e8e0d8' }}>
+                {agentMode === 'know-it-all' ? 'Ask me anything' : 'Approved Specs Only'}
+              </p>
+              <p className="text-xs mb-4" style={{ color: '#8a8078' }}>
+                {agentMode === 'know-it-all'
+                  ? 'Projects, tasks, emails, schedule, specs, or log updates'
+                  : 'Answers only from approved contracts & change orders'}
+              </p>
               <div className="space-y-2">
                 {suggestions.map((s, i) => (
-                  <button key={i} onClick={() => sendMessage(s)}
+                  <button
+                    key={i}
+                    onClick={() => sendMessage(s)}
                     className="block w-full text-left text-xs px-3 py-2 rounded-lg hover:bg-white/[0.05]"
-                    style={{ color: '#a09890', border: '1px solid rgba(205,162,116,0.08)' }}>{s}</button>
+                    style={{
+                      color: '#a09890',
+                      border: '1px solid rgba(205,162,116,0.08)',
+                    }}
+                  >
+                    {s}
+                  </button>
                 ))}
               </div>
             </div>
           )}
 
           {messages.map((msg, i) => (
-            <div key={i} className={`flex ${msg.role === 'user' ? 'justify-end' : 'justify-start'}`}>
+            <div
+              key={i}
+              className={`flex ${msg.role === 'user' ? 'justify-end' : 'justify-start'}`}
+            >
               <div className={`max-w-[88%] ${msg.role === 'assistant' ? 'space-y-1' : ''}`}>
-                <div className="px-3 py-2 rounded-xl text-sm"
-                  style={msg.role === 'user' ? { background: '#CDA274', color: '#1a1a1a' } : { background: '#242424', color: '#e8e0d8', border: '1px solid rgba(205,162,116,0.08)' }}>
+                <div
+                  className="px-3 py-2 rounded-xl text-sm"
+                  style={
+                    msg.role === 'user'
+                      ? { background: '#CDA274', color: '#1a1a1a' }
+                      : {
+                          background: '#242424',
+                          color: '#e8e0d8',
+                          border: '1px solid rgba(205,162,116,0.08)',
+                        }
+                  }
+                >
                   {renderContent(msg.content)}
                 </div>
                 {msg.agent && (
                   <div className="text-right">
-                    <span className="text-[10px]" style={{ color: '#6a6058' }}>via {msg.agent}</span>
+                    <span className="text-[10px]" style={{ color: '#6a6058' }}>
+                      via {msg.agent}
+                    </span>
                   </div>
                 )}
               </div>
@@ -291,9 +424,18 @@ export default function AskAgentPanel({
 
           {loading && (
             <div className="flex justify-start">
-              <div className="px-3 py-2 rounded-xl flex items-center gap-2" style={{ background: '#242424' }}>
-                <Loader2 size={14} className="animate-spin" style={{ color: '#CDA274' }} />
-                <span className="text-xs" style={{ color: '#8a8078' }}>Thinking...</span>
+              <div
+                className="px-3 py-2 rounded-xl flex items-center gap-2"
+                style={{ background: '#242424' }}
+              >
+                <Loader2
+                  size={14}
+                  className="animate-spin"
+                  style={{ color: '#CDA274' }}
+                />
+                <span className="text-xs" style={{ color: '#8a8078' }}>
+                  {agentMode === 'project-details' ? 'Reading approved specs...' : 'Thinking...'}
+                </span>
               </div>
             </div>
           )}
@@ -301,15 +443,42 @@ export default function AskAgentPanel({
         </div>
 
         {/* Input */}
-        <div className="px-3 py-3 flex-shrink-0"
-          style={{ background: '#242424', borderTop: '1px solid rgba(205,162,116,0.12)' }}>
-          <div className="flex items-end gap-2 rounded-lg px-3 py-2"
-            style={{ background: '#1a1a1a', border: '1px solid rgba(205,162,116,0.12)' }}>
-            <textarea ref={inputRef} value={input} onChange={(e) => setInput(e.target.value)} onKeyDown={handleKeyDown}
-              placeholder="Ask about projects, tasks, schedule..." rows={1}
-              className="flex-1 bg-transparent text-sm outline-none resize-none" style={{ color: '#e8e0d8', maxHeight: '120px' }} disabled={loading} />
-            <button onClick={() => sendMessage()} disabled={!input.trim() || loading}
-              className="p-1.5 rounded-lg disabled:opacity-30 hover:bg-white/10" style={{ color: '#CDA274' }}>
+        <div
+          className="px-3 py-3 flex-shrink-0"
+          style={{
+            background: '#242424',
+            borderTop: '1px solid rgba(205,162,116,0.12)',
+          }}
+        >
+          <div
+            className="flex items-end gap-2 rounded-lg px-3 py-2"
+            style={{
+              background: '#1a1a1a',
+              border: '1px solid rgba(205,162,116,0.12)',
+            }}
+          >
+            <textarea
+              ref={inputRef}
+              value={input}
+              onChange={(e) => setInput(e.target.value)}
+              onKeyDown={handleKeyDown}
+              placeholder={agentMode === 'project-details'
+                ? (selectedJob ? `Ask about approved specs for #${selectedJob.number}...` : 'Select a project, then ask about approved specs...')
+                : 'Ask about projects, tasks, schedule...'}
+              rows={1}
+              className="flex-1 bg-transparent text-sm outline-none resize-none"
+              style={{
+                color: '#e8e0d8',
+                maxHeight: '120px',
+              }}
+              disabled={loading}
+            />
+            <button
+              onClick={() => sendMessage()}
+              disabled={!input.trim() || loading}
+              className="p-1.5 rounded-lg disabled:opacity-30 hover:bg-white/10"
+              style={{ color: '#CDA274' }}
+            >
               <Send size={16} />
             </button>
           </div>
