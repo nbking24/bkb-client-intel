@@ -78,17 +78,13 @@ export default function FieldDashboardPage() {
   const markTaskProgress = async (taskId: string, progress: number) => {
     setUpdatingTask(taskId);
     try {
-      await fetch('/api/chat', {
+      await fetch('/api/field-task-update', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
           Authorization: `Bearer ${getToken()}`,
         },
-        body: JSON.stringify({
-          messages: [
-            { role: 'user', content: `[APPROVED TASK DATA] {"taskId":"${taskId}","action":"update_progress","progress":${progress}}` },
-          ],
-        }),
+        body: JSON.stringify({ taskId, progress }),
       });
       // Refresh dashboard after update
       await fetchData(true);
