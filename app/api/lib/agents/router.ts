@@ -3,6 +3,7 @@ import Anthropic from '@anthropic-ai/sdk';
 import { AgentModule, AgentContext, AgentResult } from './types';
 import knowItAll from './know-it-all';
 import projectDetails from './project-details';
+import fieldStaff from './field-staff';
 import { getActiveJobs, getTasksForJob, getJobSchedule, getMembers, createPhaseTask, createTask } from '@/app/lib/jobtread';
 import { findJTJobByName } from '@/app/api/lib/supabase';
 
@@ -13,6 +14,7 @@ const anthropic = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY });
 const AGENTS: AgentModule[] = [
   knowItAll,
   projectDetails,
+  fieldStaff,
   // Future: emailKid, designDolly
 ];
 
@@ -74,6 +76,10 @@ function selectAgent(message: string, lastAgentName?: string, forcedAgent?: stri
     // "project-details" group: always use project-details
     if (forcedAgent === 'project-details') {
       return projectDetails;
+    }
+    // "field-staff" group: always use field-staff agent
+    if (forcedAgent === 'field-staff') {
+      return fieldStaff;
     }
     // Direct agent name match
     if (AGENT_MAP[forcedAgent]) {
