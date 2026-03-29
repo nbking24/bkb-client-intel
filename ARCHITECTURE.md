@@ -839,7 +839,7 @@ app/
 
 ## 16. Field Staff Dashboard
 
-The Field Hub is a mobile-optimized dashboard for field crew members (e.g., Evan) to view tasks, job schedules, and manage task progress directly from the job site.
+The Field Hub is a mobile-optimized dashboard for field crew members (e.g., Evan) designed for quick-glance reference during morning/evening admin time. Informed by Evan's workflow questionnaire — he rarely uses a laptop mid-day and tracks day-to-day items in handwritten notebooks, so the dashboard focuses on schedule visibility rather than task management.
 
 ### Route
 - **Page**: `/dashboard/field` (`app/dashboard/field/page.tsx`)
@@ -848,48 +848,46 @@ The Field Hub is a mobile-optimized dashboard for field crew members (e.g., Evan
 
 ### Features
 
-#### My Tasks (Overdue Tasks)
-- Shows open tasks assigned to the logged-in field user
-- Displays task name, job name/number, due date, and progress
-- "Start" button sets progress to 50%, "Done" sets progress to 100%
-- API: `GET /api/field-dashboard` â returns `{ greeting, tasks, activeJobs }`
+#### Briefing
+- Auto-generated summary of overdue items, today's tasks, tomorrow's tasks, and total across active jobs
+- Displayed as a single-line text block at the top of the dashboard
 
-#### Active Jobs with Expandable Schedules
-- Lists only jobs where the logged-in user is assigned as Project Manager (custom field in JobTread)
-- PM filtering: `getActiveJobs(50)` fetches all active jobs, then filters by `projectManager === user.name`
-- No search box needed (PM filtering limits to relevant jobs only)
-- Clicking a job expands its full schedule (loaded on-demand, cached in state)
-- Schedule shows phases with progress percentage, expandable to show individual tasks
-- API: `GET /api/field-job-schedule?jobId=...` â returns `{ phases: [{ name, progress, tasks }] }`
+#### 2-Week Calendar View
+- Shows this week (Mon-Sun) and next week (Mon-Sun) in a vertical day-by-day layout
+- Each day row shows scheduled tasks as colored pills with left-border accent
+- Tasks are **color-coded by job** using a consistent 8-color palette (gold, blue, green, purple, pink, amber, teal, red)
+- Today's row is highlighted with a golden background
+- Past days are dimmed (50% opacity)
+- Completed tasks shown with green checkmark and strikethrough
+- Weekend days shown in muted color
+- Job legend at top with colored dots linking to JobTread
 
-#### Schedule Task Management
-- **Checkbox completion**: Each task has a checkbox to mark complete (progress=1) or incomplete (progress=0)
-  - Green filled checkbox with checkmark icon for completed tasks
-  - Task name shows strikethrough when complete
-- **Due date editing**: Pencil icon (appears on hover) opens inline date picker
-  - Date input with Save/Cancel buttons
-  - Saves the new endDate to JobTread via the API
-- **API**: `POST /api/field-schedule-task-update` â body: `{ taskId, completed?, endDate? }`
-  - Uses `updateTask()` from `app/lib/jobtread.ts` (handles PAVE API call)
-- **State management**: Phase open/close state is lifted to the parent component (`openPhases` Set) to prevent collapse when scheduleCache updates after task modifications
+#### Overdue Section
+- Dedicated red alert section for tasks past their due date
+- Shows days overdue count per task
+- Color-coded dots match job assignment
+
+#### Active Jobs
+- Lists PM-filtered active jobs with status badges and upcoming task counts
+- Each job card links directly to JobTread
+- Color dot matches the calendar color for that job
+
+#### Ask Agent Access
+- Quick-access "Ask Agent" button in the header for chat-based project queries
 
 ### API Endpoints
 | Endpoint | Method | Purpose |
 |---|---|---|
-| `/api/field-dashboard` | GET | Tasks + PM-filtered active jobs for field user |
-| `/api/field-job-schedule` | GET | Schedule phases/tasks for a specific job |
-| `/api/field-task-update` | POST | Update overdue task progress (Start/Done) |
-| `/api/field-schedule-task-update` | POST | Update schedule task completion or due date |
+| `/api/field-dashboard` | GET | Briefing, 2-week calendar tasks, overdue tasks, PM-filtered active jobs |
+| `/api/field-job-schedule` | GET | Schedule phases/tasks for a specific job (legacy, still available) |
+| `/api/field-schedule-task-update` | POST | Update schedule task completion or due date (legacy, still available) |
 
 ### Key Implementation Details
 - **PM filtering**: `getActiveJobs` extracts `projectManager` from JobTread custom field values; API route filters jobs where `projectManager === user.name`
-- **Streamlined UI**: No briefing text or search box; stats cards + task list + job list for quick mobile reference
-- Schedule data is cached per-job in `scheduleCache` state to avoid re-fetching
-- `PhaseRow` component is defined inside the main component (uses closure for state access)
-- Phase open state uses parent-level `openPhases: Set<string>` to survive re-renders when cache updates
-- Checkbox and pencil buttons use `e.stopPropagation()` to prevent click events from reaching phase toggle
+- **Calendar data**: API fetches all tasks per PM job via `getTasksForJob()`, filters to 2-week window (Monday to +13 days), groups by date
+- **Job color mapping**: `useMemo` assigns consistent colors from 8-color palette based on job array index
+- **No task management UI**: Removed task lists, Start/Done buttons, and stats cards per Evan's feedback that detailed task tracking happens in his field notebooks
 - JT membership IDs: nathan=`22P5SRwhLaYf`, evan=`22P5nJ7ncFj4`, terri=`22P5SpJkype2`
-
 ---
 
 ## 17. Changelog
@@ -897,8 +895,18 @@ The Field Hub is a mobile-optimized dashboard for field crew members (e.g., Evan
 ### 2026-03-29
 - Added Project Manager custom field extraction to `getActiveJobs` in `jobtread.ts`
 - Field dashboard API now filters active jobs by PM assignment (only shows jobs where user is Project Manager)
-- Streamlined field dashboard UI: removed briefing text, removed job search box, compacted stats cards
-- Cleaned up unused imports (useMemo, Search) from field page component
+- **Redesigned field dashboard** based on Evan's workflow questionnaire:
+  - Removed all task list sections (overdue/today/upcoming/other task cards with Start/Done buttons)
+  - Removed stats cards (total/overdue/today/this week counters)
+  - Added briefing summary text at top
+  - Added 2-week calendar view (this week + next week) with day-by-day task layout
+  - Tasks color-coded by job using 8-color palette with job legend
+  - Overdue items shown in dedicated red alert section
+  - Active jobs section with upcoming task counts and direct JT links
+  - Ask Agent quick-access button in header
+- API rewritten: now returns `{ briefing, weekStartDate, todayDate, overdueTasks, calendarTasks, activeJobs }`
+  - Fetches tasks per job via `getTasksForJob()` and filters to 2-week window
+  - Groups tasks by date for calendar rendering
 
 
 All modifications to the codebase should be logged here with date, files changed, and what was done.
