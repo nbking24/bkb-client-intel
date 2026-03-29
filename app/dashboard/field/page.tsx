@@ -5,7 +5,7 @@ import { useState, useEffect, useMemo } from 'react';
 import {
   AlertTriangle, Clock, CheckCircle2, Loader2,
   ChevronRight, ChevronDown, ClipboardList, RefreshCw,
-  Calendar, Search, Building2, X
+  Calendar, Search, Building2, X, Check, Pencil
 } from 'lucide-react';
 import { useAuth } from '@/app/hooks/useAuth';
 
@@ -96,6 +96,9 @@ export default function FieldDashboardPage() {
   const [expandedJob, setExpandedJob] = useState<string | null>(null);
   const [scheduleCache, setScheduleCache] = useState<Record<string, JobScheduleData>>({});
   const [loadingSchedule, setLoadingSchedule] = useState<string | null>(null);
+  const [updatingScheduleTask, setUpdatingScheduleTask] = useState<string | null>(null);
+  const [editingDateTask, setEditingDateTask] = useState<string | null>(null);
+  const [editDateValue, setEditDateValue] = useState('');
 
   const fetchData = async (isRefresh = false) => {
     if (isRefresh) setRefreshing(true); else setLoading(true);
@@ -343,49 +346,103 @@ export default function FieldDashboardPage() {
   // -- Phase row with inline tasks --
   const PhaseRow = ({ phase }: { phase: SchedulePhase }) => {
     const [open, setOpen] = useState(false);
-    const phasePct = phase.progress !== null ? Math.round((phase.progress || 0) * 100) : 0;
     const hasTasks = phase.tasks && phase.tasks.length > 0;
+    const phasePct = phase.progress !== null ? Math.round((phase.progress || 0) * 100) : null;
 
     return (
-      <div className="mb-1">
+      <div className="border-t" style={{ borderColor: 'rgba(205,162,116,0.08)' }}>
         <button
           onClick={() => hasTasks && setOpen(!open)}
-          className="w-full flex items-center gap-2 py-1.5 px-2 rounded text-left"
-          style={{ background: open ? 'rgba(205,162,116,0.04)' : 'transparent' }}
+          className="w-full px-3 py-2 flex items-center justify-between text-left"
+          style={{ background: 'transparent' }}
+          disabled={!hasTasks}
         >
-          {hasTasks ? (
-            open ? <ChevronDown size={12} style={{ color: '#CDA274' }} /> : <ChevronRight size={12} style={{ color: '#5a5550' }} />
-          ) : (
-            <span style={{ width: 12 }} />
+          <div className="flex items-center gap-2">
+            {hasTasks ? (
+              open ? <ChevronDown size={12} style={{ color: '#CDA274' }} /> : <ChevronRight size={12} style={{ color: '#8a8078' }} />
+            ) : (
+              <span style={{ width: 12 }} />
+            )}
+            <span className="text-sm" style={{ color: '#e8e0d8' }}>{phase.name}</span>
+          </div>
+          {phasePct !== null && (
+            <span className="text-[10px] tabular-nums" style={{ color: '#5a5550' }}>
+              {phasePct}%
+            </span>
           )}
-          <span className="text-xs font-medium flex-1 truncate" style={{ color: '#c4b8a8' }}>
-            {phase.name}
-          </span>
-          <span className="text-[10px] tabular-nums" style={{ color: '#5a5550' }}>
-            {phasePct}%
-          </span>
-          <div style={{ width: 60 }}>{progressBar(phase.progress, 3)}</div>
         </button>
         {open && hasTasks && (
           <div className="ml-6 mt-0.5 mb-1">
             {phase.tasks.map((t: any) => {
-              const tPct = t.progress !== null ? Math.round((t.progress || 0) * 100) : 0;
-              const done = t.progress === 1;
+              const done = t.progress !== null && t.progress >= 1;
+              const isUpdating = updatingScheduleTask === t.id;
+              const isEditingDate = editingDateTask === t.id;
+
               return (
-                <div key={t.id} className="flex items-center gap-2 py-1 px-2">
-                  <span style={{ width: 6, height: 6, borderRadius: '50%', flexShrink: 0, background: done ? '#22c55e' : tPct > 0 ? '#CDA274' : '#3f3f3f' }} />
+                <div key={t.id} className="flex items-center gap-2 py-1.5 px-2 group" style={{ borderBottom: '1px solid rgba(205,162,116,0.04)' }}>
+                  <button
+                    onClick={(e) => { e.stopPropagation(); updateScheduleTask(t.id, { completed: !done }); }}
+                    disabled={isUpdating}
+                    className="flex-shrink-0"
+                    style={{ opacity: isUpdating ? 0.5 : 1 }}
+                  >
+                    {done ? (
+                      <div style={{ width: 18, height: 18, borderRadius: 4, background: '#22c55e', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                        <Check size={12} style={{ color: '#1a1a1a' }} />
+                      </div>
+                    ) : (
+                      <div style={{ width: 18, height: 18, borderRadius: 4, border: '2px solid #5a5550', background: 'transparent' }} />
+                    )}
+                  </button>
                   <span
                     className="text-xs flex-1 truncate"
-                    style={{ color: done ? '#5a5550' : '#a09888', textDecoration: done ? 'line-through' : 'none' }}
+                    style={{ color: done ? '#5a5550' : '#e8e0d8', textDecoration: done ? 'line-through' : 'none' }}
                   >
                     {t.name}
                   </span>
-                  {t.endDate && (
-                    <span className="text-[10px] tabular-nums" style={{ color: '#5a5550' }}>{formatDate(t.endDate)}</span>
-                  )}
-                  <span className="text-[10px] tabular-nums" style={{ color: '#5a5550', width: 28, textAlign: 'right' }}>
-                    {tPct}%
-                  </span>
+                  <div className="flex items-center gap-1">
+                    {isEditingDate ? (
+                      <div className="flex items-center gap-1" onClick={(e) => e.stopPropagation()}>
+                        <input
+                          type="date"
+                          value={editDateValue}
+                          onChange={(e) => setEditDateValue(e.target.value)}
+                          className="text-[10px] px-1 py-0.5 rounded"
+                          style={{ background: '#2a2a2a', color: '#e8e0d8', border: '1px solid #CDA274', outline: 'none' }}
+                        />
+                        <button
+                          onClick={() => { if (editDateValue) updateScheduleTask(t.id, { endDate: editDateValue }); }}
+                          className="text-[10px] px-1.5 py-0.5 rounded"
+                          style={{ background: '#22c55e', color: '#1a1a1a' }}
+                        >
+                          Save
+                        </button>
+                        <button
+                          onClick={() => setEditingDateTask(null)}
+                          className="text-[10px] px-1 py-0.5 rounded"
+                          style={{ background: '#3f3f3f', color: '#8a8078' }}
+                        >
+                          <X size={10} />
+                        </button>
+                      </div>
+                    ) : (
+                      <>
+                        {t.endDate && (
+                          <span className="text-[10px] tabular-nums" style={{ color: '#5a5550' }}>
+                            {formatDate(t.endDate)}
+                          </span>
+                        )}
+                        <button
+                          onClick={(e) => { e.stopPropagation(); setEditingDateTask(t.id); setEditDateValue(t.endDate ? t.endDate.split('T')[0] : ''); }}
+                          className="opacity-0 group-hover:opacity-100 transition-opacity"
+                          style={{ color: '#8a8078' }}
+                          title="Edit due date"
+                        >
+                          <Pencil size={10} />
+                        </button>
+                      </>
+                    )}
+                  </div>
                 </div>
               );
             })}
