@@ -2,14 +2,6 @@
 'use client';
 
 import { useState, useEffect } from 'react';
-
-'use client';
-
-import { useState, useEffect } from 'react';
-
-'use client';
-
-import { useState, useEffect } from 'react';
 import {
   AlertTriangle, Clock, CheckCircle2, Loader2,
   ChevronRight, ChevronDown, ClipboardList, RefreshCw,
@@ -100,7 +92,6 @@ export default function FieldDashboardPage() {
   const [error, setError] = useState('');
   const [updatingTask, setUpdatingTask] = useState<string | null>(null);
   // My Jobs state
-  
   const [expandedJob, setExpandedJob] = useState<string | null>(null);
   const [scheduleCache, setScheduleCache] = useState<Record<string, JobScheduleData>>({});
   const [loadingSchedule, setLoadingSchedule] = useState<string | null>(null);
@@ -533,7 +524,6 @@ export default function FieldDashboardPage() {
       </div>
 
 
-
       {/* Stats */}
       <div className="grid grid-cols-4 gap-2 mb-4">
         {[
@@ -573,7 +563,9 @@ export default function FieldDashboardPage() {
           </div>
 
 
+          {/* Job list */}
             {filteredJobs.map(job => <JobCard key={job.id} job={job} />)}
+        </div>
       )}
     </div>
   );
