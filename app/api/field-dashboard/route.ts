@@ -31,12 +31,16 @@ export async function GET(req: NextRequest) {
     const membershipId = user.membershipId;
     const [memberTasks, activeJobs] = await Promise.all([
       getOpenTasksForMember(membershipId).catch(() => []),
-      getActiveJobs(20).catch(() => []),
+      getActiveJobs(50).catch(() => []),
     ]);
+
+    // Filter active jobs to only those where this user is PM
+    const userPmName = user.name; // e.g., 'Evan Harrington'
+    const myJobs = activeJobs.filter((j: any) => j.projectManager === userPmName);
 
     // Build a job name map for enrichment
     const jobMap = new Map<string, any>();
-    for (const job of activeJobs) {
+    for (const job of myJobs) {
       jobMap.set(job.id, job);
     }
 
@@ -109,8 +113,8 @@ export async function GET(req: NextRequest) {
       todayTasks,
       upcomingTasks,
       otherTasks: otherTasks.slice(0, 20),
-      activeJobCount: activeJobs.length,
-      activeJobs: activeJobs.map((j: any) => ({
+      activeJobCount: myJobs.length,
+      activeJobs: myJobs.map((j: any) => ({
         id: j.id,
         name: j.name,
         number: j.number,
