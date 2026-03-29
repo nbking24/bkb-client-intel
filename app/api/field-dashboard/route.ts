@@ -110,6 +110,13 @@ export async function GET(req: NextRequest) {
       upcomingTasks,
       otherTasks: otherTasks.slice(0, 20),
       activeJobCount: activeJobs.length,
+      activeJobs: activeJobs.map((j: any) => ({
+        id: j.id,
+        name: j.name,
+        number: j.number,
+        clientName: j.clientName || '',
+        customStatus: j.customStatus || null,
+      })),
     });
   } catch (err: any) {
     console.error('Field dashboard error:', err);
