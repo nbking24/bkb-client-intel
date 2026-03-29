@@ -1,14 +1,15 @@
 // @ts-nocheck
 import { NextRequest, NextResponse } from 'next/server';
 import { validateAuth, isFieldStaffRole } from '../lib/auth';
-import { getActiveJobs, getTasksForJob, getOpenTasksForMember } from '@/app/lib/jobtread';
+import { getActiveJobs, getTasksForJob } from '@/app/lib/jobtread';
 import { TEAM_USERS } from '@/app/lib/constants';
 
 /**
  * GET /api/field-dashboard
  * Returns personalized field staff dashboard data:
- * - Tasks assigned to this user across all active jobs (today + upcoming)
- * - Simple AI briefing text
+ * - Active jobs where user is PM
+ * - 2-week calendar of scheduled tasks per job (color-coded)
+ * - Brief AI-generated summary of what's upcoming
  */
 export async function GET(req: NextRequest) {
   const auth = validateAuth(req.headers.get('authorization'));
@@ -27,93 +28,127 @@ export async function GET(req: NextRequest) {
   }
 
   try {
-    // Fetch all open tasks for this user's membership ID
-    const membershipId = user.membershipId;
-    const [memberTasks, activeJobs] = await Promise.all([
-      getOpenTasksForMember(membershipId).catch(() => []),
-      getActiveJobs(50).catch(() => []),
-    ]);
+    // Fetch active jobs
+    const activeJobs = await getActiveJobs(50).catch(() => []);
 
     // Filter active jobs to only those where this user is PM
-    const userPmName = user.name; // e.g., 'Evan Harrington'
+    const userPmName = user.name;
     const myJobs = activeJobs.filter((j: any) => j.projectManager === userPmName);
 
-    // Build a job name map for enrichment
-    const jobMap = new Map<string, any>();
-    for (const job of myJobs) {
-      jobMap.set(job.id, job);
-    }
-
-    // Categorize tasks
+    // Build date boundaries: start of this week (Monday) through 2 weeks out
     const today = new Date();
     today.setHours(0, 0, 0, 0);
     const todayStr = today.toISOString().split('T')[0];
-    const weekFromNow = new Date(today);
-    weekFromNow.setDate(weekFromNow.getDate() + 7);
-    const weekStr = weekFromNow.toISOString().split('T')[0];
 
-    const todayTasks: any[] = [];
+    // Find Monday of this week
+    const dayOfWeek = today.getDay();
+    const mondayOffset = dayOfWeek === 0 ? -6 : 1 - dayOfWeek;
+    const weekStart = new Date(today);
+    weekStart.setDate(today.getDate() + mondayOffset);
+    const weekStartStr = weekStart.toISOString().split('T')[0];
+
+    // 2 weeks from Monday = 14 days
+    const twoWeeksOut = new Date(weekStart);
+    twoWeeksOut.setDate(weekStart.getDate() + 13);
+    const twoWeeksStr = twoWeeksOut.toISOString().split('T')[0];
+
+    // Fetch tasks for each PM job in parallel
+    const jobTaskPromises = myJobs.map(async (job: any) => {
+      try {
+        const tasks = await getTasksForJob(job.id);
+        return { jobId: job.id, tasks };
+      } catch {
+        return { jobId: job.id, tasks: [] };
+      }
+    });
+    const jobTaskResults = await Promise.all(jobTaskPromises);
+
+    // Build calendar entries: tasks with dates in the 2-week window
+    // Also collect overdue tasks (endDate before today, not complete)
+    const calendarTasks: any[] = [];
     const overdueTasks: any[] = [];
-    const upcomingTasks: any[] = [];
-    const otherTasks: any[] = [];
 
-    for (const task of memberTasks) {
-      const enriched = {
-        id: task.id,
-        name: task.name,
-        progress: task.progress,
-        startDate: task.startDate || null,
-        endDate: task.endDate || null,
-        jobName: task.job?.name || jobMap.get(task.job?.id)?.name || 'Unknown Job',
-        jobNumber: task.job?.number || jobMap.get(task.job?.id)?.number || '',
-        jobId: task.job?.id || '',
-      };
+    for (const { jobId, tasks } of jobTaskResults) {
+      const job = myJobs.find((j: any) => j.id === jobId);
+      if (!job) continue;
 
-      if (!task.endDate) {
-        otherTasks.push(enriched);
-      } else if (task.endDate < todayStr) {
-        overdueTasks.push(enriched);
-      } else if (task.endDate === todayStr) {
-        todayTasks.push(enriched);
-      } else if (task.endDate <= weekStr) {
-        upcomingTasks.push(enriched);
-      } else {
-        otherTasks.push(enriched);
+      for (const task of tasks) {
+        if (task.isGroup) continue; // Skip group/phase headers
+        const isComplete = task.progress !== null && task.progress >= 1;
+
+        // Use endDate or startDate for calendar placement
+        const taskDate = task.endDate || task.startDate;
+        if (!taskDate) continue;
+        const dateStr = taskDate.split('T')[0];
+
+        // Overdue: before today and not complete
+        if (dateStr < todayStr && !isComplete) {
+          overdueTasks.push({
+            id: task.id,
+            name: task.name,
+            date: dateStr,
+            progress: task.progress,
+            jobId: job.id,
+            jobName: job.name,
+            jobNumber: job.number,
+          });
+          continue;
+        }
+
+        // In the 2-week window
+        if (dateStr >= weekStartStr && dateStr <= twoWeeksStr) {
+          calendarTasks.push({
+            id: task.id,
+            name: task.name,
+            date: dateStr,
+            startDate: task.startDate ? task.startDate.split('T')[0] : null,
+            endDate: task.endDate ? task.endDate.split('T')[0] : null,
+            progress: task.progress,
+            isComplete,
+            jobId: job.id,
+            jobName: job.name,
+            jobNumber: job.number,
+          });
+        }
       }
     }
 
-    // Sort each category by due date
-    const byDate = (a: any, b: any) => (a.endDate || '9999').localeCompare(b.endDate || '9999');
-    overdueTasks.sort(byDate);
-    todayTasks.sort(byDate);
-    upcomingTasks.sort(byDate);
+    // Sort calendar tasks by date, then job
+    calendarTasks.sort((a, b) => a.date.localeCompare(b.date) || a.jobName.localeCompare(b.jobName));
+    overdueTasks.sort((a, b) => a.date.localeCompare(b.date));
 
-    // Generate simple briefing
-    const totalOpen = memberTasks.length;
-    const overdueCount = overdueTasks.length;
-    const todayCount = todayTasks.length;
-    const upcomingCount = upcomingTasks.length;
+    // Generate briefing
+    const totalCal = calendarTasks.filter(t => !t.isComplete).length;
+    const todayTasks = calendarTasks.filter(t => t.date === todayStr && !t.isComplete);
+    const tomorrowStr = new Date(today.getTime() + 86400000).toISOString().split('T')[0];
+    const tomorrowTasks = calendarTasks.filter(t => t.date === tomorrowStr && !t.isComplete);
 
     let briefing = '';
-    if (totalOpen === 0) {
-      briefing = 'No open tasks assigned to you right now. Check with Nathan if you need new assignments.';
+    const parts: string[] = [];
+    if (overdueTasks.length > 0) {
+      parts.push(`${overdueTasks.length} overdue item${overdueTasks.length > 1 ? 's' : ''} need attention`);
+    }
+    if (todayTasks.length > 0) {
+      parts.push(`${todayTasks.length} task${todayTasks.length > 1 ? 's' : ''} scheduled today`);
+    }
+    if (tomorrowTasks.length > 0) {
+      parts.push(`${tomorrowTasks.length} task${tomorrowTasks.length > 1 ? 's' : ''} tomorrow`);
+    }
+    if (parts.length > 0) {
+      briefing = parts.join(' · ') + `. ${totalCal} total across ${myJobs.length} active job${myJobs.length > 1 ? 's' : ''} over the next two weeks.`;
+    } else if (myJobs.length > 0) {
+      briefing = `${myJobs.length} active job${myJobs.length > 1 ? 's' : ''}, no tasks scheduled in the next two weeks.`;
     } else {
-      const parts: string[] = [];
-      if (overdueCount > 0) parts.push(overdueCount + ' overdue task' + (overdueCount > 1 ? 's' : '') + ' need attention');
-      if (todayCount > 0) parts.push(todayCount + ' task' + (todayCount > 1 ? 's' : '') + ' due today');
-      if (upcomingCount > 0) parts.push(upcomingCount + ' task' + (upcomingCount > 1 ? 's' : '') + ' coming up this week');
-      briefing = 'You have ' + totalOpen + ' open task' + (totalOpen > 1 ? 's' : '') + '. ' + parts.join(', ') + '.';
+      briefing = 'No active jobs assigned to you right now.';
     }
 
     return NextResponse.json({
       userName: user.name,
       briefing,
-      stats: { total: totalOpen, overdue: overdueCount, today: todayCount, upcoming: upcomingCount },
-      overdueTasks,
-      todayTasks,
-      upcomingTasks,
-      otherTasks: otherTasks.slice(0, 20),
-      activeJobCount: myJobs.length,
+      weekStartDate: weekStartStr,
+      todayDate: todayStr,
+      overdueTasks: overdueTasks.slice(0, 15),
+      calendarTasks,
       activeJobs: myJobs.map((j: any) => ({
         id: j.id,
         name: j.name,

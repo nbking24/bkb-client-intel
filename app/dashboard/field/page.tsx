@@ -1,13 +1,14 @@
 // @ts-nocheck
 'use client';
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useMemo } from 'react';
 import {
-  AlertTriangle, Clock, CheckCircle2, Loader2,
-  ChevronRight, ChevronDown, ClipboardList, RefreshCw,
-  Calendar, Building2, X, Check, Pencil
+  AlertTriangle, Loader2, RefreshCw, Calendar,
+  Building2, ChevronLeft, ChevronRight, ChevronDown,
+  Clock, Check, Pencil, X, MessageSquare
 } from 'lucide-react';
 import { useAuth } from '@/app/hooks/useAuth';
+import Link from 'next/link';
 
 function getToken() {
   return typeof window !== 'undefined' ? localStorage.getItem('bkb-token') || '' : '';
@@ -20,31 +21,44 @@ function getGreeting() {
   return 'Good evening';
 }
 
-function formatDate(d: string | null) {
-  if (!d) return 'No date';
-  const date = new Date(d + 'T12:00:00');
-  return date.toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' });
-}
+// ============================================================
+// Color palette for jobs (consistent assignment per job)
+// ============================================================
+const JOB_COLORS = [
+  { bg: 'rgba(205,162,116,0.15)', border: 'rgba(205,162,116,0.35)', text: '#CDA274', dot: '#CDA274' },   // gold
+  { bg: 'rgba(59,130,246,0.12)', border: 'rgba(59,130,246,0.30)', text: '#60a5fa', dot: '#3b82f6' },      // blue
+  { bg: 'rgba(34,197,94,0.12)', border: 'rgba(34,197,94,0.30)', text: '#4ade80', dot: '#22c55e' },        // green
+  { bg: 'rgba(168,85,247,0.12)', border: 'rgba(168,85,247,0.30)', text: '#c084fc', dot: '#a855f7' },      // purple
+  { bg: 'rgba(236,72,153,0.12)', border: 'rgba(236,72,153,0.30)', text: '#f472b6', dot: '#ec4899' },      // pink
+  { bg: 'rgba(245,158,11,0.12)', border: 'rgba(245,158,11,0.30)', text: '#fbbf24', dot: '#f59e0b' },      // amber
+  { bg: 'rgba(20,184,166,0.12)', border: 'rgba(20,184,166,0.30)', text: '#2dd4bf', dot: '#14b8a6' },      // teal
+  { bg: 'rgba(239,68,68,0.12)', border: 'rgba(239,68,68,0.30)', text: '#f87171', dot: '#ef4444' },        // red
+];
 
-function progressBar(progress: number | null, height = 4) {
-  const pct = progress !== null ? Math.round((progress || 0) * 100) : 0;
-  const color = pct >= 100 ? '#22c55e' : pct > 0 ? '#CDA274' : '#3f3f3f';
-  return (
-    <div style={{ background: '#1a1a1a', borderRadius: 2, height, width: '100%' }}>
-      <div style={{ background: color, borderRadius: 2, height, width: pct + '%', transition: 'width 0.3s' }} />
-    </div>
-  );
-}
-
-interface TaskItem {
+// ============================================================
+// Types
+// ============================================================
+interface CalendarTask {
   id: string;
   name: string;
-  progress: number | null;
+  date: string;
   startDate: string | null;
   endDate: string | null;
+  progress: number | null;
+  isComplete: boolean;
+  jobId: string;
   jobName: string;
   jobNumber: string;
+}
+
+interface OverdueTask {
+  id: string;
+  name: string;
+  date: string;
+  progress: number | null;
   jobId: string;
+  jobName: string;
+  jobNumber: string;
 }
 
 interface JobItem {
@@ -55,50 +69,47 @@ interface JobItem {
   customStatus: string | null;
 }
 
-interface SchedulePhase {
-  id: string;
-  name: string;
-  progress: number | null;
-  startDate: string | null;
-  endDate: string | null;
-  tasks: { id: string; name: string; progress: number | null; startDate: string | null; endDate: string | null }[];
-}
-
-interface JobScheduleData {
-  jobId: string;
-  jobName: string;
-  jobNumber: string;
-  totalProgress: number;
-  phases: SchedulePhase[];
-}
-
 interface DashboardData {
   userName: string;
   briefing: string;
-  stats: { total: number; overdue: number; today: number; upcoming: number };
-  overdueTasks: TaskItem[];
-  todayTasks: TaskItem[];
-  upcomingTasks: TaskItem[];
-  otherTasks: TaskItem[];
-  activeJobCount: number;
+  weekStartDate: string;
+  todayDate: string;
+  overdueTasks: OverdueTask[];
+  calendarTasks: CalendarTask[];
   activeJobs: JobItem[];
 }
 
+// ============================================================
+// Helper: get day names for headers
+// ============================================================
+function getDayHeaders(weekStartStr: string): { date: string; dayName: string; dayNum: number; monthStr: string; isWeekend: boolean }[] {
+  const start = new Date(weekStartStr + 'T12:00:00');
+  const days = [];
+  const dayNames = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
+  for (let i = 0; i < 14; i++) {
+    const d = new Date(start);
+    d.setDate(start.getDate() + i);
+    days.push({
+      date: d.toISOString().split('T')[0],
+      dayName: dayNames[i % 7],
+      dayNum: d.getDate(),
+      monthStr: d.toLocaleDateString('en-US', { month: 'short' }),
+      isWeekend: i % 7 >= 5,
+    });
+  }
+  return days;
+}
+
+// ============================================================
+// Main Page
+// ============================================================
 export default function FieldDashboardPage() {
   const auth = useAuth();
   const [data, setData] = useState<DashboardData | null>(null);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [error, setError] = useState('');
-  const [updatingTask, setUpdatingTask] = useState<string | null>(null);
-  // My Jobs state
-  const [expandedJob, setExpandedJob] = useState<string | null>(null);
-  const [scheduleCache, setScheduleCache] = useState<Record<string, JobScheduleData>>({});
-  const [loadingSchedule, setLoadingSchedule] = useState<string | null>(null);
-  const [updatingScheduleTask, setUpdatingScheduleTask] = useState<string | null>(null);
-  const [editingDateTask, setEditingDateTask] = useState<string | null>(null);
-  const [editDateValue, setEditDateValue] = useState('');
-  const [openPhases, setOpenPhases] = useState<Set<string>>(new Set());
+  const [weekOffset, setWeekOffset] = useState(0); // 0 = this/next week, -1 = last week, etc.
 
   const fetchData = async (isRefresh = false) => {
     if (isRefresh) setRefreshing(true); else setLoading(true);
@@ -120,368 +131,34 @@ export default function FieldDashboardPage() {
 
   useEffect(() => { fetchData(); }, []);
 
-  const markTaskProgress = async (taskId: string, progress: number) => {
-    setUpdatingTask(taskId);
-    try {
-      await fetch('/api/field-task-update', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          Authorization: `Bearer ${getToken()}`,
-        },
-        body: JSON.stringify({ taskId, progress }),
-      });
-      await fetchData(true);
-    } catch {
-      // Silent fail
-    } finally {
-      setUpdatingTask(null);
-    }
-  };
+  // Build job color map
+  const jobColorMap = useMemo(() => {
+    if (!data?.activeJobs) return {};
+    const map: Record<string, typeof JOB_COLORS[0]> = {};
+    data.activeJobs.forEach((job, i) => {
+      map[job.id] = JOB_COLORS[i % JOB_COLORS.length];
+    });
+    return map;
+  }, [data?.activeJobs]);
 
-  const toggleJobExpand = async (jobId: string) => {
-    if (expandedJob === jobId) {
-      setExpandedJob(null);
-      return;
-    }
-    setExpandedJob(jobId);
-    if (!scheduleCache[jobId]) {
-      setLoadingSchedule(jobId);
-      try {
-        const res = await fetch(`/api/field-job-schedule?jobId=${jobId}`, {
-          headers: { Authorization: `Bearer ${getToken()}` },
-        });
-        if (res.ok) {
-          const sched = await res.json();
-          setScheduleCache(prev => ({ ...prev, [jobId]: sched }));
-        }
-      } catch { /* silent */ }
-      finally { setLoadingSchedule(null); }
-    }
-  };
+  // Calendar days (14 days starting from weekStart)
+  const calendarDays = useMemo(() => {
+    if (!data?.weekStartDate) return [];
+    return getDayHeaders(data.weekStartDate);
+  }, [data?.weekStartDate]);
 
-  const updateScheduleTask = async (taskId: string, fields: { completed?: boolean; endDate?: string }) => {
-    setUpdatingScheduleTask(taskId);
-    try {
-      await fetch('/api/field-schedule-task-update', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          Authorization: `Bearer ${getToken()}`,
-        },
-        body: JSON.stringify({ taskId, ...fields }),
-      });
-      // Update the local cache to reflect the change
-      setScheduleCache(prev => {
-        const updated = { ...prev };
-        for (const jobId of Object.keys(updated)) {
-          const schedule = updated[jobId];
-          if (!schedule) continue;
-          for (const phase of schedule.phases) {
-            for (const task of phase.tasks) {
-              if (task.id === taskId) {
-                if (fields.completed !== undefined) {
-                  task.progress = fields.completed ? 1 : 0;
-                }
-                if (fields.endDate !== undefined) {
-                  task.endDate = fields.endDate;
-                }
-              }
-            }
-          }
-        }
-        return updated;
-      });
-      setEditingDateTask(null);
-    } catch {
-      // Silent fail
-    } finally {
-      setUpdatingScheduleTask(null);
+  // Group calendar tasks by date
+  const tasksByDate = useMemo(() => {
+    if (!data?.calendarTasks) return {};
+    const map: Record<string, CalendarTask[]> = {};
+    for (const task of data.calendarTasks) {
+      if (!map[task.date]) map[task.date] = [];
+      map[task.date].push(task);
     }
-  };
-
-  const filteredJobs = data?.activeJobs || [];
+    return map;
+  }, [data?.calendarTasks]);
 
   const firstName = data?.userName?.split(' ')[0] || auth.user?.name?.split(' ')[0] || 'Team';
-
-  // -- Task card component --
-  const TaskCard = ({ task, urgency }: { task: TaskItem; urgency: 'overdue' | 'today' | 'upcoming' | 'normal' }) => {
-    const progressPct = task.progress !== null ? Math.round((task.progress || 0) * 100) : 0;
-    const isComplete = task.progress === 1;
-    const isUpdating = updatingTask === task.id;
-
-    const urgencyColors = {
-      overdue: { border: 'rgba(239,68,68,0.3)', badge: '#ef4444', badgeText: '#fff' },
-      today: { border: 'rgba(234,179,8,0.3)', badge: '#eab308', badgeText: '#1a1a1a' },
-      upcoming: { border: 'rgba(205,162,116,0.15)', badge: '#CDA274', badgeText: '#1a1a1a' },
-      normal: { border: 'rgba(205,162,116,0.08)', badge: '#3f3f3f', badgeText: '#8a8078' },
-    };
-    const colors = urgencyColors[urgency];
-
-    return (
-      <div
-        className="px-4 py-3 rounded-lg mb-2"
-        style={{ background: '#242424', border: `1px solid ${colors.border}` }}
-      >
-        <div className="flex items-start justify-between gap-3">
-          <div className="flex-1 min-w-0">
-            <div className="flex items-center gap-2 mb-1">
-              <span
-                className="text-[10px] font-medium px-1.5 py-0.5 rounded"
-                style={{ background: 'rgba(205,162,116,0.1)', color: '#CDA274' }}
-              >
-                #{task.jobNumber}
-              </span>
-              <span className="text-xs truncate" style={{ color: '#8a8078' }}>{task.jobName}</span>
-            </div>
-            <p className="text-sm font-medium" style={{ color: '#e8e0d8' }}>{task.name}</p>
-            <div className="flex items-center gap-2 mt-1">
-              <Calendar size={11} style={{ color: '#8a8078' }} />
-              <span className="text-xs" style={{ color: urgency === 'overdue' ? '#ef4444' : '#8a8078' }}>
-                {formatDate(task.endDate)}
-              </span>
-              <span className="text-xs" style={{ color: '#5a5550' }}>{progressPct}%</span>
-            </div>
-          </div>
-          <div className="flex flex-col gap-1.5">
-            {!isComplete && progressPct < 50 && (
-              <button
-                onClick={() => markTaskProgress(task.id, 0.5)}
-                disabled={isUpdating}
-                className="text-xs px-3 py-1 rounded font-medium"
-                style={{ background: '#CDA274', color: '#1a1a1a' }}
-              >
-                {isUpdating ? '...' : 'Start'}
-              </button>
-            )}
-            {!isComplete && (
-              <button
-                onClick={() => markTaskProgress(task.id, 1)}
-                disabled={isUpdating}
-                className="text-xs px-3 py-1 rounded font-medium"
-                style={{ background: '#22c55e', color: '#1a1a1a' }}
-              >
-                {isUpdating ? '...' : 'Done'}
-              </button>
-            )}
-          </div>
-        </div>
-      </div>
-    );
-  };
-
-  // -- Task section component --
-  const TaskSection = ({
-    title, tasks, urgency, icon: Icon, iconColor,
-  }: {
-    title: string; tasks: TaskItem[]; urgency: 'overdue' | 'today' | 'upcoming' | 'normal';
-    icon: any; iconColor: string;
-  }) => {
-    if (!tasks || tasks.length === 0) return null;
-    return (
-      <div className="mb-4">
-        <div className="flex items-center gap-2 mb-2">
-          <Icon size={14} style={{ color: iconColor }} />
-          <h3 className="text-sm font-semibold" style={{ color: iconColor }}>
-            {title} ({tasks.length})
-          </h3>
-        </div>
-        {tasks.map(t => <TaskCard key={t.id} task={t} urgency={urgency} />)}
-      </div>
-    );
-  };
-
-  // -- Job card with expandable schedule --
-  const JobCard = ({ job }: { job: JobItem }) => {
-    const isExpanded = expandedJob === job.id;
-    const isLoading = loadingSchedule === job.id;
-    const schedule = scheduleCache[job.id];
-
-    const statusColors: Record<string, string> = {
-      'Pre-Construction': '#CDA274',
-      'In Progress': '#22c55e',
-      'On Hold': '#eab308',
-      'Punch List': '#f97316',
-    };
-    const statusColor = statusColors[job.customStatus || ''] || '#8a8078';
-
-    return (
-      <div className="rounded-lg mb-2 overflow-hidden" style={{ background: '#242424', border: '1px solid rgba(205,162,116,0.08)' }}>
-        <button
-          onClick={() => toggleJobExpand(job.id)}
-          className="w-full px-4 py-3 flex items-center justify-between gap-3 text-left"
-          style={{ background: 'transparent' }}
-        >
-          <div className="flex-1 min-w-0">
-            <div className="flex items-center gap-2 mb-0.5">
-              <span className="text-[10px] font-medium px-1.5 py-0.5 rounded" style={{ background: 'rgba(205,162,116,0.1)', color: '#CDA274' }}>
-                #{job.number}
-              </span>
-              <span className="text-sm font-medium truncate" style={{ color: '#e8e0d8' }}>{job.name}</span>
-            </div>
-            <div className="flex items-center gap-3">
-              {job.clientName && (
-                <span className="text-xs" style={{ color: '#8a8078' }}>{job.clientName}</span>
-              )}
-              {job.customStatus && (
-                <span className="text-[10px] px-1.5 py-0.5 rounded" style={{ background: statusColor + '18', color: statusColor }}>
-                  {job.customStatus}
-                </span>
-              )}
-            </div>
-          </div>
-          <div className="flex items-center gap-1">
-            {isLoading ? (
-              <Loader2 size={14} className="animate-spin" style={{ color: '#CDA274' }} />
-            ) : isExpanded ? (
-              <ChevronDown size={16} style={{ color: '#CDA274' }} />
-            ) : (
-              <ChevronRight size={16} style={{ color: '#8a8078' }} />
-            )}
-          </div>
-        </button>
-
-        {isExpanded && (
-          <div className="px-4 pb-3 border-t" style={{ borderColor: 'rgba(205,162,116,0.08)' }}>
-            {isLoading && !schedule && (
-              <div className="flex items-center gap-2 py-4 justify-center">
-                <Loader2 size={14} className="animate-spin" style={{ color: '#CDA274' }} />
-                <span className="text-xs" style={{ color: '#8a8078' }}>Loading schedule...</span>
-              </div>
-            )}
-            {schedule && (
-              <div className="mt-3">
-                <div className="flex items-center justify-between mb-3">
-                  <span className="text-xs font-medium" style={{ color: '#8a8078' }}>
-                    Overall: {Math.round((schedule.totalProgress || 0) * 100)}%
-                  </span>
-                  <div style={{ width: 120 }}>{progressBar(schedule.totalProgress, 3)}</div>
-                </div>
-                {schedule.phases.length === 0 && (
-                  <p className="text-xs py-2" style={{ color: '#5a5550' }}>No schedule phases found.</p>
-                )}
-                {schedule.phases.map((phase: SchedulePhase) => (
-                  <PhaseRow key={phase.id} phase={phase} />
-                ))}
-              </div>
-            )}
-            {!isLoading && !schedule && (
-              <p className="text-xs py-3" style={{ color: '#5a5550' }}>Could not load schedule.</p>
-            )}
-          </div>
-        )}
-      </div>
-    );
-  };
-
-  // -- Phase row with inline tasks --
-  const PhaseRow = ({ phase }: { phase: SchedulePhase }) => {
-    const open = openPhases.has(phase.name);
-    const hasTasks = phase.tasks && phase.tasks.length > 0;
-    const phasePct = phase.progress !== null ? Math.round((phase.progress || 0) * 100) : null;
-
-    return (
-      <div className="border-t" style={{ borderColor: 'rgba(205,162,116,0.08)' }}>
-        <button
-          onClick={() => hasTasks && setOpenPhases(prev => { const n = new Set(prev); if (n.has(phase.name)) n.delete(phase.name); else n.add(phase.name); return n; })}
-          className="w-full px-3 py-2 flex items-center justify-between text-left"
-          style={{ background: 'transparent' }}
-          disabled={!hasTasks}
-        >
-          <div className="flex items-center gap-2">
-            {hasTasks ? (
-              open ? <ChevronDown size={12} style={{ color: '#CDA274' }} /> : <ChevronRight size={12} style={{ color: '#8a8078' }} />
-            ) : (
-              <span style={{ width: 12 }} />
-            )}
-            <span className="text-sm" style={{ color: '#e8e0d8' }}>{phase.name}</span>
-          </div>
-          {phasePct !== null && (
-            <span className="text-[10px] tabular-nums" style={{ color: '#5a5550' }}>
-              {phasePct}%
-            </span>
-          )}
-        </button>
-        {open && hasTasks && (
-          <div className="ml-6 mt-0.5 mb-1">
-            {phase.tasks.map((t: any) => {
-              const done = t.progress !== null && t.progress >= 1;
-              const isUpdating = updatingScheduleTask === t.id;
-              const isEditingDate = editingDateTask === t.id;
-
-              return (
-                <div key={t.id} className="flex items-center gap-2 py-1.5 px-2 group" style={{ borderBottom: '1px solid rgba(205,162,116,0.04)' }}>
-                  <button
-                    onClick={(e) => { e.stopPropagation(); updateScheduleTask(t.id, { completed: !done }); }}
-                    disabled={isUpdating}
-                    className="flex-shrink-0"
-                    style={{ opacity: isUpdating ? 0.5 : 1 }}
-                  >
-                    {done ? (
-                      <div style={{ width: 18, height: 18, borderRadius: 4, background: '#22c55e', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-                        <Check size={12} style={{ color: '#1a1a1a' }} />
-                      </div>
-                    ) : (
-                      <div style={{ width: 18, height: 18, borderRadius: 4, border: '2px solid #5a5550', background: 'transparent' }} />
-                    )}
-                  </button>
-                  <span
-                    className="text-xs flex-1 truncate"
-                    style={{ color: done ? '#5a5550' : '#e8e0d8', textDecoration: done ? 'line-through' : 'none' }}
-                  >
-                    {t.name}
-                  </span>
-                  <div className="flex items-center gap-1">
-                    {isEditingDate ? (
-                      <div className="flex items-center gap-1" onClick={(e) => e.stopPropagation()}>
-                        <input
-                          type="date"
-                          value={editDateValue}
-                          onChange={(e) => setEditDateValue(e.target.value)}
-                          className="text-[10px] px-1 py-0.5 rounded"
-                          style={{ background: '#2a2a2a', color: '#e8e0d8', border: '1px solid #CDA274', outline: 'none' }}
-                        />
-                        <button
-                          onClick={() => { if (editDateValue) updateScheduleTask(t.id, { endDate: editDateValue }); }}
-                          className="text-[10px] px-1.5 py-0.5 rounded"
-                          style={{ background: '#22c55e', color: '#1a1a1a' }}
-                        >
-                          Save
-                        </button>
-                        <button
-                          onClick={() => setEditingDateTask(null)}
-                          className="text-[10px] px-1 py-0.5 rounded"
-                          style={{ background: '#3f3f3f', color: '#8a8078' }}
-                        >
-                          <X size={10} />
-                        </button>
-                      </div>
-                    ) : (
-                      <>
-                        {t.endDate && (
-                          <span className="text-[10px] tabular-nums" style={{ color: '#5a5550' }}>
-                            {formatDate(t.endDate)}
-                          </span>
-                        )}
-                        <button
-                          onClick={(e) => { e.stopPropagation(); setEditingDateTask(t.id); setEditDateValue(t.endDate ? t.endDate.split('T')[0] : ''); }}
-                          className="opacity-0 group-hover:opacity-100 transition-opacity"
-                          style={{ color: '#8a8078' }}
-                          title="Edit due date"
-                        >
-                          <Pencil size={10} />
-                        </button>
-                      </>
-                    )}
-                  </div>
-                </div>
-              );
-            })}
-          </div>
-        )}
-      </div>
-    );
-  };
 
   // -- Loading / error states --
   if (loading) {
@@ -505,7 +182,7 @@ export default function FieldDashboardPage() {
   }
 
   return (
-    <div className="max-w-3xl mx-auto pb-20">
+    <div className="max-w-4xl mx-auto pb-20">
       {/* Header */}
       <div className="flex items-start justify-between mb-4">
         <div>
@@ -513,58 +190,314 @@ export default function FieldDashboardPage() {
             {getGreeting()}, {firstName}
           </h1>
         </div>
-        <button
-          onClick={() => fetchData(true)}
-          disabled={refreshing}
-          className="p-2 rounded-lg"
-          style={{ background: 'rgba(205,162,116,0.08)' }}
-        >
-          <RefreshCw size={14} className={refreshing ? 'animate-spin' : ''} style={{ color: '#CDA274' }} />
-        </button>
+        <div className="flex items-center gap-2">
+          <Link
+            href="/dashboard/ask"
+            className="flex items-center gap-1.5 px-3 py-2 rounded-lg text-xs font-medium"
+            style={{ background: 'rgba(205,162,116,0.1)', color: '#CDA274' }}
+          >
+            <MessageSquare size={13} />
+            Ask Agent
+          </Link>
+          <button
+            onClick={() => fetchData(true)}
+            disabled={refreshing}
+            className="p-2 rounded-lg"
+            style={{ background: 'rgba(205,162,116,0.08)' }}
+          >
+            <RefreshCw size={14} className={refreshing ? 'animate-spin' : ''} style={{ color: '#CDA274' }} />
+          </button>
+        </div>
       </div>
 
-
-      {/* Stats */}
-      <div className="grid grid-cols-4 gap-2 mb-4">
-        {[
-          { label: 'TOTAL', value: data.stats.total, color: '#e8e0d8' },
-          { label: 'OVERDUE', value: data.stats.overdue, color: data.stats.overdue > 0 ? '#ef4444' : '#5a5550' },
-          { label: 'TODAY', value: data.stats.today, color: data.stats.today > 0 ? '#eab308' : '#5a5550' },
-          { label: 'THIS WEEK', value: data.stats.upcoming, color: '#5a5550' },
-        ].map(s => (
-          <div key={s.label} className="text-center py-3 rounded-lg" style={{ background: '#242424', border: '1px solid rgba(205,162,116,0.05)' }}>
-            <div className="text-lg font-bold" style={{ color: s.color }}>{s.value}</div>
-            <div className="text-[10px] font-medium tracking-wide" style={{ color: '#5a5550' }}>{s.label}</div>
-          </div>
-        ))}
+      {/* Briefing */}
+      <div className="rounded-lg px-4 py-3 mb-4" style={{ background: 'rgba(205,162,116,0.06)', border: '1px solid rgba(205,162,116,0.12)' }}>
+        <p className="text-sm leading-relaxed" style={{ color: '#e8e0d8' }}>{data.briefing}</p>
       </div>
 
-      {/* Task Sections */}
-      <TaskSection title="Overdue" tasks={data.overdueTasks} urgency="overdue" icon={AlertTriangle} iconColor="#ef4444" />
-      <TaskSection title="Today" tasks={data.todayTasks} urgency="today" icon={Clock} iconColor="#eab308" />
-      <TaskSection title="This Week" tasks={data.upcomingTasks} urgency="upcoming" icon={Calendar} iconColor="#CDA274" />
-      <TaskSection title="Other Open Tasks" tasks={data.otherTasks} urgency="normal" icon={ClipboardList} iconColor="#8a8078" />
-
-      {data.stats.total === 0 && (
-        <div className="text-center py-8 mb-6">
-          <CheckCircle2 size={32} className="mx-auto mb-3" style={{ color: '#22c55e', opacity: 0.5 }} />
-          <p className="text-sm" style={{ color: '#8a8078' }}>All caught up! No open tasks assigned to you.</p>
+      {/* Job Legend */}
+      {data.activeJobs.length > 0 && (
+        <div className="flex flex-wrap gap-3 mb-4">
+          {data.activeJobs.map(job => {
+            const color = jobColorMap[job.id];
+            return (
+              <a
+                key={job.id}
+                href={`https://app.jobtread.com/jobs/${job.id}`}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="flex items-center gap-2 px-3 py-1.5 rounded-lg text-xs transition-colors hover:brightness-110"
+                style={{ background: color?.bg || '#242424', border: `1px solid ${color?.border || '#333'}` }}
+              >
+                <div className="w-2.5 h-2.5 rounded-full flex-shrink-0" style={{ background: color?.dot || '#888' }} />
+                <span style={{ color: color?.text || '#e8e0d8' }}>#{job.number}</span>
+                <span className="truncate max-w-[140px]" style={{ color: '#a09890' }}>{job.name}</span>
+              </a>
+            );
+          })}
         </div>
       )}
 
-      {/* ---- MY JOBS SECTION ---- */}
-      {data.activeJobs && data.activeJobs.length > 0 && (
-        <div className="mt-8">
-          <div className="flex items-center gap-2 mb-3">
-            <Building2 size={16} style={{ color: '#CDA274' }} />
-            <h2 className="text-sm font-semibold" style={{ color: '#CDA274' }}>
-              Active Jobs ({data.activeJobs.length})
-            </h2>
+      {/* Overdue Section */}
+      {data.overdueTasks.length > 0 && (
+        <div className="rounded-lg px-4 py-3 mb-4" style={{ background: 'rgba(239,68,68,0.06)', border: '1px solid rgba(239,68,68,0.2)' }}>
+          <div className="flex items-center gap-2 mb-2">
+            <AlertTriangle size={14} style={{ color: '#ef4444' }} />
+            <span className="text-xs font-semibold" style={{ color: '#ef4444' }}>
+              Overdue ({data.overdueTasks.length})
+            </span>
           </div>
+          <div className="space-y-1.5">
+            {data.overdueTasks.map(task => {
+              const color = jobColorMap[task.jobId];
+              const daysOverdue = Math.floor((new Date(data.todayDate + 'T12:00:00').getTime() - new Date(task.date + 'T12:00:00').getTime()) / 86400000);
+              return (
+                <div key={task.id} className="flex items-center gap-3 px-3 py-2 rounded" style={{ background: 'rgba(239,68,68,0.05)' }}>
+                  <div className="w-2 h-2 rounded-full flex-shrink-0" style={{ background: color?.dot || '#ef4444' }} />
+                  <div className="flex-1 min-w-0">
+                    <span className="text-sm truncate block" style={{ color: '#e8e0d8' }}>{task.name}</span>
+                    <span className="text-[10px]" style={{ color: '#8a8078' }}>#{task.jobNumber}</span>
+                  </div>
+                  <span className="text-[10px] flex-shrink-0 px-2 py-0.5 rounded" style={{ background: 'rgba(239,68,68,0.12)', color: '#ef4444' }}>
+                    {daysOverdue}d overdue
+                  </span>
+                </div>
+              );
+            })}
+          </div>
+        </div>
+      )}
 
+      {/* ---- 2-WEEK CALENDAR ---- */}
+      <div className="rounded-lg overflow-hidden" style={{ background: '#1e1e1e', border: '1px solid rgba(205,162,116,0.08)' }}>
+        {/* Calendar header */}
+        <div className="flex items-center justify-between px-4 py-3" style={{ borderBottom: '1px solid rgba(205,162,116,0.08)' }}>
+          <div className="flex items-center gap-2">
+            <Calendar size={15} style={{ color: '#CDA274' }} />
+            <span className="text-sm font-semibold" style={{ color: '#CDA274' }}>Schedule</span>
+          </div>
+          <span className="text-xs" style={{ color: '#8a8078' }}>
+            {calendarDays.length > 0 && (
+              <>
+                {calendarDays[0].monthStr} {calendarDays[0].dayNum} – {calendarDays[13]?.monthStr} {calendarDays[13]?.dayNum}
+              </>
+            )}
+          </span>
+        </div>
 
-          {/* Job list */}
-            {filteredJobs.map(job => <JobCard key={job.id} job={job} />)}
+        {/* Week 1 Label */}
+        <div className="px-4 pt-3 pb-1">
+          <span className="text-[10px] font-semibold tracking-widest" style={{ color: '#5a5550' }}>THIS WEEK</span>
+        </div>
+
+        {/* Week 1: Days 0-6 */}
+        <div className="px-3 pb-2">
+          {calendarDays.slice(0, 7).map(day => {
+            const isToday = day.date === data.todayDate;
+            const tasks = tasksByDate[day.date] || [];
+            const incompleteTasks = tasks.filter(t => !t.isComplete);
+            const completeTasks = tasks.filter(t => t.isComplete);
+            const isPast = day.date < data.todayDate;
+
+            return (
+              <div
+                key={day.date}
+                className="flex items-start gap-3 px-2 py-2"
+                style={{
+                  borderBottom: '1px solid rgba(205,162,116,0.04)',
+                  opacity: isPast && !isToday ? 0.5 : 1,
+                  background: isToday ? 'rgba(205,162,116,0.06)' : 'transparent',
+                  borderRadius: isToday ? 6 : 0,
+                }}
+              >
+                {/* Day label */}
+                <div className="flex-shrink-0 text-center" style={{ width: 44 }}>
+                  <div className="text-[10px] font-medium" style={{ color: isToday ? '#CDA274' : day.isWeekend ? '#5a5550' : '#8a8078' }}>
+                    {day.dayName}
+                  </div>
+                  <div
+                    className="text-base font-bold"
+                    style={{
+                      color: isToday ? '#CDA274' : day.isWeekend ? '#5a5550' : '#e8e0d8',
+                    }}
+                  >
+                    {day.dayNum}
+                  </div>
+                </div>
+
+                {/* Tasks for this day */}
+                <div className="flex-1 min-w-0">
+                  {incompleteTasks.length === 0 && completeTasks.length === 0 && (
+                    <div className="py-1">
+                      <span className="text-xs" style={{ color: '#3f3f3f' }}>—</span>
+                    </div>
+                  )}
+                  {incompleteTasks.map(task => {
+                    const color = jobColorMap[task.jobId];
+                    return (
+                      <div
+                        key={task.id}
+                        className="flex items-center gap-2 px-2.5 py-1.5 rounded mb-1"
+                        style={{
+                          background: color?.bg || 'rgba(205,162,116,0.08)',
+                          borderLeft: `3px solid ${color?.dot || '#CDA274'}`,
+                        }}
+                      >
+                        <span className="text-xs flex-1 truncate" style={{ color: '#e8e0d8' }}>{task.name}</span>
+                        <span className="text-[10px] flex-shrink-0" style={{ color: color?.text || '#8a8078' }}>#{task.jobNumber}</span>
+                      </div>
+                    );
+                  })}
+                  {completeTasks.map(task => {
+                    const color = jobColorMap[task.jobId];
+                    return (
+                      <div
+                        key={task.id}
+                        className="flex items-center gap-2 px-2.5 py-1 rounded mb-1"
+                        style={{ background: 'rgba(34,197,94,0.05)', borderLeft: '3px solid rgba(34,197,94,0.3)' }}
+                      >
+                        <Check size={11} style={{ color: '#22c55e' }} />
+                        <span className="text-xs flex-1 truncate line-through" style={{ color: '#5a5550' }}>{task.name}</span>
+                        <span className="text-[10px] flex-shrink-0" style={{ color: '#5a5550' }}>#{task.jobNumber}</span>
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
+            );
+          })}
+        </div>
+
+        {/* Week 2 Label */}
+        <div className="px-4 pt-2 pb-1" style={{ borderTop: '1px solid rgba(205,162,116,0.08)' }}>
+          <span className="text-[10px] font-semibold tracking-widest" style={{ color: '#5a5550' }}>NEXT WEEK</span>
+        </div>
+
+        {/* Week 2: Days 7-13 */}
+        <div className="px-3 pb-3">
+          {calendarDays.slice(7, 14).map(day => {
+            const tasks = tasksByDate[day.date] || [];
+            const incompleteTasks = tasks.filter(t => !t.isComplete);
+            const completeTasks = tasks.filter(t => t.isComplete);
+
+            return (
+              <div
+                key={day.date}
+                className="flex items-start gap-3 px-2 py-2"
+                style={{ borderBottom: '1px solid rgba(205,162,116,0.04)' }}
+              >
+                {/* Day label */}
+                <div className="flex-shrink-0 text-center" style={{ width: 44 }}>
+                  <div className="text-[10px] font-medium" style={{ color: day.isWeekend ? '#5a5550' : '#8a8078' }}>
+                    {day.dayName}
+                  </div>
+                  <div className="text-base font-bold" style={{ color: day.isWeekend ? '#5a5550' : '#e8e0d8' }}>
+                    {day.dayNum}
+                  </div>
+                </div>
+
+                {/* Tasks for this day */}
+                <div className="flex-1 min-w-0">
+                  {incompleteTasks.length === 0 && completeTasks.length === 0 && (
+                    <div className="py-1">
+                      <span className="text-xs" style={{ color: '#3f3f3f' }}>—</span>
+                    </div>
+                  )}
+                  {incompleteTasks.map(task => {
+                    const color = jobColorMap[task.jobId];
+                    return (
+                      <div
+                        key={task.id}
+                        className="flex items-center gap-2 px-2.5 py-1.5 rounded mb-1"
+                        style={{
+                          background: color?.bg || 'rgba(205,162,116,0.08)',
+                          borderLeft: `3px solid ${color?.dot || '#CDA274'}`,
+                        }}
+                      >
+                        <span className="text-xs flex-1 truncate" style={{ color: '#e8e0d8' }}>{task.name}</span>
+                        <span className="text-[10px] flex-shrink-0" style={{ color: color?.text || '#8a8078' }}>#{task.jobNumber}</span>
+                      </div>
+                    );
+                  })}
+                  {completeTasks.map(task => (
+                    <div
+                      key={task.id}
+                      className="flex items-center gap-2 px-2.5 py-1 rounded mb-1"
+                      style={{ background: 'rgba(34,197,94,0.05)', borderLeft: '3px solid rgba(34,197,94,0.3)' }}
+                    >
+                      <Check size={11} style={{ color: '#22c55e' }} />
+                      <span className="text-xs flex-1 truncate line-through" style={{ color: '#5a5550' }}>{task.name}</span>
+                      <span className="text-[10px] flex-shrink-0" style={{ color: '#5a5550' }}>#{task.jobNumber}</span>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            );
+          })}
+        </div>
+      </div>
+
+      {/* Active Jobs - clickable to JT */}
+      {data.activeJobs.length > 0 && (
+        <div className="mt-6">
+          <div className="flex items-center gap-2 mb-3">
+            <Building2 size={15} style={{ color: '#CDA274' }} />
+            <span className="text-sm font-semibold" style={{ color: '#CDA274' }}>
+              Active Jobs ({data.activeJobs.length})
+            </span>
+          </div>
+          <div className="space-y-2">
+            {data.activeJobs.map(job => {
+              const color = jobColorMap[job.id];
+              const statusColors: Record<string, string> = {
+                'Pre-Construction': '#CDA274',
+                'In Progress': '#22c55e',
+                'On Hold': '#eab308',
+                'Punch List': '#f97316',
+              };
+              const statusColor = statusColors[job.customStatus || ''] || '#8a8078';
+              const jobTasks = data.calendarTasks.filter(t => t.jobId === job.id && !t.isComplete);
+
+              return (
+                <a
+                  key={job.id}
+                  href={`https://app.jobtread.com/jobs/${job.id}`}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="block rounded-lg px-4 py-3 transition-colors hover:brightness-110"
+                  style={{ background: '#242424', border: `1px solid ${color?.border || 'rgba(205,162,116,0.08)'}` }}
+                >
+                  <div className="flex items-center justify-between">
+                    <div className="flex items-center gap-2 min-w-0">
+                      <div className="w-2.5 h-2.5 rounded-full flex-shrink-0" style={{ background: color?.dot || '#888' }} />
+                      <span className="text-[10px] font-medium px-1.5 py-0.5 rounded" style={{ background: 'rgba(205,162,116,0.1)', color: '#CDA274' }}>
+                        #{job.number}
+                      </span>
+                      <span className="text-sm font-medium truncate" style={{ color: '#e8e0d8' }}>{job.name}</span>
+                    </div>
+                    <div className="flex items-center gap-2 flex-shrink-0">
+                      {job.customStatus && (
+                        <span className="text-[10px] px-1.5 py-0.5 rounded" style={{ background: statusColor + '18', color: statusColor }}>
+                          {job.customStatus}
+                        </span>
+                      )}
+                      {jobTasks.length > 0 && (
+                        <span className="text-[10px] px-1.5 py-0.5 rounded" style={{ background: 'rgba(205,162,116,0.1)', color: '#8a8078' }}>
+                          {jobTasks.length} upcoming
+                        </span>
+                      )}
+                      <ChevronRight size={14} style={{ color: '#5a5550' }} />
+                    </div>
+                  </div>
+                  {job.clientName && (
+                    <div className="mt-1 ml-5">
+                      <span className="text-xs" style={{ color: '#8a8078' }}>{job.clientName}</span>
+                    </div>
+                  )}
+                </a>
+              );
+            })}
+          </div>
         </div>
       )}
     </div>
