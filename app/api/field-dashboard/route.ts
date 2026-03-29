@@ -60,9 +60,9 @@ export async function GET(req: NextRequest) {
         progress: task.progress,
         startDate: task.startDate || null,
         endDate: task.endDate || null,
-        jobName: task.jobName || jobMap.get(task.jobId)?.name || 'Unknown Job',
-        jobNumber: task.jobNumber || jobMap.get(task.jobId)?.number || '',
-        jobId: task.jobId,
+        jobName: task.job?.name || jobMap.get(task.job?.id)?.name || 'Unknown Job',
+        jobNumber: task.job?.number || jobMap.get(task.job?.id)?.number || '',
+        jobId: task.job?.id || '',
       };
 
       if (!task.endDate) {
