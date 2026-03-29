@@ -160,6 +160,46 @@ export default function FieldDashboardPage() {
     }
   };
 
+  const updateScheduleTask = async (taskId: string, fields: { completed?: boolean; endDate?: string }) => {
+    setUpdatingScheduleTask(taskId);
+    try {
+      await fetch('/api/field-schedule-task-update', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${getToken()}`,
+        },
+        body: JSON.stringify({ taskId, ...fields }),
+      });
+      // Update the local cache to reflect the change
+      setScheduleCache(prev => {
+        const updated = { ...prev };
+        for (const jobId of Object.keys(updated)) {
+          const schedule = updated[jobId];
+          if (!schedule) continue;
+          for (const phase of schedule.phases) {
+            for (const task of phase.tasks) {
+              if (task.id === taskId) {
+                if (fields.completed !== undefined) {
+                  task.progress = fields.completed ? 1 : 0;
+                }
+                if (fields.endDate !== undefined) {
+                  task.endDate = fields.endDate;
+                }
+              }
+            }
+          }
+        }
+        return updated;
+      });
+      setEditingDateTask(null);
+    } catch {
+      // Silent fail
+    } finally {
+      setUpdatingScheduleTask(null);
+    }
+  };
+
   const filteredJobs = useMemo(() => {
     if (!data?.activeJobs) return [];
     if (!jobSearch.trim()) return data.activeJobs;
