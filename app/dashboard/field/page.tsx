@@ -4,7 +4,7 @@
 import { useState, useEffect, useMemo } from 'react';
 import {
   AlertTriangle, Loader2, RefreshCw, Calendar,
-  ChevronRight, Check, MessageSquare
+  ChevronRight, Check, MessageSquare, ChevronDown, ChevronUp
 } from 'lucide-react';
 import { useAuth } from '@/app/hooks/useAuth';
 import Link from 'next/link';
@@ -21,18 +21,20 @@ function getGreeting() {
 }
 
 // ============================================================
-// Job color palette
+// Consistent color for a job based on its number
 // ============================================================
-const JOB_COLORS = [
-  { bg: 'rgba(205,162,116,0.18)', border: '#CDA274', text: '#CDA274', dot: '#CDA274' },
-  { bg: 'rgba(59,130,246,0.15)', border: '#3b82f6', text: '#60a5fa', dot: '#3b82f6' },
-  { bg: 'rgba(34,197,94,0.15)', border: '#22c55e', text: '#4ade80', dot: '#22c55e' },
-  { bg: 'rgba(168,85,247,0.15)', border: '#a855f7', text: '#c084fc', dot: '#a855f7' },
-  { bg: 'rgba(236,72,153,0.15)', border: '#ec4899', text: '#f472b6', dot: '#ec4899' },
-  { bg: 'rgba(245,158,11,0.15)', border: '#f59e0b', text: '#fbbf24', dot: '#f59e0b' },
-  { bg: 'rgba(20,184,166,0.15)', border: '#14b8a6', text: '#2dd4bf', dot: '#14b8a6' },
-  { bg: 'rgba(239,68,68,0.15)', border: '#ef4444', text: '#f87171', dot: '#ef4444' },
+const PALETTE = [
+  '#CDA274', '#3b82f6', '#22c55e', '#a855f7',
+  '#ec4899', '#f59e0b', '#14b8a6', '#ef4444',
+  '#6366f1', '#84cc16', '#f97316', '#06b6d4',
 ];
+
+function jobColor(jobNumber: string): string {
+  // Simple hash from job number string
+  let hash = 0;
+  for (let i = 0; i < jobNumber.length; i++) hash = hash * 31 + jobNumber.charCodeAt(i);
+  return PALETTE[Math.abs(hash) % PALETTE.length];
+}
 
 // ============================================================
 // Types
@@ -72,6 +74,7 @@ export default function FieldDashboardPage() {
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [error, setError] = useState('');
+  const [showOverdue, setShowOverdue] = useState(false);
 
   const fetchData = async (isRefresh = false) => {
     if (isRefresh) setRefreshing(true); else setLoading(true);
@@ -90,14 +93,6 @@ export default function FieldDashboardPage() {
   };
 
   useEffect(() => { fetchData(); }, []);
-
-  // Job color map
-  const jobColorMap = useMemo(() => {
-    if (!data?.activeJobs) return {};
-    const map: Record<string, typeof JOB_COLORS[0]> = {};
-    data.activeJobs.forEach((job, i) => { map[job.id] = JOB_COLORS[i % JOB_COLORS.length]; });
-    return map;
-  }, [data?.activeJobs]);
 
   // Build week grids
   const weeks = useMemo(() => {
@@ -134,95 +129,98 @@ export default function FieldDashboardPage() {
     return map;
   }, [data?.calendarTasks]);
 
+  // Jobs that actually appear in the calendar (for a minimal legend)
+  const calendarJobIds = useMemo(() => {
+    if (!data?.calendarTasks) return new Set<string>();
+    return new Set(data.calendarTasks.filter(t => !t.isComplete).map(t => t.jobId));
+  }, [data?.calendarTasks]);
+
   const firstName = data?.userName?.split(' ')[0] || auth.user?.name?.split(' ')[0] || '';
 
   if (loading) {
     return (
-      <div className="flex items-center justify-center py-20">
+      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '80px 0' }}>
         <Loader2 size={20} className="animate-spin" style={{ color: '#CDA274' }} />
       </div>
     );
   }
   if (error || !data) {
     return (
-      <div className="text-center py-16">
-        <p className="text-sm mb-3" style={{ color: '#ef4444' }}>{error || 'Something went wrong'}</p>
-        <button onClick={() => fetchData()} className="text-xs px-4 py-2 rounded" style={{ background: '#CDA274', color: '#1a1a1a' }}>Retry</button>
+      <div style={{ textAlign: 'center', padding: '60px 0' }}>
+        <p style={{ color: '#ef4444', fontSize: 13, marginBottom: 12 }}>{error || 'Something went wrong'}</p>
+        <button onClick={() => fetchData()} style={{ background: '#CDA274', color: '#1a1a1a', fontSize: 12, padding: '6px 16px', borderRadius: 6, border: 'none', cursor: 'pointer' }}>Retry</button>
       </div>
     );
   }
 
+  const overdueCount = data.overdueTasks.length;
+
   return (
-    <div className="max-w-5xl mx-auto">
-      {/* ---- HEADER ROW ---- */}
-      <div className="flex items-center justify-between mb-3">
-        <h1 className="text-lg font-bold" style={{ color: '#e8e0d8' }}>
+    <div style={{ maxWidth: 960, margin: '0 auto', padding: '0 8px' }}>
+      {/* ---- HEADER ---- */}
+      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 8 }}>
+        <h1 style={{ color: '#e8e0d8', fontSize: 18, fontWeight: 700, margin: 0 }}>
           {getGreeting()}, {firstName}
         </h1>
-        <div className="flex items-center gap-2">
-          <Link href="/dashboard/ask" className="flex items-center gap-1 px-2.5 py-1.5 rounded text-xs" style={{ background: 'rgba(205,162,116,0.1)', color: '#CDA274' }}>
-            <MessageSquare size={12} /> Ask Agent
+        <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+          <Link href="/dashboard/ask" style={{ display: 'flex', alignItems: 'center', gap: 4, padding: '5px 10px', borderRadius: 6, fontSize: 11, background: 'rgba(205,162,116,0.1)', color: '#CDA274', textDecoration: 'none' }}>
+            <MessageSquare size={11} /> Ask Agent
           </Link>
-          <button onClick={() => fetchData(true)} disabled={refreshing} className="p-1.5 rounded" style={{ background: 'rgba(205,162,116,0.08)' }}>
-            <RefreshCw size={13} className={refreshing ? 'animate-spin' : ''} style={{ color: '#CDA274' }} />
+          <button onClick={() => fetchData(true)} disabled={refreshing} style={{ padding: 5, borderRadius: 6, background: 'rgba(205,162,116,0.08)', border: 'none', cursor: 'pointer' }}>
+            <RefreshCw size={12} className={refreshing ? 'animate-spin' : ''} style={{ color: '#CDA274' }} />
           </button>
         </div>
       </div>
 
-      {/* ---- BRIEFING + LEGEND ROW ---- */}
-      <div className="flex flex-col sm:flex-row sm:items-center gap-2 mb-3">
-        <p className="text-xs leading-relaxed flex-1" style={{ color: '#a09890' }}>{data.briefing}</p>
-        <div className="flex flex-wrap gap-1.5">
-          {data.activeJobs.map(job => {
-            const c = jobColorMap[job.id];
-            return (
-              <a key={job.id} href={`https://app.jobtread.com/jobs/${job.id}`} target="_blank" rel="noopener noreferrer"
-                className="flex items-center gap-1 px-2 py-0.5 rounded text-[10px] hover:brightness-125"
-                style={{ background: c?.bg, border: `1px solid ${c?.border}40` }}>
-                <span className="w-2 h-2 rounded-full" style={{ background: c?.dot }} />
-                <span style={{ color: c?.text }}>#{job.number}</span>
-              </a>
-            );
-          })}
-        </div>
-      </div>
-
-      {/* ---- OVERDUE (compact inline) ---- */}
-      {data.overdueTasks.length > 0 && (
-        <div className="rounded px-3 py-2 mb-3 flex flex-wrap gap-2 items-center" style={{ background: 'rgba(239,68,68,0.06)', border: '1px solid rgba(239,68,68,0.15)' }}>
-          <span className="text-[10px] font-bold flex items-center gap-1" style={{ color: '#ef4444' }}>
-            <AlertTriangle size={11} /> OVERDUE
-          </span>
-          {data.overdueTasks.map(t => {
-            const c = jobColorMap[t.jobId];
-            const days = Math.floor((new Date(data.todayDate + 'T12:00:00').getTime() - new Date(t.date + 'T12:00:00').getTime()) / 86400000);
-            return (
-              <span key={t.id} className="inline-flex items-center gap-1 px-2 py-0.5 rounded text-[10px]" style={{ background: 'rgba(239,68,68,0.08)' }}>
-                <span className="w-1.5 h-1.5 rounded-full" style={{ background: c?.dot || '#ef4444' }} />
-                <span className="truncate max-w-[150px]" style={{ color: '#e8e0d8' }}>{t.name}</span>
-                <span style={{ color: '#ef4444' }}>({days}d)</span>
-              </span>
-            );
-          })}
+      {/* ---- OVERDUE BANNER (if any) ---- */}
+      {overdueCount > 0 && (
+        <div style={{ background: 'rgba(239,68,68,0.07)', border: '1px solid rgba(239,68,68,0.18)', borderRadius: 8, marginBottom: 8 }}>
+          <button
+            onClick={() => setShowOverdue(!showOverdue)}
+            style={{ display: 'flex', alignItems: 'center', gap: 6, width: '100%', padding: '8px 12px', background: 'none', border: 'none', cursor: 'pointer', textAlign: 'left' }}
+          >
+            <AlertTriangle size={12} style={{ color: '#ef4444', flexShrink: 0 }} />
+            <span style={{ color: '#ef4444', fontSize: 12, fontWeight: 700 }}>{overdueCount} overdue</span>
+            <span style={{ color: '#8a8078', fontSize: 11, flex: 1 }}>
+              — {data.overdueTasks.slice(0, 3).map(t => t.name).join(', ')}{overdueCount > 3 ? '...' : ''}
+            </span>
+            {showOverdue ? <ChevronUp size={12} style={{ color: '#8a8078' }} /> : <ChevronDown size={12} style={{ color: '#8a8078' }} />}
+          </button>
+          {showOverdue && (
+            <div style={{ padding: '0 12px 8px', display: 'flex', flexDirection: 'column', gap: 3, maxHeight: 180, overflowY: 'auto' }}>
+              {data.overdueTasks.map(t => {
+                const days = Math.floor((new Date(data.todayDate + 'T12:00:00').getTime() - new Date(t.date + 'T12:00:00').getTime()) / 86400000);
+                const c = jobColor(t.jobNumber);
+                return (
+                  <div key={t.id} style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 11, padding: '3px 0' }}>
+                    <span style={{ width: 6, height: 6, borderRadius: 3, background: c, flexShrink: 0 }} />
+                    <span style={{ color: '#e8e0d8', flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{t.name}</span>
+                    <span style={{ color: '#8a8078', flexShrink: 0, fontSize: 10 }}>#{t.jobNumber}</span>
+                    <span style={{ color: '#ef4444', flexShrink: 0, fontSize: 10, fontWeight: 600 }}>{days}d</span>
+                  </div>
+                );
+              })}
+            </div>
+          )}
         </div>
       )}
 
-      {/* ---- WEEK GRIDS ---- */}
+      {/* ---- WEEK CALENDARS ---- */}
       {weeks.map((week, wi) => (
-        <div key={wi} className="mb-3">
-          {/* Week label + date range */}
-          <div className="flex items-center gap-2 mb-1.5">
-            <Calendar size={12} style={{ color: '#CDA274' }} />
-            <span className="text-[10px] font-bold tracking-wider" style={{ color: '#5a5550' }}>
+        <div key={wi} style={{ marginBottom: 10 }}>
+          {/* Week header */}
+          <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 4 }}>
+            <Calendar size={11} style={{ color: '#CDA274' }} />
+            <span style={{ fontSize: 10, fontWeight: 700, letterSpacing: '0.08em', color: '#5a5550' }}>
               {week.label.toUpperCase()}
             </span>
-            <span className="text-[10px]" style={{ color: '#3f3f3f' }}>
+            <span style={{ fontSize: 10, color: '#3f3f3f' }}>
               {week.days[0].month} {week.days[0].dayNum} – {week.days[6].month} {week.days[6].dayNum}
             </span>
           </div>
 
           {/* 7-column grid */}
-          <div className="grid grid-cols-7 gap-px rounded-lg overflow-hidden" style={{ background: 'rgba(205,162,116,0.06)' }}>
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(7, 1fr)', gap: 1, borderRadius: 8, overflow: 'hidden' }}>
             {week.days.map(day => {
               const isToday = day.date === data.todayDate;
               const isPast = day.date < data.todayDate;
@@ -233,55 +231,59 @@ export default function FieldDashboardPage() {
               return (
                 <div
                   key={day.date}
-                  className="flex flex-col"
                   style={{
                     background: isToday ? 'rgba(205,162,116,0.1)' : '#1a1a1a',
-                    opacity: isPast && !isToday ? 0.45 : 1,
-                    minHeight: 90,
+                    opacity: isPast && !isToday ? 0.4 : 1,
+                    minHeight: 80,
+                    display: 'flex',
+                    flexDirection: 'column',
                   }}
                 >
                   {/* Day header */}
-                  <div className="flex items-center justify-between px-1.5 pt-1.5 pb-1" style={{ borderBottom: '1px solid rgba(205,162,116,0.06)' }}>
-                    <span className="text-[9px] font-medium" style={{ color: day.isWeekend ? '#3f3f3f' : '#6a6058' }}>
+                  <div style={{ display: 'flex', alignItems: 'baseline', justifyContent: 'space-between', padding: '4px 5px 2px' }}>
+                    <span style={{ fontSize: 9, fontWeight: 500, color: day.isWeekend ? '#3a3a3a' : '#6a6058' }}>
                       {day.dayName}
                     </span>
-                    <span
-                      className="text-xs font-bold"
-                      style={{
-                        color: isToday ? '#CDA274' : day.isWeekend ? '#3f3f3f' : '#8a8078',
-                        ...(isToday ? { background: 'rgba(205,162,116,0.2)', borderRadius: 4, padding: '0 4px' } : {}),
-                      }}
-                    >
+                    <span style={{
+                      fontSize: 13, fontWeight: 700,
+                      color: isToday ? '#CDA274' : day.isWeekend ? '#3a3a3a' : '#7a7068',
+                      ...(isToday ? { background: 'rgba(205,162,116,0.25)', borderRadius: 4, padding: '0 4px' } : {}),
+                    }}>
                       {day.dayNum}
                     </span>
                   </div>
 
                   {/* Tasks */}
-                  <div className="flex-1 px-1 py-0.5 space-y-0.5 overflow-hidden">
+                  <div style={{ flex: 1, padding: '2px 3px 3px', display: 'flex', flexDirection: 'column', gap: 2, overflow: 'hidden' }}>
                     {incomplete.map(task => {
-                      const c = jobColorMap[task.jobId];
+                      const c = jobColor(task.jobNumber);
                       return (
                         <div
                           key={task.id}
-                          className="px-1 py-0.5 rounded text-[9px] truncate"
-                          style={{ background: c?.bg, borderLeft: `2px solid ${c?.dot}`, color: '#e8e0d8' }}
-                          title={`${task.name} — #${task.jobNumber}`}
+                          title={`${task.name} — #${task.jobNumber} ${task.jobName}`}
+                          style={{
+                            padding: '2px 4px',
+                            borderRadius: 3,
+                            borderLeft: `3px solid ${c}`,
+                            background: `${c}20`,
+                            fontSize: 9,
+                            lineHeight: '13px',
+                            color: '#e8e0d8',
+                            overflow: 'hidden',
+                            textOverflow: 'ellipsis',
+                            whiteSpace: 'nowrap',
+                          }}
                         >
                           {task.name}
                         </div>
                       );
                     })}
-                    {complete.map(task => (
-                      <div
-                        key={task.id}
-                        className="px-1 py-0.5 rounded text-[9px] truncate flex items-center gap-0.5"
-                        style={{ color: '#3f3f3f' }}
-                        title={`✓ ${task.name} — #${task.jobNumber}`}
-                      >
-                        <Check size={8} style={{ color: '#22c55e', flexShrink: 0 }} />
-                        <span className="line-through truncate">{task.name}</span>
+                    {complete.length > 0 && (
+                      <div style={{ fontSize: 9, color: '#3a3a3a', display: 'flex', alignItems: 'center', gap: 2 }}>
+                        <Check size={8} style={{ color: '#22c55e' }} />
+                        {complete.length} done
                       </div>
-                    ))}
+                    )}
                   </div>
                 </div>
               );
@@ -290,31 +292,57 @@ export default function FieldDashboardPage() {
         </div>
       ))}
 
-      {/* ---- ACTIVE JOBS (compact row) ---- */}
-      {data.activeJobs.length > 0 && (
-        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-2 mt-1">
-          {data.activeJobs.map(job => {
-            const c = jobColorMap[job.id];
-            const upcoming = data.calendarTasks.filter(t => t.jobId === job.id && !t.isComplete).length;
-            return (
-              <a key={job.id} href={`https://app.jobtread.com/jobs/${job.id}`} target="_blank" rel="noopener noreferrer"
-                className="flex items-center gap-2 px-3 py-2 rounded-lg hover:brightness-110 transition-colors"
-                style={{ background: '#1e1e1e', border: `1px solid ${c?.border}30` }}>
-                <span className="w-2 h-2 rounded-full flex-shrink-0" style={{ background: c?.dot }} />
-                <span className="text-xs font-medium truncate flex-1" style={{ color: '#e8e0d8' }}>
-                  <span style={{ color: c?.text }}>#{job.number}</span> {job.name}
-                </span>
-                {upcoming > 0 && (
-                  <span className="text-[9px] px-1.5 py-0.5 rounded" style={{ background: 'rgba(205,162,116,0.1)', color: '#8a8078' }}>
-                    {upcoming}
-                  </span>
-                )}
-                <ChevronRight size={12} style={{ color: '#3f3f3f' }} />
-              </a>
-            );
-          })}
+      {/* ---- LEGEND: only jobs visible in calendar ---- */}
+      {calendarJobIds.size > 0 && (
+        <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6, marginBottom: 8, marginTop: 2 }}>
+          {data.activeJobs
+            .filter(j => calendarJobIds.has(j.id))
+            .map(job => {
+              const c = jobColor(job.number);
+              return (
+                <a
+                  key={job.id}
+                  href={`https://app.jobtread.com/jobs/${job.id}`}
+                  target="_blank" rel="noopener noreferrer"
+                  style={{ display: 'inline-flex', alignItems: 'center', gap: 4, fontSize: 10, color: '#8a8078', textDecoration: 'none' }}
+                >
+                  <span style={{ width: 8, height: 8, borderRadius: 2, background: c, flexShrink: 0 }} />
+                  <span>#{job.number}</span>
+                  <span style={{ color: '#5a5550', maxWidth: 100, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{job.name}</span>
+                </a>
+              );
+            })}
         </div>
       )}
+
+      {/* ---- ACTIVE JOBS (compact) ---- */}
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(200px, 1fr))', gap: 6 }}>
+        {data.activeJobs.map(job => {
+          const c = jobColor(job.number);
+          const upcoming = data.calendarTasks.filter(t => t.jobId === job.id && !t.isComplete).length;
+          return (
+            <a
+              key={job.id}
+              href={`https://app.jobtread.com/jobs/${job.id}`}
+              target="_blank" rel="noopener noreferrer"
+              style={{
+                display: 'flex', alignItems: 'center', gap: 8,
+                padding: '7px 10px', borderRadius: 6,
+                background: '#1e1e1e', border: '1px solid #2a2a2a',
+                textDecoration: 'none', fontSize: 11,
+              }}
+            >
+              <span style={{ width: 6, height: 6, borderRadius: 3, background: c, flexShrink: 0 }} />
+              <span style={{ color: '#8a8078', flexShrink: 0 }}>#{job.number}</span>
+              <span style={{ color: '#e8e0d8', flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{job.name}</span>
+              {upcoming > 0 && (
+                <span style={{ fontSize: 9, color: '#5a5550', flexShrink: 0 }}>{upcoming}</span>
+              )}
+              <ChevronRight size={10} style={{ color: '#3a3a3a', flexShrink: 0 }} />
+            </a>
+          );
+        })}
+      </div>
     </div>
   );
 }
