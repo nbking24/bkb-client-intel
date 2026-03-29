@@ -1,11 +1,19 @@
 // @ts-nocheck
 'use client';
 
-import { useState, useEffect, useMemo } from 'react';
+import { useState, useEffect } from 'react';
+
+'use client';
+
+import { useState, useEffect } from 'react';
+
+'use client';
+
+import { useState, useEffect } from 'react';
 import {
   AlertTriangle, Clock, CheckCircle2, Loader2,
   ChevronRight, ChevronDown, ClipboardList, RefreshCw,
-  Calendar, Search, Building2, X, Check, Pencil
+  Calendar, Building2, X, Check, Pencil
 } from 'lucide-react';
 import { useAuth } from '@/app/hooks/useAuth';
 
@@ -92,7 +100,7 @@ export default function FieldDashboardPage() {
   const [error, setError] = useState('');
   const [updatingTask, setUpdatingTask] = useState<string | null>(null);
   // My Jobs state
-  const [jobSearch, setJobSearch] = useState('');
+  
   const [expandedJob, setExpandedJob] = useState<string | null>(null);
   const [scheduleCache, setScheduleCache] = useState<Record<string, JobScheduleData>>({});
   const [loadingSchedule, setLoadingSchedule] = useState<string | null>(null);
@@ -201,16 +209,7 @@ export default function FieldDashboardPage() {
     }
   };
 
-  const filteredJobs = useMemo(() => {
-    if (!data?.activeJobs) return [];
-    if (!jobSearch.trim()) return data.activeJobs;
-    const q = jobSearch.toLowerCase();
-    return data.activeJobs.filter(j =>
-      j.name.toLowerCase().includes(q) ||
-      j.number?.toLowerCase().includes(q) ||
-      j.clientName?.toLowerCase().includes(q)
-    );
-  }, [data?.activeJobs, jobSearch]);
+  const filteredJobs = data?.activeJobs || [];
 
   const firstName = data?.userName?.split(' ')[0] || auth.user?.name?.split(' ')[0] || 'Team';
 
@@ -533,13 +532,10 @@ export default function FieldDashboardPage() {
         </button>
       </div>
 
-      {/* Briefing */}
-      <div className="px-4 py-3 rounded-lg mb-4" style={{ background: '#242424', border: '1px solid rgba(205,162,116,0.08)' }}>
-        <p className="text-sm" style={{ color: '#c4b8a8' }}>{data.briefing}</p>
-      </div>
+
 
       {/* Stats */}
-      <div className="grid grid-cols-4 gap-2 mb-6">
+      <div className="grid grid-cols-4 gap-2 mb-4">
         {[
           { label: 'TOTAL', value: data.stats.total, color: '#e8e0d8' },
           { label: 'OVERDUE', value: data.stats.overdue, color: data.stats.overdue > 0 ? '#ef4444' : '#5a5550' },
@@ -576,36 +572,8 @@ export default function FieldDashboardPage() {
             </h2>
           </div>
 
-          {/* Search box */}
-          <div className="relative mb-3">
-            <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2" style={{ color: '#5a5550' }} />
-            <input
-              type="text"
-              value={jobSearch}
-              onChange={e => setJobSearch(e.target.value)}
-              placeholder="Search jobs by name, number, or client..."
-              className="w-full pl-9 pr-8 py-2 text-sm rounded-lg outline-none"
-              style={{ background: '#242424', border: '1px solid rgba(205,162,116,0.1)', color: '#e8e0d8' }}
-            />
-            {jobSearch && (
-              <button
-                onClick={() => setJobSearch('')}
-                className="absolute right-3 top-1/2 -translate-y-1/2"
-              >
-                <X size={14} style={{ color: '#5a5550' }} />
-              </button>
-            )}
-          </div>
 
-          {/* Job list */}
-          {filteredJobs.length === 0 ? (
-            <p className="text-xs text-center py-4" style={{ color: '#5a5550' }}>
-              No jobs match "{jobSearch}"
-            </p>
-          ) : (
-            filteredJobs.map(job => <JobCard key={job.id} job={job} />)
-          )}
-        </div>
+            {filteredJobs.map(job => <JobCard key={job.id} job={job} />)}
       )}
     </div>
   );
