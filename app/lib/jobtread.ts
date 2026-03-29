@@ -10,7 +10,7 @@
 // - Org-level sortBy: not supported on all collections (omit if errors)
 // - Task assignees: "assignedMemberships" (not "assignees")
 // - Job customer: accessed via location.account (not direct "account")
-// - Can't filter tasks by assignedMemberships at org level — fetch all, filter client-side
+// - Can't filter tasks by assignedMemberships at org level â fetch all, filter client-side
 // - Custom field values: job.customFieldValues { customField { name } value }
 // ============================================================
 
@@ -52,7 +52,7 @@ export async function pave(query: Record<string, unknown>) {
     return json;
   } catch (err: any) {
     if (err?.message?.startsWith('JT PAVE:')) throw err;
-    throw new Error(`JT PAVE error: invalid JSON — ${text.slice(0, 200)}`);
+    throw new Error(`JT PAVE error: invalid JSON â ${text.slice(0, 200)}`);
   }
 }
 
@@ -119,6 +119,11 @@ export async function getActiveJobs(limit = 50): Promise<JTJob[]> {
       (cfv: any) => cfv.customField?.name === 'Status'
     );
     const customStatus = statusField?.value || null;
+    // Extract the "Project Manager" custom field value
+    const pmField = (j.customFieldValues?.nodes || []).find(
+      (cfv: any) => cfv.customField?.name === 'Project Manager'
+    );
+    const projectManager = pmField?.value || null;
     return {
       id: j.id,
       name: j.name,
@@ -129,6 +134,7 @@ export async function getActiveJobs(limit = 50): Promise<JTJob[]> {
       clientName: j.location?.account?.name || '',
       locationName: j.location?.name || '',
       customStatus,
+      projectManager,
       statusCategory: getStatusCategory(customStatus),
       priceType: j.priceType || null,
     };
@@ -252,7 +258,7 @@ export async function getOpenTasksForMemberAcrossJobs(
   // Pass 1: Scan active jobs for task IDs assigned to this member (lightweight per-job query)
   const matchedTaskIds: string[] = [];
 
-  // Batch jobs to reduce total API calls — query 5 jobs at a time in parallel
+  // Batch jobs to reduce total API calls â query 5 jobs at a time in parallel
   const BATCH_SIZE = 5;
   for (let i = 0; i < activeJobIds.length; i += BATCH_SIZE) {
     const batch = activeJobIds.slice(i, i + BATCH_SIZE);
@@ -322,7 +328,7 @@ export async function getOpenTasksForMemberAcrossJobs(
 }
 
 // Get all open tasks across all active jobs (for Nathan's team workload view)
-// Note: uses progress < 1 only — may miss tasks with progress=null.
+// Note: uses progress < 1 only â may miss tasks with progress=null.
 // For complete results, use getOpenTasksForMemberAcrossJobs which handles null progress.
 export async function getAllOpenTasks(): Promise<JTTask[]> {
   const result = await orgQuery('tasks', {
@@ -381,7 +387,7 @@ export async function createTask(params: {
 }
 
 // ============================================================
-// SCHEDULE — Powers the Pre-Construction Tracker
+// SCHEDULE â Powers the Pre-Construction Tracker
 // Task groups (isGroup: true) = phases, child tasks = work items
 // Group progress auto-calculates from child task completion (0-1 scale)
 // ============================================================
@@ -409,7 +415,7 @@ export interface JTJobSchedule {
   customStatus: string | null;
   statusCategory: StatusCategoryKey | null;
   phases: JTScheduleTask[];
-  orphanTasks: JTScheduleTask[];   // Tasks with no parent phase — must be visible!
+  orphanTasks: JTScheduleTask[];   // Tasks with no parent phase â must be visible!
   totalProgress: number;
 }
 
@@ -493,7 +499,7 @@ export async function getJobSchedule(jobId: string): Promise<JTJobSchedule | nul
     .filter((t: any) => t.isGroup && !t.parentTask)
     .map((t: any) => taskMap.get(t.id));
 
-  // 5. ORPHAN DETECTION — tasks that have no parent AND are not groups
+  // 5. ORPHAN DETECTION â tasks that have no parent AND are not groups
   //    These were silently dropped before. Now we return them explicitly.
   const phaseIds = new Set(phases.map((p) => p.id));
   const orphanTasks: JTScheduleTask[] = allTasks
@@ -502,8 +508,8 @@ export async function getJobSchedule(jobId: string): Promise<JTJobSchedule | nul
       // - has no parentTask at all, OR
       // - has a parentTask that doesn't exist in our task map (deleted parent)
       if (t.isGroup) return false;
-      if (!t.parentTask) return true;   // no parent at all — orphan
-      if (!taskMap.has(t.parentTask.id)) return true;  // parent doesn't exist — orphan
+      if (!t.parentTask) return true;   // no parent at all â orphan
+      if (!taskMap.has(t.parentTask.id)) return true;  // parent doesn't exist â orphan
       return false;
     })
     .map((t: any) => taskMap.get(t.id));
@@ -534,7 +540,7 @@ export async function getActiveJobSchedules(): Promise<JTJobSchedule[]> {
   // 1. Get active jobs (now includes customStatus)
   const jobs = await getActiveJobs(50);
 
-  // 2. Get all task groups across org (lightweight — no childTasks to avoid 413)
+  // 2. Get all task groups across org (lightweight â no childTasks to avoid 413)
   const groupResult = await orgQuery('tasks', {
     $: {
       size: 100,
@@ -730,7 +736,7 @@ function addDays(date: string, days: number): string {
   return d.toISOString().split('T')[0];
 }
 
-// General task update — change name, dates, description, progress, etc.
+// General task update â change name, dates, description, progress, etc.
 export async function updateTask(taskId: string, fields: {
   name?: string;
   description?: string;
@@ -752,7 +758,7 @@ export async function updateTask(taskId: string, fields: {
         params.startDate = fields.startDate;
         params.endDate = addDays(fields.startDate, duration);
       } else {
-        // No existing dates — treat as 1-day task
+        // No existing dates â treat as 1-day task
         params.startDate = fields.startDate;
         params.endDate = fields.startDate;
       }
@@ -782,7 +788,7 @@ export async function deleteJTTask(taskId: string) {
 }
 
 // ============================================================
-// TEMPLATE APPLICATION — Apply standard BKB schedule to a job
+// TEMPLATE APPLICATION â Apply standard BKB schedule to a job
 // Creates all 9 phase groups + default tasks with durations
 // ============================================================
 
@@ -810,7 +816,7 @@ export async function applyStandardTemplate(jobId: string): Promise<{
         for (const task of phase.tasks) {
           try {
             // Calculate start/end dates based on duration
-            // For now, just create tasks without dates — Evan will set them
+            // For now, just create tasks without dates â Evan will set them
             await createPhaseTask({
               jobId,
               parentGroupId: group.id,
@@ -862,7 +868,7 @@ export async function applyPhaseDefaults(
 }
 
 // ============================================================
-// SCHEDULE AUDIT — Analyze ALL active jobs for misplaced tasks
+// SCHEDULE AUDIT â Analyze ALL active jobs for misplaced tasks
 // Fetches all non-group tasks across org, maps to their parent phases,
 // then runs recommendPhaseForTask on each.
 // ============================================================
@@ -1069,7 +1075,7 @@ export interface JTDocument {
 }
 
 export async function getDocumentsForJob(jobId: string): Promise<JTDocument[]> {
-  // Paginate documents — some jobs (like Bruno) have 100+ documents
+  // Paginate documents â some jobs (like Bruno) have 100+ documents
   const PAGE_SIZE = 50;
   let allDocs: any[] = [];
   let nextPage: string | null = null;
@@ -1113,7 +1119,7 @@ export async function getDocumentsForJob(jobId: string): Promise<JTDocument[]> {
 
 /**
  * Lightweight query: get just document IDs, names, and statuses for a job.
- * Much smaller payload than getDocumentsForJob — used for filtering cost items by approval status.
+ * Much smaller payload than getDocumentsForJob â used for filtering cost items by approval status.
  */
 export async function getDocumentStatusesForJob(jobId: string): Promise<Array<{ id: string; name: string; number: string; status: string; type: string }>> {
   const data = await pave({
@@ -1156,7 +1162,7 @@ export async function getApprovedDocuments(limit = 100): Promise<JTDocument[]> {
 }
 
 // ============================================================
-// DOCUMENT CONTENT — Read line items inside a document
+// DOCUMENT CONTENT â Read line items inside a document
 // ============================================================
 
 export interface JTDocumentContent {
@@ -1366,7 +1372,7 @@ export async function getBillableDocuments(limit = 100) {
 }
 
 // ============================================================
-// GRID VIEW — Pre-construction dashboard data
+// GRID VIEW â Pre-construction dashboard data
 // Returns per-phase task counts for each active job
 // ============================================================
 
@@ -1395,7 +1401,7 @@ export interface GridJobData {
   stalledDays: number | null;
 }
 // ============================================================
-// DAILY LOGS — Job-level daily log entries
+// DAILY LOGS â Job-level daily log entries
 // ============================================================
 
 export interface JTDailyLog {
@@ -1459,7 +1465,7 @@ export async function getDailyLogsForJob(jobId: string, limit = 200): Promise<JT
       return allLogs.slice(0, limit);
     }
   } catch (_err: any) {
-    // Sub-collection not supported — fall through
+    // Sub-collection not supported â fall through
   }
 
   // Strategy 2: Try organization-level with where filter + pagination
@@ -1501,7 +1507,7 @@ export async function getDailyLogsForJob(jobId: string, limit = 200): Promise<JT
       return allLogs.slice(0, limit);
     }
   } catch (_err2: any) {
-    // Org-level with where failed — try without where and filter client-side
+    // Org-level with where failed â try without where and filter client-side
   }
 
   // Strategy 3: Fetch org daily logs without where filter, filter client-side
@@ -1551,7 +1557,7 @@ export async function getDailyLogsForJob(jobId: string, limit = 200): Promise<JT
   return [];
 }
 
-// Daily Log Type custom field ID — required by BKB's JobTread configuration.
+// Daily Log Type custom field ID â required by BKB's JobTread configuration.
 // Options: "Change Order", "Projects Review Meeting", "Client Meeting", "Receipts", "Other"
 const DAILY_LOG_TYPE_FIELD_ID = '22P5xZ5QiRLq';
 
@@ -1606,7 +1612,7 @@ export async function deleteDailyLog(id: string) {
 }
 
 // ============================================================
-// COMMENTS — Comments on any JobTread entity
+// COMMENTS â Comments on any JobTread entity
 // ============================================================
 
 export interface JTComment {
@@ -1674,7 +1680,7 @@ export async function getCommentsForTarget(targetId: string, targetType: string,
     // Fall through to org-level query
   }
 
-  // Strategy 2: Fallback — query through organization with targetId filter, with pagination
+  // Strategy 2: Fallback â query through organization with targetId filter, with pagination
   let allComments: any[] = [];
   let nextPage: string | null = null;
   const PAGE_SIZE = 100;
@@ -1743,7 +1749,7 @@ export async function createComment(params: {
 }
 
 // ============================================================
-// TIME ENTRIES — Track labor hours
+// TIME ENTRIES â Track labor hours
 // ============================================================
 
 export interface JTTimeEntry {
@@ -1809,7 +1815,7 @@ export async function getTimeEntriesForJob(jobId: string): Promise<JTTimeEntry[]
 
     if (allEntries.length > 0) return allEntries;
   } catch (_err: any) {
-    // Sub-collection not supported — fall through to org-level
+    // Sub-collection not supported â fall through to org-level
   }
 
   // Fallback: Organization-level with where filter (no pagination)
@@ -1831,7 +1837,7 @@ export async function getTimeEntriesForJob(jobId: string): Promise<JTTimeEntry[]
 }
 
 // ============================================================
-// JOB UPDATES — Modify job details
+// JOB UPDATES â Modify job details
 // ============================================================
 
 export async function updateJob(jobId: string, fields: {
@@ -1870,9 +1876,9 @@ export interface JTCostItem {
   quantity: number;
   unitCost: number;
   unitPrice: number;
-  /** Extended cost (qty × unitCost, or accumulated from time entries) */
+  /** Extended cost (qty Ã unitCost, or accumulated from time entries) */
   cost: number;
-  /** Extended price (qty × unitPrice, or accumulated from time entries) */
+  /** Extended price (qty Ã unitPrice, or accumulated from time entries) */
   price: number;
   isSpecification: boolean;
   costType?: { id: string; name: string } | null;
@@ -1890,7 +1896,7 @@ export interface JTCostItem {
 }
 
 /**
- * Lightweight cost item fetch for invoicing — only the fields needed
+ * Lightweight cost item fetch for invoicing â only the fields needed
  * for billing analysis. Avoids 413 errors from oversized queries.
  */
 export async function getCostItemsForJobLite(jobId: string, limit = 200): Promise<JTCostItem[]> {
@@ -2262,7 +2268,7 @@ export async function getCostItemsLightForJob(jobId: string, limit = 200): Promi
 }
 
 // ============================================================
-// COST GROUPS — Hierarchy & Updates (for Contract Spec Writer)
+// COST GROUPS â Hierarchy & Updates (for Contract Spec Writer)
 // ============================================================
 
 export interface JTCostGroupItem {
@@ -2559,7 +2565,7 @@ export async function getEventsForJob(jobId: string, limit = 50): Promise<JTEven
     const events = (data as any)?.job?.events?.nodes;
     if (events && Array.isArray(events)) return events;
   } catch (_err: any) {
-    // Sub-collection not supported — fall through
+    // Sub-collection not supported â fall through
   }
 
   // Strategy 2: Organization-level with where filter
@@ -2581,7 +2587,7 @@ export async function getEventsForJob(jobId: string, limit = 50): Promise<JTEven
 }
 
 // ============================================================
-// EXPANDED TASK UPDATE — More fields from PAVE API
+// EXPANDED TASK UPDATE â More fields from PAVE API
 // ============================================================
 
 export async function updateTaskFull(taskId: string, fields: {
@@ -2635,7 +2641,7 @@ export async function updateTaskFull(taskId: string, fields: {
 }
 
 // ============================================================
-// GRID VIEW — Pre-construction dashboard data
+// GRID VIEW â Pre-construction dashboard data
 // Returns per-phase task counts for each active job
 // ============================================================
 
@@ -2643,7 +2649,7 @@ export async function getGridScheduleData(): Promise<GridJobData[]> {
   const jobs = await getActiveJobs(50);
 
   // Fetch tasks PER JOB in batches (avoids 100-task org-wide limit)
-  // Old approach fetched only 100 tasks across ALL jobs — most projects got zero
+  // Old approach fetched only 100 tasks across ALL jobs â most projects got zero
   const BATCH_SIZE = 10;
   const jobTaskMap = new Map<string, any[]>();
 
@@ -2755,7 +2761,7 @@ export async function getGridScheduleData(): Promise<GridJobData[]> {
 // ============================================================
 // DATABASE-ONLY READ FUNCTIONS (messages & daily logs)
 //
-// These read ONLY from the Supabase database — never from the
+// These read ONLY from the Supabase database â never from the
 // live JT API. This prevents duplication. The database is kept
 // current by the daily sync cron + on-demand force-sync.
 //
@@ -2785,7 +2791,7 @@ export async function getCommentsFromDB(
       return cached.map((row) => row.raw_data || row);
     }
 
-    // Database empty for this job — fall back to live API as one-time bootstrap
+    // Database empty for this job â fall back to live API as one-time bootstrap
     console.warn(`[db] No cached comments for job ${jobId}, falling back to live API`);
     return getCommentsForTarget(jobId, 'job', limit);
   } catch (err) {
@@ -2864,7 +2870,7 @@ export async function createDailyLogWithCache(params: Parameters<typeof createDa
 }
 
 // ============================================================
-// DOCUMENT CREATION — PAVE mutations for creating invoices
+// DOCUMENT CREATION â PAVE mutations for creating invoices
 // ============================================================
 
 /**
@@ -2968,7 +2974,7 @@ async function createJTCostItem(params: {
   unitCost?: number;
   unitPrice?: number;
   isTaxable?: boolean;
-  jobCostItemId?: string;  // Required for customer invoices — links to original budget item
+  jobCostItemId?: string;  // Required for customer invoices â links to original budget item
 }) {
   const { costGroupId, name, description, costCodeId, costTypeId, unitId, quantity, unitCost, unitPrice, isTaxable, jobCostItemId } = params;
   const data = await pave({
@@ -3020,12 +3026,12 @@ export async function createDraftCostPlusInvoice(jobId: string): Promise<{
   totalPrice: number;
 }> {
   // ============================================================
-  // COST-PLUS INVOICE CREATION — From Vendor Bills + Time Entries
+  // COST-PLUS INVOICE CREATION â From Vendor Bills + Time Entries
   //
   // This mirrors JT's "Bills and Time" flow: pull uninvoiced vendor
   // bills and time entries onto a customer invoice.
   //
-  // The old approach pulled from budget items, which was wrong —
+  // The old approach pulled from budget items, which was wrong â
   // Cost-Plus billing in JT is based on actual vendor bills and
   // time entries, not budget estimates.
   //
@@ -3220,7 +3226,7 @@ export async function createDraftCostPlusInvoice(jobId: string): Promise<{
     jobLocationAddress: locationAddress,
     dueDays: 2,
     subject: `Cost Plus Invoice - ${job.name}`,
-    description: `This invoice reflects charges under a Cost Plus Fee agreement. You are billed for all actual project costs—including materials, subcontractors, labor, insurance, and permits—plus a ${marginPercent}% contractor's fee applied to those costs. Labor is billed at $${hourlyRate}/hr.`,
+    description: `This invoice reflects charges under a Cost Plus Fee agreement. You are billed for all actual project costsâincluding materials, subcontractors, labor, insurance, and permitsâplus a ${marginPercent}% contractor's fee applied to those costs. Labor is billed at $${hourlyRate}/hr.`,
   });
 
   // 8. Create cost items from uninvoiced bills (grouped by vendor)
@@ -3331,7 +3337,7 @@ export async function createDraftCostPlusInvoice(jobId: string): Promise<{
       }
     }
     if (laborNotes.length > 0) {
-      let laborDesc = laborNotes.map((n: string) => `• ${n}`).join('\n');
+      let laborDesc = laborNotes.map((n: string) => `â¢ ${n}`).join('\n');
       try {
         const apiKey = process.env.ANTHROPIC_API_KEY;
         if (apiKey) {
@@ -3347,7 +3353,7 @@ export async function createDraftCostPlusInvoice(jobId: string): Promise<{
               max_tokens: 256,
               messages: [{
                 role: 'user',
-                content: `Rewrite these labor notes into a bullet-point list for a renovation invoice. Each bullet should be a brief, professional, client-facing description. Output ONLY the bullet points (using • character), nothing else. No intro text, no questions, no explanations.\n\nNotes:\n${laborDesc}`,
+                content: `Rewrite these labor notes into a bullet-point list for a renovation invoice. Each bullet should be a brief, professional, client-facing description. Output ONLY the bullet points (using â¢ character), nothing else. No intro text, no questions, no explanations.\n\nNotes:\n${laborDesc}`,
               }],
             }),
           });
@@ -3396,7 +3402,7 @@ export async function createDraftCostPlusInvoice(jobId: string): Promise<{
         try {
           const apiKey = process.env.ANTHROPIC_API_KEY;
           if (apiKey) {
-            const rawNotes = workerNotes.map((n: string) => `• ${n}`).join('\n');
+            const rawNotes = workerNotes.map((n: string) => `â¢ ${n}`).join('\n');
             const aiRes = await fetch('https://api.anthropic.com/v1/messages', {
               method: 'POST',
               headers: {
@@ -3505,7 +3511,7 @@ export async function createDraftBillableInvoice(jobId: string): Promise<{
   const hourlyRateField = customFields.find((cf: any) => cf.customField?.name === 'Hourly Rate');
   const marginPercent = marginField ? parseFloat(marginField.value) : 25; // default 25%
   const hourlyRate = hourlyRateField ? parseFloat(hourlyRateField.value) : 115; // default $115
-  const marginMultiplier = 1 + (marginPercent / 100); // e.g. 30% → 1.30
+  const marginMultiplier = 1 + (marginPercent / 100); // e.g. 30% â 1.30
 
   // Get customer contact info for toPhone/toEmail
   const contacts = job.location?.account?.contacts?.nodes || [];
@@ -3603,7 +3609,7 @@ export async function createDraftBillableInvoice(jobId: string): Promise<{
 
   // 5. FIFO deduction to find uninvoiced CC23 vendor bill items
   // (Same approach as Cost-Plus: multiple vendor bill items can share a budget item,
-  // so we can't just check if the budget ID appears on an invoice — we need to
+  // so we can't just check if the budget ID appears on an invoice â we need to
   // deduct invoiced amounts from oldest vendor bill items per budget item)
 
   // Group CC23 invoiced costs by budget item
@@ -3868,7 +3874,7 @@ export async function createDraftBillableInvoice(jobId: string): Promise<{
 
     // AI-rewrite the category-level description
     if (itemDescriptions.length > 0) {
-      const rawDesc = itemDescriptions.map((d: string) => `• ${d}`).join('\n');
+      const rawDesc = itemDescriptions.map((d: string) => `â¢ ${d}`).join('\n');
       try {
         const apiKey = process.env.ANTHROPIC_API_KEY;
         if (apiKey) {
@@ -3884,7 +3890,7 @@ export async function createDraftBillableInvoice(jobId: string): Promise<{
               max_tokens: 256,
               messages: [{
                 role: 'user',
-                content: `Rewrite these construction invoice category items into a bullet-point list. Each bullet should be a brief, professional, client-facing description. Output ONLY the bullet points (using • character), nothing else. No intro text, no questions, no explanations.\n\nItems:\n${rawDesc}`,
+                content: `Rewrite these construction invoice category items into a bullet-point list. Each bullet should be a brief, professional, client-facing description. Output ONLY the bullet points (using â¢ character), nothing else. No intro text, no questions, no explanations.\n\nItems:\n${rawDesc}`,
               }],
             }),
           });
@@ -3942,7 +3948,7 @@ export async function createDraftBillableInvoice(jobId: string): Promise<{
     }
 
     // AI-rewrite labor description
-    let laborDesc = laborNotes.map((n: string) => `• ${n}`).join('\n');
+    let laborDesc = laborNotes.map((n: string) => `â¢ ${n}`).join('\n');
     try {
       const apiKey = process.env.ANTHROPIC_API_KEY;
       if (apiKey && laborNotes.length > 0) {
@@ -3958,7 +3964,7 @@ export async function createDraftBillableInvoice(jobId: string): Promise<{
             max_tokens: 256,
             messages: [{
               role: 'user',
-              content: `Rewrite these labor notes into a bullet-point list for a renovation invoice. Each bullet should be a brief, professional, client-facing description. Output ONLY the bullet points (using • character), nothing else. No intro text, no questions, no explanations.\n\nNotes:\n${laborDesc}`,
+              content: `Rewrite these labor notes into a bullet-point list for a renovation invoice. Each bullet should be a brief, professional, client-facing description. Output ONLY the bullet points (using â¢ character), nothing else. No intro text, no questions, no explanations.\n\nNotes:\n${laborDesc}`,
             }],
           }),
         });
@@ -4046,15 +4052,15 @@ async function updateJTCostGroup(groupId: string, fields: { name?: string; descr
  * Reorganize a Cost-Plus invoice (created via JT's Bills & Time UI) into
  * the BKB 3-group format matching Invoice 199-15 (Behmlander pattern):
  *
- * 1. Permit & Admin Costs — engineering, permits, porta-potty, etc.
+ * 1. Permit & Admin Costs â engineering, permits, porta-potty, etc.
  *    Description: bullet list of what admin/permit items are included
  *    Sub-groups: individual vendor bill groups
  *
- * 2. Materials — lumber, hardware, concrete, etc.
+ * 2. Materials â lumber, hardware, concrete, etc.
  *    Description: bullet list summarizing materials purchased
  *    Sub-groups: individual vendor bill groups
  *
- * 3. BKB Labor — all time entries
+ * 3. BKB Labor â all time entries
  *    Description: bullet list of work performed (from time entry notes)
  *    Sub-groups: individual "Time Cost for [date]" groups (kept as-is)
  */
@@ -4094,13 +4100,13 @@ export async function reorganizeCostPlusInvoice(documentId: string, jobId: strin
   // 2a. Detect if this invoice was created by our API (not JT's Bills & Time UI).
   // Our API creates "Vendor Bills" and "BKB Labor" parent groups with child items.
   // JT's Bills & Time UI creates flat "Vendor Bill XXX-XX" and "Time Cost for [date]" groups.
-  // If we detect our API structure, skip reorganization — it's already in the right format.
+  // If we detect our API structure, skip reorganization â it's already in the right format.
   const hasVendorBillsParent = groups.some((g: any) => g.name === 'Vendor Bills' && !g.parentCostGroup?.id);
   const hasBKBLaborParent = groups.some((g: any) => g.name === 'BKB Labor' && !g.parentCostGroup?.id);
   const hasJTTimeGroups = groups.some((g: any) => (g.name || '').toLowerCase().includes('time cost for'));
 
   if ((hasVendorBillsParent || hasBKBLaborParent) && !hasJTTimeGroups) {
-    // Invoice was created by our API — already has the right structure with AI descriptions.
+    // Invoice was created by our API â already has the right structure with AI descriptions.
     // Just run the AI category-level rewrite on the existing top-level groups.
     const existingLabor = groups.find((g: any) => g.name === 'BKB Labor' && !g.parentCostGroup?.id);
     const existingVendorBills = groups.find((g: any) => g.name === 'Vendor Bills' && !g.parentCostGroup?.id);
@@ -4129,10 +4135,10 @@ export async function reorganizeCostPlusInvoice(documentId: string, jobId: strin
       else materialBills.push(g);
     }
 
-    // Rename "Vendor Bills" → "Trade Partners" or "Materials" based on content,
+    // Rename "Vendor Bills" â "Trade Partners" or "Materials" based on content,
     // or create the proper parent groups if we have both types
     if (adminBills.length > 0 && materialBills.length === 0 && existingVendorBills) {
-      // All vendors are trade partners — just rename
+      // All vendors are trade partners â just rename
       await updateJTCostGroup(existingVendorBills.id, { name: 'Trade Partners' });
       // Build description from admin items
       const adminDescs = items
@@ -4140,26 +4146,26 @@ export async function reorganizeCostPlusInvoice(documentId: string, jobId: strin
         .map((i: any) => (i.costCode?.name || i.name || '').replace(/:\d+\s*-\s*(Sub|Materials?)/i, '').replace(/^\d+-/, '').trim())
         .filter((n: string, i: number, arr: string[]) => n && arr.indexOf(n) === i);
       if (adminDescs.length > 0) {
-        await updateJTCostGroup(existingVendorBills.id, { description: adminDescs.map((n: string) => `• ${n}`).join('\n') });
+        await updateJTCostGroup(existingVendorBills.id, { description: adminDescs.map((n: string) => `â¢ ${n}`).join('\n') });
       }
       for (const bg of adminBills) {
         await pave({ updateCostGroup: { $: { id: bg.id, showChildren: false } } });
       }
     } else if (materialBills.length > 0 && adminBills.length === 0 && existingVendorBills) {
-      // All vendors are materials — just rename
+      // All vendors are materials â just rename
       await updateJTCostGroup(existingVendorBills.id, { name: 'Materials' });
       const matDescs = items
         .filter((i: any) => materialBills.some((bg: any) => bg.id === i.costGroup?.id))
         .map((i: any) => (i.costCode?.name || i.name || '').replace(/:\d+\s*-\s*Materials?/i, '').replace(/^\d+-/, '').trim())
         .filter((n: string, i: number, arr: string[]) => n && arr.indexOf(n) === i);
       if (matDescs.length > 0) {
-        await updateJTCostGroup(existingVendorBills.id, { description: matDescs.map((n: string) => `• ${n}`).join('\n') });
+        await updateJTCostGroup(existingVendorBills.id, { description: matDescs.map((n: string) => `â¢ ${n}`).join('\n') });
       }
       for (const bg of materialBills) {
         await pave({ updateCostGroup: { $: { id: bg.id, showChildren: false } } });
       }
     } else if (adminBills.length > 0 && materialBills.length > 0 && existingVendorBills) {
-      // Mixed — need to split into Trade Partners and Materials
+      // Mixed â need to split into Trade Partners and Materials
       // Rename existing to Trade Partners, create new Materials
       await updateJTCostGroup(existingVendorBills.id, { name: 'Trade Partners' });
       const materialsGroup = await createJTCostGroup({ documentId, name: 'Materials' });
@@ -4192,11 +4198,11 @@ ${adminDesc || '(none)'}
 MATERIAL ITEMS:
 ${matDesc || '(none)'}
 
-LABOR NOTES (from time entries — describe the work performed):
+LABOR NOTES (from time entries â describe the work performed):
 ${laborDesc || '(none)'}
 
 Respond in this exact JSON format:
-{"admin": "• bullet1\\n• bullet2", "materials": "• bullet1\\n• bullet2", "labor": "• bullet1\\n• bullet2"}
+{"admin": "â¢ bullet1\\nâ¢ bullet2", "materials": "â¢ bullet1\\nâ¢ bullet2", "labor": "â¢ bullet1\\nâ¢ bullet2"}
 
 If a section is "(none)", return empty string for that key.`;
 
@@ -4252,7 +4258,7 @@ If a section is "(none)", return empty string for that key.`;
   }
 
   // 2. Classify ALL existing groups into categories.
-  // JT Bills & Time creates everything FLAT at the top level — no nesting.
+  // JT Bills & Time creates everything FLAT at the top level â no nesting.
   // Bill groups are named like "Vendor Name Bill XXX-XX (ref)"
   // Time groups are named like "Time Cost for Day, Mon DD, YYYY"
   type Category = 'admin' | 'materials' | 'labor';
@@ -4291,7 +4297,7 @@ If a section is "(none)", return empty string for that key.`;
 
   // 3. Fetch time entry notes for the job (for BKB Labor description)
   // Only include notes from time entries whose dates match the invoice's
-  // "Time Cost for [date]" groups — not ALL time entries on the job.
+  // "Time Cost for [date]" groups â not ALL time entries on the job.
   const teData = await pave({
     job: {
       $: { id: jobId },
@@ -4335,7 +4341,7 @@ If a section is "(none)", return empty string for that key.`;
     }
   }
   const laborDescription = laborNotes.length > 0
-    ? laborNotes.map(n => `• ${n}`).join('\n')
+    ? laborNotes.map(n => `â¢ ${n}`).join('\n')
     : '';
 
   // Build materials description from cost code names on material items
@@ -4350,7 +4356,7 @@ If a section is "(none)", return empty string for that key.`;
     })
     .filter((n: string, i: number, arr: string[]) => n && arr.indexOf(n) === i);
   const materialsDescription = materialItemDescriptions.length > 0
-    ? materialItemDescriptions.map((n: string) => `• ${n}`).join('\n')
+    ? materialItemDescriptions.map((n: string) => `â¢ ${n}`).join('\n')
     : '';
 
   // Build admin description from admin item names
@@ -4365,7 +4371,7 @@ If a section is "(none)", return empty string for that key.`;
     })
     .filter((n: string, i: number, arr: string[]) => n && arr.indexOf(n) === i);
   const adminDescription = adminItemDescriptions.length > 0
-    ? adminItemDescriptions.map((n: string) => `• ${n}`).join('\n')
+    ? adminItemDescriptions.map((n: string) => `â¢ ${n}`).join('\n')
     : '';
 
   // 4. Delete existing category groups from a previous run (idempotency)
@@ -4510,11 +4516,11 @@ ${adminDescription || '(none)'}
 MATERIAL ITEMS:
 ${materialsDescription || '(none)'}
 
-LABOR NOTES (from time entries — describe the work performed):
+LABOR NOTES (from time entries â describe the work performed):
 ${laborDescription || '(none)'}
 
 Respond in this exact JSON format:
-{"admin": "• bullet1\\n• bullet2", "materials": "• bullet1\\n• bullet2", "labor": "• bullet1\\n• bullet2"}
+{"admin": "â¢ bullet1\\nâ¢ bullet2", "materials": "â¢ bullet1\\nâ¢ bullet2", "labor": "â¢ bullet1\\nâ¢ bullet2"}
 
 If a section is "(none)", return empty string for that key.`;
 
