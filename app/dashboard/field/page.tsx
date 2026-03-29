@@ -99,6 +99,7 @@ export default function FieldDashboardPage() {
   const [updatingScheduleTask, setUpdatingScheduleTask] = useState<string | null>(null);
   const [editingDateTask, setEditingDateTask] = useState<string | null>(null);
   const [editDateValue, setEditDateValue] = useState('');
+  const [openPhases, setOpenPhases] = useState<Set<string>>(new Set());
 
   const fetchData = async (isRefresh = false) => {
     if (isRefresh) setRefreshing(true); else setLoading(true);
@@ -385,14 +386,14 @@ export default function FieldDashboardPage() {
 
   // -- Phase row with inline tasks --
   const PhaseRow = ({ phase }: { phase: SchedulePhase }) => {
-    const [open, setOpen] = useState(false);
+    const open = openPhases.has(phase.name);
     const hasTasks = phase.tasks && phase.tasks.length > 0;
     const phasePct = phase.progress !== null ? Math.round((phase.progress || 0) * 100) : null;
 
     return (
       <div className="border-t" style={{ borderColor: 'rgba(205,162,116,0.08)' }}>
         <button
-          onClick={() => hasTasks && setOpen(!open)}
+          onClick={() => hasTasks && setOpenPhases(prev => { const n = new Set(prev); if (n.has(phase.name)) n.delete(phase.name); else n.add(phase.name); return n; })}
           className="w-full px-3 py-2 flex items-center justify-between text-left"
           style={{ background: 'transparent' }}
           disabled={!hasTasks}
