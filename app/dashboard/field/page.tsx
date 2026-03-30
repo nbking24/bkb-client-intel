@@ -403,41 +403,6 @@ export default function FieldDashboardPage() {
         </div>
       )}
 
-      {/* PM JOBS - condensed clickable list */}
-      {data.pmJobs && data.pmJobs.length > 0 && (
-        <div style={{ background: 'rgba(205,162,116,0.04)', border: '1px solid rgba(205,162,116,0.08)', borderRadius: 8, padding: '6px 10px', marginBottom: 6 }}>
-          <div style={{ display: 'flex', alignItems: 'center', gap: 5, marginBottom: 4 }}>
-            <Briefcase size={10} style={{ color: '#CDA274' }} />
-            <span style={{ fontSize: 9, fontWeight: 700, color: '#CDA274', letterSpacing: '0.06em' }}>MY JOBS</span>
-            <span style={{ fontSize: 9, color: '#4a4a4a' }}>({data.pmJobs.length})</span>
-          </div>
-          <div style={{ display: 'flex', flexWrap: 'wrap', gap: 3 }}>
-            {data.pmJobs.map(job => (
-              <a
-                key={job.id}
-                href={jtScheduleUrl(job.id)}
-                target="_blank"
-                rel="noopener noreferrer"
-                style={{
-                  display: 'inline-flex', alignItems: 'center', gap: 4,
-                  padding: '3px 7px', borderRadius: 5,
-                  background: 'rgba(205,162,116,0.06)',
-                  border: '1px solid rgba(205,162,116,0.1)',
-                  textDecoration: 'none', fontSize: 10, color: '#c0b8a8',
-                  transition: 'background 0.15s',
-                }}
-                onMouseEnter={e => (e.currentTarget.style.background = 'rgba(205,162,116,0.15)')}
-                onMouseLeave={e => (e.currentTarget.style.background = 'rgba(205,162,116,0.06)')}
-              >
-                <span style={{ width: 5, height: 5, borderRadius: 3, background: jobColor(job.number), flexShrink: 0 }} />
-                <span style={{ whiteSpace: 'nowrap' }}>{job.name.replace(/^#\d+\s*/, '')}</span>
-                <ExternalLink size={8} style={{ color: '#5a5550', flexShrink: 0 }} />
-              </a>
-            ))}
-          </div>
-        </div>
-      )}
-
       {/* WEEK CALENDARS */}
       {weeks.map((week, wi) => (
         <div key={wi} style={{ marginBottom: 6 }}>
@@ -515,6 +480,41 @@ export default function FieldDashboardPage() {
           </div>
         </div>
       ))}
+
+      {/* PM JOBS - condensed clickable list */}
+      {data.pmJobs && data.pmJobs.length > 0 && (
+        <div style={{ background: 'rgba(205,162,116,0.04)', border: '1px solid rgba(205,162,116,0.08)', borderRadius: 8, padding: '6px 10px', marginBottom: 6 }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 5, marginBottom: 4 }}>
+            <Briefcase size={10} style={{ color: '#CDA274' }} />
+            <span style={{ fontSize: 9, fontWeight: 700, color: '#CDA274', letterSpacing: '0.06em' }}>MY JOBS</span>
+            <span style={{ fontSize: 9, color: '#4a4a4a' }}>({data.pmJobs.length})</span>
+          </div>
+          <div style={{ display: 'flex', flexWrap: 'wrap', gap: 3 }}>
+            {data.pmJobs.map(job => (
+              <a
+                key={job.id}
+                href={jtScheduleUrl(job.id)}
+                target="_blank"
+                rel="noopener noreferrer"
+                style={{
+                  display: 'inline-flex', alignItems: 'center', gap: 4,
+                  padding: '3px 7px', borderRadius: 5,
+                  background: 'rgba(205,162,116,0.06)',
+                  border: '1px solid rgba(205,162,116,0.1)',
+                  textDecoration: 'none', fontSize: 10, color: '#c0b8a8',
+                  transition: 'background 0.15s',
+                }}
+                onMouseEnter={e => (e.currentTarget.style.background = 'rgba(205,162,116,0.15)')}
+                onMouseLeave={e => (e.currentTarget.style.background = 'rgba(205,162,116,0.06)')}
+              >
+                <span style={{ width: 5, height: 5, borderRadius: 3, background: jobColor(job.number), flexShrink: 0 }} />
+                <span style={{ whiteSpace: 'nowrap' }}>{job.name.replace(/^#\d+\s*/, '')}</span>
+                <ExternalLink size={8} style={{ color: '#5a5550', flexShrink: 0 }} />
+              </a>
+            ))}
+          </div>
+        </div>
+      )}
 
       {/* TASK DETAIL POPUP */}
       {selectedTask && (
