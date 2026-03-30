@@ -244,39 +244,39 @@ export async function GET(req: NextRequest) {
     const thirtyDaysAgo = new Date(today.getTime() - 30 * 86400000).toISOString().split('T')[0];
     const sevenDaysAgo = new Date(today.getTime() - 7 * 86400000).toISOString().split('T')[0];
 
-    let totalCompletedLast30 = 0;
-    let completedOnTimeLast30 = 0;
-    let completedThisWeek = 0;
-    let completedLastWeek = 0;
-    const fourteenDaysAgo = new Date(today.getTime() - 14 * 86400000).toISOString().split('T')[0];
     let allOverdueDaysSum = 0;
     let allOverdueCount = 0;
     let staleTaskCount = 0; // overdue 30+ days with no progress
+    let totalTasksWithDueDate = 0;
+    let totalCompletedTasks = 0;
+    let completedOnOrBeforeDue = 0; // completed tasks whose due date >= today or progress=1
+    let completedThisWeek = 0;
+    let completedLastWeek = 0;
+    const fourteenDaysAgo = new Date(today.getTime() - 14 * 86400000).toISOString().split('T')[0];
+    // Track completed tasks in date windows using endDate (since PAVE has no completedAt)
+    // For "this week" / "last week" we look at completed tasks whose endDate falls in those windows
 
     for (const { tasks } of jobDataResults) {
       for (const task of tasks) {
         if (task.isGroup) continue;
         const isComplete = task.progress !== null && task.progress >= 1;
         const endDate = task.endDate ? task.endDate.split('T')[0] : null;
-        const completedAt = task.completedAt ? task.completedAt.split('T')[0] : null;
-        // Use updatedAt as proxy for completion date if completedAt not available
-        const doneDate = completedAt || (isComplete && task.updatedAt ? task.updatedAt.split('T')[0] : null);
 
-        // KPI 1: Schedule Adherence (completed in last 30 days, was it on time?)
-        if (isComplete && doneDate && doneDate >= thirtyDaysAgo) {
-          totalCompletedLast30++;
-          if (endDate && doneDate <= endDate) {
-            completedOnTimeLast30++;
-          } else if (!endDate) {
-            // No due date = can't be late, count as on-time
-            completedOnTimeLast30++;
+        // KPI 1: Schedule Adherence — of all tasks with due dates, what % are on-track?
+        // On-track = completed (regardless of when) OR not yet due
+        // Off-track = overdue and not complete
+        if (endDate) {
+          totalTasksWithDueDate++;
+          if (isComplete || endDate >= todayStr) {
+            completedOnOrBeforeDue++;
           }
         }
 
-        // KPI 4: Tasks Completed This Week / Last Week
-        if (isComplete && doneDate) {
-          if (doneDate >= sevenDaysAgo) completedThisWeek++;
-          if (doneDate >= fourteenDaysAgo && doneDate < sevenDaysAgo) completedLastWeek++;
+        // KPI 4: Tasks completed with endDate in recent windows
+        if (isComplete && endDate) {
+          totalCompletedTasks++;
+          if (endDate >= sevenDaysAgo && endDate <= todayStr) completedThisWeek++;
+          if (endDate >= fourteenDaysAgo && endDate < sevenDaysAgo) completedLastWeek++;
         }
 
         // KPI 2 & 3: Average Days Overdue + Stale count (open tasks only)
@@ -291,32 +291,18 @@ export async function GET(req: NextRequest) {
       }
     }
 
-    // Also count overdue from non-PM member tasks
-    for (const t of memberTasks) {
-      const ed = t.endDate ? t.endDate.split('T')[0] : null;
-      if (ed && ed < todayStr) {
-        const isComplete = t.progress !== null && t.progress >= 1;
-        if (!isComplete && !myOverdueIds.has(t.id)) {
-          // Already counted in PM job loop if present — skip duplicates
-        }
-      }
-    }
-
-    // KPI 1: Schedule Adherence Score (%)
-    const scheduleAdherence = totalCompletedLast30 > 0
-      ? Math.round((completedOnTimeLast30 / totalCompletedLast30) * 100)
-      : null; // null = not enough data
+    // KPI 1: Schedule Adherence Score (%) — tasks on-track / total with due dates
+    const scheduleAdherence = totalTasksWithDueDate > 0
+      ? Math.round((completedOnOrBeforeDue / totalTasksWithDueDate) * 100)
+      : null;
 
     // KPI 2: Average Days Overdue
     const avgDaysOverdue = allOverdueCount > 0
       ? Math.round((allOverdueDaysSum / allOverdueCount) * 10) / 10
       : 0;
 
-    // KPI 3: Stale Task Count (30+ days overdue, no progress)
-    // Already calculated above
-
     // KPI 4: Tasks Completed This Week + trend vs last week
-    const completionTrend = completedThisWeek - completedLastWeek; // positive = improving
+    const completionTrend = completedThisWeek - completedLastWeek;
 
     // KPI 5: Upcoming Task Density (next 7 vs next 30)
     const sevenDaysOut = new Date(today.getTime() + 7 * 86400000).toISOString().split('T')[0];
@@ -336,13 +322,13 @@ export async function GET(req: NextRequest) {
     }
 
     const kpis = {
-      scheduleAdherence,        // % on-time (last 30 days) or null
-      totalCompletedLast30,     // for context
+      scheduleAdherence,        // % of tasks on-track (complete or not yet due)
+      totalCompletedLast30: totalCompletedTasks, // total completed tasks across PM jobs
       avgDaysOverdue,           // average days overdue across all open overdue tasks
       overdueTaskCount: allOverdueCount, // total overdue (all PM jobs)
       staleTaskCount,           // 30+ days overdue, no progress
-      completedThisWeek,        // tasks done in last 7 days
-      completedLastWeek,        // tasks done 7-14 days ago (for trend)
+      completedThisWeek,        // tasks with endDate in last 7 days that are complete
+      completedLastWeek,        // tasks with endDate 7-14 days ago that are complete
       completionTrend,          // +/- vs last week
       tasksNext7,               // upcoming density: next 7 days
       tasksNext30,              // upcoming density: next 30 days

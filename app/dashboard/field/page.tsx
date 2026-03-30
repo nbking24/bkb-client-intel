@@ -561,13 +561,13 @@ export default function FieldDashboardPage() {
             <div style={{ background: '#1e1e1e', borderRadius: 6, padding: '6px 7px', borderLeft: `3px solid ${adherenceColor}` }}>
               <div style={{ display: 'flex', alignItems: 'center', gap: 3, marginBottom: 3 }}>
                 <Target size={9} style={{ color: adherenceColor }} />
-                <span style={{ fontSize: 7, color: '#5a5550', fontWeight: 600, letterSpacing: '0.04em' }}>ON-TIME</span>
+                <span style={{ fontSize: 7, color: '#5a5550', fontWeight: 600, letterSpacing: '0.04em' }}>ON-TRACK</span>
               </div>
               <div style={{ fontSize: 18, fontWeight: 700, color: adherenceColor, lineHeight: 1 }}>
                 {k.scheduleAdherence !== null ? `${k.scheduleAdherence}%` : '—'}
               </div>
               <div style={{ fontSize: 7, color: '#4a4a4a', marginTop: 2 }}>
-                {k.totalCompletedLast30} done / 30d
+                {k.totalCompletedLast30} tasks complete
               </div>
             </div>
 
