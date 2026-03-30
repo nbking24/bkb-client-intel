@@ -2,6 +2,21 @@
 'use client';
 
 import { useState, useEffect, useMemo, useRef, useCallback } from 'react';
+
+/* ── Responsive hook for mobile/tablet/desktop ── */
+function useScreenSize() {
+  const [size, setSize] = useState<'mobile' | 'tablet' | 'desktop'>('desktop');
+  useEffect(() => {
+    const check = () => {
+      const w = window.innerWidth;
+      setSize(w < 640 ? 'mobile' : w < 1024 ? 'tablet' : 'desktop');
+    };
+    check();
+    window.addEventListener('resize', check);
+    return () => window.removeEventListener('resize', check);
+  }, []);
+  return size;
+}
 import {
   AlertTriangle, Loader2, RefreshCw, Calendar,
   Check, MessageSquare, ChevronDown, ChevronUp,
@@ -56,7 +71,9 @@ function RenderContent({ content }: { content: string }) {
   );
 }
 
-function InlineAskAgent({ pmJobs }: { pmJobs: { id: string; name: string; number: string }[] }) {
+function InlineAskAgent({ pmJobs, screen }: { pmJobs: { id: string; name: string; number: string }[]; screen: 'mobile' | 'tablet' | 'desktop' }) {
+  const isMobile = screen === 'mobile';
+  const isTouch = screen !== 'desktop';
   const [open, setOpen] = useState(false);
   const [query, setQuery] = useState('');
   const [messages, setMessages] = useState<ChatMessage[]>([]);
@@ -275,25 +292,25 @@ function InlineAskAgent({ pmJobs }: { pmJobs: { id: string; name: string; number
       <button
         onClick={() => setOpen(!open)}
         style={{
-          width: '100%', display: 'flex', alignItems: 'center', gap: 6,
-          padding: '7px 10px', background: open ? 'rgba(205,162,116,0.08)' : 'transparent',
+          width: '100%', display: 'flex', alignItems: 'center', gap: isTouch ? 8 : 6,
+          padding: isTouch ? '10px 12px' : '7px 10px', background: open ? 'rgba(205,162,116,0.08)' : 'transparent',
           border: 'none', cursor: 'pointer', textAlign: 'left',
         }}
       >
-        <div style={{ width: 22, height: 22, borderRadius: 11, background: 'rgba(205,162,116,0.12)', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
-          <Bot size={12} style={{ color: '#CDA274' }} />
+        <div style={{ width: isTouch ? 28 : 22, height: isTouch ? 28 : 22, borderRadius: 14, background: 'rgba(205,162,116,0.12)', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
+          <Bot size={isTouch ? 15 : 12} style={{ color: '#CDA274' }} />
         </div>
-        <span style={{ flex: 1, fontSize: 12, fontWeight: 600, color: '#CDA274' }}>Ask Agent</span>
-        <span style={{ fontSize: 9, color: '#5a5550' }}>Tasks · Specs · Change Orders</span>
-        {open ? <ChevronUp size={12} style={{ color: '#5a5550' }} /> : <ChevronDown size={12} style={{ color: '#5a5550' }} />}
+        <span style={{ flex: 1, fontSize: isTouch ? 14 : 12, fontWeight: 600, color: '#CDA274' }}>Ask Agent</span>
+        {!isMobile && <span style={{ fontSize: isTouch ? 11 : 9, color: '#5a5550' }}>Tasks · Specs · Change Orders</span>}
+        {open ? <ChevronUp size={isTouch ? 16 : 12} style={{ color: '#5a5550' }} /> : <ChevronDown size={isTouch ? 16 : 12} style={{ color: '#5a5550' }} />}
       </button>
 
       {/* Chat Body */}
       {open && (
         <div style={{ borderTop: '1px solid rgba(205,162,116,0.08)' }}>
-          {/* Mode Selector */}
-          <div style={{ padding: '6px 10px', borderBottom: '1px solid rgba(205,162,116,0.06)', display: 'flex', alignItems: 'center', gap: 6 }}>
-            <div style={{ display: 'flex', borderRadius: 6, overflow: 'hidden', border: '1px solid rgba(205,162,116,0.15)', flexShrink: 0 }}>
+          {/* Mode Selector + Job Selector */}
+          <div style={{ padding: isTouch ? '8px 12px' : '6px 10px', borderBottom: '1px solid rgba(205,162,116,0.06)', display: 'flex', flexWrap: isMobile ? 'wrap' : 'nowrap', alignItems: 'center', gap: isTouch ? 8 : 6 }}>
+            <div style={{ display: 'flex', borderRadius: 8, overflow: 'hidden', border: '1px solid rgba(205,162,116,0.15)', flexShrink: 0, ...(isMobile ? { width: '100%' } : {}) }}>
               {([
                 { key: 'general', label: 'Agent' },
                 { key: 'change-order', label: 'Change Order' },
@@ -303,10 +320,14 @@ function InlineAskAgent({ pmJobs }: { pmJobs: { id: string; name: string; number
                   key={mode.key}
                   onClick={() => handleModeChange(mode.key)}
                   style={{
-                    padding: '4px 10px', fontSize: 10, fontWeight: 600, border: 'none', cursor: 'pointer',
+                    padding: isTouch ? '8px 14px' : '4px 10px',
+                    fontSize: isTouch ? 13 : 10,
+                    fontWeight: 600, border: 'none', cursor: 'pointer',
+                    ...(isMobile ? { flex: 1 } : {}),
                     ...(idx > 0 ? { borderLeft: '1px solid rgba(205,162,116,0.15)' } : {}),
                     background: agentMode === mode.key ? 'rgba(205,162,116,0.2)' : 'transparent',
                     color: agentMode === mode.key ? '#CDA274' : '#5a5550',
+                    transition: 'background 0.15s, color 0.15s',
                   }}
                 >
                   {mode.label}
@@ -318,8 +339,9 @@ function InlineAskAgent({ pmJobs }: { pmJobs: { id: string; name: string; number
               onChange={e => setSelectedJobId(e.target.value)}
               style={{
                 flex: 1, background: '#242424', border: '1px solid rgba(205,162,116,0.1)',
-                borderRadius: 4, color: selectedJobId ? '#CDA274' : '#5a5550',
-                fontSize: 10, padding: '3px 6px', outline: 'none', cursor: 'pointer',
+                borderRadius: isTouch ? 8 : 4, color: selectedJobId ? '#CDA274' : '#5a5550',
+                fontSize: isTouch ? 13 : 10, padding: isTouch ? '8px 10px' : '3px 6px', outline: 'none', cursor: 'pointer',
+                ...(isMobile ? { width: '100%' } : {}),
               }}
             >
               <option value="">All jobs (no filter)</option>
@@ -328,37 +350,37 @@ function InlineAskAgent({ pmJobs }: { pmJobs: { id: string; name: string; number
               ))}
             </select>
             {messages.length > 0 && (
-              <button onClick={() => { setMessages([]); setLastAgent(null); setUploadedUrls([]); }} style={{ fontSize: 9, color: '#5a5550', background: 'none', border: 'none', cursor: 'pointer', textDecoration: 'underline' }}>Clear</button>
+              <button onClick={() => { setMessages([]); setLastAgent(null); setUploadedUrls([]); }} style={{ fontSize: isTouch ? 12 : 9, color: '#5a5550', background: 'none', border: 'none', cursor: 'pointer', textDecoration: 'underline', padding: isTouch ? '6px 4px' : 0 }}>Clear</button>
             )}
           </div>
 
           {/* Messages */}
-          <div style={{ maxHeight: 300, overflowY: 'auto', padding: '6px 10px' }}>
+          <div style={{ maxHeight: isMobile ? 400 : isTouch ? 360 : 300, overflowY: 'auto', padding: isTouch ? '8px 12px' : '6px 10px' }}>
             {messages.length === 0 && !loading && (
-              <div style={{ padding: '8px 0', textAlign: 'center' }}>
-                <p style={{ fontSize: 10, color: '#5a5550', marginBottom: 4 }}>
+              <div style={{ padding: isTouch ? '12px 0' : '8px 0', textAlign: 'center' }}>
+                <p style={{ fontSize: isTouch ? 13 : 10, color: '#5a5550', marginBottom: 4 }}>
                   {agentMode === 'general' && 'Ask about tasks, schedules, or anything on this job'}
                   {agentMode === 'change-order' && 'Describe the change — I\'ll ask questions and build the CO'}
                   {agentMode === 'specs' && 'Ask about approved specs for this job'}
                 </p>
                 {agentMode === 'change-order' && (
-                  <p style={{ fontSize: 9, color: '#8a8078', marginTop: 2 }}>
-                    Use the <Paperclip size={9} style={{ display: 'inline', verticalAlign: 'middle', color: '#CDA274' }} /> button to attach photos
+                  <p style={{ fontSize: isTouch ? 11 : 9, color: '#8a8078', marginTop: 4 }}>
+                    Use the <Paperclip size={isTouch ? 12 : 9} style={{ display: 'inline', verticalAlign: 'middle', color: '#CDA274' }} /> button to attach photos
                   </p>
                 )}
               </div>
             )}
 
             {messages.map((msg, i) => (
-              <div key={i} style={{ marginBottom: 6 }}>
-                <div style={{ display: 'flex', gap: 6, justifyContent: msg.role === 'user' ? 'flex-end' : 'flex-start' }}>
+              <div key={i} style={{ marginBottom: isTouch ? 10 : 6 }}>
+                <div style={{ display: 'flex', gap: isTouch ? 8 : 6, justifyContent: msg.role === 'user' ? 'flex-end' : 'flex-start' }}>
                   {msg.role === 'assistant' && (
-                    <div style={{ width: 18, height: 18, borderRadius: 9, background: 'rgba(205,162,116,0.12)', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0, marginTop: 2 }}>
-                      <Bot size={10} style={{ color: '#CDA274' }} />
+                    <div style={{ width: isTouch ? 24 : 18, height: isTouch ? 24 : 18, borderRadius: 12, background: 'rgba(205,162,116,0.12)', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0, marginTop: 2 }}>
+                      <Bot size={isTouch ? 13 : 10} style={{ color: '#CDA274' }} />
                     </div>
                   )}
                   <div style={{
-                    maxWidth: '85%', padding: '5px 8px', borderRadius: 6, fontSize: 11, lineHeight: '16px',
+                    maxWidth: isMobile ? '90%' : '85%', padding: isTouch ? '8px 12px' : '5px 8px', borderRadius: isTouch ? 10 : 6, fontSize: isTouch ? 14 : 11, lineHeight: isTouch ? '20px' : '16px',
                     ...(msg.role === 'user'
                       ? { background: '#1B3A5C', color: '#e8e0d8' }
                       : { background: '#242424', color: '#e8e0d8', border: '1px solid rgba(205,162,116,0.06)' }),
@@ -366,22 +388,22 @@ function InlineAskAgent({ pmJobs }: { pmJobs: { id: string; name: string; number
                     {msg.role === 'assistant' ? <RenderContent content={msg.content} /> : msg.content}
                   </div>
                   {msg.role === 'user' && (
-                    <div style={{ width: 18, height: 18, borderRadius: 9, background: 'rgba(27,58,92,0.3)', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0, marginTop: 2 }}>
-                      <User size={10} style={{ color: '#e8e0d8' }} />
+                    <div style={{ width: isTouch ? 24 : 18, height: isTouch ? 24 : 18, borderRadius: 12, background: 'rgba(27,58,92,0.3)', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0, marginTop: 2 }}>
+                      <User size={isTouch ? 13 : 10} style={{ color: '#e8e0d8' }} />
                     </div>
                   )}
                 </div>
 
                 {/* Task Confirmation buttons */}
                 {msg.needsConfirmation && msg.taskConfirm && i === messages.length - 1 && !loading && (
-                  <div style={{ marginLeft: 24, marginTop: 4, display: 'flex', gap: 6 }}>
+                  <div style={{ marginLeft: isTouch ? 32 : 24, marginTop: isTouch ? 8 : 4, display: 'flex', gap: isTouch ? 10 : 6 }}>
                     <button onClick={() => { handleConfirm(phaseEdit ? { phase: phaseEdit } : undefined); setPhaseEdit(null); }}
-                      style={{ display: 'flex', alignItems: 'center', gap: 4, padding: '4px 10px', borderRadius: 5, fontSize: 11, fontWeight: 600, background: 'rgba(34,197,94,0.15)', color: '#22c55e', border: 'none', cursor: 'pointer' }}>
-                      <CheckCircle size={12} /> Approve
+                      style={{ display: 'flex', alignItems: 'center', gap: 6, padding: isTouch ? '10px 18px' : '4px 10px', borderRadius: isTouch ? 8 : 5, fontSize: isTouch ? 14 : 11, fontWeight: 600, background: 'rgba(34,197,94,0.15)', color: '#22c55e', border: 'none', cursor: 'pointer' }}>
+                      <CheckCircle size={isTouch ? 16 : 12} /> Approve
                     </button>
                     <button onClick={() => { handleDecline(); setPhaseEdit(null); }}
-                      style={{ display: 'flex', alignItems: 'center', gap: 4, padding: '4px 10px', borderRadius: 5, fontSize: 11, fontWeight: 600, background: 'rgba(239,68,68,0.1)', color: '#ef4444', border: 'none', cursor: 'pointer' }}>
-                      <XCircle size={12} /> Cancel
+                      style={{ display: 'flex', alignItems: 'center', gap: 6, padding: isTouch ? '10px 18px' : '4px 10px', borderRadius: isTouch ? 8 : 5, fontSize: isTouch ? 14 : 11, fontWeight: 600, background: 'rgba(239,68,68,0.1)', color: '#ef4444', border: 'none', cursor: 'pointer' }}>
+                      <XCircle size={isTouch ? 16 : 12} /> Cancel
                     </button>
                   </div>
                 )}
@@ -429,18 +451,18 @@ function InlineAskAgent({ pmJobs }: { pmJobs: { id: string; name: string; number
                         {co.followUp?.needed && <div style={{ fontSize: 9, color: '#f59e0b', marginTop: 2 }}>+ Follow-up task → {co.followUp.assignTo || 'Nathan'} by {co.followUp.dueDate || 'TBD'}</div>}
                         {co.imageUrls && co.imageUrls.length > 0 && <div style={{ fontSize: 9, color: '#22c55e', marginTop: 2 }}>+ {co.imageUrls.length} photo(s) will be attached</div>}
                       </div>
-                      <div style={{ display: 'flex', gap: 6 }}>
+                      <div style={{ display: 'flex', gap: isTouch ? 10 : 6 }}>
                         <button onClick={() => {
                           setMessages(prev => prev.map((m, mi) => mi === prev.length - 1 ? { ...m, needsConfirmation: false } : m));
                           sendMessage('Yes, approve this change order. Create it now.\n\n[APPROVED CO DATA — execute create_change_order tool now]\n' + JSON.stringify(co));
                           setUploadedUrls([]); // Clear uploaded URLs after CO approval
                         }}
-                          style={{ display: 'flex', alignItems: 'center', gap: 4, padding: '5px 12px', borderRadius: 5, fontSize: 11, fontWeight: 600, background: 'rgba(34,197,94,0.15)', color: '#22c55e', border: 'none', cursor: 'pointer' }}>
-                          <CheckCircle size={12} /> Approve CO
+                          style={{ display: 'flex', alignItems: 'center', gap: 6, padding: isTouch ? '10px 18px' : '5px 12px', borderRadius: isTouch ? 8 : 5, fontSize: isTouch ? 14 : 11, fontWeight: 600, background: 'rgba(34,197,94,0.15)', color: '#22c55e', border: 'none', cursor: 'pointer' }}>
+                          <CheckCircle size={isTouch ? 16 : 12} /> Approve CO
                         </button>
                         <button onClick={handleDecline}
-                          style={{ display: 'flex', alignItems: 'center', gap: 4, padding: '5px 12px', borderRadius: 5, fontSize: 11, fontWeight: 600, background: 'rgba(239,68,68,0.1)', color: '#ef4444', border: 'none', cursor: 'pointer' }}>
-                          <XCircle size={12} /> Cancel
+                          style={{ display: 'flex', alignItems: 'center', gap: 6, padding: isTouch ? '10px 18px' : '5px 12px', borderRadius: isTouch ? 8 : 5, fontSize: isTouch ? 14 : 11, fontWeight: 600, background: 'rgba(239,68,68,0.1)', color: '#ef4444', border: 'none', cursor: 'pointer' }}>
+                          <XCircle size={isTouch ? 16 : 12} /> Cancel
                         </button>
                       </div>
                     </div>
@@ -450,13 +472,13 @@ function InlineAskAgent({ pmJobs }: { pmJobs: { id: string; name: string; number
             ))}
 
             {loading && (
-              <div style={{ display: 'flex', gap: 6, alignItems: 'center', padding: '4px 0' }}>
-                <div style={{ width: 18, height: 18, borderRadius: 9, background: 'rgba(205,162,116,0.12)', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
-                  <Bot size={10} style={{ color: '#CDA274' }} />
+              <div style={{ display: 'flex', gap: isTouch ? 8 : 6, alignItems: 'center', padding: isTouch ? '8px 0' : '4px 0' }}>
+                <div style={{ width: isTouch ? 24 : 18, height: isTouch ? 24 : 18, borderRadius: 12, background: 'rgba(205,162,116,0.12)', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
+                  <Bot size={isTouch ? 13 : 10} style={{ color: '#CDA274' }} />
                 </div>
-                <div style={{ display: 'flex', alignItems: 'center', gap: 5, padding: '4px 8px', borderRadius: 6, background: '#242424', border: '1px solid rgba(205,162,116,0.06)' }}>
-                  <Loader2 size={12} className="animate-spin" style={{ color: '#CDA274' }} />
-                  <span style={{ fontSize: 10, color: '#5a5550' }}>Searching your data...</span>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 5, padding: isTouch ? '8px 12px' : '4px 8px', borderRadius: isTouch ? 10 : 6, background: '#242424', border: '1px solid rgba(205,162,116,0.06)' }}>
+                  <Loader2 size={isTouch ? 16 : 12} className="animate-spin" style={{ color: '#CDA274' }} />
+                  <span style={{ fontSize: isTouch ? 13 : 10, color: '#5a5550' }}>Searching your data...</span>
                 </div>
               </div>
             )}
@@ -465,51 +487,51 @@ function InlineAskAgent({ pmJobs }: { pmJobs: { id: string; name: string; number
 
           {/* Image Preview Strip */}
           {attachedImages.length > 0 && (
-            <div style={{ display: 'flex', gap: 6, padding: '6px 10px', borderTop: '1px solid rgba(205,162,116,0.06)', overflowX: 'auto' }}>
+            <div style={{ display: 'flex', gap: isTouch ? 10 : 6, padding: isTouch ? '8px 12px' : '6px 10px', borderTop: '1px solid rgba(205,162,116,0.06)', overflowX: 'auto' }}>
               {attachedImages.map((img, idx) => (
                 <div key={idx} style={{ position: 'relative', flexShrink: 0 }}>
                   <img src={img.preview} alt={img.file.name}
-                    style={{ width: 48, height: 48, borderRadius: 6, objectFit: 'cover', border: '1px solid rgba(205,162,116,0.15)' }} />
+                    style={{ width: isTouch ? 64 : 48, height: isTouch ? 64 : 48, borderRadius: isTouch ? 8 : 6, objectFit: 'cover', border: '1px solid rgba(205,162,116,0.15)' }} />
                   <button onClick={() => removeImage(idx)}
                     style={{
-                      position: 'absolute', top: -4, right: -4, width: 16, height: 16, borderRadius: 8,
+                      position: 'absolute', top: -4, right: -4, width: isTouch ? 22 : 16, height: isTouch ? 22 : 16, borderRadius: 11,
                       background: '#ef4444', border: 'none', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center',
                     }}>
-                    <XIcon size={8} color="#fff" />
+                    <XIcon size={isTouch ? 12 : 8} color="#fff" />
                   </button>
                 </div>
               ))}
-              {uploading && <div style={{ display: 'flex', alignItems: 'center', gap: 4, fontSize: 10, color: '#CDA274' }}><Loader2 size={12} className="animate-spin" /> Uploading...</div>}
+              {uploading && <div style={{ display: 'flex', alignItems: 'center', gap: 4, fontSize: isTouch ? 13 : 10, color: '#CDA274' }}><Loader2 size={isTouch ? 16 : 12} className="animate-spin" /> Uploading...</div>}
             </div>
           )}
 
           {/* Uploaded URLs indicator */}
           {uploadedUrls.length > 0 && attachedImages.length === 0 && (
-            <div style={{ padding: '4px 10px', borderTop: '1px solid rgba(205,162,116,0.06)', display: 'flex', alignItems: 'center', gap: 4 }}>
-              <ImageIcon size={10} color="#22c55e" />
-              <span style={{ fontSize: 9, color: '#22c55e' }}>{uploadedUrls.length} photo(s) ready to attach to change order</span>
-              <button onClick={() => setUploadedUrls([])} style={{ fontSize: 9, color: '#5a5550', background: 'none', border: 'none', cursor: 'pointer', textDecoration: 'underline', marginLeft: 'auto' }}>Clear</button>
+            <div style={{ padding: isTouch ? '6px 12px' : '4px 10px', borderTop: '1px solid rgba(205,162,116,0.06)', display: 'flex', alignItems: 'center', gap: 6 }}>
+              <ImageIcon size={isTouch ? 14 : 10} color="#22c55e" />
+              <span style={{ fontSize: isTouch ? 12 : 9, color: '#22c55e' }}>{uploadedUrls.length} photo(s) ready to attach to change order</span>
+              <button onClick={() => setUploadedUrls([])} style={{ fontSize: isTouch ? 12 : 9, color: '#5a5550', background: 'none', border: 'none', cursor: 'pointer', textDecoration: 'underline', marginLeft: 'auto', padding: isTouch ? '4px' : 0 }}>Clear</button>
             </div>
           )}
 
           {/* Input */}
-          <form onSubmit={handleSubmit} style={{ display: 'flex', alignItems: 'center', gap: 4, padding: '6px 10px', borderTop: '1px solid rgba(205,162,116,0.06)' }}>
+          <form onSubmit={handleSubmit} style={{ display: 'flex', alignItems: 'center', gap: isTouch ? 8 : 4, padding: isTouch ? '8px 12px' : '6px 10px', borderTop: '1px solid rgba(205,162,116,0.06)' }}>
             <input ref={fileInputRef} type="file" accept="image/*" multiple onChange={handleImageAttach} style={{ display: 'none' }} />
             {agentMode === 'change-order' && (
               <button type="button" onClick={() => fileInputRef.current?.click()} title="Attach photos"
                 style={{
-                  width: 28, height: 28, borderRadius: 6, border: 'none', cursor: 'pointer', flexShrink: 0,
+                  width: isTouch ? 40 : 28, height: isTouch ? 40 : 28, borderRadius: isTouch ? 10 : 6, border: 'none', cursor: 'pointer', flexShrink: 0,
                   background: attachedImages.length > 0 ? 'rgba(205,162,116,0.15)' : 'transparent',
                   display: 'flex', alignItems: 'center', justifyContent: 'center',
                 }}>
-                <Paperclip size={13} style={{ color: attachedImages.length > 0 ? '#CDA274' : '#5a5550' }} />
+                <Paperclip size={isTouch ? 18 : 13} style={{ color: attachedImages.length > 0 ? '#CDA274' : '#5a5550' }} />
               </button>
             )}
             <textarea
               ref={inputRef}
               value={query}
-              onChange={e => { setQuery(e.target.value); e.target.style.height = 'auto'; e.target.style.height = Math.min(e.target.scrollHeight, 80) + 'px'; }}
-              onKeyDown={e => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); if (query.trim() && !loading) handleSubmit(e as any); } }}
+              onChange={e => { setQuery(e.target.value); e.target.style.height = 'auto'; e.target.style.height = Math.min(e.target.scrollHeight, isTouch ? 120 : 80) + 'px'; }}
+              onKeyDown={e => { if (e.key === 'Enter' && !e.shiftKey && !isTouch) { e.preventDefault(); if (query.trim() && !loading) handleSubmit(e as any); } }}
               placeholder={agentMode === 'general'
                 ? (selectedJob ? `Ask about #${selectedJob.number} ${selectedJob.name}...` : 'Ask about tasks, schedules, or jobs...')
                 : agentMode === 'change-order'
@@ -519,18 +541,18 @@ function InlineAskAgent({ pmJobs }: { pmJobs: { id: string; name: string; number
               disabled={loading || uploading}
               style={{
                 flex: 1, background: '#242424', border: '1px solid rgba(205,162,116,0.1)',
-                borderRadius: 6, color: '#e8e0d8', fontSize: 11, padding: '6px 8px',
-                outline: 'none', resize: 'none', minHeight: 30, maxHeight: 80, overflowY: 'auto',
+                borderRadius: isTouch ? 10 : 6, color: '#e8e0d8', fontSize: isTouch ? 16 : 11, padding: isTouch ? '10px 12px' : '6px 8px',
+                outline: 'none', resize: 'none', minHeight: isTouch ? 42 : 30, maxHeight: isTouch ? 120 : 80, overflowY: 'auto',
                 fontFamily: 'inherit',
               }}
             />
             <button type="submit" disabled={!query.trim() || loading || uploading}
               style={{
-                width: 28, height: 28, borderRadius: 6, border: 'none', cursor: query.trim() && !loading ? 'pointer' : 'default',
+                width: isTouch ? 40 : 28, height: isTouch ? 40 : 28, borderRadius: isTouch ? 10 : 6, border: 'none', cursor: query.trim() && !loading ? 'pointer' : 'default',
                 background: query.trim() && !loading ? 'rgba(205,162,116,0.15)' : 'transparent',
                 display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0,
               }}>
-              <Send size={13} style={{ color: query.trim() && !loading ? '#CDA274' : '#3a3a3a' }} />
+              <Send size={isTouch ? 18 : 13} style={{ color: query.trim() && !loading ? '#CDA274' : '#3a3a3a' }} />
             </button>
           </form>
         </div>
@@ -617,6 +639,9 @@ interface Data {
 
 export default function FieldDashboardPage() {
   const auth = useAuth();
+  const screen = useScreenSize();
+  const isMobile = screen === 'mobile';
+  const isTouch = screen !== 'desktop';
   const [data, setData] = useState<Data | null>(null);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
@@ -772,17 +797,17 @@ export default function FieldDashboardPage() {
   );
 
   return (
-    <div style={{ maxWidth: 960, margin: '0 auto', padding: '0 8px', position: 'relative' }}>
+    <div style={{ maxWidth: 960, margin: '0 auto', padding: isMobile ? '0 12px' : '0 8px', position: 'relative' }}>
       {/* HEADER */}
-      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 6 }}>
-        <h1 style={{ color: '#e8e0d8', fontSize: 18, fontWeight: 700, margin: 0 }}>{getGreeting()}, {firstName}</h1>
+      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: isTouch ? 10 : 6 }}>
+        <h1 style={{ color: '#e8e0d8', fontSize: isTouch ? 22 : 18, fontWeight: 700, margin: 0 }}>{getGreeting()}, {firstName}</h1>
         <button onClick={() => fetchData(true)} disabled={refreshing} style={{ padding: 5, borderRadius: 6, background: 'rgba(205,162,116,0.08)', border: 'none', cursor: 'pointer', lineHeight: 0 }}>
           <RefreshCw size={12} className={refreshing ? 'animate-spin' : ''} style={{ color: '#CDA274' }} />
         </button>
       </div>
 
       {/* INLINE ASK AGENT */}
-      <InlineAskAgent pmJobs={data.pmJobs || []} />
+      <InlineAskAgent pmJobs={data.pmJobs || []} screen={screen} />
 
       {/* KPI METRICS */}
       {data.kpis && (() => {
@@ -796,7 +821,7 @@ export default function FieldDashboardPage() {
         const densityColor = densityPct > 60 ? '#ef4444' : densityPct > 35 ? '#eab308' : '#22c55e';
 
         return (
-          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(5, 1fr)', gap: 4, marginBottom: 6 }}>
+          <div style={{ display: 'grid', gridTemplateColumns: isMobile ? 'repeat(3, 1fr)' : 'repeat(5, 1fr)', gap: isTouch ? 6 : 4, marginBottom: isTouch ? 10 : 6 }}>
             {/* KPI 1: Schedule Adherence */}
             <div style={{ background: '#1e1e1e', borderRadius: 6, padding: '6px 7px', borderLeft: `3px solid ${adherenceColor}` }}>
               <div style={{ display: 'flex', alignItems: 'center', gap: 3, marginBottom: 3 }}>
@@ -1112,7 +1137,7 @@ export default function FieldDashboardPage() {
               <Sun size={10} style={{ color: '#eab308' }} />
               <span style={{ fontSize: 8, fontWeight: 700, color: '#5a5550', letterSpacing: '0.06em' }}>PERKASIE FORECAST</span>
             </div>
-            <div style={{ display: 'grid', gridTemplateColumns: `repeat(${Math.min(data.weather.length, 10)}, 1fr)`, gap: 0 }}>
+            <div style={{ display: 'grid', gridTemplateColumns: isMobile ? `repeat(${Math.min(data.weather.length, 10)}, minmax(50px, 1fr))` : `repeat(${Math.min(data.weather.length, 10)}, 1fr)`, gap: 0, ...(isMobile ? { overflowX: 'auto', WebkitOverflowScrolling: 'touch' } : {}) }}>
               {data.weather.slice(0, 10).map((w, i) => {
                 const dt = new Date(w.date + 'T12:00:00');
                 const isToday = w.date === data.todayDate;
@@ -1151,7 +1176,7 @@ export default function FieldDashboardPage() {
             <span style={{ fontSize: 10, fontWeight: 700, letterSpacing: '0.08em', color: '#5a5550' }}>{week.label.toUpperCase()}</span>
             <span style={{ fontSize: 10, color: '#3f3f3f' }}>{week.days[0].month} {week.days[0].dayNum} – {week.days[6].month} {week.days[6].dayNum}</span>
           </div>
-          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(7, 1fr)', gap: 1, borderRadius: 8, overflow: 'hidden' }}>
+          <div style={{ display: 'grid', gridTemplateColumns: isMobile ? 'repeat(7, minmax(55px, 1fr))' : 'repeat(7, 1fr)', gap: 1, borderRadius: 8, overflow: isMobile ? 'auto' : 'hidden', ...(isMobile ? { overflowX: 'auto', WebkitOverflowScrolling: 'touch' } : {}) }}>
             {week.days.map(day => {
               const isToday = day.date === data.todayDate;
               const tasks = tasksByDate[day.date] || [];
