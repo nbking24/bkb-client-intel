@@ -17,6 +17,34 @@ async function getCOTrackingForJob(jobId: string): Promise<{
   budgetCOs: Array<{ id: string; name: string; isApproved: boolean }>;
 }> {
   try {
+    // Fetch approved CO document names — we only need the cost group names from approved docs
+    // to determine which budget COs have been approved
+    const rawDocs = await pave({
+      job: {
+        $: { id: jobId },
+        documents: {
+          $: { size: 50 },
+          nodes: {
+            id: {},
+            name: {},
+            status: {},
+            type: {},
+            costGroups: { nodes: { name: {} } },
+          },
+        },
+      },
+    });
+    const allDocs = (rawDocs as any)?.job?.documents?.nodes || [];
+    // Collect all cost group names from approved CO documents
+    const approvedCOGroupNames = new Set<string>();
+    for (const doc of allDocs) {
+      if (doc.type === 'customerOrder' && doc.status === 'approved') {
+        for (const g of (doc.costGroups?.nodes || [])) {
+          if (g.name) approvedCOGroupNames.add(g.name.trim().toLowerCase());
+        }
+      }
+    }
+
     // Fetch cost groups with cursor-based pagination (PAVE max size is 100)
     // Large jobs like Zajick have 500+ groups — use up to 10 pages (1000 groups max)
     let allGroups: any[] = [];
@@ -47,47 +75,7 @@ async function getCOTrackingForJob(jobId: string): Promise<{
       if (!nextPage || nodes.length < 100) break;
     }
 
-    // Fetch cost items with approvedPrice — paginate same as groups
-    // approvedPrice exists on cost items (not groups) and indicates the CO was approved
-    let allItems: any[] = [];
-    let itemNextPage: string | null = null;
-
-    for (let i = 0; i < 10; i++) {
-      const pageParams: Record<string, unknown> = { size: 100 };
-      if (itemNextPage) pageParams.page = itemNextPage;
-
-      const itemData = await pave({
-        job: {
-          $: { id: jobId },
-          costItems: {
-            $: pageParams,
-            nextPage: {},
-            nodes: {
-              id: {},
-              approvedPrice: {},
-              costGroup: { id: {} },
-            },
-          },
-        },
-      });
-      const costItems = (itemData as any)?.job?.costItems;
-      const nodes = costItems?.nodes || [];
-      allItems = allItems.concat(nodes);
-      itemNextPage = costItems?.nextPage || null;
-      if (!itemNextPage || nodes.length < 100) break;
-    }
-
     const groups = allGroups;
-
-    // Build a set of group IDs that contain at least one item with an approved price
-    const groupsWithApprovedPrice = new Set<string>();
-    for (const item of allItems) {
-      const ap = item.approvedPrice;
-      if (ap !== null && ap !== undefined && ap !== 0) {
-        const gid = item.costGroup?.id;
-        if (gid) groupsWithApprovedPrice.add(gid);
-      }
-    }
 
     // Find the "Change Orders" parent group(s) — top-level CO containers
     const coRootIds = new Set(
@@ -104,21 +92,6 @@ async function getCOTrackingForJob(jobId: string): Promise<{
         if (!childrenOf.has(pid)) childrenOf.set(pid, []);
         childrenOf.get(pid)!.push(g);
       }
-    }
-
-    // Helper: check if a group or any of its descendants has items with approved prices
-    function hasApprovedDescendant(groupId: string): boolean {
-      if (groupsWithApprovedPrice.has(groupId)) return true;
-      const stack = [groupId];
-      while (stack.length > 0) {
-        const current = stack.pop()!;
-        const kids = childrenOf.get(current) || [];
-        for (const kid of kids) {
-          if (groupsWithApprovedPrice.has(kid.id)) return true;
-          stack.push(kid.id);
-        }
-      }
-      return false;
     }
 
     // Recursively find CO groups — direct children of structural groups like "Client Requested"
@@ -141,10 +114,11 @@ async function getCOTrackingForJob(jobId: string): Promise<{
           const normName = (child.name || '').trim().toLowerCase();
           if (!seenNames.has(normName)) {
             seenNames.add(normName);
+            // A CO is approved if any approved document contains a cost group with this CO's name
             budgetCOs.push({
               id: child.id,
               name: child.name,
-              isApproved: hasApprovedDescendant(child.id),
+              isApproved: approvedCOGroupNames.has(normName),
             });
           }
         }
