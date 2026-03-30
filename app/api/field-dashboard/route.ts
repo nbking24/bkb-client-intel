@@ -1,7 +1,7 @@
 // @ts-nocheck
 import { NextRequest, NextResponse } from 'next/server';
 import { validateAuth } from '../lib/auth';
-import { getActiveJobs, getTasksForJob, getOpenTasksForMember, updateTaskProgress, updateTask, getCommentsForTarget, pave, getDocumentStatusesForJob } from '@/app/lib/jobtread';
+import { getActiveJobs, getTasksForJob, getOpenTasksForMember, updateTaskProgress, updateTask, getCommentsForTarget, pave } from '@/app/lib/jobtread';
 import { TEAM_USERS } from '@/app/lib/constants';
 
 /**
@@ -14,14 +14,35 @@ import { TEAM_USERS } from '@/app/lib/constants';
  */
 
 async function getCOTrackingForJob(jobId: string): Promise<{
-  budgetCOs: Array<{ id: string; name: string; approvedPrice: number | null }>;
-  documents: Array<{ id: string; name: string; number: string; status: string; type: string; createdAt?: string }>;
+  budgetCOs: Array<{ id: string; name: string }>;
+  documents: Array<{ id: string; name: string; subject?: string; number: string; status: string; type: string; createdAt?: string; costGroupIds?: string[] }>;
 }> {
   try {
     // Fetch cost groups with cursor-based pagination (PAVE max size is 100)
     // Large jobs like Zajick have 500+ groups — use up to 10 pages (1000 groups max)
-    // Include approvedPrice to detect COs approved via budget (not just via CO document)
-    const docs = await getDocumentStatusesForJob(jobId);
+    // Also fetch documents with subject + costGroups for matching COs to approved docs
+    const rawDocs = await pave({
+      job: {
+        $: { id: jobId },
+        documents: {
+          $: { size: 50 },
+          nodes: {
+            id: {},
+            name: {},
+            subject: {},
+            number: {},
+            status: {},
+            type: {},
+            createdAt: {},
+            costGroups: { nodes: { id: {} } },
+          },
+        },
+      },
+    });
+    const docs = ((rawDocs as any)?.job?.documents?.nodes || []).map((d: any) => ({
+      ...d,
+      costGroupIds: (d.costGroups?.nodes || []).map((g: any) => g.id),
+    }));
 
     let allGroups: any[] = [];
     let nextPage: string | null = null;
@@ -39,8 +60,6 @@ async function getCOTrackingForJob(jobId: string): Promise<{
             nodes: {
               id: {},
               name: {},
-              price: {},
-              approvedPrice: {},
               parentCostGroup: { id: {}, name: {} },
             },
           },
@@ -74,7 +93,7 @@ async function getCOTrackingForJob(jobId: string): Promise<{
 
     // Recursively find CO groups — direct children of structural groups like "Client Requested"
     // These are the actual named change orders (e.g., "Foyer & Crown Moulding", "Kitchen Ceiling")
-    const budgetCOs: Array<{ id: string; name: string; approvedPrice: number | null }> = [];
+    const budgetCOs: Array<{ id: string; name: string }> = [];
     const visited = new Set<string>();
     const seenNames = new Set<string>(); // Deduplicate COs by name (phantom root groups create dupes)
 
@@ -94,7 +113,7 @@ async function getCOTrackingForJob(jobId: string): Promise<{
           const normName = (child.name || '').trim().toLowerCase();
           if (!seenNames.has(normName)) {
             seenNames.add(normName);
-            budgetCOs.push({ id: child.id, name: child.name, approvedPrice: child.approvedPrice ?? null });
+            budgetCOs.push({ id: child.id, name: child.name });
           }
         }
       }
@@ -495,9 +514,9 @@ export async function GET(req: NextRequest) {
 
     // Build CO tracker data
     // Status logic:
-    //   1. If the budget group has a non-null/non-zero approvedPrice → "approved" (client approved via budget)
-    //   2. If a CO document exists and matches → use document status (draft/sent/approved/declined)
-    //   3. Otherwise → "needs_document" (CO exists in budget but no document and not yet approved)
+    //   1. If an approved CO document is linked (via costGroupIds) to this budget group → "approved"
+    //   2. If a CO document matches by costGroupIds or name → use document status (draft/sent/approved/declined)
+    //   3. Otherwise → "needs_document" (CO exists in budget but no document)
     const changeOrders: any[] = [];
     for (const jobCO of coTrackingResults) {
       if (jobCO.budgetCOs.length === 0 && jobCO.documents.length === 0) continue;
@@ -510,17 +529,20 @@ export async function GET(req: NextRequest) {
 
       // Each budget CO group is a separate change order
       for (const co of jobCO.budgetCOs) {
-        // Check if this CO has been approved via the budget (approvedPrice set)
-        const hasApprovedPrice = co.approvedPrice !== null && co.approvedPrice !== undefined && co.approvedPrice !== 0;
+        // Primary match: find CO documents whose costGroupIds include this budget group's ID
+        // This is the most reliable match — JT links documents directly to cost groups
+        let docIdx = unmatchedDocs.findIndex((d: any) =>
+          d.costGroupIds && d.costGroupIds.includes(co.id)
+        );
 
-        // Try to find a matching CO document by looking for docs that haven't been matched yet
-        // Match by finding draft/issued docs first (they need action), then approved/declined
-        const docIdx = unmatchedDocs.findIndex((d: any) => {
-          // Try name-based matching: doc subject or name contains the CO name
-          const docLabel = (d.subject || d.name || '').toLowerCase();
-          const coLabel = (co.name || '').toLowerCase();
-          return docLabel.includes(coLabel) || coLabel.includes(docLabel);
-        });
+        // Fallback: name-based matching if no costGroupId match found
+        if (docIdx < 0) {
+          docIdx = unmatchedDocs.findIndex((d: any) => {
+            const docLabel = (d.subject || d.name || '').toLowerCase();
+            const coLabel = (co.name || '').toLowerCase();
+            return docLabel.includes(coLabel) || coLabel.includes(docLabel);
+          });
+        }
 
         let documentStatus: string;
         let documentId: string | null = null;
@@ -528,11 +550,8 @@ export async function GET(req: NextRequest) {
         let hasDocument = false;
         let isStale = false;
 
-        if (hasApprovedPrice) {
-          // Budget shows approved price — this CO is approved regardless of document status
-          documentStatus = 'approved';
-        } else if (docIdx >= 0) {
-          // Found a matching document
+        if (docIdx >= 0) {
+          // Found a matching document — use its status
           const doc = unmatchedDocs.splice(docIdx, 1)[0];
           hasDocument = true;
           documentId = doc.id;
@@ -545,9 +564,17 @@ export async function GET(req: NextRequest) {
           const docAge = doc.createdAt ? now - new Date(doc.createdAt).getTime() : Infinity;
           isStale = (documentStatus === 'draft' && docAge > STALE_THRESHOLD_MS);
         } else {
-          // No approved price and no matching document
-          documentStatus = 'needs_document';
-          isStale = true;
+          // No matching document — check if any already-matched approved doc covers this group
+          // (documents can link to multiple cost groups, so check all docs not just unmatched)
+          const approvedViaDoc = jobCO.documents.some((d: any) =>
+            d.status === 'approved' && d.costGroupIds && d.costGroupIds.includes(co.id)
+          );
+          if (approvedViaDoc) {
+            documentStatus = 'approved';
+          } else {
+            documentStatus = 'needs_document';
+            isStale = true;
+          }
         }
 
         changeOrders.push({
