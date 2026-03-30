@@ -15,7 +15,7 @@ import { TEAM_USERS } from '@/app/lib/constants';
 
 async function getCOTrackingForJob(jobId: string): Promise<{
   budgetCOs: Array<{ id: string; name: string; descendantIds: string[] }>;
-  documents: Array<{ id: string; name: string; subject?: string; number: string; status: string; type: string; createdAt?: string; costGroupIds?: string[] }>;
+  documents: Array<{ id: string; name: string; subject?: string; number: string; status: string; type: string; createdAt?: string; costGroupIds?: string[]; costGroupNames?: string[] }>;
 }> {
   try {
     // Fetch cost groups with cursor-based pagination (PAVE max size is 100)
@@ -34,7 +34,7 @@ async function getCOTrackingForJob(jobId: string): Promise<{
             status: {},
             type: {},
             createdAt: {},
-            costGroups: { nodes: { id: {} } },
+            costGroups: { nodes: { id: {}, name: {} } },
           },
         },
       },
@@ -42,6 +42,7 @@ async function getCOTrackingForJob(jobId: string): Promise<{
     const docs = ((rawDocs as any)?.job?.documents?.nodes || []).map((d: any) => ({
       ...d,
       costGroupIds: (d.costGroups?.nodes || []).map((g: any) => g.id),
+      costGroupNames: (d.costGroups?.nodes || []).map((g: any) => (g.name || '').trim().toLowerCase()),
     }));
 
     let allGroups: any[] = [];
@@ -545,22 +546,19 @@ export async function GET(req: NextRequest) {
 
       // Each budget CO group is a separate change order
       for (const co of jobCO.budgetCOs) {
-        // Build the full set of group IDs that belong to this CO (self + all descendants)
-        // Documents may link to child groups within a CO, not the CO group itself
-        const coGroupIds = new Set([co.id, ...(co.descendantIds || [])]);
+        const coNameNorm = (co.name || '').trim().toLowerCase();
 
-        // Primary match: find CO documents whose costGroupIds overlap with this CO's group tree
-        // This is the most reliable match — JT links documents directly to cost groups
+        // Primary match: find CO documents whose internal cost group names include this CO's name
+        // Documents have their own cost group copies with different IDs, so we match by name
         let docIdx = unmatchedDocs.findIndex((d: any) =>
-          d.costGroupIds && d.costGroupIds.some((gid: string) => coGroupIds.has(gid))
+          d.costGroupNames && d.costGroupNames.includes(coNameNorm)
         );
 
-        // Fallback: name-based matching if no costGroupId match found
+        // Fallback: looser name matching — doc subject/name contains CO name or vice versa
         if (docIdx < 0) {
           docIdx = unmatchedDocs.findIndex((d: any) => {
             const docLabel = (d.subject || d.name || '').toLowerCase();
-            const coLabel = (co.name || '').toLowerCase();
-            return docLabel.includes(coLabel) || coLabel.includes(docLabel);
+            return docLabel.includes(coNameNorm) || coNameNorm.includes(docLabel);
           });
         }
 
@@ -584,11 +582,10 @@ export async function GET(req: NextRequest) {
           const docAge = doc.createdAt ? now - new Date(doc.createdAt).getTime() : Infinity;
           isStale = (documentStatus === 'draft' && docAge > STALE_THRESHOLD_MS);
         } else {
-          // No matching document — check if any approved doc (across ALL docs) covers this CO group tree
-          // Documents can link to multiple cost groups and may already be matched to another CO
+          // No matching document in unmatched pool — check ALL docs (including already-matched)
+          // A single document can cover multiple CO groups (e.g. CO #22 covers Kitchen Ceiling)
           const approvedViaDoc = jobCO.documents.some((d: any) =>
-            d.status === 'approved' && d.costGroupIds &&
-            d.costGroupIds.some((gid: string) => coGroupIds.has(gid))
+            d.status === 'approved' && d.costGroupNames && d.costGroupNames.includes(coNameNorm)
           );
           if (approvedViaDoc) {
             documentStatus = 'approved';
