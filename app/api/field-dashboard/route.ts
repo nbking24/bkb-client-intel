@@ -54,7 +54,7 @@ export async function GET(req: NextRequest) {
       myJobs.map(async (job: any) => {
         const [tasks, comments] = await Promise.all([
           getTasksForJob(job.id).catch(() => []),
-          getCommentsForTarget(job.id, 'job', 15).catch(() => []),
+          getCommentsForTarget(job.id, 'job', 15).catch((err) => { console.error('Comment fetch error for job', job.id, err?.message || err); return []; }),
         ]);
         return { jobId: job.id, tasks, comments };
       })
@@ -234,6 +234,9 @@ export async function GET(req: NextRequest) {
       parts.push(`Recent activity: ${commParts.join('. ')}.`);
     }
 
+    // Debug: count raw comments fetched per job
+    const commentDebug = jobDataResults.map(r => ({ jobId: r.jobId, commentCount: r.comments.length })).filter(r => r.commentCount > 0);
+
     return NextResponse.json({
       userName: user.name,
       briefing: parts.join(' '),
@@ -245,6 +248,7 @@ export async function GET(req: NextRequest) {
       openTasks,
       recentComments: recentComments.slice(0, 10),
       activeJobCount: myJobs.length,
+      _debug: { commentDebug, cutoffDate: new Date(cutoffTime).toISOString(), totalRawComments: jobDataResults.reduce((s, r) => s + r.comments.length, 0) },
     });
   } catch (err: any) {
     console.error('Field dashboard error:', err);
