@@ -1,22 +1,319 @@
 // @ts-nocheck
 'use client';
 
-import { useState, useEffect, useMemo, useRef } from 'react';
+import { useState, useEffect, useMemo, useRef, useCallback } from 'react';
 import {
   AlertTriangle, Loader2, RefreshCw, Calendar,
   Check, MessageSquare, ChevronDown, ChevronUp,
   Zap, ClipboardList, Circle, CheckCircle2,
-  X, Briefcase, CalendarDays, ExternalLink
+  X, Briefcase, CalendarDays, ExternalLink,
+  Send, Bot, User, CheckCircle, XCircle
 } from 'lucide-react';
 import { useAuth } from '@/app/hooks/useAuth';
-import Link from 'next/link';
+import {
+  formatContent,
+  type ChatMessage,
+  type TaskConfirmData,
+} from '@/app/hooks/useAskAgent';
 
 function getToken() {
   return typeof window !== 'undefined' ? localStorage.getItem('bkb-token') || '' : '';
 }
+function getAuthToken() {
+  const pin = typeof window !== 'undefined' ? (process.env.NEXT_PUBLIC_APP_PIN || '') : '';
+  return btoa(pin + ':');
+}
 function getGreeting() {
   const h = new Date().getHours();
   return h < 12 ? 'Good morning' : h < 17 ? 'Good afternoon' : 'Good evening';
+}
+
+/* ── Inline Ask Agent Chat ── */
+function RenderContent({ content }: { content: string }) {
+  const elements = formatContent(content);
+  return (
+    <>
+      {(elements as any[]).map((el: any) => {
+        if (el.type === 'code') {
+          return (
+            <pre key={el.key} style={{ background: '#1a1a1a', border: '1px solid rgba(205,162,116,0.1)', borderRadius: 6, padding: '6px 8px', fontSize: 11, color: '#c8c0b8', overflowX: 'auto', whiteSpace: 'pre-wrap', margin: '4px 0', fontFamily: 'ui-monospace, SFMono-Regular, monospace' }}>{el.content}</pre>
+          );
+        }
+        if (el.type === 'h2') return <div key={el.key} style={{ fontWeight: 700, color: '#CDA274', fontSize: 13, marginTop: 6, marginBottom: 2 }} dangerouslySetInnerHTML={{ __html: el.html }} />;
+        if (el.type === 'h3') return <div key={el.key} style={{ fontWeight: 600, color: '#e8e0d8', fontSize: 12, marginTop: 4, marginBottom: 1 }} dangerouslySetInnerHTML={{ __html: el.html }} />;
+        if (el.type === 'bullet') return <div key={el.key} style={{ marginLeft: 10 }} dangerouslySetInnerHTML={{ __html: '&bull; ' + el.html }} />;
+        if (el.type === 'numbered') return <div key={el.key} style={{ marginLeft: 10 }} dangerouslySetInnerHTML={{ __html: el.html }} />;
+        if (el.type === 'hr') return <hr key={el.key} style={{ border: 'none', borderTop: '1px solid rgba(205,162,116,0.1)', margin: '6px 0' }} />;
+        if (el.type === 'spacer') return <div key={el.key} style={{ height: 4 }} />;
+        return <div key={el.key} dangerouslySetInnerHTML={{ __html: el.html }} />;
+      })}
+    </>
+  );
+}
+
+function InlineAskAgent({ pmJobs }: { pmJobs: { id: string; name: string; number: string }[] }) {
+  const [open, setOpen] = useState(false);
+  const [query, setQuery] = useState('');
+  const [messages, setMessages] = useState<ChatMessage[]>([]);
+  const [loading, setLoading] = useState(false);
+  const [lastAgent, setLastAgent] = useState<string | null>(null);
+  const [selectedJobId, setSelectedJobId] = useState('');
+  const [phaseEdit, setPhaseEdit] = useState<string | null>(null);
+  const messagesEndRef = useRef<HTMLDivElement>(null);
+  const inputRef = useRef<HTMLTextAreaElement>(null);
+
+  useEffect(() => {
+    messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
+  }, [messages, loading]);
+
+  // Auto-focus input when opened
+  useEffect(() => {
+    if (open) setTimeout(() => inputRef.current?.focus(), 100);
+  }, [open]);
+
+  const selectedJob = useMemo(() => pmJobs.find(j => j.id === selectedJobId) || null, [pmJobs, selectedJobId]);
+
+  const sendMessage = useCallback(async (userMsg: string) => {
+    if (!userMsg.trim() || loading) return;
+
+    let messageForApi = userMsg;
+    if (selectedJob) {
+      messageForApi = `[Context: The user has selected job "${selectedJob.name}" (#${selectedJob.number}, ID: ${selectedJob.id}). Use this as the target job for their question.]\n\n${userMsg}`;
+    }
+
+    setMessages(prev => [...prev, { role: 'user', content: userMsg }]);
+    setLoading(true);
+
+    try {
+      const allMessages = [
+        ...messages.map(m => ({ role: m.role, content: m.content })),
+        { role: 'user', content: messageForApi },
+      ];
+
+      const response = await fetch('/api/chat', {
+        method: 'POST',
+        headers: { 'Authorization': `Bearer ${getAuthToken()}`, 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          messages: allMessages,
+          lastAgent: lastAgent || undefined,
+          ...(selectedJob ? { jtJobId: selectedJob.id } : {}),
+        }),
+      });
+
+      if (!response.ok) {
+        let errorMsg = `HTTP ${response.status}`;
+        try { const errData = await response.json(); errorMsg = errData.error || errorMsg; } catch {
+          try { const text = await response.text(); errorMsg = text.includes('FUNCTION_INVOCATION_TIMEOUT') ? 'Request timed out — try a more specific question.' : (text.substring(0, 200) || 'Request failed'); } catch { errorMsg = 'Request failed'; }
+        }
+        throw new Error(errorMsg);
+      }
+
+      const data = await response.json();
+      setLastAgent(data.agent || null);
+      setMessages(prev => [
+        ...prev,
+        {
+          role: 'assistant',
+          content: data.reply || 'No response generated.',
+          agent: data.agent,
+          needsConfirmation: data.needsConfirmation || false,
+          taskConfirm: data.taskConfirm || undefined,
+        },
+      ]);
+    } catch (err) {
+      const errMsg = 'Sorry, I ran into an error: ' + (err instanceof Error ? err.message : 'Unknown error');
+      setMessages(prev => [...prev, { role: 'assistant', content: errMsg }]);
+    } finally {
+      setLoading(false);
+    }
+  }, [loading, messages, lastAgent, selectedJob]);
+
+  const handleSubmit = (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!query.trim() || loading) return;
+    const msg = query.trim();
+    setQuery('');
+    sendMessage(msg);
+  };
+
+  const handleConfirm = async (edits?: Partial<TaskConfirmData>) => {
+    const lastMsg = messages[messages.length - 1];
+    const taskData = lastMsg?.taskConfirm;
+    setMessages(prev => prev.map((m, i) => i === prev.length - 1 ? { ...m, needsConfirmation: false } : m));
+    let confirmMsg = 'Yes, proceed.';
+    if (edits) {
+      const changes: string[] = [];
+      if (edits.phase) changes.push(`put the task under the "${edits.phase}" phase instead`);
+      if (changes.length > 0) confirmMsg = 'Yes, proceed but ' + changes.join(', and ') + '.';
+    }
+    if (taskData) {
+      const mergedData = edits ? { ...taskData, ...edits } : taskData;
+      if (edits?.phase && edits.phase !== taskData.phase) { delete (mergedData as any).phaseId; (mergedData as any).phaseChanged = true; }
+      confirmMsg += '\n\n[APPROVED TASK DATA — execute this now using create_phase_task tool]\n' + JSON.stringify(mergedData);
+    }
+    await sendMessage(confirmMsg);
+  };
+
+  const handleDecline = () => {
+    setMessages(prev => [
+      ...prev.map((m, i) => i === prev.length - 1 ? { ...m, needsConfirmation: false } : m),
+      { role: 'user', content: 'No, cancel that.' },
+      { role: 'assistant', content: 'No problem — action cancelled.' },
+    ]);
+  };
+
+  const lastMsgNeedsConfirm = messages.length > 0 && messages[messages.length - 1].role === 'assistant' && messages[messages.length - 1].needsConfirmation && !loading;
+
+  const suggestions = [
+    'What specs are approved for this job?',
+    'Show me all overdue tasks',
+    'Create a task for inspections',
+    "What's the schedule look like?",
+  ];
+
+  return (
+    <div style={{ marginBottom: 6, borderRadius: 8, border: '1px solid rgba(205,162,116,0.12)', overflow: 'hidden', background: '#1a1a1a' }}>
+      {/* Toggle Bar */}
+      <button
+        onClick={() => setOpen(!open)}
+        style={{
+          width: '100%', display: 'flex', alignItems: 'center', gap: 6,
+          padding: '7px 10px', background: open ? 'rgba(205,162,116,0.08)' : 'transparent',
+          border: 'none', cursor: 'pointer', textAlign: 'left',
+        }}
+      >
+        <div style={{ width: 22, height: 22, borderRadius: 11, background: 'rgba(205,162,116,0.12)', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
+          <Bot size={12} style={{ color: '#CDA274' }} />
+        </div>
+        <span style={{ flex: 1, fontSize: 12, fontWeight: 600, color: '#CDA274' }}>Ask Agent</span>
+        <span style={{ fontSize: 9, color: '#5a5550' }}>Tasks · Specs · Schedule</span>
+        {open ? <ChevronUp size={12} style={{ color: '#5a5550' }} /> : <ChevronDown size={12} style={{ color: '#5a5550' }} />}
+      </button>
+
+      {/* Chat Body */}
+      {open && (
+        <div style={{ borderTop: '1px solid rgba(205,162,116,0.08)' }}>
+          {/* Job Selector */}
+          <div style={{ padding: '6px 10px', borderBottom: '1px solid rgba(205,162,116,0.06)', display: 'flex', alignItems: 'center', gap: 6 }}>
+            <span style={{ fontSize: 9, color: '#5a5550', flexShrink: 0 }}>Job:</span>
+            <select
+              value={selectedJobId}
+              onChange={e => setSelectedJobId(e.target.value)}
+              style={{
+                flex: 1, background: '#242424', border: '1px solid rgba(205,162,116,0.1)',
+                borderRadius: 4, color: selectedJobId ? '#CDA274' : '#5a5550',
+                fontSize: 10, padding: '3px 6px', outline: 'none', cursor: 'pointer',
+              }}
+            >
+              <option value="">All jobs (no filter)</option>
+              {pmJobs.map(j => (
+                <option key={j.id} value={j.id}>#{j.number} {j.name}</option>
+              ))}
+            </select>
+            {messages.length > 0 && (
+              <button onClick={() => { setMessages([]); setLastAgent(null); }} style={{ fontSize: 9, color: '#5a5550', background: 'none', border: 'none', cursor: 'pointer', textDecoration: 'underline' }}>Clear</button>
+            )}
+          </div>
+
+          {/* Messages */}
+          <div style={{ maxHeight: 300, overflowY: 'auto', padding: '6px 10px' }}>
+            {messages.length === 0 && !loading && (
+              <div style={{ padding: '8px 0' }}>
+                <p style={{ fontSize: 10, color: '#5a5550', marginBottom: 6, textAlign: 'center' }}>Ask about tasks, specs, or schedules</p>
+                <div style={{ display: 'flex', flexWrap: 'wrap', gap: 4, justifyContent: 'center' }}>
+                  {suggestions.map(s => (
+                    <button key={s} onClick={() => { setQuery(s); inputRef.current?.focus(); }}
+                      style={{ fontSize: 9, padding: '3px 8px', borderRadius: 4, background: 'rgba(205,162,116,0.06)', border: '1px solid rgba(205,162,116,0.08)', color: '#8a8078', cursor: 'pointer' }}>
+                      {s}
+                    </button>
+                  ))}
+                </div>
+              </div>
+            )}
+
+            {messages.map((msg, i) => (
+              <div key={i} style={{ marginBottom: 6 }}>
+                <div style={{ display: 'flex', gap: 6, justifyContent: msg.role === 'user' ? 'flex-end' : 'flex-start' }}>
+                  {msg.role === 'assistant' && (
+                    <div style={{ width: 18, height: 18, borderRadius: 9, background: 'rgba(205,162,116,0.12)', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0, marginTop: 2 }}>
+                      <Bot size={10} style={{ color: '#CDA274' }} />
+                    </div>
+                  )}
+                  <div style={{
+                    maxWidth: '85%', padding: '5px 8px', borderRadius: 6, fontSize: 11, lineHeight: '16px',
+                    ...(msg.role === 'user'
+                      ? { background: '#1B3A5C', color: '#e8e0d8' }
+                      : { background: '#242424', color: '#e8e0d8', border: '1px solid rgba(205,162,116,0.06)' }),
+                  }}>
+                    {msg.role === 'assistant' ? <RenderContent content={msg.content} /> : msg.content}
+                  </div>
+                  {msg.role === 'user' && (
+                    <div style={{ width: 18, height: 18, borderRadius: 9, background: 'rgba(27,58,92,0.3)', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0, marginTop: 2 }}>
+                      <User size={10} style={{ color: '#e8e0d8' }} />
+                    </div>
+                  )}
+                </div>
+
+                {/* Confirmation buttons */}
+                {msg.needsConfirmation && i === messages.length - 1 && !loading && (
+                  <div style={{ marginLeft: 24, marginTop: 4, display: 'flex', gap: 6 }}>
+                    <button onClick={() => { handleConfirm(phaseEdit ? { phase: phaseEdit } : undefined); setPhaseEdit(null); }}
+                      style={{ display: 'flex', alignItems: 'center', gap: 4, padding: '4px 10px', borderRadius: 5, fontSize: 11, fontWeight: 600, background: 'rgba(34,197,94,0.15)', color: '#22c55e', border: 'none', cursor: 'pointer' }}>
+                      <CheckCircle size={12} /> Approve
+                    </button>
+                    <button onClick={() => { handleDecline(); setPhaseEdit(null); }}
+                      style={{ display: 'flex', alignItems: 'center', gap: 4, padding: '4px 10px', borderRadius: 5, fontSize: 11, fontWeight: 600, background: 'rgba(239,68,68,0.1)', color: '#ef4444', border: 'none', cursor: 'pointer' }}>
+                      <XCircle size={12} /> Cancel
+                    </button>
+                  </div>
+                )}
+              </div>
+            ))}
+
+            {loading && (
+              <div style={{ display: 'flex', gap: 6, alignItems: 'center', padding: '4px 0' }}>
+                <div style={{ width: 18, height: 18, borderRadius: 9, background: 'rgba(205,162,116,0.12)', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
+                  <Bot size={10} style={{ color: '#CDA274' }} />
+                </div>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 5, padding: '4px 8px', borderRadius: 6, background: '#242424', border: '1px solid rgba(205,162,116,0.06)' }}>
+                  <Loader2 size={12} className="animate-spin" style={{ color: '#CDA274' }} />
+                  <span style={{ fontSize: 10, color: '#5a5550' }}>Searching your data...</span>
+                </div>
+              </div>
+            )}
+            <div ref={messagesEndRef} />
+          </div>
+
+          {/* Input */}
+          <form onSubmit={handleSubmit} style={{ display: 'flex', alignItems: 'center', gap: 4, padding: '6px 10px', borderTop: '1px solid rgba(205,162,116,0.06)' }}>
+            <textarea
+              ref={inputRef}
+              value={query}
+              onChange={e => { setQuery(e.target.value); e.target.style.height = 'auto'; e.target.style.height = Math.min(e.target.scrollHeight, 80) + 'px'; }}
+              onKeyDown={e => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); if (query.trim() && !loading) handleSubmit(e as any); } }}
+              placeholder={selectedJob ? `Ask about #${selectedJob.number} ${selectedJob.name}...` : 'Ask about tasks, specs, or schedules...'}
+              rows={1}
+              disabled={loading}
+              style={{
+                flex: 1, background: '#242424', border: '1px solid rgba(205,162,116,0.1)',
+                borderRadius: 6, color: '#e8e0d8', fontSize: 11, padding: '6px 8px',
+                outline: 'none', resize: 'none', minHeight: 30, maxHeight: 80, overflowY: 'auto',
+                fontFamily: 'inherit',
+              }}
+            />
+            <button type="submit" disabled={!query.trim() || loading}
+              style={{
+                width: 28, height: 28, borderRadius: 6, border: 'none', cursor: query.trim() && !loading ? 'pointer' : 'default',
+                background: query.trim() && !loading ? 'rgba(205,162,116,0.15)' : 'transparent',
+                display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0,
+              }}>
+              <Send size={13} style={{ color: query.trim() && !loading ? '#CDA274' : '#3a3a3a' }} />
+            </button>
+          </form>
+        </div>
+      )}
+    </div>
+  );
 }
 
 const PALETTE = [
@@ -225,15 +522,13 @@ export default function FieldDashboardPage() {
       {/* HEADER */}
       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 6 }}>
         <h1 style={{ color: '#e8e0d8', fontSize: 18, fontWeight: 700, margin: 0 }}>{getGreeting()}, {firstName}</h1>
-        <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-          <Link href="/dashboard/ask" style={{ display: 'inline-flex', alignItems: 'center', gap: 4, padding: '5px 10px', borderRadius: 6, fontSize: 11, background: 'rgba(205,162,116,0.1)', color: '#CDA274', textDecoration: 'none' }}>
-            <MessageSquare size={11} /> Ask Agent
-          </Link>
-          <button onClick={() => fetchData(true)} disabled={refreshing} style={{ padding: 5, borderRadius: 6, background: 'rgba(205,162,116,0.08)', border: 'none', cursor: 'pointer', lineHeight: 0 }}>
-            <RefreshCw size={12} className={refreshing ? 'animate-spin' : ''} style={{ color: '#CDA274' }} />
-          </button>
-        </div>
+        <button onClick={() => fetchData(true)} disabled={refreshing} style={{ padding: 5, borderRadius: 6, background: 'rgba(205,162,116,0.08)', border: 'none', cursor: 'pointer', lineHeight: 0 }}>
+          <RefreshCw size={12} className={refreshing ? 'animate-spin' : ''} style={{ color: '#CDA274' }} />
+        </button>
       </div>
+
+      {/* INLINE ASK AGENT */}
+      <InlineAskAgent pmJobs={data.pmJobs || []} />
 
 
       {/* THREE TASK CARDS: Job Overdue | My Overdue | Open Tasks */}
