@@ -1,76 +1,67 @@
 // @ts-nocheck
 import { NextRequest, NextResponse } from 'next/server';
-import { validateAuth, isFieldStaffRole } from '../lib/auth';
-import { getActiveJobs, getTasksForJob, getOpenTasksForMember } from '@/app/lib/jobtread';
+import { validateAuth } from '../lib/auth';
+import { getActiveJobs, getTasksForJob, getOpenTasksForMember, updateTaskProgress } from '@/app/lib/jobtread';
 import { TEAM_USERS } from '@/app/lib/constants';
 
 /**
  * GET /api/field-dashboard
- * Returns personalized field staff dashboard data:
- * - AI briefing text summarizing what needs attention
- * - 2-week calendar of scheduled tasks per job (color-coded)
- * - Open tasks assigned to this user (collapsible list)
- * - Overdue tasks
+ * Forward-looking 2-week calendar, AI briefing, open/overdue tasks
+ *
+ * PATCH /api/field-dashboard
+ * Mark a task complete or incomplete: { taskId, complete: boolean }
  */
 export async function GET(req: NextRequest) {
   const auth = validateAuth(req.headers.get('authorization'));
-  if (!auth.valid) {
-    return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
-  }
-
+  if (!auth.valid) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
   const userId = auth.userId;
-  if (!userId) {
-    return NextResponse.json({ error: 'No user ID' }, { status: 400 });
-  }
-
+  if (!userId) return NextResponse.json({ error: 'No user ID' }, { status: 400 });
   const user = TEAM_USERS[userId];
-  if (!user) {
-    return NextResponse.json({ error: 'Unknown user' }, { status: 400 });
-  }
+  if (!user) return NextResponse.json({ error: 'Unknown user' }, { status: 400 });
 
   try {
     const membershipId = user.membershipId;
-
-    // Fetch active jobs + open tasks for this member in parallel
     const [activeJobs, memberTasks] = await Promise.all([
       getActiveJobs(50).catch(() => []),
       getOpenTasksForMember(membershipId).catch(() => []),
     ]);
 
-    // Filter active jobs to only those where this user is PM
     const userPmName = user.name;
     const myJobs = activeJobs.filter((j: any) => j.projectManager === userPmName);
-    const myJobIds = new Set(myJobs.map((j: any) => j.id));
 
-    // Build date boundaries
+    // Date boundaries
     const today = new Date();
     today.setHours(0, 0, 0, 0);
     const todayStr = today.toISOString().split('T')[0];
-
-    const dayOfWeek = today.getDay();
-    const mondayOffset = dayOfWeek === 0 ? -6 : 1 - dayOfWeek;
-    const weekStart = new Date(today);
-    weekStart.setDate(today.getDate() + mondayOffset);
-    const weekStartStr = weekStart.toISOString().split('T')[0];
-
-    const twoWeeksOut = new Date(weekStart);
-    twoWeeksOut.setDate(weekStart.getDate() + 13);
-    const twoWeeksStr = twoWeeksOut.toISOString().split('T')[0];
-
     const tomorrowStr = new Date(today.getTime() + 86400000).toISOString().split('T')[0];
 
-    // Fetch tasks for each PM job in parallel (for calendar)
-    const jobTaskPromises = myJobs.map(async (job: any) => {
-      try {
-        const tasks = await getTasksForJob(job.id);
-        return { jobId: job.id, tasks };
-      } catch {
-        return { jobId: job.id, tasks: [] };
-      }
-    });
-    const jobTaskResults = await Promise.all(jobTaskPromises);
+    // Forward-looking: upcoming Monday (if today is Mon, use today; otherwise next Mon)
+    const dow = today.getDay(); // 0=Sun
+    let upcomingMonday: Date;
+    if (dow === 1) {
+      upcomingMonday = new Date(today); // today is Monday
+    } else if (dow === 0) {
+      upcomingMonday = new Date(today.getTime() + 86400000); // tomorrow is Monday
+    } else {
+      upcomingMonday = new Date(today.getTime() + (8 - dow) * 86400000); // next Monday
+    }
+    const week1Start = upcomingMonday.toISOString().split('T')[0];
+    const week2End = new Date(upcomingMonday.getTime() + 13 * 86400000).toISOString().split('T')[0];
 
-    // Build calendar entries + overdue
+    // Build set of member-assigned task IDs for highlighting
+    const myTaskIds = new Set(memberTasks.map((t: any) => t.id));
+
+    // Fetch tasks per PM job
+    const jobTaskResults = await Promise.all(
+      myJobs.map(async (job: any) => {
+        try {
+          return { jobId: job.id, tasks: await getTasksForJob(job.id) };
+        } catch {
+          return { jobId: job.id, tasks: [] };
+        }
+      })
+    );
+
     const calendarTasks: any[] = [];
     const overdueTasks: any[] = [];
 
@@ -85,22 +76,26 @@ export async function GET(req: NextRequest) {
         if (!taskDate) continue;
         const dateStr = taskDate.split('T')[0];
 
+        // Overdue: before today and not complete
         if (dateStr < todayStr && !isComplete) {
           overdueTasks.push({
             id: task.id, name: task.name, date: dateStr,
             progress: task.progress,
             jobId: job.id, jobName: job.name, jobNumber: job.number,
+            isAssignedToMe: myTaskIds.has(task.id),
           });
           continue;
         }
 
-        if (dateStr >= weekStartStr && dateStr <= twoWeeksStr) {
+        // In 2-week forward window
+        if (dateStr >= week1Start && dateStr <= week2End) {
           calendarTasks.push({
             id: task.id, name: task.name, date: dateStr,
             startDate: task.startDate ? task.startDate.split('T')[0] : null,
             endDate: task.endDate ? task.endDate.split('T')[0] : null,
             progress: task.progress, isComplete,
             jobId: job.id, jobName: job.name, jobNumber: job.number,
+            isAssignedToMe: myTaskIds.has(task.id),
           });
         }
       }
@@ -109,97 +104,64 @@ export async function GET(req: NextRequest) {
     calendarTasks.sort((a, b) => a.date.localeCompare(b.date) || a.jobName.localeCompare(b.jobName));
     overdueTasks.sort((a, b) => a.date.localeCompare(b.date));
 
-    // Process member's open tasks (assigned to Evan)
+    // Open tasks assigned to user
     const jobMap = new Map<string, any>();
     for (const job of myJobs) jobMap.set(job.id, job);
 
     const openTasks = memberTasks.map((t: any) => {
       const jobInfo = t.job ? jobMap.get(t.job.id) || t.job : null;
       return {
-        id: t.id,
-        name: t.name,
-        endDate: t.endDate || null,
+        id: t.id, name: t.name, endDate: t.endDate || null,
         progress: t.progress,
         jobName: jobInfo?.name || t.job?.name || 'Unknown',
         jobNumber: jobInfo?.number || t.job?.number || '',
         jobId: t.job?.id || '',
       };
     }).sort((a: any, b: any) => {
-      // Sort: overdue first, then by date
       if (!a.endDate && !b.endDate) return 0;
       if (!a.endDate) return 1;
       if (!b.endDate) return -1;
       return a.endDate.localeCompare(b.endDate);
     });
 
-    // Count task categories for briefing
+    // Briefing
+    const hour = new Date().getHours();
+    const week1EndStr = new Date(upcomingMonday.getTime() + 6 * 86400000).toISOString().split('T')[0];
+    const week1Tasks = calendarTasks.filter(t => t.date <= week1EndStr && !t.isComplete);
+    const myWeek1Tasks = week1Tasks.filter(t => t.isAssignedToMe);
     const todayCalTasks = calendarTasks.filter(t => t.date === todayStr && !t.isComplete);
     const tomorrowCalTasks = calendarTasks.filter(t => t.date === tomorrowStr && !t.isComplete);
-    const thisWeekTasks = calendarTasks.filter(t => {
-      const weekEndStr = new Date(weekStart.getTime() + 6 * 86400000).toISOString().split('T')[0];
-      return t.date >= todayStr && t.date <= weekEndStr && !t.isComplete;
-    });
-
-    // Build AI briefing — contextual based on time of day
-    const hour = new Date().getHours();
-    const briefingParts: string[] = [];
+    const parts: string[] = [];
 
     if (hour < 12) {
-      // Morning briefing
       if (todayCalTasks.length > 0) {
-        const taskNames = todayCalTasks.slice(0, 3).map(t => t.name);
-        briefingParts.push(`Today: ${taskNames.join(', ')}${todayCalTasks.length > 3 ? ` and ${todayCalTasks.length - 3} more` : ''}.`);
-      } else {
-        briefingParts.push('No scheduled tasks today.');
+        parts.push(`Today: ${todayCalTasks.slice(0, 3).map(t => t.name).join(', ')}${todayCalTasks.length > 3 ? ` +${todayCalTasks.length - 3} more` : ''}.`);
       }
-      if (overdueTasks.length > 0) {
-        briefingParts.push(`${overdueTasks.length} overdue item${overdueTasks.length > 1 ? 's' : ''} need attention.`);
-      }
-      if (tomorrowCalTasks.length > 0) {
-        briefingParts.push(`Tomorrow has ${tomorrowCalTasks.length} task${tomorrowCalTasks.length > 1 ? 's' : ''} scheduled.`);
-      }
+      if (overdueTasks.length > 0) parts.push(`${overdueTasks.length} overdue item${overdueTasks.length > 1 ? 's' : ''} need attention.`);
+      if (tomorrowCalTasks.length > 0) parts.push(`${tomorrowCalTasks.length} task${tomorrowCalTasks.length > 1 ? 's' : ''} tomorrow.`);
     } else if (hour < 17) {
-      // Afternoon
-      if (todayCalTasks.length > 0) {
-        briefingParts.push(`${todayCalTasks.length} task${todayCalTasks.length > 1 ? 's' : ''} still scheduled today.`);
-      }
-      if (overdueTasks.length > 0) {
-        briefingParts.push(`${overdueTasks.length} overdue item${overdueTasks.length > 1 ? 's' : ''} pending.`);
-      }
+      if (overdueTasks.length > 0) parts.push(`${overdueTasks.length} overdue item${overdueTasks.length > 1 ? 's' : ''} pending.`);
       if (tomorrowCalTasks.length > 0) {
-        const names = tomorrowCalTasks.slice(0, 2).map(t => t.name);
-        briefingParts.push(`Tomorrow: ${names.join(', ')}${tomorrowCalTasks.length > 2 ? ` +${tomorrowCalTasks.length - 2} more` : ''}.`);
+        parts.push(`Tomorrow: ${tomorrowCalTasks.slice(0, 2).map(t => t.name).join(', ')}${tomorrowCalTasks.length > 2 ? ` +${tomorrowCalTasks.length - 2} more` : ''}.`);
       }
     } else {
-      // Evening prep
       if (tomorrowCalTasks.length > 0) {
-        const names = tomorrowCalTasks.slice(0, 3).map(t => t.name);
-        briefingParts.push(`Tomorrow: ${names.join(', ')}${tomorrowCalTasks.length > 3 ? ` and ${tomorrowCalTasks.length - 3} more` : ''}.`);
-      } else {
-        briefingParts.push('Nothing scheduled tomorrow.');
+        parts.push(`Tomorrow: ${tomorrowCalTasks.slice(0, 3).map(t => t.name).join(', ')}${tomorrowCalTasks.length > 3 ? ` +${tomorrowCalTasks.length - 3}` : ''}.`);
       }
-      if (overdueTasks.length > 0) {
-        briefingParts.push(`${overdueTasks.length} overdue item${overdueTasks.length > 1 ? 's' : ''} to address.`);
-      }
+      if (overdueTasks.length > 0) parts.push(`${overdueTasks.length} overdue to address.`);
     }
 
-    // Add job-level context
-    const jobsWithUpcoming = myJobs.filter((j: any) =>
-      calendarTasks.some(t => t.jobId === j.id && !t.isComplete)
-    );
-    if (jobsWithUpcoming.length > 0) {
-      const jobNames = jobsWithUpcoming.slice(0, 3).map((j: any) => j.name.split(' ').slice(0, 2).join(' '));
-      briefingParts.push(`Active this period: ${jobNames.join(', ')}${jobsWithUpcoming.length > 3 ? ` +${jobsWithUpcoming.length - 3} more` : ''}.`);
+    if (myWeek1Tasks.length > 0) {
+      parts.push(`${myWeek1Tasks.length} task${myWeek1Tasks.length > 1 ? 's' : ''} assigned to you next week.`);
     }
-
-    briefingParts.push(`${myJobs.length} total active job${myJobs.length > 1 ? 's' : ''} · ${openTasks.length} open task${openTasks.length > 1 ? 's' : ''} assigned to you.`);
+    parts.push(`${myJobs.length} active jobs · ${openTasks.length} open tasks.`);
 
     return NextResponse.json({
       userName: user.name,
-      briefing: briefingParts.join(' '),
-      weekStartDate: weekStartStr,
+      briefing: parts.join(' '),
+      week1Start: week1Start,
       todayDate: todayStr,
-      overdueTasks: overdueTasks.slice(0, 15),
+      overdueTasks: overdueTasks.slice(0, 20),
       calendarTasks,
       openTasks,
       activeJobCount: myJobs.length,
@@ -207,5 +169,21 @@ export async function GET(req: NextRequest) {
   } catch (err: any) {
     console.error('Field dashboard error:', err);
     return NextResponse.json({ error: 'Failed to load dashboard' }, { status: 500 });
+  }
+}
+
+/** PATCH: mark task complete/incomplete */
+export async function PATCH(req: NextRequest) {
+  const auth = validateAuth(req.headers.get('authorization'));
+  if (!auth.valid) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+
+  try {
+    const { taskId, complete } = await req.json();
+    if (!taskId) return NextResponse.json({ error: 'taskId required' }, { status: 400 });
+    await updateTaskProgress(taskId, complete ? 1 : 0);
+    return NextResponse.json({ ok: true, taskId, progress: complete ? 1 : 0 });
+  } catch (err: any) {
+    console.error('Task update error:', err);
+    return NextResponse.json({ error: 'Failed to update task' }, { status: 500 });
   }
 }
