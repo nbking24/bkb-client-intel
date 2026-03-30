@@ -47,16 +47,21 @@ interface OdTask {
   jobId: string; jobName: string; jobNumber: string;
   isAssignedToMe: boolean;
 }
-interface OpenTask {
+interface UpcomingTask {
   id: string; name: string; endDate: string | null; progress: number | null;
   jobName: string; jobNumber: string; jobId: string;
+}
+interface PmJob {
+  id: string; name: string; number: string;
 }
 interface Data {
   userName: string; briefing: string;
   week1Start: string; todayDate: string;
   jobOverdueTasks: OdTask[]; myOverdueTasks: OdTask[];
-  calendarTasks: CalTask[]; openTasks: OpenTask[];
+  myUpcomingTasks: UpcomingTask[];
+  calendarTasks: CalTask[];
   activeJobCount: number;
+  pmJobs: PmJob[];
 }
 
 export default function FieldDashboardPage() {
@@ -98,9 +103,9 @@ export default function FieldDashboardPage() {
           calendarTasks: data.calendarTasks.map(t =>
             t.id === taskId ? { ...t, isComplete: !currentlyComplete, progress: !currentlyComplete ? 1 : 0 } : t
           ),
-          openTasks: !currentlyComplete
-            ? data.openTasks.filter(t => t.id !== taskId)
-            : data.openTasks,
+          myUpcomingTasks: !currentlyComplete
+            ? data.myUpcomingTasks.filter(t => t.id !== taskId)
+            : data.myUpcomingTasks,
           myOverdueTasks: !currentlyComplete
             ? data.myOverdueTasks.filter(t => t.id !== taskId)
             : data.myOverdueTasks,
@@ -190,7 +195,7 @@ export default function FieldDashboardPage() {
   const firstName = data?.userName?.split(' ')[0] || auth.user?.name?.split(' ')[0] || '';
   const jobOverdueCount = data?.jobOverdueTasks?.length || 0;
   const myOverdueCount = data?.myOverdueTasks?.length || 0;
-  const openCount = data?.openTasks?.length || 0;
+  const myUpcomingCount = data?.myUpcomingTasks?.length || 0;
 
   if (loading) return (
     <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '80px 0' }}>
@@ -270,12 +275,12 @@ export default function FieldDashboardPage() {
           {myOverdueCount > 0 && (showTasks === 'myOverdue' ? <ChevronUp size={11} style={{ color: '#6a6058' }} /> : <ChevronDown size={11} style={{ color: '#6a6058' }} />)}
         </button>
 
-        {/* Open Tasks */}
+        {/* My Upcoming */}
         <button
-          onClick={() => openCount > 0 && setShowTasks(showTasks === 'open' ? false : 'open')}
+          onClick={() => myUpcomingCount > 0 && setShowTasks(showTasks === 'upcoming' ? false : 'upcoming')}
           style={{
             flex: 1, display: 'flex', alignItems: 'center', gap: 5,
-            padding: '7px 8px', borderRadius: 8, border: 'none', cursor: openCount > 0 ? 'pointer' : 'default',
+            padding: '7px 8px', borderRadius: 8, border: 'none', cursor: myUpcomingCount > 0 ? 'pointer' : 'default',
             background: '#1e1e1e', textAlign: 'left',
             borderWidth: 1, borderStyle: 'solid',
             borderColor: 'rgba(205,162,116,0.08)',
@@ -283,10 +288,10 @@ export default function FieldDashboardPage() {
         >
           <ClipboardList size={12} style={{ color: '#CDA274', flexShrink: 0 }} />
           <div style={{ flex: 1, minWidth: 0 }}>
-            <div style={{ fontSize: 16, fontWeight: 700, color: '#CDA274', lineHeight: 1 }}>{openCount}</div>
-            <div style={{ fontSize: 8, color: '#6a6058', marginTop: 1, whiteSpace: 'nowrap' }}>Open Tasks</div>
+            <div style={{ fontSize: 16, fontWeight: 700, color: '#CDA274', lineHeight: 1 }}>{myUpcomingCount}</div>
+            <div style={{ fontSize: 8, color: '#6a6058', marginTop: 1, whiteSpace: 'nowrap' }}>My Upcoming</div>
           </div>
-          {openCount > 0 && (showTasks === 'open' ? <ChevronUp size={11} style={{ color: '#6a6058' }} /> : <ChevronDown size={11} style={{ color: '#6a6058' }} />)}
+          {myUpcomingCount > 0 && (showTasks === 'upcoming' ? <ChevronUp size={11} style={{ color: '#6a6058' }} /> : <ChevronDown size={11} style={{ color: '#6a6058' }} />)}
         </button>
       </div>
 
@@ -333,11 +338,9 @@ export default function FieldDashboardPage() {
               </div>
             );
           })}
-          {showTasks === 'open' && data.openTasks.map(t => {
-            const isOverdue = t.endDate && t.endDate < data.todayDate;
+          {showTasks === 'upcoming' && data.myUpcomingTasks.map(t => {
             const lbl = !t.endDate ? '' : t.endDate === data.todayDate ? 'Today'
-              : isOverdue ? `${Math.floor((new Date(data.todayDate + 'T12:00:00').getTime() - new Date(t.endDate + 'T12:00:00').getTime()) / 86400000)}d overdue`
-              : (() => { const d = Math.floor((new Date(t.endDate + 'T12:00:00').getTime() - new Date(data.todayDate + 'T12:00:00').getTime()) / 86400000); return d === 1 ? 'Tomorrow' : `${d}d`; })();
+              : (() => { const d = Math.floor((new Date(t.endDate + 'T12:00:00').getTime() - new Date(data.todayDate + 'T12:00:00').getTime()) / 86400000); return d === 1 ? 'Tomorrow' : d <= 0 ? 'Today' : `${d}d`; })();
             return (
               <div key={t.id} style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '3px 0', borderBottom: '1px solid rgba(205,162,116,0.04)', fontSize: 11 }}>
                 <button onClick={() => toggleComplete(t.id, false)} disabled={completing.has(t.id)}
@@ -352,13 +355,48 @@ export default function FieldDashboardPage() {
                   <div style={{ color: '#e8e0d8', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', lineHeight: '14px' }}>{t.name}</div>
                   <div style={{ color: '#5a5550', fontSize: 9, lineHeight: '12px' }}>{t.jobName}</div>
                 </a>
-                <span style={{ color: isOverdue ? '#ef4444' : t.endDate === data.todayDate ? '#eab308' : '#5a5550', fontSize: 10, fontWeight: 500, flexShrink: 0 }}>{lbl}</span>
+                <span style={{ color: t.endDate === data.todayDate ? '#eab308' : '#5a5550', fontSize: 10, fontWeight: 500, flexShrink: 0 }}>{lbl}</span>
               </div>
             );
           })}
-          {((showTasks === 'jobOverdue' && jobOverdueCount === 0) || (showTasks === 'myOverdue' && myOverdueCount === 0) || (showTasks === 'open' && openCount === 0)) && (
+          {((showTasks === 'jobOverdue' && jobOverdueCount === 0) || (showTasks === 'myOverdue' && myOverdueCount === 0) || (showTasks === 'upcoming' && myUpcomingCount === 0)) && (
             <p style={{ color: '#5a5550', fontSize: 11, textAlign: 'center', padding: 8 }}>None</p>
           )}
+        </div>
+      )}
+
+      {/* PM JOBS - condensed clickable list */}
+      {data.pmJobs && data.pmJobs.length > 0 && (
+        <div style={{ background: 'rgba(205,162,116,0.04)', border: '1px solid rgba(205,162,116,0.08)', borderRadius: 8, padding: '6px 10px', marginBottom: 6 }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 5, marginBottom: 4 }}>
+            <Briefcase size={10} style={{ color: '#CDA274' }} />
+            <span style={{ fontSize: 9, fontWeight: 700, color: '#CDA274', letterSpacing: '0.06em' }}>MY JOBS</span>
+            <span style={{ fontSize: 9, color: '#4a4a4a' }}>({data.pmJobs.length})</span>
+          </div>
+          <div style={{ display: 'flex', flexWrap: 'wrap', gap: 3 }}>
+            {data.pmJobs.map(job => (
+              <a
+                key={job.id}
+                href={jtScheduleUrl(job.id)}
+                target="_blank"
+                rel="noopener noreferrer"
+                style={{
+                  display: 'inline-flex', alignItems: 'center', gap: 4,
+                  padding: '3px 7px', borderRadius: 5,
+                  background: 'rgba(205,162,116,0.06)',
+                  border: '1px solid rgba(205,162,116,0.1)',
+                  textDecoration: 'none', fontSize: 10, color: '#c0b8a8',
+                  transition: 'background 0.15s',
+                }}
+                onMouseEnter={e => (e.currentTarget.style.background = 'rgba(205,162,116,0.15)')}
+                onMouseLeave={e => (e.currentTarget.style.background = 'rgba(205,162,116,0.06)')}
+              >
+                <span style={{ width: 5, height: 5, borderRadius: 3, background: jobColor(job.number), flexShrink: 0 }} />
+                <span style={{ whiteSpace: 'nowrap' }}>{job.name.replace(/^#\d+\s*/, '')}</span>
+                <ExternalLink size={8} style={{ color: '#5a5550', flexShrink: 0 }} />
+              </a>
+            ))}
+          </div>
         </div>
       )}
 

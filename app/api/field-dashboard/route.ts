@@ -61,8 +61,9 @@ export async function GET(req: NextRequest) {
     );
 
     const calendarTasks: any[] = [];
-    const jobOverdueTasks: any[] = [];
-    const myOverdueTasks: any[] = [];
+    const jobOverdueTasks: any[] = []; // overdue on PM jobs, NOT assigned to Evan
+    const myOverdueTasks: any[] = [];  // overdue AND assigned to Evan
+    const myUpcomingTasks: any[] = []; // assigned to Evan, NOT overdue
 
     // Collect recent comments (last 30 days) across all jobs
     const cutoffTime = now.getTime() - 30 * 24 * 60 * 60 * 1000; // 30 days ago
@@ -87,8 +88,11 @@ export async function GET(req: NextRequest) {
             jobId: job.id, jobName: job.name, jobNumber: job.number,
             isAssignedToMe: myTaskIds.has(task.id),
           };
-          jobOverdueTasks.push(overdueItem);
-          if (myTaskIds.has(task.id)) myOverdueTasks.push(overdueItem);
+          if (myTaskIds.has(task.id)) {
+            myOverdueTasks.push(overdueItem);
+          } else {
+            jobOverdueTasks.push(overdueItem); // PM job overdue but NOT assigned to Evan
+          }
           continue;
         }
 
@@ -128,25 +132,33 @@ export async function GET(req: NextRequest) {
     // Sort comments newest first
     recentComments.sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
 
-    // Open tasks assigned to user
+    // Upcoming tasks assigned to user (not overdue)
     const jobMap = new Map<string, any>();
     for (const job of myJobs) jobMap.set(job.id, job);
 
-    const openTasks = memberTasks.map((t: any) => {
-      const jobInfo = t.job ? jobMap.get(t.job.id) || t.job : null;
-      return {
-        id: t.id, name: t.name, endDate: t.endDate || null,
-        progress: t.progress,
-        jobName: jobInfo?.name || t.job?.name || 'Unknown',
-        jobNumber: jobInfo?.number || t.job?.number || '',
-        jobId: t.job?.id || '',
-      };
-    }).sort((a: any, b: any) => {
-      if (!a.endDate && !b.endDate) return 0;
-      if (!a.endDate) return 1;
-      if (!b.endDate) return -1;
-      return a.endDate.localeCompare(b.endDate);
-    });
+    const myOverdueIds = new Set(myOverdueTasks.map((t: any) => t.id));
+    const myUpcomingFromMember = memberTasks
+      .filter((t: any) => !myOverdueIds.has(t.id)) // exclude overdue ones
+      .map((t: any) => {
+        const jobInfo = t.job ? jobMap.get(t.job.id) || t.job : null;
+        return {
+          id: t.id, name: t.name, endDate: t.endDate || null,
+          progress: t.progress,
+          jobName: jobInfo?.name || t.job?.name || 'Unknown',
+          jobNumber: jobInfo?.number || t.job?.number || '',
+          jobId: t.job?.id || '',
+        };
+      }).sort((a: any, b: any) => {
+        if (!a.endDate && !b.endDate) return 0;
+        if (!a.endDate) return 1;
+        if (!b.endDate) return -1;
+        return a.endDate.localeCompare(b.endDate);
+      });
+
+    // PM jobs list for quick navigation
+    const pmJobs = myJobs.map((j: any) => ({
+      id: j.id, name: j.name, number: j.number,
+    })).sort((a: any, b: any) => a.name.localeCompare(b.name));
 
     // ── BRIEFING: schedule-focused + recent communications ──
     const hour = now.getHours();
@@ -238,12 +250,13 @@ export async function GET(req: NextRequest) {
       briefing: parts.join(' '),
       week1Start,
       todayDate: todayStr,
-      jobOverdueTasks: jobOverdueTasks.slice(0, 40),
-      myOverdueTasks: myOverdueTasks.slice(0, 20),
+      jobOverdueTasks: jobOverdueTasks.slice(0, 50),
+      myOverdueTasks: myOverdueTasks.slice(0, 30),
+      myUpcomingTasks: myUpcomingFromMember.slice(0, 30),
       calendarTasks,
-      openTasks,
       recentComments: recentComments.slice(0, 10),
       activeJobCount: myJobs.length,
+      pmJobs,
     });
   } catch (err: any) {
     console.error('Field dashboard error:', err);
