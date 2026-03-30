@@ -10,7 +10,7 @@ import {
   FileCheck, FileWarning, FileClock, XCircle
 } from 'lucide-react';
 import { useAuth } from '@/app/hooks/useAuth';
-import { useScreenSize } from '@/app/hooks/useScreenSize';
+// Terri accesses dashboard on desktop only — no responsive hook needed
 import Link from 'next/link';
 
 function getToken() { return typeof window !== 'undefined' ? localStorage.getItem('bkb-token') || '' : ''; }
@@ -138,9 +138,8 @@ interface OverviewResponse {
 
 export default function DashboardOverview() {
   const auth = useAuth();
-  const screen = useScreenSize();
-  const isMobile = screen === 'mobile';
-  const isTouch = screen !== 'desktop';
+  const isMobile = false; // Desktop-only dashboard
+  const isTouch = false;
   const [overview, setOverview] = useState<OverviewResponse | null>(null);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
