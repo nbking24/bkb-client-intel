@@ -107,12 +107,6 @@ async function getCOTrackingForJob(jobId: string): Promise<{
       d.type === 'customerOrder' && /change\s*order|^co\b/i.test(d.name || '')
     );
 
-    console.log(`[CO-TRACK] Job ${jobId}: ${groups.length} groups, ${coRootIds.size} CO roots, ${budgetCOs.length} budget COs, ${coDocuments.length} CO docs`);
-    if (coRootIds.size > 0) {
-      const rootNames = groups.filter((g: any) => coRootIds.has(g.id)).map((g: any) => g.name);
-      console.log(`[CO-TRACK] Job ${jobId} roots: ${rootNames.join(', ')}`);
-      console.log(`[CO-TRACK] Job ${jobId} COs found: ${budgetCOs.map(c => c.name).join(', ')}`);
-    }
     return { budgetCOs, documents: coDocuments };
   } catch (err: any) {
     console.error(`[CO-TRACK] ERROR for job ${jobId}:`, err?.message || err);
@@ -499,13 +493,6 @@ export async function GET(req: NextRequest) {
 
     // Build CO tracker data
     const changeOrders: any[] = [];
-    console.log(`[CO-TRACK] Total coTrackingResults: ${coTrackingResults.length}`);
-    for (const jco of coTrackingResults) {
-      if (jco.budgetCOs.length > 0 || jco.documents.length > 0) {
-        console.log(`[CO-TRACK] Job ${jco.jobName}: ${jco.budgetCOs.length} budget COs, ${jco.documents.length} docs`);
-      }
-    }
-
     for (const jobCO of coTrackingResults) {
       if (jobCO.budgetCOs.length === 0 && jobCO.documents.length === 0) continue;
 
