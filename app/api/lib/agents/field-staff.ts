@@ -203,8 +203,27 @@ const fieldStaff: AgentModule = {
       '   - If they uploaded images, their public URLs will be in the conversation context as imageUrls\n' +
       '   - Include these URLs in your CO proposal so they get attached to the budget group in JobTread\n' +
       '5. When you have enough info, output a @@CO_PROPOSAL@@ block for approval:\n' +
-      '   @@CO_PROPOSAL@@{"coName":"Short descriptive name","jobId":"...","groupDescription":"Client-facing markdown description of what this CO covers","lineItems":[{"name":"Item name","description":"Installer-facing description","costCodeNumber":"04","costTypeName":"Subcontractor","unitName":"Lump Sum","quantity":1,"unitCost":500,"unitPrice":714.29}],"imageUrls":["https://..."],"createDocument":true/false,"followUp":{"needed":true,"assignTo":"nathan","description":"Review and send CO for upgraded flooring","dueDate":"2026-04-02"}}@@END_CO@@\n' +
+      '   @@CO_PROPOSAL@@{"coName":"Short descriptive name","jobId":"...","groupDescription":"Client-facing markdown description...","lineItems":[{"name":"Item name","description":"Installer-facing description","costCodeNumber":"04","costTypeName":"Subcontractor","unitName":"Lump Sum","quantity":1,"unitCost":500,"unitPrice":714.29}],"imageUrls":["https://..."],"createDocument":true/false,"followUp":{"needed":true,"assignTo":"nathan","description":"Review and send CO for upgraded flooring","dueDate":"2026-04-02"}}@@END_CO@@\n' +
       '6. NEVER create budget items directly — always output the proposal for user approval first\n\n' +
+      'GROUP DESCRIPTION (REQUIRED — this is client-facing and appears on the CO document):\n' +
+      'The `groupDescription` field is CRITICAL — it goes on the cost group in JobTread and flows through to the Change Order document the client sees.\n' +
+      'Write it as a professional, client-facing scope description using markdown formatting. Example format:\n' +
+      '```\n' +
+      '### Change Order – Kitchen Window Rot Repair\n\n' +
+      'During renovation, rot damage was discovered at the kitchen window header. The following repairs are required:\n\n' +
+      '- Sister rotted framing members with pressure-treated lumber\n' +
+      '- Install Grace Ice & Water Shield moisture barrier\n' +
+      '- Apply Sashco sealant for long-term weather protection\n\n' +
+      'NOTE:\n' +
+      '- If additional rot is found behind the existing framing, further repairs may be necessary and will be priced separately.\n' +
+      '```\n' +
+      'The description should:\n' +
+      '- Start with a markdown heading (### Change Order – [Name])\n' +
+      '- Briefly explain WHY the change is needed (what was discovered/requested)\n' +
+      '- List the specific work items in bullet points\n' +
+      '- Include any relevant notes or caveats at the bottom\n' +
+      '- Be written for the CLIENT, not internal use — professional and clear\n' +
+      '- Reference specific materials, brands, or methods when known\n\n' +
       'CHANGE ORDER PRICING RULES:\n' +
       '- BKB Labor: $85/hr cost, $125/hr price (32% margin)\n' +
       '- Subcontractor: cost / 0.70 = price (30% margin)\n' +
@@ -381,7 +400,7 @@ const fieldStaff: AgentModule = {
             },
           },
           createDocument: { type: 'boolean', description: 'Whether to create a draft CO document' },
-          groupDescription: { type: 'string', description: 'Client-facing markdown description for the CO group' },
+          groupDescription: { type: 'string', description: 'REQUIRED. Professional, client-facing markdown description for the CO group. This appears on the CO document the client sees. Use markdown heading, bullet points for work items, and any relevant notes/caveats.' },
           imageUrls: {
             type: 'array',
             description: 'Public URLs of photos to attach to the CO group (from /api/upload)',
@@ -398,7 +417,7 @@ const fieldStaff: AgentModule = {
             },
           },
         },
-        required: ['jobId', 'coName', 'lineItems'],
+        required: ['jobId', 'coName', 'lineItems', 'groupDescription'],
       },
     },
   ],
