@@ -38,17 +38,55 @@ async function getCOTrackingForJob(jobId: string): Promise<{
 
     const groups = (groupData as any)?.job?.costGroups?.nodes || [];
 
-    // Find the "Change Orders" parent group(s)
-    const coParentIds = new Set(
+    // Find the "Change Orders" parent group(s) — top-level CO containers
+    const coRootIds = new Set(
       groups
         .filter((g: any) => /change\s*order|🔁|post\s*pricing/i.test(g.name || ''))
         .map((g: any) => g.id)
     );
 
-    // Get child groups of CO parents (these are individual COs)
-    const budgetCOs = groups
-      .filter((g: any) => g.parentCostGroup?.id && coParentIds.has(g.parentCostGroup.id))
-      .map((g: any) => ({ id: g.id, name: g.name }));
+    // Build parent→children map for recursive traversal
+    const childrenOf = new Map<string, any[]>();
+    for (const g of groups) {
+      const pid = g.parentCostGroup?.id;
+      if (pid) {
+        if (!childrenOf.has(pid)) childrenOf.set(pid, []);
+        childrenOf.get(pid)!.push(g);
+      }
+    }
+
+    // Recursively find leaf CO groups (groups with no children that are descendants of a CO root)
+    // Also collect intermediate groups that have items (some COs are direct children)
+    const budgetCOs: Array<{ id: string; name: string }> = [];
+    const visited = new Set<string>();
+
+    function findCOGroups(parentId: string, depth: number) {
+      const children = childrenOf.get(parentId) || [];
+      for (const child of children) {
+        if (visited.has(child.id)) continue;
+        visited.add(child.id);
+        const grandChildren = childrenOf.get(child.id) || [];
+
+        // Skip known structural groups (e.g., "Client Requested", "Owner Requested", "🟢 Approved")
+        const isStructural = /^(client|owner|bkb)\s+requested$|^🟢\s*approved$|^🔴\s*declined$|^scope\s*of\s*work$/i.test(child.name?.trim() || '');
+
+        if (isStructural && grandChildren.length > 0) {
+          // Structural group — recurse into it but don't add it as a CO
+          findCOGroups(child.id, depth + 1);
+        } else if (grandChildren.length > 0 && depth < 3) {
+          // Has children and not too deep — this could be a CO group that contains scope subgroups
+          // Add it as a CO (it's likely "CO: Name" with line item subgroups)
+          budgetCOs.push({ id: child.id, name: child.name });
+        } else {
+          // Leaf group or deep enough — this is a CO
+          budgetCOs.push({ id: child.id, name: child.name });
+        }
+      }
+    }
+
+    for (const rootId of coRootIds) {
+      findCOGroups(rootId, 0);
+    }
 
     // Filter documents that are change orders (customerOrder type)
     // CO documents are typically named "Change Order" or have "CO" in the name
@@ -126,8 +164,9 @@ export async function GET(req: NextRequest) {
           return { jobId: job.id, tasks, comments };
         })
       ),
+      // Scan ALL active jobs for COs (not just PM's jobs) — field staff need visibility across all projects
       Promise.all(
-        myJobs.map(async (job: any) => {
+        activeJobs.map(async (job: any) => {
           const tracking = await getCOTrackingForJob(job.id).catch(() => ({ budgetCOs: [], documents: [] }));
           return { jobId: job.id, jobName: job.name, jobNumber: job.number, ...tracking };
         })
