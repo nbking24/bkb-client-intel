@@ -239,6 +239,115 @@ export async function GET(req: NextRequest) {
       parts.push(`${myWeek1Tasks.length} task${myWeek1Tasks.length > 1 ? 's' : ''} assigned to you this upcoming week.`);
     }
 
+    // ── KPI CALCULATIONS ──
+    // We use all tasks from PM jobs (jobDataResults) which includes completed tasks
+    const thirtyDaysAgo = new Date(today.getTime() - 30 * 86400000).toISOString().split('T')[0];
+    const sevenDaysAgo = new Date(today.getTime() - 7 * 86400000).toISOString().split('T')[0];
+
+    let totalCompletedLast30 = 0;
+    let completedOnTimeLast30 = 0;
+    let completedThisWeek = 0;
+    let completedLastWeek = 0;
+    const fourteenDaysAgo = new Date(today.getTime() - 14 * 86400000).toISOString().split('T')[0];
+    let allOverdueDaysSum = 0;
+    let allOverdueCount = 0;
+    let staleTaskCount = 0; // overdue 30+ days with no progress
+
+    for (const { tasks } of jobDataResults) {
+      for (const task of tasks) {
+        if (task.isGroup) continue;
+        const isComplete = task.progress !== null && task.progress >= 1;
+        const endDate = task.endDate ? task.endDate.split('T')[0] : null;
+        const completedAt = task.completedAt ? task.completedAt.split('T')[0] : null;
+        // Use updatedAt as proxy for completion date if completedAt not available
+        const doneDate = completedAt || (isComplete && task.updatedAt ? task.updatedAt.split('T')[0] : null);
+
+        // KPI 1: Schedule Adherence (completed in last 30 days, was it on time?)
+        if (isComplete && doneDate && doneDate >= thirtyDaysAgo) {
+          totalCompletedLast30++;
+          if (endDate && doneDate <= endDate) {
+            completedOnTimeLast30++;
+          } else if (!endDate) {
+            // No due date = can't be late, count as on-time
+            completedOnTimeLast30++;
+          }
+        }
+
+        // KPI 4: Tasks Completed This Week / Last Week
+        if (isComplete && doneDate) {
+          if (doneDate >= sevenDaysAgo) completedThisWeek++;
+          if (doneDate >= fourteenDaysAgo && doneDate < sevenDaysAgo) completedLastWeek++;
+        }
+
+        // KPI 2 & 3: Average Days Overdue + Stale count (open tasks only)
+        if (!isComplete && endDate && endDate < todayStr) {
+          const daysOver = Math.floor((today.getTime() - new Date(endDate + 'T12:00:00').getTime()) / 86400000);
+          allOverdueDaysSum += daysOver;
+          allOverdueCount++;
+          if (daysOver >= 30 && (task.progress === null || task.progress === 0)) {
+            staleTaskCount++;
+          }
+        }
+      }
+    }
+
+    // Also count overdue from non-PM member tasks
+    for (const t of memberTasks) {
+      const ed = t.endDate ? t.endDate.split('T')[0] : null;
+      if (ed && ed < todayStr) {
+        const isComplete = t.progress !== null && t.progress >= 1;
+        if (!isComplete && !myOverdueIds.has(t.id)) {
+          // Already counted in PM job loop if present — skip duplicates
+        }
+      }
+    }
+
+    // KPI 1: Schedule Adherence Score (%)
+    const scheduleAdherence = totalCompletedLast30 > 0
+      ? Math.round((completedOnTimeLast30 / totalCompletedLast30) * 100)
+      : null; // null = not enough data
+
+    // KPI 2: Average Days Overdue
+    const avgDaysOverdue = allOverdueCount > 0
+      ? Math.round((allOverdueDaysSum / allOverdueCount) * 10) / 10
+      : 0;
+
+    // KPI 3: Stale Task Count (30+ days overdue, no progress)
+    // Already calculated above
+
+    // KPI 4: Tasks Completed This Week + trend vs last week
+    const completionTrend = completedThisWeek - completedLastWeek; // positive = improving
+
+    // KPI 5: Upcoming Task Density (next 7 vs next 30)
+    const sevenDaysOut = new Date(today.getTime() + 7 * 86400000).toISOString().split('T')[0];
+    const thirtyDaysOut = new Date(today.getTime() + 30 * 86400000).toISOString().split('T')[0];
+    let tasksNext7 = 0;
+    let tasksNext30 = 0;
+    for (const { tasks } of jobDataResults) {
+      for (const task of tasks) {
+        if (task.isGroup) continue;
+        const isComplete = task.progress !== null && task.progress >= 1;
+        if (isComplete) continue;
+        const ed = task.endDate ? task.endDate.split('T')[0] : null;
+        if (!ed || ed < todayStr) continue;
+        if (ed <= sevenDaysOut) tasksNext7++;
+        if (ed <= thirtyDaysOut) tasksNext30++;
+      }
+    }
+
+    const kpis = {
+      scheduleAdherence,        // % on-time (last 30 days) or null
+      totalCompletedLast30,     // for context
+      avgDaysOverdue,           // average days overdue across all open overdue tasks
+      overdueTaskCount: allOverdueCount, // total overdue (all PM jobs)
+      staleTaskCount,           // 30+ days overdue, no progress
+      completedThisWeek,        // tasks done in last 7 days
+      completedLastWeek,        // tasks done 7-14 days ago (for trend)
+      completionTrend,          // +/- vs last week
+      tasksNext7,               // upcoming density: next 7 days
+      tasksNext30,              // upcoming density: next 30 days
+    };
+
     // Recent communications section — limit to 3 most active jobs
     if (recentComments.length > 0) {
       const commentsByJob = new Map<string, any[]>();
@@ -280,6 +389,7 @@ export async function GET(req: NextRequest) {
       recentComments: recentComments.slice(0, 10),
       activeJobCount: myJobs.length,
       pmJobs,
+      kpis,
     });
   } catch (err: any) {
     console.error('Field dashboard error:', err);

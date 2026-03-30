@@ -7,7 +7,8 @@ import {
   Check, MessageSquare, ChevronDown, ChevronUp,
   Zap, ClipboardList, Circle, CheckCircle2,
   X, Briefcase, CalendarDays, ExternalLink,
-  Send, Bot, User, CheckCircle, XCircle
+  Send, Bot, User, CheckCircle, XCircle,
+  TrendingUp, TrendingDown, Minus, Target, Clock3, Activity
 } from 'lucide-react';
 import { useAuth } from '@/app/hooks/useAuth';
 import {
@@ -351,6 +352,18 @@ interface UpcomingTask {
 interface PmJob {
   id: string; name: string; number: string;
 }
+interface KPIs {
+  scheduleAdherence: number | null;
+  totalCompletedLast30: number;
+  avgDaysOverdue: number;
+  overdueTaskCount: number;
+  staleTaskCount: number;
+  completedThisWeek: number;
+  completedLastWeek: number;
+  completionTrend: number;
+  tasksNext7: number;
+  tasksNext30: number;
+}
 interface Data {
   userName: string; briefing: string;
   week1Start: string; todayDate: string;
@@ -359,6 +372,7 @@ interface Data {
   calendarTasks: CalTask[];
   activeJobCount: number;
   pmJobs: PmJob[];
+  kpis: KPIs;
 }
 
 export default function FieldDashboardPage() {
@@ -530,6 +544,91 @@ export default function FieldDashboardPage() {
       {/* INLINE ASK AGENT */}
       <InlineAskAgent pmJobs={data.pmJobs || []} />
 
+      {/* KPI METRICS */}
+      {data.kpis && (() => {
+        const k = data.kpis;
+        const adherenceColor = k.scheduleAdherence === null ? '#5a5550' : k.scheduleAdherence >= 75 ? '#22c55e' : k.scheduleAdherence >= 50 ? '#eab308' : '#ef4444';
+        const avgOdColor = k.avgDaysOverdue <= 7 ? '#22c55e' : k.avgDaysOverdue <= 21 ? '#eab308' : '#ef4444';
+        const staleColor = k.staleTaskCount === 0 ? '#22c55e' : k.staleTaskCount <= 3 ? '#eab308' : '#ef4444';
+        const trendIcon = k.completionTrend > 0 ? <TrendingUp size={9} /> : k.completionTrend < 0 ? <TrendingDown size={9} /> : <Minus size={9} />;
+        const trendColor = k.completionTrend > 0 ? '#22c55e' : k.completionTrend < 0 ? '#ef4444' : '#5a5550';
+        const densityPct = k.tasksNext30 > 0 ? Math.round((k.tasksNext7 / k.tasksNext30) * 100) : 0;
+        const densityColor = densityPct > 60 ? '#ef4444' : densityPct > 35 ? '#eab308' : '#22c55e';
+
+        return (
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(5, 1fr)', gap: 4, marginBottom: 6 }}>
+            {/* KPI 1: Schedule Adherence */}
+            <div style={{ background: '#1e1e1e', borderRadius: 6, padding: '6px 7px', borderLeft: `3px solid ${adherenceColor}` }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 3, marginBottom: 3 }}>
+                <Target size={9} style={{ color: adherenceColor }} />
+                <span style={{ fontSize: 7, color: '#5a5550', fontWeight: 600, letterSpacing: '0.04em' }}>ON-TIME</span>
+              </div>
+              <div style={{ fontSize: 18, fontWeight: 700, color: adherenceColor, lineHeight: 1 }}>
+                {k.scheduleAdherence !== null ? `${k.scheduleAdherence}%` : '—'}
+              </div>
+              <div style={{ fontSize: 7, color: '#4a4a4a', marginTop: 2 }}>
+                {k.totalCompletedLast30} done / 30d
+              </div>
+            </div>
+
+            {/* KPI 2: Avg Days Overdue */}
+            <div style={{ background: '#1e1e1e', borderRadius: 6, padding: '6px 7px', borderLeft: `3px solid ${avgOdColor}` }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 3, marginBottom: 3 }}>
+                <Clock3 size={9} style={{ color: avgOdColor }} />
+                <span style={{ fontSize: 7, color: '#5a5550', fontWeight: 600, letterSpacing: '0.04em' }}>AVG OVERDUE</span>
+              </div>
+              <div style={{ fontSize: 18, fontWeight: 700, color: avgOdColor, lineHeight: 1 }}>
+                {k.avgDaysOverdue > 0 ? `${k.avgDaysOverdue}d` : '0'}
+              </div>
+              <div style={{ fontSize: 7, color: '#4a4a4a', marginTop: 2 }}>
+                across {k.overdueTaskCount} tasks
+              </div>
+            </div>
+
+            {/* KPI 3: Stale Tasks */}
+            <div style={{ background: '#1e1e1e', borderRadius: 6, padding: '6px 7px', borderLeft: `3px solid ${staleColor}` }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 3, marginBottom: 3 }}>
+                <AlertTriangle size={9} style={{ color: staleColor }} />
+                <span style={{ fontSize: 7, color: '#5a5550', fontWeight: 600, letterSpacing: '0.04em' }}>STALE</span>
+              </div>
+              <div style={{ fontSize: 18, fontWeight: 700, color: staleColor, lineHeight: 1 }}>
+                {k.staleTaskCount}
+              </div>
+              <div style={{ fontSize: 7, color: '#4a4a4a', marginTop: 2 }}>
+                30+ days, no progress
+              </div>
+            </div>
+
+            {/* KPI 4: Completed This Week */}
+            <div style={{ background: '#1e1e1e', borderRadius: 6, padding: '6px 7px', borderLeft: `3px solid #3b82f6` }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 3, marginBottom: 3 }}>
+                <Activity size={9} style={{ color: '#3b82f6' }} />
+                <span style={{ fontSize: 7, color: '#5a5550', fontWeight: 600, letterSpacing: '0.04em' }}>DONE / WK</span>
+              </div>
+              <div style={{ fontSize: 18, fontWeight: 700, color: '#3b82f6', lineHeight: 1 }}>
+                {k.completedThisWeek}
+              </div>
+              <div style={{ fontSize: 7, color: trendColor, marginTop: 2, display: 'flex', alignItems: 'center', gap: 2 }}>
+                {trendIcon} {k.completionTrend > 0 ? '+' : ''}{k.completionTrend} vs last wk
+              </div>
+            </div>
+
+            {/* KPI 5: Upcoming Density */}
+            <div style={{ background: '#1e1e1e', borderRadius: 6, padding: '6px 7px', borderLeft: `3px solid ${densityColor}` }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 3, marginBottom: 3 }}>
+                <CalendarDays size={9} style={{ color: densityColor }} />
+                <span style={{ fontSize: 7, color: '#5a5550', fontWeight: 600, letterSpacing: '0.04em' }}>DENSITY</span>
+              </div>
+              <div style={{ fontSize: 18, fontWeight: 700, color: densityColor, lineHeight: 1 }}>
+                {k.tasksNext7}
+              </div>
+              <div style={{ fontSize: 7, color: '#4a4a4a', marginTop: 2 }}>
+                of {k.tasksNext30} due in 30d
+              </div>
+            </div>
+          </div>
+        );
+      })()}
 
       {/* THREE TASK CARDS: Job Overdue | My Overdue | Open Tasks */}
       <div style={{ display: 'flex', gap: 4, marginBottom: 6 }}>
