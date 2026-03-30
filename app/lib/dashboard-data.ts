@@ -539,7 +539,7 @@ export async function buildUserDashboardData(userId: string): Promise<UserDashbo
   // Fetch Gmail inbox (recent primary emails — skip promotions/social)
   let recentEmails: DashboardEmail[] = [];
   try {
-    const gmailMessages = await fetchGmailInbox(15);
+    const gmailMessages = await fetchGmailInbox(15, userId);
     recentEmails = gmailMessages.map(m => ({
       id: m.id,
       threadId: m.threadId,
@@ -584,7 +584,7 @@ export async function buildUserDashboardData(userId: string): Promise<UserDashbo
   // Fetch Google Calendar events (next 7 days)
   let calendarEvents: CalendarEvent[] = [];
   try {
-    calendarEvents = await fetchCalendarEvents(7);
+    calendarEvents = await fetchCalendarEvents(7, undefined, undefined, userId);
   } catch (err: any) {
     console.error('[DashboardData] Failed to fetch calendar:', err.message);
   }
@@ -594,7 +594,7 @@ export async function buildUserDashboardData(userId: string): Promise<UserDashbo
   try {
     const tmDate = new Date(timeContext.tomorrowDate + 'T00:00:00');
     const tmEnd = new Date(timeContext.tomorrowDate + 'T23:59:59');
-    tomorrowCalendarEvents = await fetchCalendarEvents(1, tmDate, tmEnd);
+    tomorrowCalendarEvents = await fetchCalendarEvents(1, tmDate, tmEnd, userId);
   } catch (err: any) {
     console.error('[DashboardData] Failed to fetch tomorrow calendar:', err.message);
   }

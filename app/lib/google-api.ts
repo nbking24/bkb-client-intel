@@ -1,33 +1,46 @@
 /**
  * Google API Helper — Gmail & Calendar
  *
- * Uses OAuth2 refresh token to get access tokens and fetch data from
- * Gmail and Google Calendar APIs server-side. The refresh token never
- * expires unless revoked.
+ * Uses OAuth2 refresh tokens to get access tokens and fetch data from
+ * Gmail and Google Calendar APIs server-side. Supports multiple Google
+ * accounts keyed by userId (e.g. 'nathan' → nathan@, 'terri' → brett@).
  *
  * Required env vars:
  * - GOOGLE_CLIENT_ID
  * - GOOGLE_CLIENT_SECRET
- * - GOOGLE_REFRESH_TOKEN
+ * - GOOGLE_REFRESH_TOKEN          (default / Nathan's account)
+ * - GOOGLE_REFRESH_TOKEN_TERRI    (Terri's account — brett@brettkingbuilder.com)
  */
 
-let cachedAccessToken: string | null = null;
-let tokenExpiresAt = 0;
+// Per-account token cache
+const tokenCache: Record<string, { token: string; expiresAt: number }> = {};
+
+// Map userId → env var name for their Google refresh token
+const REFRESH_TOKEN_ENV: Record<string, string> = {
+  nathan: 'GOOGLE_REFRESH_TOKEN',
+  terri:  'GOOGLE_REFRESH_TOKEN_TERRI',
+};
 
 /**
- * Get a valid access token, refreshing if needed.
+ * Get a valid access token for the given user, refreshing if needed.
+ * Falls back to the default GOOGLE_REFRESH_TOKEN if no user-specific one is set.
  */
-async function getAccessToken(): Promise<string> {
-  if (cachedAccessToken && Date.now() < tokenExpiresAt - 60000) {
-    return cachedAccessToken;
+async function getAccessToken(userId?: string): Promise<string> {
+  const cacheKey = userId || '_default';
+  const cached = tokenCache[cacheKey];
+  if (cached && Date.now() < cached.expiresAt - 60000) {
+    return cached.token;
   }
 
   const clientId = process.env.GOOGLE_CLIENT_ID;
   const clientSecret = process.env.GOOGLE_CLIENT_SECRET;
-  const refreshToken = process.env.GOOGLE_REFRESH_TOKEN;
+
+  // Pick the right refresh token: user-specific first, then default
+  const envName = (userId && REFRESH_TOKEN_ENV[userId]) || 'GOOGLE_REFRESH_TOKEN';
+  const refreshToken = process.env[envName] || process.env.GOOGLE_REFRESH_TOKEN;
 
   if (!clientId || !clientSecret || !refreshToken) {
-    throw new Error('Missing Google OAuth env vars (GOOGLE_CLIENT_ID, GOOGLE_CLIENT_SECRET, GOOGLE_REFRESH_TOKEN)');
+    throw new Error(`Missing Google OAuth env vars (GOOGLE_CLIENT_ID, GOOGLE_CLIENT_SECRET, ${envName})`);
   }
 
   const res = await fetch('https://oauth2.googleapis.com/token', {
@@ -43,12 +56,14 @@ async function getAccessToken(): Promise<string> {
 
   if (!res.ok) {
     const err = await res.json().catch(() => ({}));
-    throw new Error(`Google token refresh failed: ${res.status} ${err.error || ''}`);
+    throw new Error(`Google token refresh failed for ${cacheKey}: ${res.status} ${err.error || ''}`);
   }
 
   const data = await res.json();
-  cachedAccessToken = data.access_token;
-  tokenExpiresAt = Date.now() + (data.expires_in * 1000);
+  tokenCache[cacheKey] = {
+    token: data.access_token,
+    expiresAt: Date.now() + (data.expires_in * 1000),
+  };
   return data.access_token;
 }
 
@@ -71,9 +86,9 @@ export interface GmailMessage {
  * Fetch recent inbox emails that may need attention.
  * Filters out promotions, social, and automated notifications.
  */
-export async function fetchGmailInbox(maxResults = 15): Promise<GmailMessage[]> {
+export async function fetchGmailInbox(maxResults = 15, userId?: string): Promise<GmailMessage[]> {
   try {
-    const token = await getAccessToken();
+    const token = await getAccessToken(userId);
 
     // Search for recent primary inbox emails (skip promotions, social, updates)
     const query = 'in:inbox category:primary newer_than:3d';
@@ -312,9 +327,9 @@ export async function archiveEmails(messageIds: string[]): Promise<{ archived: n
  * Fetch broader inbox for cleanup analysis — includes promotions, social, updates.
  * Unlike fetchGmailInbox which filters to primary only, this gets everything.
  */
-export async function fetchFullInbox(maxResults = 30): Promise<GmailMessage[]> {
+export async function fetchFullInbox(maxResults = 30, userId?: string): Promise<GmailMessage[]> {
   try {
-    const token = await getAccessToken();
+    const token = await getAccessToken(userId);
 
     const query = 'in:inbox newer_than:3d';
     const listRes = await fetch(
@@ -394,10 +409,11 @@ export interface CalendarEvent {
 export async function fetchCalendarEvents(
   daysAhead = 7,
   customStart?: Date,
-  customEnd?: Date
+  customEnd?: Date,
+  userId?: string
 ): Promise<CalendarEvent[]> {
   try {
-    const token = await getAccessToken();
+    const token = await getAccessToken(userId);
 
     const timeMin = (customStart || new Date()).toISOString();
     const timeMax = (customEnd || new Date(Date.now() + daysAhead * 24 * 60 * 60 * 1000)).toISOString();
