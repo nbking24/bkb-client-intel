@@ -839,7 +839,7 @@ app/
 
 ## 16. Field Staff Dashboard
 
-The Field Hub is a mobile-optimized dashboard for field crew members (e.g., Evan) designed for quick-glance reference during morning/evening admin time. Informed by Evan's workflow questionnaire — he rarely uses a laptop mid-day and tracks day-to-day items in handwritten notebooks, so the dashboard focuses on schedule visibility rather than task management.
+The Field Hub is a mobile-optimized dashboard for field crew members (e.g., Evan) designed for quick-glance reference during morning/evening admin time. Informed by Evan's workflow questionnaire — he rarely uses a laptop mid-day and tracks day-to-day items in handwritten notebooks, so the dashboard focuses on schedule visibility and lightweight task management.
 
 ### Route
 - **Page**: `/dashboard/field` (`app/dashboard/field/page.tsx`)
@@ -848,49 +848,110 @@ The Field Hub is a mobile-optimized dashboard for field crew members (e.g., Evan
 
 ### Features
 
-#### Briefing
-- Auto-generated summary of overdue items, today's tasks, tomorrow's tasks, and total across active jobs
-- Displayed as a single-line text block at the top of the dashboard
+#### Inline Ask Agent (Top of Dashboard)
+- Collapsible chat widget embedded directly at the top of the dashboard (replaces the old pop-out link to `/dashboard/ask`)
+- Uses the `field-staff` agent backend (forced via role-based auth) — restricted to specs + task CRUD only
+- **Capabilities**: Create tasks, edit tasks, update task progress, query approved document specs, view schedules
+- **Job selector dropdown**: Pre-populated with all PM jobs; scopes queries to a specific project
+- **Confirmation workflow**: Task creation shows an Approve/Cancel prompt before executing
+- **Suggested queries**: Quick-tap buttons for common questions (specs, overdue tasks, task creation, schedule)
+- **RenderContent component**: Inline markdown-lite renderer (bold, headers, bullets, code blocks, links)
+- Imports `formatContent`, `ChatMessage`, and `TaskConfirmData` types from `useAskAgent.ts`
+- Auth token generated via `getAuthToken()` using `NEXT_PUBLIC_APP_PIN`
+
+#### Three Task Cards
+- **Job Overdue** (orange): Overdue tasks on PM jobs NOT assigned to the user
+- **My Overdue** (red): Overdue tasks assigned to the user (including from non-PM jobs)
+- **My Upcoming** (gold): Upcoming tasks assigned to the user that are not overdue
+- Task categories are mutually exclusive (no overlap between categories)
+- Each card is expandable to show the task list with completion toggles and JT links
+
+#### Your Tasks This Week
+- Blue-themed highlight section showing tasks assigned to the user in the next 7 days
+- Only appears when such tasks exist
+- Links directly to JT schedule for each task
 
 #### 2-Week Calendar View
-- Shows this week (Mon-Sun) and next week (Mon-Sun) in a vertical day-by-day layout
-- Each day row shows scheduled tasks as colored pills with left-border accent
-- Tasks are **color-coded by job** using a consistent 8-color palette (gold, blue, green, purple, pink, amber, teal, red)
-- Today's row is highlighted with a golden background
-- Past days are dimmed (50% opacity)
-- Completed tasks shown with green checkmark and strikethrough
-- Weekend days shown in muted color
-- Job legend at top with colored dots linking to JobTread
+- Forward-looking from upcoming Monday: shows "Upcoming Week" and "Following Week" in 7-column grid
+- Each day cell shows scheduled tasks as colored pills with left-border accent
+- Tasks are **color-coded by job** using a 12-color hash-based palette (deterministic from job number)
+- Today's cell is highlighted with a golden background
+- Assigned tasks get a highlighted box-shadow in Week 1
+- Clicking a task opens a detail popup with date editing and completion toggle
+- Completed tasks shown with green "done" count
 
-#### Overdue Section
-- Dedicated red alert section for tasks past their due date
-- Shows days overdue count per task
-- Color-coded dots match job assignment
+#### MY JOBS Section
+- Condensed clickable chip list of all PM jobs (currently 21 for Evan)
+- Each chip links directly to the JT schedule for that job
+- Color dots match the calendar color palette
 
-#### Active Jobs
-- Lists PM-filtered active jobs with status badges and upcoming task counts
-- Each job card links directly to JobTread
-- Color dot matches the calendar color for that job
-
-#### Ask Agent Access
-- Quick-access "Ask Agent" button in the header for chat-based project queries
+#### Task Detail Popup
+- Modal overlay when clicking a calendar task
+- Shows task name, job info with color dot, and assignment status
+- Inline date picker with Save button for rescheduling
+- Mark Complete / Reopen toggle button
+- Direct "View in JobTread" link
 
 ### API Endpoints
 | Endpoint | Method | Purpose |
 |---|---|---|
-| `/api/field-dashboard` | GET | Briefing, 2-week calendar tasks, overdue tasks, PM-filtered active jobs |
+| `/api/field-dashboard` | GET | Briefing, 2-week calendar tasks, three-category overdue/upcoming tasks, PM jobs list, recent comments |
+| `/api/field-dashboard` | PATCH | Mark task complete/incomplete (`{ taskId, complete }`) or update due date (`{ taskId, endDate }`) |
+| `/api/chat` | POST | Inline Ask Agent chat — auto-routes to `field-staff` agent for field staff users |
 | `/api/field-job-schedule` | GET | Schedule phases/tasks for a specific job (legacy, still available) |
 | `/api/field-schedule-task-update` | POST | Update schedule task completion or due date (legacy, still available) |
 
+### API Response Shape
+```typescript
+{
+  userName: string;
+  briefing: string;
+  week1Start: string;      // YYYY-MM-DD, upcoming Monday
+  todayDate: string;        // YYYY-MM-DD
+  jobOverdueTasks: OdTask[];   // PM job overdue, NOT assigned to user
+  myOverdueTasks: OdTask[];    // Overdue, assigned to user (all jobs)
+  myUpcomingTasks: UpcomingTask[]; // Upcoming, assigned to user
+  calendarTasks: CalTask[];    // 2-week window tasks
+  recentComments: Comment[];   // Last 30 days
+  activeJobCount: number;
+  pmJobs: PmJob[];            // All PM jobs for job navigation
+}
+```
+
 ### Key Implementation Details
 - **PM filtering**: `getActiveJobs` extracts `projectManager` from JobTread custom field values; API route filters jobs where `projectManager === user.name`
-- **Calendar data**: API fetches all tasks per PM job via `getTasksForJob()`, filters to 2-week window (Monday to +13 days), groups by date
-- **Job color mapping**: `useMemo` assigns consistent colors from 8-color palette based on job array index
-- **No task management UI**: Removed task lists, Start/Done buttons, and stats cards per Evan's feedback that detailed task tracking happens in his field notebooks
+- **Calendar data**: API fetches all tasks per PM job via `getTasksForJob()`, filters to 2-week forward window, groups by date
+- **Task categorization**: Cross-references `getOpenTasksForMember()` with PM job tasks to split into three non-overlapping categories. Non-PM job overdue tasks (e.g., Hurley Phase 2) are caught in a second pass.
+- **Job color mapping**: Hash-based 12-color PALETTE, deterministic from job number (`jobColor(number)`)
+- **Inline Ask Agent**: Uses `/api/chat` which forces `field-staff` agent for users with `field_sup` or `field` role. The `InlineAskAgent` component manages its own state (messages, loading, job selection) independently from the main dashboard state.
+- **Comment window**: 30 days (widened from 7 due to sparse activity)
+- **PAVE limitation**: `user` relation does NOT work on comment queries — removed from `commentFields` in `jobtread.ts`
 - JT membership IDs: nathan=`22P5SRwhLaYf`, evan=`22P5nJ7ncFj4`, terri=`22P5SpJkype2`
 ---
 
 ## 17. Changelog
+
+### 2026-03-30 — Inline Ask Agent on Field Dashboard
+- **Incorporated Ask Agent directly into the field dashboard** as a collapsible inline chat widget at the top
+  - Removed the old "Ask Agent" pop-out link from the header
+  - New `InlineAskAgent` component with job selector dropdown, message thread, confirmation workflow
+  - Imports `formatContent`, `ChatMessage`, `TaskConfirmData` from `useAskAgent.ts`
+  - Uses `/api/chat` endpoint which auto-routes to `field-staff` agent for field staff users
+  - Supports: task creation/editing, approved spec queries, schedule lookups
+  - Suggested query buttons for quick access
+  - `RenderContent` component for markdown-lite rendering in compact chat bubbles
+- **Files changed**: `app/dashboard/field/page.tsx`
+- **Tested**: Dashboard API (all data categories validated, no overlaps), chat API (field-staff agent responds correctly), task creation with confirmation, PATCH endpoint for task completion
+
+### 2026-03-30 — Field Dashboard Iterative Improvements (earlier session)
+- Removed AI briefing section from dashboard (not working well)
+- Split task cards into three mutually exclusive categories: Job Overdue, My Overdue, My Upcoming
+- Added "Your Tasks This Week" blue highlight section (conditional, next 7 days)
+- Added PM Jobs clickable chip list with JT schedule links
+- Moved calendar views above MY JOBS section
+- Widened comment window from 7 to 30 days
+- Fixed PAVE `user` relation breaking all comment queries (removed from `commentFields`)
+- Fixed overdue tasks from non-PM jobs falling into "My Upcoming" instead of "My Overdue"
 
 ### 2026-03-29
 - Added Project Manager custom field extraction to `getActiveJobs` in `jobtread.ts`
