@@ -1,11 +1,12 @@
 // @ts-nocheck
 'use client';
 
-import { useState, useEffect, useMemo } from 'react';
+import { useState, useEffect, useMemo, useRef } from 'react';
 import {
   AlertTriangle, Loader2, RefreshCw, Calendar,
   Check, MessageSquare, ChevronDown, ChevronUp,
-  Zap, ClipboardList, Circle, CheckCircle2
+  Zap, ClipboardList, Circle, CheckCircle2,
+  X, Briefcase, CalendarDays
 } from 'lucide-react';
 import { useAuth } from '@/app/hooks/useAuth';
 import Link from 'next/link';
@@ -49,8 +50,9 @@ interface OpenTask {
 interface Data {
   userName: string; briefing: string;
   week1Start: string; todayDate: string;
-  overdueTasks: OdTask[]; calendarTasks: CalTask[];
-  openTasks: OpenTask[]; activeJobCount: number;
+  jobOverdueTasks: OdTask[]; myOverdueTasks: OdTask[];
+  calendarTasks: CalTask[]; openTasks: OpenTask[];
+  activeJobCount: number;
 }
 
 export default function FieldDashboardPage() {
@@ -59,8 +61,12 @@ export default function FieldDashboardPage() {
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [error, setError] = useState('');
-  const [showTasks, setShowTasks] = useState(false);
+  const [showTasks, setShowTasks] = useState<string | false>(false);
   const [completing, setCompleting] = useState<Set<string>>(new Set());
+  const [selectedTask, setSelectedTask] = useState<CalTask | null>(null);
+  const [editingDate, setEditingDate] = useState('');
+  const [savingDate, setSavingDate] = useState(false);
+  const popupRef = useRef<HTMLDivElement>(null);
 
   const fetchData = async (isRefresh = false) => {
     if (isRefresh) setRefreshing(true); else setLoading(true);
@@ -82,7 +88,6 @@ export default function FieldDashboardPage() {
         body: JSON.stringify({ taskId, complete: !currentlyComplete }),
       });
       if (!res.ok) throw new Error('Failed');
-      // Update local state
       if (data) {
         setData({
           ...data,
@@ -92,15 +97,58 @@ export default function FieldDashboardPage() {
           openTasks: !currentlyComplete
             ? data.openTasks.filter(t => t.id !== taskId)
             : data.openTasks,
+          myOverdueTasks: !currentlyComplete
+            ? data.myOverdueTasks.filter(t => t.id !== taskId)
+            : data.myOverdueTasks,
+          jobOverdueTasks: !currentlyComplete
+            ? data.jobOverdueTasks.filter(t => t.id !== taskId)
+            : data.jobOverdueTasks,
         });
       }
+      // Close popup if completing from it
+      if (selectedTask?.id === taskId) setSelectedTask(null);
     } catch { /* silent */ }
     finally { setCompleting(prev => { const s = new Set(prev); s.delete(taskId); return s; }); }
   };
 
+  const saveDate = async () => {
+    if (!selectedTask || !editingDate) return;
+    setSavingDate(true);
+    try {
+      const res = await fetch('/api/field-dashboard', {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${getToken()}` },
+        body: JSON.stringify({ taskId: selectedTask.id, endDate: editingDate }),
+      });
+      if (!res.ok) throw new Error('Failed');
+      // Update local state
+      if (data) {
+        setData({
+          ...data,
+          calendarTasks: data.calendarTasks.map(t =>
+            t.id === selectedTask.id ? { ...t, date: editingDate, endDate: editingDate } : t
+          ),
+        });
+      }
+      setSelectedTask(null);
+    } catch { /* silent */ }
+    finally { setSavingDate(false); }
+  };
+
+  // Close popup on outside click
+  useEffect(() => {
+    function handleClick(e: MouseEvent) {
+      if (popupRef.current && !popupRef.current.contains(e.target as Node)) {
+        setSelectedTask(null);
+      }
+    }
+    if (selectedTask) document.addEventListener('mousedown', handleClick);
+    return () => document.removeEventListener('mousedown', handleClick);
+  }, [selectedTask]);
+
   useEffect(() => { fetchData(); }, []);
 
-  // Week grids: 2 weeks forward from week1Start
+  // Week grids
   const weeks = useMemo(() => {
     if (!data?.week1Start) return [];
     const start = new Date(data.week1Start + 'T12:00:00');
@@ -128,7 +176,6 @@ export default function FieldDashboardPage() {
     return m;
   }, [data?.calendarTasks]);
 
-  // Week 1 end date for "assigned to me" highlighting
   const week1End = useMemo(() => {
     if (!data?.week1Start) return '';
     const d = new Date(data.week1Start + 'T12:00:00');
@@ -137,7 +184,8 @@ export default function FieldDashboardPage() {
   }, [data?.week1Start]);
 
   const firstName = data?.userName?.split(' ')[0] || auth.user?.name?.split(' ')[0] || '';
-  const overdueCount = data?.overdueTasks?.length || 0;
+  const jobOverdueCount = data?.jobOverdueTasks?.length || 0;
+  const myOverdueCount = data?.myOverdueTasks?.length || 0;
   const openCount = data?.openTasks?.length || 0;
 
   if (loading) return (
@@ -153,7 +201,7 @@ export default function FieldDashboardPage() {
   );
 
   return (
-    <div style={{ maxWidth: 960, margin: '0 auto', padding: '0 8px' }}>
+    <div style={{ maxWidth: 960, margin: '0 auto', padding: '0 8px', position: 'relative' }}>
       {/* HEADER */}
       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 6 }}>
         <h1 style={{ color: '#e8e0d8', fontSize: 18, fontWeight: 700, margin: 0 }}>{getGreeting()}, {firstName}</h1>
@@ -176,52 +224,92 @@ export default function FieldDashboardPage() {
         <p style={{ fontSize: 12, lineHeight: '17px', color: '#e8e0d8', margin: 0 }}>{data.briefing}</p>
       </div>
 
-      {/* OVERDUE + OPEN TASKS — collapsible side by side */}
-      <div style={{ display: 'flex', gap: 6, marginBottom: 6 }}>
-        {/* Overdue */}
+      {/* THREE TASK CARDS: Job Overdue | My Overdue | Open Tasks */}
+      <div style={{ display: 'flex', gap: 4, marginBottom: 6 }}>
+        {/* Job Overdue */}
         <button
-          onClick={() => overdueCount > 0 && setShowTasks(showTasks === 'overdue' ? false : 'overdue')}
+          onClick={() => jobOverdueCount > 0 && setShowTasks(showTasks === 'jobOverdue' ? false : 'jobOverdue')}
           style={{
-            flex: 1, display: 'flex', alignItems: 'center', gap: 6,
-            padding: '7px 10px', borderRadius: 8, border: 'none', cursor: overdueCount > 0 ? 'pointer' : 'default',
-            background: overdueCount > 0 ? 'rgba(239,68,68,0.07)' : '#1e1e1e',
+            flex: 1, display: 'flex', alignItems: 'center', gap: 5,
+            padding: '7px 8px', borderRadius: 8, border: 'none', cursor: jobOverdueCount > 0 ? 'pointer' : 'default',
+            background: jobOverdueCount > 0 ? 'rgba(249,115,22,0.07)' : '#1e1e1e',
             borderWidth: 1, borderStyle: 'solid',
-            borderColor: overdueCount > 0 ? 'rgba(239,68,68,0.18)' : 'rgba(205,162,116,0.06)',
+            borderColor: jobOverdueCount > 0 ? 'rgba(249,115,22,0.18)' : 'rgba(205,162,116,0.06)',
             textAlign: 'left',
           }}
         >
-          <AlertTriangle size={13} style={{ color: overdueCount > 0 ? '#ef4444' : '#3a3a3a', flexShrink: 0 }} />
-          <div style={{ flex: 1 }}>
-            <div style={{ fontSize: 18, fontWeight: 700, color: overdueCount > 0 ? '#ef4444' : '#3a3a3a', lineHeight: 1 }}>{overdueCount}</div>
-            <div style={{ fontSize: 9, color: '#6a6058', marginTop: 1 }}>Overdue</div>
+          <Briefcase size={12} style={{ color: jobOverdueCount > 0 ? '#f97316' : '#3a3a3a', flexShrink: 0 }} />
+          <div style={{ flex: 1, minWidth: 0 }}>
+            <div style={{ fontSize: 16, fontWeight: 700, color: jobOverdueCount > 0 ? '#f97316' : '#3a3a3a', lineHeight: 1 }}>{jobOverdueCount}</div>
+            <div style={{ fontSize: 8, color: '#6a6058', marginTop: 1, whiteSpace: 'nowrap' }}>Job Overdue</div>
           </div>
-          {overdueCount > 0 && (showTasks === 'overdue' ? <ChevronUp size={12} style={{ color: '#6a6058' }} /> : <ChevronDown size={12} style={{ color: '#6a6058' }} />)}
+          {jobOverdueCount > 0 && (showTasks === 'jobOverdue' ? <ChevronUp size={11} style={{ color: '#6a6058' }} /> : <ChevronDown size={11} style={{ color: '#6a6058' }} />)}
         </button>
 
-        {/* Open tasks */}
+        {/* My Overdue */}
+        <button
+          onClick={() => myOverdueCount > 0 && setShowTasks(showTasks === 'myOverdue' ? false : 'myOverdue')}
+          style={{
+            flex: 1, display: 'flex', alignItems: 'center', gap: 5,
+            padding: '7px 8px', borderRadius: 8, border: 'none', cursor: myOverdueCount > 0 ? 'pointer' : 'default',
+            background: myOverdueCount > 0 ? 'rgba(239,68,68,0.07)' : '#1e1e1e',
+            borderWidth: 1, borderStyle: 'solid',
+            borderColor: myOverdueCount > 0 ? 'rgba(239,68,68,0.18)' : 'rgba(205,162,116,0.06)',
+            textAlign: 'left',
+          }}
+        >
+          <AlertTriangle size={12} style={{ color: myOverdueCount > 0 ? '#ef4444' : '#3a3a3a', flexShrink: 0 }} />
+          <div style={{ flex: 1, minWidth: 0 }}>
+            <div style={{ fontSize: 16, fontWeight: 700, color: myOverdueCount > 0 ? '#ef4444' : '#3a3a3a', lineHeight: 1 }}>{myOverdueCount}</div>
+            <div style={{ fontSize: 8, color: '#6a6058', marginTop: 1, whiteSpace: 'nowrap' }}>My Overdue</div>
+          </div>
+          {myOverdueCount > 0 && (showTasks === 'myOverdue' ? <ChevronUp size={11} style={{ color: '#6a6058' }} /> : <ChevronDown size={11} style={{ color: '#6a6058' }} />)}
+        </button>
+
+        {/* Open Tasks */}
         <button
           onClick={() => openCount > 0 && setShowTasks(showTasks === 'open' ? false : 'open')}
           style={{
-            flex: 1, display: 'flex', alignItems: 'center', gap: 6,
-            padding: '7px 10px', borderRadius: 8, border: 'none', cursor: openCount > 0 ? 'pointer' : 'default',
+            flex: 1, display: 'flex', alignItems: 'center', gap: 5,
+            padding: '7px 8px', borderRadius: 8, border: 'none', cursor: openCount > 0 ? 'pointer' : 'default',
             background: '#1e1e1e', textAlign: 'left',
             borderWidth: 1, borderStyle: 'solid',
             borderColor: 'rgba(205,162,116,0.08)',
           }}
         >
-          <ClipboardList size={13} style={{ color: '#CDA274', flexShrink: 0 }} />
-          <div style={{ flex: 1 }}>
-            <div style={{ fontSize: 18, fontWeight: 700, color: '#CDA274', lineHeight: 1 }}>{openCount}</div>
-            <div style={{ fontSize: 9, color: '#6a6058', marginTop: 1 }}>Open Tasks</div>
+          <ClipboardList size={12} style={{ color: '#CDA274', flexShrink: 0 }} />
+          <div style={{ flex: 1, minWidth: 0 }}>
+            <div style={{ fontSize: 16, fontWeight: 700, color: '#CDA274', lineHeight: 1 }}>{openCount}</div>
+            <div style={{ fontSize: 8, color: '#6a6058', marginTop: 1, whiteSpace: 'nowrap' }}>Open Tasks</div>
           </div>
-          {openCount > 0 && (showTasks === 'open' ? <ChevronUp size={12} style={{ color: '#6a6058' }} /> : <ChevronDown size={12} style={{ color: '#6a6058' }} />)}
+          {openCount > 0 && (showTasks === 'open' ? <ChevronUp size={11} style={{ color: '#6a6058' }} /> : <ChevronDown size={11} style={{ color: '#6a6058' }} />)}
         </button>
       </div>
 
       {/* Expanded task list */}
       {showTasks && (
         <div style={{ background: '#1e1e1e', border: '1px solid rgba(205,162,116,0.08)', borderRadius: 8, padding: '6px 10px', marginBottom: 6, maxHeight: 200, overflowY: 'auto' }}>
-          {showTasks === 'overdue' && data.overdueTasks.map(t => {
+          {showTasks === 'jobOverdue' && data.jobOverdueTasks.map(t => {
+            const days = Math.floor((new Date(data.todayDate + 'T12:00:00').getTime() - new Date(t.date + 'T12:00:00').getTime()) / 86400000);
+            return (
+              <div key={t.id} style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '3px 0', borderBottom: '1px solid rgba(205,162,116,0.04)', fontSize: 11 }}>
+                <button onClick={() => toggleComplete(t.id, false)} disabled={completing.has(t.id)}
+                  style={{ background: 'none', border: 'none', cursor: 'pointer', padding: 0, lineHeight: 0, flexShrink: 0 }}>
+                  {completing.has(t.id)
+                    ? <Loader2 size={13} className="animate-spin" style={{ color: '#6a6058' }} />
+                    : <Circle size={13} style={{ color: '#f97316' }} />
+                  }
+                </button>
+                <span style={{ width: 5, height: 5, borderRadius: 3, background: jobColor(t.jobNumber), flexShrink: 0 }} />
+                <div style={{ flex: 1, overflow: 'hidden', minWidth: 0, display: 'flex', flexDirection: 'column' }}>
+                  <div style={{ color: '#e8e0d8', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', lineHeight: '14px' }}>{t.name}</div>
+                  <div style={{ color: '#5a5550', fontSize: 9, lineHeight: '12px' }}>{t.jobName}{t.isAssignedToMe ? ' · assigned to you' : ''}</div>
+                </div>
+                <span style={{ color: '#f97316', fontSize: 10, fontWeight: 600, flexShrink: 0 }}>{days}d</span>
+              </div>
+            );
+          })}
+          {showTasks === 'myOverdue' && data.myOverdueTasks.map(t => {
             const days = Math.floor((new Date(data.todayDate + 'T12:00:00').getTime() - new Date(t.date + 'T12:00:00').getTime()) / 86400000);
             return (
               <div key={t.id} style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '3px 0', borderBottom: '1px solid rgba(205,162,116,0.04)', fontSize: 11 }}>
@@ -264,7 +352,7 @@ export default function FieldDashboardPage() {
               </div>
             );
           })}
-          {((showTasks === 'overdue' && overdueCount === 0) || (showTasks === 'open' && openCount === 0)) && (
+          {((showTasks === 'jobOverdue' && jobOverdueCount === 0) || (showTasks === 'myOverdue' && myOverdueCount === 0) || (showTasks === 'open' && openCount === 0)) && (
             <p style={{ color: '#5a5550', fontSize: 11, textAlign: 'center', padding: 8 }}>None</p>
           )}
         </div>
@@ -304,27 +392,34 @@ export default function FieldDashboardPage() {
                       const c = jobColor(task.jobNumber);
                       const highlighted = task.isAssignedToMe && isWeek1;
                       const isBeingCompleted = completing.has(task.id);
+                      const isSelected = selectedTask?.id === task.id;
                       return (
-                        <div key={task.id} title={`${task.name} — #${task.jobNumber} ${task.jobName}${task.isAssignedToMe ? ' (assigned to you)' : ''}`}
-                          style={{
-                            padding: '2px 3px', borderRadius: 3,
-                            borderLeft: `3px solid ${c}`,
-                            background: highlighted ? `${c}35` : `${c}18`,
-                            fontSize: 9, lineHeight: '12px', color: '#e8e0d8',
-                            display: 'flex', alignItems: 'center', gap: 2,
-                            opacity: isBeingCompleted ? 0.4 : 1,
-                            ...(highlighted ? { boxShadow: `inset 0 0 0 1px ${c}50` } : {}),
-                          }}>
-                          {task.isAssignedToMe && (
-                            <button onClick={() => toggleComplete(task.id, false)} disabled={isBeingCompleted}
-                              style={{ background: 'none', border: 'none', cursor: 'pointer', padding: 0, lineHeight: 0, flexShrink: 0 }}>
-                              {isBeingCompleted
-                                ? <Loader2 size={9} className="animate-spin" style={{ color: '#6a6058' }} />
-                                : <Circle size={9} style={{ color: c }} />
-                              }
-                            </button>
-                          )}
-                          <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', flex: 1 }}>{task.name}</span>
+                        <div key={task.id} style={{ position: 'relative' }}>
+                          <div
+                            onClick={() => {
+                              setSelectedTask(isSelected ? null : task);
+                              setEditingDate(task.endDate || task.date);
+                            }}
+                            style={{
+                              padding: '2px 3px', borderRadius: 3, cursor: 'pointer',
+                              borderLeft: `3px solid ${c}`,
+                              background: isSelected ? `${c}50` : highlighted ? `${c}35` : `${c}18`,
+                              fontSize: 9, lineHeight: '12px', color: '#e8e0d8',
+                              display: 'flex', alignItems: 'center', gap: 2,
+                              opacity: isBeingCompleted ? 0.4 : 1,
+                              ...(highlighted ? { boxShadow: `inset 0 0 0 1px ${c}50` } : {}),
+                            }}>
+                            {task.isAssignedToMe && (
+                              <button onClick={(e) => { e.stopPropagation(); toggleComplete(task.id, false); }} disabled={isBeingCompleted}
+                                style={{ background: 'none', border: 'none', cursor: 'pointer', padding: 0, lineHeight: 0, flexShrink: 0 }}>
+                                {isBeingCompleted
+                                  ? <Loader2 size={9} className="animate-spin" style={{ color: '#6a6058' }} />
+                                  : <Circle size={9} style={{ color: c }} />
+                                }
+                              </button>
+                            )}
+                            <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', flex: 1 }}>{task.name}</span>
+                          </div>
                         </div>
                       );
                     })}
@@ -340,6 +435,89 @@ export default function FieldDashboardPage() {
           </div>
         </div>
       ))}
+
+      {/* TASK DETAIL POPUP */}
+      {selectedTask && (
+        <div style={{
+          position: 'fixed', top: 0, left: 0, right: 0, bottom: 0,
+          background: 'rgba(0,0,0,0.5)', display: 'flex', alignItems: 'center', justifyContent: 'center',
+          zIndex: 1000,
+        }} onClick={() => setSelectedTask(null)}>
+          <div ref={popupRef} onClick={e => e.stopPropagation()} style={{
+            background: '#252525', borderRadius: 12, padding: 16, minWidth: 280, maxWidth: 360,
+            border: '1px solid rgba(205,162,116,0.15)', boxShadow: '0 12px 40px rgba(0,0,0,0.6)',
+          }}>
+            {/* Header */}
+            <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', marginBottom: 10 }}>
+              <div style={{ flex: 1, minWidth: 0 }}>
+                <div style={{ fontSize: 14, fontWeight: 600, color: '#e8e0d8', lineHeight: '18px' }}>{selectedTask.name}</div>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 5, marginTop: 4 }}>
+                  <span style={{ width: 7, height: 7, borderRadius: 4, background: jobColor(selectedTask.jobNumber), flexShrink: 0 }} />
+                  <span style={{ fontSize: 11, color: '#8a8078' }}>#{selectedTask.jobNumber} {selectedTask.jobName}</span>
+                </div>
+              </div>
+              <button onClick={() => setSelectedTask(null)} style={{ background: 'none', border: 'none', cursor: 'pointer', padding: 2, lineHeight: 0 }}>
+                <X size={14} style={{ color: '#6a6058' }} />
+              </button>
+            </div>
+
+            {/* Date edit */}
+            <div style={{ marginBottom: 12 }}>
+              <label style={{ fontSize: 10, color: '#6a6058', fontWeight: 600, display: 'block', marginBottom: 4 }}>DUE DATE</label>
+              <div style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
+                <input
+                  type="date"
+                  value={editingDate}
+                  onChange={e => setEditingDate(e.target.value)}
+                  style={{
+                    flex: 1, background: '#1a1a1a', border: '1px solid rgba(205,162,116,0.15)', borderRadius: 6,
+                    color: '#e8e0d8', fontSize: 12, padding: '5px 8px',
+                    colorScheme: 'dark',
+                  }}
+                />
+                {editingDate !== (selectedTask.endDate || selectedTask.date) && (
+                  <button onClick={saveDate} disabled={savingDate}
+                    style={{
+                      background: '#CDA274', color: '#1a1a1a', fontSize: 11, fontWeight: 600,
+                      padding: '5px 10px', borderRadius: 6, border: 'none', cursor: 'pointer',
+                      opacity: savingDate ? 0.5 : 1,
+                    }}>
+                    {savingDate ? 'Saving...' : 'Save'}
+                  </button>
+                )}
+              </div>
+            </div>
+
+            {/* Assignment info */}
+            {selectedTask.isAssignedToMe && (
+              <div style={{ fontSize: 10, color: '#CDA274', marginBottom: 10, display: 'flex', alignItems: 'center', gap: 4 }}>
+                <CheckCircle2 size={10} /> Assigned to you
+              </div>
+            )}
+
+            {/* Actions */}
+            <div style={{ display: 'flex', gap: 8 }}>
+              <button
+                onClick={() => toggleComplete(selectedTask.id, selectedTask.isComplete)}
+                disabled={completing.has(selectedTask.id)}
+                style={{
+                  flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 5,
+                  padding: '7px 0', borderRadius: 6, border: 'none', cursor: 'pointer', fontSize: 12, fontWeight: 600,
+                  background: selectedTask.isComplete ? 'rgba(239,68,68,0.1)' : 'rgba(34,197,94,0.1)',
+                  color: selectedTask.isComplete ? '#ef4444' : '#22c55e',
+                  opacity: completing.has(selectedTask.id) ? 0.5 : 1,
+                }}>
+                {completing.has(selectedTask.id)
+                  ? <Loader2 size={13} className="animate-spin" />
+                  : selectedTask.isComplete
+                    ? <><X size={13} /> Reopen</>
+                    : <><Check size={13} /> Mark Complete</>
+                }
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

@@ -1,7 +1,7 @@
 // @ts-nocheck
 import { NextRequest, NextResponse } from 'next/server';
 import { validateAuth } from '../lib/auth';
-import { getActiveJobs, getTasksForJob, getOpenTasksForMember, updateTaskProgress } from '@/app/lib/jobtread';
+import { getActiveJobs, getTasksForJob, getOpenTasksForMember, updateTaskProgress, updateTask } from '@/app/lib/jobtread';
 import { TEAM_USERS } from '@/app/lib/constants';
 
 /**
@@ -9,7 +9,8 @@ import { TEAM_USERS } from '@/app/lib/constants';
  * Forward-looking 2-week calendar, AI briefing, open/overdue tasks
  *
  * PATCH /api/field-dashboard
- * Mark a task complete or incomplete: { taskId, complete: boolean }
+ * Mark task complete/incomplete: { taskId, complete: boolean }
+ * Update task date: { taskId, endDate: string }
  */
 export async function GET(req: NextRequest) {
   const auth = validateAuth(req.headers.get('authorization'));
@@ -34,6 +35,7 @@ export async function GET(req: NextRequest) {
     today.setHours(0, 0, 0, 0);
     const todayStr = today.toISOString().split('T')[0];
     const tomorrowStr = new Date(today.getTime() + 86400000).toISOString().split('T')[0];
+    const dayAfterStr = new Date(today.getTime() + 2 * 86400000).toISOString().split('T')[0];
 
     // Forward-looking: upcoming Monday (if today is Mon, use today; otherwise next Mon)
     const dow = today.getDay(); // 0=Sun
@@ -63,7 +65,8 @@ export async function GET(req: NextRequest) {
     );
 
     const calendarTasks: any[] = [];
-    const overdueTasks: any[] = [];
+    const jobOverdueTasks: any[] = [];  // ALL overdue tasks across PM jobs
+    const myOverdueTasks: any[] = [];   // Only overdue tasks assigned to user
 
     for (const { jobId, tasks } of jobTaskResults) {
       const job = myJobs.find((j: any) => j.id === jobId);
@@ -78,12 +81,16 @@ export async function GET(req: NextRequest) {
 
         // Overdue: before today and not complete
         if (dateStr < todayStr && !isComplete) {
-          overdueTasks.push({
+          const overdueItem = {
             id: task.id, name: task.name, date: dateStr,
             progress: task.progress,
             jobId: job.id, jobName: job.name, jobNumber: job.number,
             isAssignedToMe: myTaskIds.has(task.id),
-          });
+          };
+          jobOverdueTasks.push(overdueItem);
+          if (myTaskIds.has(task.id)) {
+            myOverdueTasks.push(overdueItem);
+          }
           continue;
         }
 
@@ -102,7 +109,8 @@ export async function GET(req: NextRequest) {
     }
 
     calendarTasks.sort((a, b) => a.date.localeCompare(b.date) || a.jobName.localeCompare(b.jobName));
-    overdueTasks.sort((a, b) => a.date.localeCompare(b.date));
+    jobOverdueTasks.sort((a, b) => a.date.localeCompare(b.date));
+    myOverdueTasks.sort((a, b) => a.date.localeCompare(b.date));
 
     // Open tasks assigned to user
     const jobMap = new Map<string, any>();
@@ -124,44 +132,71 @@ export async function GET(req: NextRequest) {
       return a.endDate.localeCompare(b.endDate);
     });
 
-    // Briefing
+    // ── BRIEFING: schedule-focused, prep-oriented ──
     const hour = new Date().getHours();
-    const week1EndStr = new Date(upcomingMonday.getTime() + 6 * 86400000).toISOString().split('T')[0];
-    const week1Tasks = calendarTasks.filter(t => t.date <= week1EndStr && !t.isComplete);
-    const myWeek1Tasks = week1Tasks.filter(t => t.isAssignedToMe);
+    const dayNames = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
     const todayCalTasks = calendarTasks.filter(t => t.date === todayStr && !t.isComplete);
     const tomorrowCalTasks = calendarTasks.filter(t => t.date === tomorrowStr && !t.isComplete);
+    const dayAfterTasks = calendarTasks.filter(t => t.date === dayAfterStr && !t.isComplete);
+    const tomorrowDow = new Date(today.getTime() + 86400000).getDay();
+    const dayAfterDow = new Date(today.getTime() + 2 * 86400000).getDay();
+
+    function taskWithJob(t: any) {
+      return `${t.name} at ${t.jobName.replace(/^#\d+\s*/, '')}`;
+    }
+    function taskListNarrative(tasks: any[], limit = 3) {
+      if (tasks.length === 0) return '';
+      const shown = tasks.slice(0, limit).map(taskWithJob);
+      const extra = tasks.length > limit ? ` and ${tasks.length - limit} more` : '';
+      return shown.join(', ') + extra;
+    }
+
     const parts: string[] = [];
 
     if (hour < 12) {
+      // MORNING: focus on today + peek at tomorrow
       if (todayCalTasks.length > 0) {
-        parts.push(`Today: ${todayCalTasks.slice(0, 3).map(t => t.name).join(', ')}${todayCalTasks.length > 3 ? ` +${todayCalTasks.length - 3} more` : ''}.`);
+        parts.push(`On deck today: ${taskListNarrative(todayCalTasks)}.`);
+      } else {
+        parts.push('Nothing scheduled for today.');
       }
-      if (overdueTasks.length > 0) parts.push(`${overdueTasks.length} overdue item${overdueTasks.length > 1 ? 's' : ''} need attention.`);
-      if (tomorrowCalTasks.length > 0) parts.push(`${tomorrowCalTasks.length} task${tomorrowCalTasks.length > 1 ? 's' : ''} tomorrow.`);
-    } else if (hour < 17) {
-      if (overdueTasks.length > 0) parts.push(`${overdueTasks.length} overdue item${overdueTasks.length > 1 ? 's' : ''} pending.`);
       if (tomorrowCalTasks.length > 0) {
-        parts.push(`Tomorrow: ${tomorrowCalTasks.slice(0, 2).map(t => t.name).join(', ')}${tomorrowCalTasks.length > 2 ? ` +${tomorrowCalTasks.length - 2} more` : ''}.`);
+        parts.push(`${dayNames[tomorrowDow]}: ${taskListNarrative(tomorrowCalTasks, 2)}.`);
+      }
+    } else if (hour < 17) {
+      // AFTERNOON: remaining today + tomorrow preview
+      if (todayCalTasks.length > 0) {
+        parts.push(`Still on today's schedule: ${taskListNarrative(todayCalTasks, 2)}.`);
+      }
+      if (tomorrowCalTasks.length > 0) {
+        parts.push(`Tomorrow: ${taskListNarrative(tomorrowCalTasks)}.`);
       }
     } else {
+      // EVENING: prep for tomorrow + look ahead
       if (tomorrowCalTasks.length > 0) {
-        parts.push(`Tomorrow: ${tomorrowCalTasks.slice(0, 3).map(t => t.name).join(', ')}${tomorrowCalTasks.length > 3 ? ` +${tomorrowCalTasks.length - 3}` : ''}.`);
+        parts.push(`Tomorrow's schedule: ${taskListNarrative(tomorrowCalTasks)}.`);
+      } else {
+        parts.push(`Nothing scheduled for tomorrow.`);
       }
-      if (overdueTasks.length > 0) parts.push(`${overdueTasks.length} overdue to address.`);
+      if (dayAfterTasks.length > 0) {
+        parts.push(`${dayNames[dayAfterDow]}: ${taskListNarrative(dayAfterTasks, 2)}.`);
+      }
     }
 
+    // Add a heads-up if upcoming week has key milestones
+    const week1EndStr = new Date(upcomingMonday.getTime() + 6 * 86400000).toISOString().split('T')[0];
+    const myWeek1Tasks = calendarTasks.filter(t => t.date >= week1Start && t.date <= week1EndStr && !t.isComplete && t.isAssignedToMe);
     if (myWeek1Tasks.length > 0) {
-      parts.push(`${myWeek1Tasks.length} task${myWeek1Tasks.length > 1 ? 's' : ''} assigned to you next week.`);
+      parts.push(`${myWeek1Tasks.length} task${myWeek1Tasks.length > 1 ? 's' : ''} assigned to you this upcoming week.`);
     }
-    parts.push(`${myJobs.length} active jobs · ${openTasks.length} open tasks.`);
 
     return NextResponse.json({
       userName: user.name,
       briefing: parts.join(' '),
       week1Start: week1Start,
       todayDate: todayStr,
-      overdueTasks: overdueTasks.slice(0, 20),
+      jobOverdueTasks: jobOverdueTasks.slice(0, 40),
+      myOverdueTasks: myOverdueTasks.slice(0, 20),
       calendarTasks,
       openTasks,
       activeJobCount: myJobs.length,
@@ -172,16 +207,29 @@ export async function GET(req: NextRequest) {
   }
 }
 
-/** PATCH: mark task complete/incomplete */
+/** PATCH: mark task complete/incomplete OR update task date */
 export async function PATCH(req: NextRequest) {
   const auth = validateAuth(req.headers.get('authorization'));
   if (!auth.valid) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
 
   try {
-    const { taskId, complete } = await req.json();
+    const body = await req.json();
+    const { taskId, complete, endDate } = body;
     if (!taskId) return NextResponse.json({ error: 'taskId required' }, { status: 400 });
-    await updateTaskProgress(taskId, complete ? 1 : 0);
-    return NextResponse.json({ ok: true, taskId, progress: complete ? 1 : 0 });
+
+    // Date update
+    if (endDate !== undefined) {
+      await updateTask(taskId, { endDate });
+      return NextResponse.json({ ok: true, taskId, endDate });
+    }
+
+    // Completion toggle
+    if (complete !== undefined) {
+      await updateTaskProgress(taskId, complete ? 1 : 0);
+      return NextResponse.json({ ok: true, taskId, progress: complete ? 1 : 0 });
+    }
+
+    return NextResponse.json({ error: 'No action specified' }, { status: 400 });
   } catch (err: any) {
     console.error('Task update error:', err);
     return NextResponse.json({ error: 'Failed to update task' }, { status: 500 });
