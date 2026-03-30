@@ -136,9 +136,32 @@ export async function GET(req: NextRequest) {
     const jobMap = new Map<string, any>();
     for (const job of myJobs) jobMap.set(job.id, job);
 
+    // Add any overdue memberTasks not already captured from PM job loop
     const myOverdueIds = new Set(myOverdueTasks.map((t: any) => t.id));
+    for (const t of memberTasks) {
+      const ed = t.endDate ? t.endDate.split('T')[0] : null;
+      if (ed && ed < todayStr && !myOverdueIds.has(t.id)) {
+        const jobInfo = t.job ? jobMap.get(t.job.id) || t.job : null;
+        myOverdueTasks.push({
+          id: t.id, name: t.name, date: ed,
+          progress: t.progress,
+          jobId: t.job?.id || '', jobName: jobInfo?.name || t.job?.name || 'Unknown',
+          jobNumber: jobInfo?.number || t.job?.number || '',
+          isAssignedToMe: true,
+        });
+        myOverdueIds.add(t.id);
+      }
+    }
+    myOverdueTasks.sort((a: any, b: any) => a.date.localeCompare(b.date));
+
+    // Upcoming = assigned to Evan, NOT overdue
     const myUpcomingFromMember = memberTasks
-      .filter((t: any) => !myOverdueIds.has(t.id)) // exclude overdue ones
+      .filter((t: any) => {
+        if (myOverdueIds.has(t.id)) return false;
+        const ed = t.endDate ? t.endDate.split('T')[0] : null;
+        if (ed && ed < todayStr) return false;
+        return true;
+      })
       .map((t: any) => {
         const jobInfo = t.job ? jobMap.get(t.job.id) || t.job : null;
         return {
