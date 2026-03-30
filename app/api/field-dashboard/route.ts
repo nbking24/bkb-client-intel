@@ -82,7 +82,7 @@ async function getCOTrackingForJob(jobId: string): Promise<{
         visited.add(child.id);
 
         // Skip known structural groups — recurse into them but don't count them as COs
-        const isStructural = /^(client|owner|bkb)\s+requested$|^🟢\s*approved$|^🔴\s*declined$|^scope\s*of\s*work$/i.test(child.name?.trim() || '');
+        const isStructural = /^(client|owner|bkb)\s+requested$|^[🟢✅]\s*approved$|^🔴\s*declined$|^scope\s*of\s*work$/i.test(child.name?.trim() || '');
 
         if (isStructural) {
           findCOGroups(child.id, depth + 1);
