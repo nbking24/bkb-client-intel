@@ -18,13 +18,18 @@ async function getCOTrackingForJob(jobId: string): Promise<{
   documents: Array<{ id: string; name: string; number: string; status: string; type: string; createdAt?: string }>;
 }> {
   try {
-    // Fetch cost groups (lightweight - just names/parents, no items)
-    const [groupData, docs] = await Promise.all([
-      pave({
+    // Fetch cost groups with pagination (PAVE max size is 100)
+    const docs = await getDocumentStatusesForJob(jobId);
+
+    let allGroups: any[] = [];
+    let page = 1;
+    let hasMore = true;
+    while (hasMore) {
+      const groupData = await pave({
         job: {
           $: { id: jobId },
           costGroups: {
-            $: { size: 200 },
+            $: { size: 100, page },
             nodes: {
               id: {},
               name: {},
@@ -32,11 +37,14 @@ async function getCOTrackingForJob(jobId: string): Promise<{
             },
           },
         },
-      }),
-      getDocumentStatusesForJob(jobId),
-    ]);
+      });
+      const nodes = (groupData as any)?.job?.costGroups?.nodes || [];
+      allGroups = allGroups.concat(nodes);
+      hasMore = nodes.length === 100;
+      page++;
+    }
 
-    const groups = (groupData as any)?.job?.costGroups?.nodes || [];
+    const groups = allGroups;
 
     // Find the "Change Orders" parent group(s) — top-level CO containers
     const coRootIds = new Set(

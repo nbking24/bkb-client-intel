@@ -7,12 +7,17 @@ export async function GET(req: NextRequest) {
   const jobId = req.nextUrl.searchParams.get('jobId') || '22P5je8QXjbU'; // Default to Zajick
 
   try {
-    const [groupData, docs] = await Promise.all([
-      pave({
+    const docs = await getDocumentStatusesForJob(jobId);
+
+    let allGroups: any[] = [];
+    let page = 1;
+    let hasMore = true;
+    while (hasMore) {
+      const groupData = await pave({
         job: {
           $: { id: jobId },
           costGroups: {
-            $: { size: 200 },
+            $: { size: 100, page },
             nodes: {
               id: {},
               name: {},
@@ -20,11 +25,14 @@ export async function GET(req: NextRequest) {
             },
           },
         },
-      }),
-      getDocumentStatusesForJob(jobId),
-    ]);
+      });
+      const nodes = (groupData as any)?.job?.costGroups?.nodes || [];
+      allGroups = allGroups.concat(nodes);
+      hasMore = nodes.length === 100;
+      page++;
+    }
 
-    const groups = (groupData as any)?.job?.costGroups?.nodes || [];
+    const groups = allGroups;
 
     // Find CO root groups
     const coRootIds = new Set(
