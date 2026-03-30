@@ -943,26 +943,41 @@ The Field Hub is a mobile-optimized dashboard for field crew members (e.g., Evan
 
 ## 17. Changelog
 
-### 2026-03-30 — Change Order Tracking & Submission System
+### 2026-03-30 — Change Order Submission System (Complete)
 - **CO Tracker Widget** on field dashboard — cross-references budget CO groups with CO documents to show lifecycle status
   - Statuses: Needs Document → Draft → Sent → Approved / Declined
   - Color-coded badges with lucide icons (FileWarning, FileClock, Send, FileCheck, XCircle)
-  - Stale alerts: pulse animation on COs sitting in Draft/Needs Document status
+  - **Stale alerts**: 3-day threshold based on document `createdAt` — pulse animation on stale COs
   - Sorted by urgency (needs_document first, approved last)
 - **CO Tracking API** added to `GET /api/field-dashboard` response as `changeOrders` array
-  - Parallel fetch per PM job: lightweight cost group query + document statuses
+  - Parallel fetch per PM job: lightweight cost group query + document statuses (incl. `createdAt`)
   - Detects CO parent groups by name pattern (`/change\s*order|🔁|post\s*pricing/i`)
   - Cross-references child budget groups with customerOrder documents
-- **CO Submission via Field-Staff Agent** — enhanced `field-staff` agent with change order workflow:
-  - New system prompt section for CO submission flow (5-step guided process)
-  - Agent asks targeted questions: BKB labor hours, sub pricing, materials, follow-up needs, draft document
-  - Outputs `@@CO_PROPOSAL@@` structured JSON block for user approval before creating anything
-  - Pricing rules embedded: $85/$125 labor, 30% margin on subs/materials
-  - Group hierarchy: `Post Pricing Changes > Client Requested > [CO Name]`
-- **New agent tools**: `get_job_budget_context` (existing CO context), `create_change_order` (budget items + task)
-- **Auto follow-up task**: Every CO submission creates a review task assigned to Nathan with 3-day due date
-  - Evan can also request additional follow-up tasks with custom assignee/description/due date
-- **Files changed**: `app/api/field-dashboard/route.ts`, `app/api/lib/agents/field-staff.ts`, `app/dashboard/field/page.tsx`
+- **CO Submission via Field-Staff Agent** — full change order workflow through inline Ask Agent:
+  - 6-step guided process: job → describe change → targeted questions → photos → proposal → approval
+  - Agent asks as many questions as needed: BKB labor hours, sub pricing, materials, follow-up needs, draft document, photos
+  - Outputs `@@CO_PROPOSAL@@` structured JSON block parsed by chat route, displayed as approval table in UI
+  - Pricing rules: $85/$125 BKB labor (32%), 30% margin on subs/materials
+  - Group hierarchy: `🔁 Change Orders > CO: [Name]`
+- **`create_change_order` tool** — REAL PAVE budget creation (not a stub):
+  1. Fetches cost codes, cost types, units for ID resolution
+  2. Finds or creates `🔁 Change Orders` parent budget group
+  3. Creates CO subgroup with markdown description
+  4. Creates cost items under the group via PAVE `createCostItem` mutations
+  5. Uploads images to JobTread and attaches to CO cost group
+  6. Optionally creates draft CO customerOrder document from the budget items
+  7. Always creates follow-up task assigned to Nathan (3-day due date)
+- **Image Upload Pipeline**:
+  - New `POST /api/upload` endpoint — accepts multipart form data, stores in Supabase Storage (`co-photos` bucket)
+  - Returns public URLs passed to JobTread's `createFile` PAVE mutation for attachment
+  - UI: paperclip button in Ask Agent input, image preview strip with remove buttons, upload indicator
+  - Images attached to CO cost group in JobTread → pulled into CO documents automatically
+- **CO Proposal Approval UI**: parsed `@@CO_PROPOSAL@@` block shown as a table with item names, qty, cost, price, totals
+  - Shows document creation flag, follow-up task details, photo count
+  - Approve/Cancel buttons; on approval, sends structured JSON to agent for execution
+- **Chat route**: now parses both `@@TASK_CONFIRM@@` and `@@CO_PROPOSAL@@` blocks from agent replies
+- **Types**: Added `COProposalData`, `COLineItem` to `useAskAgent.ts`
+- **Files changed**: `app/api/upload/route.ts` (new), `app/api/chat/route.ts`, `app/api/field-dashboard/route.ts`, `app/api/lib/agents/field-staff.ts`, `app/dashboard/field/page.tsx`, `app/hooks/useAskAgent.ts`, `app/lib/jobtread.ts`
 
 ### 2026-03-30 — 10-Day Weather Forecast Strip
 - **Added weather forecast strip** to field dashboard, positioned above week calendars
