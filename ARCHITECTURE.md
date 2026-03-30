@@ -2245,4 +2245,31 @@ Mac Messages DB ÃÂ¢ÃÂÃÂ sync-messages.py (filter junk) ÃÂ¢
 
 ---
 
+### Session: CO Submission System — Zajick Integration Test & Doc Fix (2026-03-30)
+
+**What:** Completed full integration test of the Change Order submission system on Zajick Kitchen Remodel (#108). Found and fixed a critical bug in document creation.
+
+**Test Results (all passing):**
+- Budget items: 3 items created under `TEST CO: Kitchen Window Rot Repair` with proper cost codes, types, quantities, and pricing
+- Image upload: Photo uploaded to Supabase Storage, then to JobTread job, then attached to CO cost group
+- Follow-up task: Created for Nathan with 3-day due date
+- Draft CO document: Created using "Change Order" template with proper line items
+
+**Bug Found & Fixed:**
+- `createDocument` PAVE mutation requires `name` to match an existing template name exactly (e.g., "Change Order")
+- Using a custom name like `Change Order: Kitchen Window Rot Repair` throws a 400 error
+- **Fix:** Use `name: 'Change Order'` (template name) + `subject: coName` (specific title) + `documentTemplateId: '22PKqytScJpC'` (Change Order template ID)
+- Also added `description` field pass-through from `groupDescription`
+
+**Test Data Left in Zajick (needs manual cleanup):**
+- Budget group: `TEST CO: Kitchen Window Rot Repair` (ID: `22PUfZMi2Wht`) with 3 cost items
+- File: `TEST-rot-damage-photo.png` (ID: `22PUfaiMGkpE`) in "Change Order Photos" folder
+- Task: `TEST: Review & Send CO - Kitchen Window Rot Repair` (ID: `22PUfavQaJDA`)
+- Document: Change Order #30 (ID: `22PUfb7Q6ukf`) — draft status
+
+**Files Changed:**
+- Modified `app/api/lib/agents/field-staff.ts` — Fixed `createDocument` PAVE call to use template name + subject field
+
+---
+
 *End of document. Keep this updated after every session.*

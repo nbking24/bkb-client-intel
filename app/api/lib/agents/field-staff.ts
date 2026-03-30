@@ -835,20 +835,26 @@ const fieldStaff: AgentModule = {
           if (createDocument) {
             try {
               // Create a customerOrder document from the CO group's cost items
+              // IMPORTANT: JobTread requires `name` to match an existing template name exactly.
+              // Use "Change Order" as the name and put the specific CO title in `subject`.
+              // documentTemplateId 22PKqytScJpC = "Change Order" template (from: Terri, due: 5 days)
               const docResult = await pave({
                 createDocument: {
                   $: {
                     jobId,
                     type: 'customerOrder',
-                    name: `Change Order: ${coName}`,
+                    name: 'Change Order',
+                    subject: coName,
+                    description: groupDescription || `Change order: ${coName}`,
+                    documentTemplateId: '22PKqytScJpC',
                     ...(itemIds.length > 0 ? { costItemIds: itemIds } : {}),
                   },
-                  createdDocument: { id: {}, name: {}, number: {} },
+                  createdDocument: { id: {}, name: {}, number: {}, subject: {} },
                 },
               });
               const doc = (docResult as any)?.createDocument?.createdDocument;
               if (doc?.id) {
-                documentResult = { id: doc.id, name: doc.name, number: doc.number, status: 'draft' };
+                documentResult = { id: doc.id, name: doc.name, subject: doc.subject || coName, number: doc.number, status: 'draft' };
               }
             } catch (docErr: any) {
               documentResult = { error: 'Draft document creation failed: ' + (docErr?.message || '') };
