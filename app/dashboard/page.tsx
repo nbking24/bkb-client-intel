@@ -348,8 +348,11 @@ export default function DashboardOverview() {
           </div>
         </div>
 
-        {/* KPI 2: Open Tasks */}
-        <div style={{ background: '#1e1e1e', borderRadius: 6, padding: '6px 7px', borderLeft: `3px solid ${tasks.length > 0 ? '#3b82f6' : '#5a5550'}` }}>
+        {/* KPI 2: Open Tasks — clickable */}
+        <button
+          onClick={() => setShowSection(showSection === 'tasks' ? false : 'tasks')}
+          style={{ background: showSection === 'tasks' ? 'rgba(59,130,246,0.1)' : '#1e1e1e', borderRadius: 6, padding: '6px 7px', border: 'none', borderLeftWidth: 3, borderLeftStyle: 'solid', borderLeftColor: tasks.length > 0 ? '#3b82f6' : '#5a5550', cursor: 'pointer', textAlign: 'left' }}
+        >
           <div style={{ display: 'flex', alignItems: 'center', gap: 3, marginBottom: 3 }}>
             <ClipboardList size={9} style={{ color: tasks.length > 0 ? '#3b82f6' : '#5a5550' }} />
             <span style={{ fontSize: 7, color: '#5a5550', fontWeight: 600, letterSpacing: '0.04em' }}>OPEN TASKS</span>
@@ -357,10 +360,13 @@ export default function DashboardOverview() {
           <div style={{ fontSize: 18, fontWeight: 700, color: tasks.length > 0 ? '#3b82f6' : '#5a5550', lineHeight: 1 }}>
             {tasks.length}
           </div>
-        </div>
+        </button>
 
-        {/* KPI 3: Overdue */}
-        <div style={{ background: '#1e1e1e', borderRadius: 6, padding: '6px 7px', borderLeft: `3px solid ${overdueTasks.length > 0 ? '#ef4444' : '#22c55e'}` }}>
+        {/* KPI 3: Overdue — clickable */}
+        <button
+          onClick={() => setShowSection(showSection === 'overdue' ? false : 'overdue')}
+          style={{ background: showSection === 'overdue' ? 'rgba(239,68,68,0.1)' : '#1e1e1e', borderRadius: 6, padding: '6px 7px', border: 'none', borderLeftWidth: 3, borderLeftStyle: 'solid', borderLeftColor: overdueTasks.length > 0 ? '#ef4444' : '#22c55e', cursor: 'pointer', textAlign: 'left' }}
+        >
           <div style={{ display: 'flex', alignItems: 'center', gap: 3, marginBottom: 3 }}>
             <AlertTriangle size={9} style={{ color: overdueTasks.length > 0 ? '#ef4444' : '#22c55e' }} />
             <span style={{ fontSize: 7, color: '#5a5550', fontWeight: 600, letterSpacing: '0.04em' }}>OVERDUE</span>
@@ -368,7 +374,7 @@ export default function DashboardOverview() {
           <div style={{ fontSize: 18, fontWeight: 700, color: overdueTasks.length > 0 ? '#ef4444' : '#22c55e', lineHeight: 1 }}>
             {overdueTasks.length}
           </div>
-        </div>
+        </button>
 
         {/* KPI 4: Outstanding Invoices (AR) — clickable */}
         {(() => {
@@ -619,71 +625,11 @@ export default function DashboardOverview() {
         </div>
       )}
 
-      {/* COLLAPSIBLE CARDS ROW — Urgent / Overdue / Total Tasks / Emails */}
-      <div style={{ display: 'flex', gap: 4, marginBottom: 6 }}>
-        {/* Urgent Tasks */}
-        <button
-          onClick={() => setShowSection(showSection === 'urgent' ? false : 'urgent')}
-          style={{
-            flex: 1, display: 'flex', alignItems: 'center', gap: 6,
-            padding: '7px 8px', borderRadius: 8, border: 'none', cursor: 'pointer',
-            background: urgentTasks.length > 0 ? 'rgba(239,68,68,0.08)' : '#1e1e1e',
-            borderWidth: 1, borderStyle: 'solid',
-            borderColor: urgentTasks.length > 0 ? 'rgba(239,68,68,0.18)' : 'rgba(205,162,116,0.06)',
-            textAlign: 'left',
-          }}
-        >
-          <AlertTriangle size={11} style={{ color: urgentTasks.length > 0 ? '#ef4444' : '#5a5550', flexShrink: 0 }} />
-          <span style={{ fontSize: 16, fontWeight: 700, color: urgentTasks.length > 0 ? '#ef4444' : '#5a5550', lineHeight: 1 }}>{urgentTasks.length}</span>
-          <span style={{ fontSize: 8, color: '#6a6058' }}>Urgent</span>
-        </button>
-
-        {/* Overdue */}
-        <button
-          onClick={() => setShowSection(showSection === 'overdue' ? false : 'overdue')}
-          style={{
-            flex: 1, display: 'flex', alignItems: 'center', gap: 6,
-            padding: '7px 8px', borderRadius: 8, border: 'none', cursor: 'pointer',
-            background: overdueTasks.length > 0 ? 'rgba(245,158,11,0.08)' : '#1e1e1e',
-            borderWidth: 1, borderStyle: 'solid',
-            borderColor: overdueTasks.length > 0 ? 'rgba(245,158,11,0.18)' : 'rgba(205,162,116,0.06)',
-            textAlign: 'left',
-          }}
-        >
-          <Clock size={11} style={{ color: overdueTasks.length > 0 ? '#f59e0b' : '#5a5550', flexShrink: 0 }} />
-          <span style={{ fontSize: 16, fontWeight: 700, color: overdueTasks.length > 0 ? '#f59e0b' : '#5a5550', lineHeight: 1 }}>{overdueTasks.length}</span>
-          <span style={{ fontSize: 8, color: '#6a6058' }}>Overdue</span>
-        </button>
-
-        {/* All Open Tasks */}
-        <button
-          onClick={() => setShowSection(showSection === 'tasks' ? false : 'tasks')}
-          style={{
-            flex: 1, display: 'flex', alignItems: 'center', gap: 6,
-            padding: '7px 8px', borderRadius: 8, border: 'none', cursor: 'pointer',
-            background: '#1e1e1e',
-            borderWidth: 1, borderStyle: 'solid',
-            borderColor: 'rgba(205,162,116,0.06)',
-            textAlign: 'left',
-          }}
-        >
-          <CheckCircle2 size={11} style={{ color: '#CDA274', flexShrink: 0 }} />
-          <span style={{ fontSize: 16, fontWeight: 700, color: '#CDA274', lineHeight: 1 }}>{tasks.length}</span>
-          <span style={{ fontSize: 8, color: '#6a6058' }}>Open</span>
-        </button>
-      </div>
-
-      {/* EXPANDED TASK LIST — shows when any card is clicked */}
-      {showSection && ['urgent', 'overdue', 'tasks'].includes(showSection) && (() => {
-        const sectionTasks = showSection === 'urgent' ? urgentTasks
-          : showSection === 'overdue' ? overdueTasks
-          : tasks;
-        const sectionLabel = showSection === 'urgent' ? 'Urgent Tasks'
-          : showSection === 'overdue' ? 'Overdue Tasks'
-          : 'All Open Tasks';
-        const sectionColor = showSection === 'urgent' ? '#ef4444'
-          : showSection === 'overdue' ? '#f59e0b'
-          : '#CDA274';
+      {/* EXPANDED TASK LIST — shows when KPI card is clicked */}
+      {showSection && ['overdue', 'tasks'].includes(showSection) && (() => {
+        const sectionTasks = showSection === 'overdue' ? overdueTasks : tasks;
+        const sectionLabel = showSection === 'overdue' ? 'Overdue Tasks' : 'All Open Tasks';
+        const sectionColor = showSection === 'overdue' ? '#ef4444' : '#3b82f6';
 
         return (
           <div style={{ background: '#1e1e1e', border: '1px solid rgba(205,162,116,0.08)', borderRadius: 8, padding: '6px 10px', marginBottom: 6, maxHeight: 300, overflowY: 'auto' }}>
