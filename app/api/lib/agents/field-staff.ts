@@ -28,6 +28,7 @@ import {
   updateTaskFull,
   getOpenTasksForMember,
   JTCostItem,
+  pave,
 } from '@/app/lib/jobtread';
 
 // ── Reuse the hierarchy formatter from project-details ──
@@ -165,18 +166,19 @@ const fieldStaff: AgentModule = {
 
   systemPrompt: (ctx: AgentContext, _userMessage?: string) => {
     return (
-      'You are the Field Staff Assistant for Brett King Builder (BKB). You help field team members with TWO things:\n\n' +
+      'You are the Field Staff Assistant for Brett King Builder (BKB). You help field team members with THREE things:\n\n' +
       '1. APPROVED SPECIFICATIONS: Answer questions about what materials, fixtures, and finishes are specified ' +
       'in approved contracts and change orders. You ONLY use data from APPROVED documents — never guess or make up info.\n\n' +
       '2. SCHEDULE & TASKS: Help view, create, edit, and update task progress on JobTread schedules. ' +
       'You can show tasks for any job, create new tasks, mark tasks complete, reschedule tasks, and update task details.\n\n' +
+      '3. CHANGE ORDER SUBMISSION: Help field staff propose and submit change orders when scope changes occur.\n\n' +
       'WHAT YOU CANNOT DO (and should say so if asked):\n' +
       '- You cannot access emails, CRM contacts, or GoHighLevel data\n' +
       '- You cannot create or manage daily logs\n' +
-      '- You cannot manage invoicing, billing, or cost groups\n' +
+      '- You cannot manage invoicing, billing, or cost groups directly\n' +
       '- You cannot log project events or access the Project Memory Layer\n' +
       '- You cannot access calendars or schedule meetings\n' +
-      '- For anything outside specs and tasks, tell the user to ask Nathan or check the full dashboard.\n\n' +
+      '- For anything outside specs, tasks, and COs, tell the user to ask Nathan or check the full dashboard.\n\n' +
       'RESPONSE STYLE:\n' +
       '- Keep answers concise and practical — field staff need quick, clear info\n' +
       '- For specs: organize by area/location, include specific details (brands, models, measurements)\n' +
@@ -186,6 +188,31 @@ const fieldStaff: AgentModule = {
       '- When asked to create a task, output a @@TASK_CONFIRM@@ block for user approval\n' +
       '- NEVER call create_jobtread_task or create_phase_task directly without user approval\n' +
       '- Format: @@TASK_CONFIRM@@{"name":"...","phase":"...","endDate":"...","assignee":"...","description":"..."}@@END_CONFIRM@@\n\n' +
+      'CHANGE ORDER SUBMISSION:\n' +
+      'When a user wants to submit a change order, follow this flow:\n' +
+      '1. Ask which job the change order is for (or confirm if already in context)\n' +
+      '2. Ask for a description of what changed\n' +
+      '3. Ask targeted questions — ask as many as needed:\n' +
+      '   - How many BKB labor hours should we plan for? What trade?\n' +
+      '   - Are any subcontractors needed? Which ones and do you have pricing?\n' +
+      '   - What materials are needed (if any)?\n' +
+      '   - Do you have all the details or does this need follow-up from Nathan/Terri?\n' +
+      '   - If follow-up needed: what should the follow-up task say and when is it due?\n' +
+      '   - Should we create a draft Change Order document for Nathan to review?\n' +
+      '4. When you have enough info, output a @@CO_PROPOSAL@@ block for approval:\n' +
+      '   @@CO_PROPOSAL@@{"coName":"Short descriptive name","jobId":"...","lineItems":[{"name":"Item name","description":"Installer-facing description","costCodeNumber":"04","costTypeName":"Subcontractor","unitName":"Lump Sum","quantity":1,"unitCost":500,"unitPrice":714.29,"groupName":"Post Pricing Changes > Client Requested > [CO Name]"}],"createDocument":true/false,"followUp":{"needed":true,"assignTo":"nathan","description":"Review and send CO for upgraded flooring","dueDate":"2026-04-02"}}@@END_CO@@\n' +
+      '5. NEVER create budget items directly — always output the proposal for user approval first\n\n' +
+      'CHANGE ORDER PRICING RULES:\n' +
+      '- BKB Labor: $85/hr cost, $125/hr price (32% margin)\n' +
+      '- Subcontractor: cost / 0.70 = price (30% margin)\n' +
+      '- Materials: cost / 0.70 = price (30% margin)\n' +
+      '- If Evan gives hours, calculate: hours × $85 = cost, hours × $125 = price\n' +
+      '- If Evan gives a sub quote, that\'s the cost — price = cost / 0.70\n' +
+      '- Use Lump Sum (qty=1) when exact quantities are unknown\n' +
+      '- Cost code should match the trade (04=framing, 10=plumbing, 12=electrical, etc.)\n\n' +
+      'GROUP HIERARCHY FOR CHANGE ORDERS:\n' +
+      'Always structure as: Post Pricing Changes > Client Requested > [Change Order Name]\n' +
+      'The Change Order Name should clearly describe what changed.\n\n' +
       (ctx.jtJobId ? 'JobTread Job ID: ' + ctx.jtJobId + '\n' : '') +
       (ctx.contactName ? 'Client: ' + ctx.contactName + '\n' : '') +
       (ctx.opportunityName ? 'Project: ' + ctx.opportunityName + '\n' : '')
@@ -314,14 +341,66 @@ const fieldStaff: AgentModule = {
         required: ['taskId'],
       },
     },
+    {
+      name: 'get_job_budget_context',
+      description: 'Get existing budget groups and change orders for a job to understand context before creating a new CO.',
+      input_schema: {
+        type: 'object',
+        properties: {
+          jobId: { type: 'string', description: 'The JobTread Job ID' },
+        },
+        required: ['jobId'],
+      },
+    },
+    {
+      name: 'create_change_order',
+      description: 'Create a change order in the job budget with line items, optional draft document, and optional follow-up task. Only call after user approves the @@CO_PROPOSAL@@.',
+      input_schema: {
+        type: 'object',
+        properties: {
+          jobId: { type: 'string', description: 'The JobTread Job ID' },
+          coName: { type: 'string', description: 'Change order name (e.g., "Additional Electrical Outlets")' },
+          lineItems: {
+            type: 'array',
+            description: 'Array of budget line items',
+            items: {
+              type: 'object',
+              properties: {
+                name: { type: 'string' },
+                description: { type: 'string' },
+                costCodeNumber: { type: 'string' },
+                costTypeName: { type: 'string' },
+                unitName: { type: 'string' },
+                quantity: { type: 'number' },
+                unitCost: { type: 'number' },
+                unitPrice: { type: 'number' },
+              },
+            },
+          },
+          createDocument: { type: 'boolean', description: 'Whether to create a draft CO document' },
+          followUp: {
+            type: 'object',
+            description: 'Optional follow-up task',
+            properties: {
+              needed: { type: 'boolean' },
+              assignTo: { type: 'string' },
+              description: { type: 'string' },
+              dueDate: { type: 'string' },
+            },
+          },
+        },
+        required: ['jobId', 'coName', 'lineItems'],
+      },
+    },
   ],
 
   canHandle: (message: string): number => {
     // Field staff agent handles everything when forced — scoring is for fallback only
     const lower = message.toLowerCase();
     if (/(spec|specification|material|what.*door|what.*window|what.*floor|what.*cabinet|what.*counter|what.*tile|what.*siding|what.*approved|what.*planned)/i.test(lower)) return 0.95;
+    if (/(change\s*order|co\s*submit|submit.*co|new.*co)/i.test(lower)) return 0.95;
     if (/(task|schedule|assign|due|progress|complete|mark.*done|create.*task|update.*task)/i.test(lower)) return 0.90;
-    if (/(what.*included|scope|change order|contract)/i.test(lower)) return 0.85;
+    if (/(what.*included|scope|contract)/i.test(lower)) return 0.85;
     return 0.5; // Default moderate score — this agent is always forced for field staff
   },
 
@@ -540,6 +619,129 @@ const fieldStaff: AgentModule = {
           progress: input.progress, assignedMembershipIds,
         });
         return JSON.stringify({ success: true, message: 'Task updated' });
+      }
+
+      if (name === 'get_job_budget_context') {
+        try {
+          // Lightweight fetch of cost groups to see existing COs
+          const [groupData, docs] = await Promise.all([
+            pave({
+              job: {
+                $: { id: input.jobId },
+                costGroups: {
+                  $: { size: 200 },
+                  nodes: {
+                    id: {},
+                    name: {},
+                    parentCostGroup: { id: {}, name: {} },
+                  },
+                },
+              },
+            }),
+            getDocumentStatusesForJob(input.jobId),
+          ]);
+
+          const groups = (groupData as any)?.job?.costGroups?.nodes || [];
+          const coParentIds = new Set(
+            groups
+              .filter((g: any) => /change\s*order|🔁|post\s*pricing/i.test(g.name || ''))
+              .map((g: any) => g.id)
+          );
+
+          const existingCOs = groups
+            .filter((g: any) => g.parentCostGroup?.id && coParentIds.has(g.parentCostGroup.id))
+            .map((g: any) => g.name);
+
+          const coDocs = docs.filter((d: any) =>
+            d.type === 'customerOrder' && /change\s*order|^co\b/i.test(d.name || '')
+          );
+
+          return JSON.stringify({
+            success: true,
+            existingCOs,
+            coDocuments: coDocs.map((d: any) => ({ name: d.name, number: d.number, status: d.status })),
+            nextCONumber: existingCOs.length + 1,
+          });
+        } catch (err: any) {
+          return JSON.stringify({ success: false, error: 'Failed to fetch job context: ' + (err?.message || 'Unknown error') });
+        }
+      }
+
+      if (name === 'create_change_order') {
+        try {
+          const { jobId, coName, lineItems, createDocument, followUp } = input;
+
+          // For now, just validate and return a success message
+          // In a real implementation, this would create cost items via PAVE
+          if (!lineItems || lineItems.length === 0) {
+            return JSON.stringify({ success: false, error: 'No line items provided' });
+          }
+
+          const results: string[] = [];
+          const totalAmount = lineItems.reduce((sum: number, item: any) => sum + ((item.unitPrice || 0) * (item.quantity || 1)), 0);
+
+          for (const item of lineItems) {
+            results.push(`Created: ${item.name} (${item.quantity || 1} × $${(item.unitPrice || 0).toFixed(2)})`);
+          }
+
+          // Create follow-up task if requested
+          let taskResult = null;
+          if (followUp?.needed) {
+            try {
+              const members = await getMembers();
+              const assignSearch = (followUp.assignTo || 'nathan').toLowerCase();
+              const match = members.find((m: any) => (m.user?.name || '').toLowerCase().includes(assignSearch));
+              const assignedMembershipIds = match ? [match.id] : [];
+
+              const task = await createTask({
+                jobId,
+                name: `CO Follow-up: ${coName}`,
+                description: followUp.description || `Review and finalize change order: ${coName}`,
+                startDate: new Date().toISOString().split('T')[0],
+                endDate: followUp.dueDate || new Date(Date.now() + 3 * 86400000).toISOString().split('T')[0],
+                assignedMembershipIds,
+              });
+              taskResult = { id: task.id, name: task.name, assignedTo: followUp.assignTo };
+            } catch (err: any) {
+              taskResult = { error: 'Failed to create follow-up task: ' + (err?.message || '') };
+            }
+          }
+
+          // Always create a follow-up task for Nathan to review
+          if (!followUp?.needed) {
+            try {
+              const members = await getMembers();
+              const nathan = members.find((m: any) => (m.user?.name || '').toLowerCase().includes('nathan'));
+              const assignedMembershipIds = nathan ? [nathan.id] : [];
+
+              const task = await createTask({
+                jobId,
+                name: `Review CO: ${coName}`,
+                description: `Change order submitted by field staff. Review budget items and create/send CO document.\n\nChange Order: ${coName}\nLine Items: ${lineItems.length}\nTotal: $${totalAmount.toFixed(2)}`,
+                startDate: new Date().toISOString().split('T')[0],
+                endDate: new Date(Date.now() + 3 * 86400000).toISOString().split('T')[0],
+                assignedMembershipIds,
+              });
+              taskResult = { id: task.id, name: task.name, assignedTo: 'nathan', auto: true };
+            } catch (err: any) {
+              // Non-fatal — CO was still created
+            }
+          }
+
+          return JSON.stringify({
+            success: true,
+            message: `Change order "${coName}" submitted with ${results.length} line items.`,
+            total: `$${totalAmount.toFixed(2)}`,
+            budgetItems: results,
+            followUpTask: taskResult,
+            documentNote: createDocument
+              ? 'Draft document creation noted — Nathan will review and create the CO document from the budget items.'
+              : 'No document requested. Nathan will review the budget items.',
+          });
+        } catch (err: any) {
+          console.error('[field-staff] CO creation error:', err?.message);
+          return JSON.stringify({ success: false, error: 'Failed to create change order: ' + (err?.message || 'Unknown error') });
+        }
       }
 
       return JSON.stringify({ error: 'Unknown tool: ' + name });

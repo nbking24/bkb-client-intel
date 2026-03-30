@@ -1,7 +1,7 @@
 // @ts-nocheck
 import { NextRequest, NextResponse } from 'next/server';
 import { validateAuth } from '../lib/auth';
-import { getActiveJobs, getTasksForJob, getOpenTasksForMember, updateTaskProgress, updateTask, getCommentsForTarget } from '@/app/lib/jobtread';
+import { getActiveJobs, getTasksForJob, getOpenTasksForMember, updateTaskProgress, updateTask, getCommentsForTarget, pave, getDocumentStatusesForJob } from '@/app/lib/jobtread';
 import { TEAM_USERS } from '@/app/lib/constants';
 
 /**
@@ -12,6 +12,56 @@ import { TEAM_USERS } from '@/app/lib/constants';
  * Mark task complete/incomplete: { taskId, complete: boolean }
  * Update task date: { taskId, endDate: string }
  */
+
+async function getCOTrackingForJob(jobId: string): Promise<{
+  budgetCOs: Array<{ id: string; name: string }>;
+  documents: Array<{ id: string; name: string; number: string; status: string; type: string; createdAt?: string }>;
+}> {
+  try {
+    // Fetch cost groups (lightweight - just names/parents, no items)
+    const [groupData, docs] = await Promise.all([
+      pave({
+        job: {
+          $: { id: jobId },
+          costGroups: {
+            $: { size: 200 },
+            nodes: {
+              id: {},
+              name: {},
+              parentCostGroup: { id: {}, name: {} },
+            },
+          },
+        },
+      }),
+      getDocumentStatusesForJob(jobId),
+    ]);
+
+    const groups = (groupData as any)?.job?.costGroups?.nodes || [];
+
+    // Find the "Change Orders" parent group(s)
+    const coParentIds = new Set(
+      groups
+        .filter((g: any) => /change\s*order|🔁|post\s*pricing/i.test(g.name || ''))
+        .map((g: any) => g.id)
+    );
+
+    // Get child groups of CO parents (these are individual COs)
+    const budgetCOs = groups
+      .filter((g: any) => g.parentCostGroup?.id && coParentIds.has(g.parentCostGroup.id))
+      .map((g: any) => ({ id: g.id, name: g.name }));
+
+    // Filter documents that are change orders (customerOrder type)
+    // CO documents are typically named "Change Order" or have "CO" in the name
+    const coDocuments = docs.filter((d: any) =>
+      d.type === 'customerOrder' && /change\s*order|^co\b/i.test(d.name || '')
+    );
+
+    return { budgetCOs, documents: coDocuments };
+  } catch (err) {
+    return { budgetCOs: [], documents: [] };
+  }
+}
+
 export async function GET(req: NextRequest) {
   const auth = validateAuth(req.headers.get('authorization'));
   if (!auth.valid) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
@@ -65,16 +115,25 @@ export async function GET(req: NextRequest) {
 
     const myTaskIds = new Set(memberTasks.map((t: any) => t.id));
 
-    // Fetch tasks AND recent comments per PM job in parallel
-    const jobDataResults = await Promise.all(
-      myJobs.map(async (job: any) => {
-        const [tasks, comments] = await Promise.all([
-          getTasksForJob(job.id).catch(() => []),
-          getCommentsForTarget(job.id, 'job', 15).catch(() => []),
-        ]);
-        return { jobId: job.id, tasks, comments };
-      })
-    );
+    // Fetch tasks, comments, and CO tracking per PM job in parallel, plus weather
+    const [jobDataResults, coTrackingResults, weather] = await Promise.all([
+      Promise.all(
+        myJobs.map(async (job: any) => {
+          const [tasks, comments] = await Promise.all([
+            getTasksForJob(job.id).catch(() => []),
+            getCommentsForTarget(job.id, 'job', 15).catch(() => []),
+          ]);
+          return { jobId: job.id, tasks, comments };
+        })
+      ),
+      Promise.all(
+        myJobs.map(async (job: any) => {
+          const tracking = await getCOTrackingForJob(job.id).catch(() => ({ budgetCOs: [], documents: [] }));
+          return { jobId: job.id, jobName: job.name, jobNumber: job.number, ...tracking };
+        })
+      ),
+      weatherPromise,
+    ]);
 
     const calendarTasks: any[] = [];
     const jobOverdueTasks: any[] = []; // overdue on PM jobs, NOT assigned to Evan
@@ -379,8 +438,75 @@ export async function GET(req: NextRequest) {
       parts.push(`Recent activity: ${commParts.join('. ')}.`);
     }
 
-    // Await weather (already started in parallel)
-    const weather = await weatherPromise;
+    // Build CO tracker data
+    const changeOrders: any[] = [];
+
+    for (const jobCO of coTrackingResults) {
+      if (jobCO.budgetCOs.length === 0 && jobCO.documents.length === 0) continue;
+
+      // Match budget COs to documents
+      const docsByStatus: Record<string, any[]> = {
+        draft: jobCO.documents.filter((d: any) => d.status === 'draft'),
+        issued: jobCO.documents.filter((d: any) => d.status === 'issued'),
+        approved: jobCO.documents.filter((d: any) => d.status === 'approved'),
+        declined: jobCO.documents.filter((d: any) => d.status === 'declined'),
+      };
+
+      // Each budget CO group is a separate change order
+      for (const co of jobCO.budgetCOs) {
+        changeOrders.push({
+          jobId: jobCO.jobId,
+          jobName: jobCO.jobName,
+          jobNumber: jobCO.jobNumber,
+          coName: co.name,
+          coGroupId: co.id,
+          hasDocument: false,
+          documentStatus: 'needs_document',
+          documentId: null,
+          isStale: true,
+        });
+      }
+
+      // Map documents to the tracker
+      for (const doc of jobCO.documents) {
+        const status = doc.status === 'draft' ? 'draft'
+          : doc.status === 'approved' ? 'approved'
+            : doc.status === 'declined' ? 'declined'
+              : doc.status === 'issued' ? 'sent'
+                : 'draft';
+
+        // Try to find matching budget CO
+        const matchIdx = changeOrders.findIndex((co: any) =>
+          co.jobId === jobCO.jobId && co.documentStatus === 'needs_document'
+        );
+
+        if (matchIdx >= 0) {
+          changeOrders[matchIdx].hasDocument = true;
+          changeOrders[matchIdx].documentStatus = status;
+          changeOrders[matchIdx].documentId = doc.id;
+          changeOrders[matchIdx].documentNumber = doc.number;
+          changeOrders[matchIdx].isStale = (status === 'draft');
+        } else {
+          // Document exists but no matching budget group
+          changeOrders.push({
+            jobId: jobCO.jobId,
+            jobName: jobCO.jobName,
+            jobNumber: jobCO.jobNumber,
+            coName: doc.name + ' #' + doc.number,
+            coGroupId: null,
+            hasDocument: true,
+            documentStatus: status,
+            documentId: doc.id,
+            documentNumber: doc.number,
+            isStale: (status === 'draft'),
+          });
+        }
+      }
+    }
+
+    // Sort: stale/needs_document first, then draft, then sent, then approved/declined
+    const statusOrder: Record<string, number> = { needs_document: 0, draft: 1, sent: 2, declined: 3, approved: 4 };
+    changeOrders.sort((a, b) => (statusOrder[a.documentStatus] || 5) - (statusOrder[b.documentStatus] || 5));
 
     return NextResponse.json({
       userName: user.name,
@@ -395,6 +521,7 @@ export async function GET(req: NextRequest) {
       activeJobCount: myJobs.length,
       pmJobs,
       kpis,
+      changeOrders,
       weather,
     });
   } catch (err: any) {

@@ -9,7 +9,8 @@ import {
   X, Briefcase, CalendarDays, ExternalLink,
   Send, Bot, User, CheckCircle, XCircle,
   TrendingUp, TrendingDown, Minus, Target, Clock3, Activity,
-  Sun, Cloud, CloudRain, CloudSnow, CloudDrizzle, CloudLightning, CloudFog, Droplets
+  Sun, Cloud, CloudRain, CloudSnow, CloudDrizzle, CloudLightning, CloudFog, Droplets,
+  FileWarning, FileCheck, FileClock
 } from 'lucide-react';
 import { useAuth } from '@/app/hooks/useAuth';
 import {
@@ -369,6 +370,18 @@ interface WeatherDay {
   date: string; high: number; low: number;
   precipChance: number; code: number;
 }
+interface ChangeOrder {
+  jobId: string;
+  jobName: string;
+  jobNumber: string;
+  coName: string;
+  coGroupId: string | null;
+  hasDocument: boolean;
+  documentStatus: 'needs_document' | 'draft' | 'sent' | 'approved' | 'declined';
+  documentId: string | null;
+  documentNumber?: string;
+  isStale: boolean;
+}
 interface Data {
   userName: string; briefing: string;
   week1Start: string; todayDate: string;
@@ -378,6 +391,7 @@ interface Data {
   activeJobCount: number;
   pmJobs: PmJob[];
   kpis: KPIs;
+  changeOrders: ChangeOrder[];
   weather: WeatherDay[];
 }
 
@@ -635,6 +649,58 @@ export default function FieldDashboardPage() {
           </div>
         );
       })()}
+
+      {/* CHANGE ORDER TRACKER */}
+      {data.changeOrders && data.changeOrders.length > 0 && (
+        <div style={{ background: '#1e293b', borderRadius: 12, padding: '16px 20px', marginBottom: 16 }}>
+          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 12 }}>
+            <h3 style={{ color: '#f1f5f9', fontSize: 15, fontWeight: 600, margin: 0 }}>
+              Change Order Tracker
+            </h3>
+            <span style={{ color: '#94a3b8', fontSize: 12 }}>
+              {data.changeOrders.filter(co => co.documentStatus !== 'approved').length} pending
+            </span>
+          </div>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+            {data.changeOrders.map((co, idx) => {
+              const statusConfig: Record<string, { label: string; color: string; bg: string; icon: any }> = {
+                needs_document: { label: 'Needs Document', color: '#f59e0b', bg: 'rgba(245,158,11,0.1)', icon: FileWarning },
+                draft: { label: 'Draft', color: '#3b82f6', bg: 'rgba(59,130,246,0.1)', icon: FileClock },
+                sent: { label: 'Sent', color: '#8b5cf6', bg: 'rgba(139,92,246,0.1)', icon: Send },
+                approved: { label: 'Approved', color: '#10b981', bg: 'rgba(16,185,129,0.1)', icon: FileCheck },
+                declined: { label: 'Declined', color: '#ef4444', bg: 'rgba(239,68,68,0.1)', icon: XCircle },
+              };
+              const config = statusConfig[co.documentStatus] || statusConfig.draft;
+              const IconComp = config.icon;
+              return (
+                <div key={idx} style={{
+                  display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+                  background: co.isStale && co.documentStatus !== 'approved' ? 'rgba(245,158,11,0.05)' : '#0f172a',
+                  borderRadius: 8, padding: '10px 14px',
+                  borderLeft: `3px solid ${config.color}`,
+                }}>
+                  <div style={{ flex: 1, minWidth: 0 }}>
+                    <div style={{ color: '#e2e8f0', fontSize: 13, fontWeight: 500, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                      {co.coName}
+                    </div>
+                    <div style={{ color: '#64748b', fontSize: 11, marginTop: 2 }}>
+                      {co.jobName} #{co.jobNumber}
+                    </div>
+                  </div>
+                  <div style={{
+                    display: 'flex', alignItems: 'center', gap: 6,
+                    background: config.bg, borderRadius: 12, padding: '4px 10px',
+                    ...(co.isStale && co.documentStatus !== 'approved' && co.documentStatus !== 'sent' ? { animation: 'pulse 2s infinite' } : {}),
+                  }}>
+                    <IconComp size={12} color={config.color} />
+                    <span style={{ color: config.color, fontSize: 11, fontWeight: 600 }}>{config.label}</span>
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        </div>
+      )}
 
       {/* THREE TASK CARDS: Job Overdue | My Overdue | Open Tasks */}
       <div style={{ display: 'flex', gap: 4, marginBottom: 6 }}>
@@ -1062,6 +1128,13 @@ export default function FieldDashboardPage() {
           </div>
         </div>
       )}
+
+      <style>{`
+        @keyframes pulse {
+          0%, 100% { opacity: 1; }
+          50% { opacity: 0.5; }
+        }
+      `}</style>
     </div>
   );
 }
