@@ -8,7 +8,8 @@ import {
   Zap, ClipboardList, Circle, CheckCircle2,
   X, Briefcase, CalendarDays, ExternalLink,
   Send, Bot, User, CheckCircle, XCircle,
-  TrendingUp, TrendingDown, Minus, Target, Clock3, Activity
+  TrendingUp, TrendingDown, Minus, Target, Clock3, Activity,
+  Sun, Cloud, CloudRain, CloudSnow, CloudDrizzle, CloudLightning, CloudFog, Droplets
 } from 'lucide-react';
 import { useAuth } from '@/app/hooks/useAuth';
 import {
@@ -364,6 +365,10 @@ interface KPIs {
   tasksNext7: number;
   tasksNext30: number;
 }
+interface WeatherDay {
+  date: string; high: number; low: number;
+  precipChance: number; code: number;
+}
 interface Data {
   userName: string; briefing: string;
   week1Start: string; todayDate: string;
@@ -373,6 +378,7 @@ interface Data {
   activeJobCount: number;
   pmJobs: PmJob[];
   kpis: KPIs;
+  weather: WeatherDay[];
 }
 
 export default function FieldDashboardPage() {
@@ -796,6 +802,60 @@ export default function FieldDashboardPage() {
           </div>
         </div>
       )}
+
+      {/* WEATHER FORECAST STRIP */}
+      {data.weather && data.weather.length > 0 && (() => {
+        // WMO weather code to icon + label
+        function weatherIcon(code: number, size = 12) {
+          if (code <= 1) return <Sun size={size} style={{ color: '#eab308' }} />;
+          if (code <= 3) return <Cloud size={size} style={{ color: '#9ca3af' }} />;
+          if (code <= 48) return <CloudFog size={size} style={{ color: '#9ca3af' }} />;
+          if (code <= 57) return <CloudDrizzle size={size} style={{ color: '#60a5fa' }} />;
+          if (code <= 67) return <CloudRain size={size} style={{ color: '#3b82f6' }} />;
+          if (code <= 77) return <CloudSnow size={size} style={{ color: '#c4b5fd' }} />;
+          if (code <= 82) return <CloudRain size={size} style={{ color: '#2563eb' }} />;
+          if (code <= 86) return <CloudSnow size={size} style={{ color: '#a78bfa' }} />;
+          if (code <= 99) return <CloudLightning size={size} style={{ color: '#f59e0b' }} />;
+          return <Cloud size={size} style={{ color: '#9ca3af' }} />;
+        }
+        const dayNames = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
+
+        return (
+          <div style={{ marginBottom: 6, borderRadius: 8, overflow: 'hidden', border: '1px solid rgba(205,162,116,0.08)' }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 5, padding: '4px 10px', background: 'rgba(205,162,116,0.04)' }}>
+              <Sun size={10} style={{ color: '#eab308' }} />
+              <span style={{ fontSize: 8, fontWeight: 700, color: '#5a5550', letterSpacing: '0.06em' }}>PERKASIE FORECAST</span>
+            </div>
+            <div style={{ display: 'grid', gridTemplateColumns: `repeat(${Math.min(data.weather.length, 10)}, 1fr)`, gap: 0 }}>
+              {data.weather.slice(0, 10).map((w, i) => {
+                const dt = new Date(w.date + 'T12:00:00');
+                const isToday = w.date === data.todayDate;
+                const isWeekend = dt.getDay() === 0 || dt.getDay() === 6;
+                const rainWarning = w.precipChance >= 50;
+                return (
+                  <div key={w.date} style={{
+                    padding: '5px 2px', textAlign: 'center',
+                    background: isToday ? 'rgba(205,162,116,0.1)' : rainWarning ? 'rgba(59,130,246,0.04)' : '#1a1a1a',
+                    borderRight: i < data.weather.length - 1 ? '1px solid rgba(205,162,116,0.04)' : 'none',
+                  }}>
+                    <div style={{ fontSize: 8, fontWeight: 600, color: isToday ? '#CDA274' : isWeekend ? '#3a3a3a' : '#5a5550', marginBottom: 2 }}>
+                      {isToday ? 'Today' : dayNames[dt.getDay()]}
+                    </div>
+                    <div style={{ margin: '2px 0' }}>{weatherIcon(w.code, 14)}</div>
+                    <div style={{ fontSize: 10, fontWeight: 700, color: '#e8e0d8', lineHeight: 1.2 }}>{w.high}°</div>
+                    <div style={{ fontSize: 8, color: '#4a4a4a' }}>{w.low}°</div>
+                    {w.precipChance > 10 && (
+                      <div style={{ fontSize: 7, color: w.precipChance >= 50 ? '#3b82f6' : '#5a5550', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 1, marginTop: 1 }}>
+                        <Droplets size={6} /> {w.precipChance}%
+                      </div>
+                    )}
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+        );
+      })()}
 
       {/* WEEK CALENDARS — shown before My Jobs */}
       {weeks.map((week, wi) => (

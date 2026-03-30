@@ -22,6 +22,22 @@ export async function GET(req: NextRequest) {
 
   try {
     const membershipId = user.membershipId;
+
+    // Fetch weather in parallel (non-blocking) — Perkasie, PA
+    const weatherPromise = fetch(
+      'https://api.open-meteo.com/v1/forecast?latitude=40.37&longitude=-75.26&daily=temperature_2m_max,temperature_2m_min,precipitation_probability_max,weathercode&temperature_unit=fahrenheit&timezone=America/New_York&forecast_days=10'
+    ).then(r => r.json()).then(d => {
+      const daily = d.daily || {};
+      const dates = daily.time || [];
+      return dates.map((date: string, i: number) => ({
+        date,
+        high: Math.round(daily.temperature_2m_max?.[i] || 0),
+        low: Math.round(daily.temperature_2m_min?.[i] || 0),
+        precipChance: daily.precipitation_probability_max?.[i] || 0,
+        code: daily.weathercode?.[i] || 0,
+      }));
+    }).catch(() => []);
+
     const [activeJobs, memberTasks] = await Promise.all([
       getActiveJobs(50).catch(() => []),
       getOpenTasksForMember(membershipId).catch(() => []),
@@ -363,6 +379,9 @@ export async function GET(req: NextRequest) {
       parts.push(`Recent activity: ${commParts.join('. ')}.`);
     }
 
+    // Await weather (already started in parallel)
+    const weather = await weatherPromise;
+
     return NextResponse.json({
       userName: user.name,
       briefing: parts.join(' '),
@@ -376,6 +395,7 @@ export async function GET(req: NextRequest) {
       activeJobCount: myJobs.length,
       pmJobs,
       kpis,
+      weather,
     });
   } catch (err: any) {
     console.error('Field dashboard error:', err);
