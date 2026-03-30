@@ -408,7 +408,7 @@ async function fetchARandCOData(
           }
         }
 
-        for (const rootId of coRootIds) {
+        for (const rootId of Array.from(coRootIds)) {
           findCOGroups(rootId, 0);
         }
       })
