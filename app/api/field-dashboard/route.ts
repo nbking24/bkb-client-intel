@@ -18,18 +18,22 @@ async function getCOTrackingForJob(jobId: string): Promise<{
   documents: Array<{ id: string; name: string; number: string; status: string; type: string; createdAt?: string }>;
 }> {
   try {
-    // Fetch cost groups with pagination (PAVE max size is 100)
+    // Fetch cost groups with cursor-based pagination (PAVE max size is 100)
     const docs = await getDocumentStatusesForJob(jobId);
 
     let allGroups: any[] = [];
-    let page = 1;
-    let hasMore = true;
-    while (hasMore) {
+    let nextPage: string | null = null;
+
+    for (let i = 0; i < 5; i++) {
+      const pageParams: Record<string, unknown> = { size: 100 };
+      if (nextPage) pageParams.page = nextPage;
+
       const groupData = await pave({
         job: {
           $: { id: jobId },
           costGroups: {
-            $: { size: 100, page },
+            $: pageParams,
+            nextPage: {},
             nodes: {
               id: {},
               name: {},
@@ -38,10 +42,11 @@ async function getCOTrackingForJob(jobId: string): Promise<{
           },
         },
       });
-      const nodes = (groupData as any)?.job?.costGroups?.nodes || [];
+      const costGroups = (groupData as any)?.job?.costGroups;
+      const nodes = costGroups?.nodes || [];
       allGroups = allGroups.concat(nodes);
-      hasMore = nodes.length === 100;
-      page++;
+      nextPage = costGroups?.nextPage || null;
+      if (!nextPage || nodes.length < 100) break;
     }
 
     const groups = allGroups;
