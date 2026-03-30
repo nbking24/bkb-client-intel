@@ -1,12 +1,12 @@
 // @ts-nocheck
 import { NextRequest, NextResponse } from 'next/server';
 import { validateAuth } from '../lib/auth';
-import { getActiveJobs, getTasksForJob, getOpenTasksForMember, updateTaskProgress, updateTask } from '@/app/lib/jobtread';
+import { getActiveJobs, getTasksForJob, getOpenTasksForMember, updateTaskProgress, updateTask, getCommentsForTarget } from '@/app/lib/jobtread';
 import { TEAM_USERS } from '@/app/lib/constants';
 
 /**
  * GET /api/field-dashboard
- * Forward-looking 2-week calendar, AI briefing, open/overdue tasks
+ * Forward-looking 2-week calendar, AI briefing with recent job comms, open/overdue tasks
  *
  * PATCH /api/field-dashboard
  * Mark task complete/incomplete: { taskId, complete: boolean }
@@ -31,47 +31,48 @@ export async function GET(req: NextRequest) {
     const myJobs = activeJobs.filter((j: any) => j.projectManager === userPmName);
 
     // Date boundaries
+    const now = new Date();
     const today = new Date();
     today.setHours(0, 0, 0, 0);
     const todayStr = today.toISOString().split('T')[0];
     const tomorrowStr = new Date(today.getTime() + 86400000).toISOString().split('T')[0];
     const dayAfterStr = new Date(today.getTime() + 2 * 86400000).toISOString().split('T')[0];
 
-    // Forward-looking: upcoming Monday (if today is Mon, use today; otherwise next Mon)
-    const dow = today.getDay(); // 0=Sun
+    // Forward-looking: upcoming Monday
+    const dow = today.getDay();
     let upcomingMonday: Date;
-    if (dow === 1) {
-      upcomingMonday = new Date(today); // today is Monday
-    } else if (dow === 0) {
-      upcomingMonday = new Date(today.getTime() + 86400000); // tomorrow is Monday
-    } else {
-      upcomingMonday = new Date(today.getTime() + (8 - dow) * 86400000); // next Monday
-    }
+    if (dow === 1) upcomingMonday = new Date(today);
+    else if (dow === 0) upcomingMonday = new Date(today.getTime() + 86400000);
+    else upcomingMonday = new Date(today.getTime() + (8 - dow) * 86400000);
     const week1Start = upcomingMonday.toISOString().split('T')[0];
     const week2End = new Date(upcomingMonday.getTime() + 13 * 86400000).toISOString().split('T')[0];
 
-    // Build set of member-assigned task IDs for highlighting
     const myTaskIds = new Set(memberTasks.map((t: any) => t.id));
 
-    // Fetch tasks per PM job
-    const jobTaskResults = await Promise.all(
+    // Fetch tasks AND recent comments per PM job in parallel
+    const jobDataResults = await Promise.all(
       myJobs.map(async (job: any) => {
-        try {
-          return { jobId: job.id, tasks: await getTasksForJob(job.id) };
-        } catch {
-          return { jobId: job.id, tasks: [] };
-        }
+        const [tasks, comments] = await Promise.all([
+          getTasksForJob(job.id).catch(() => []),
+          getCommentsForTarget(job.id, 'job', 15).catch(() => []),
+        ]);
+        return { jobId: job.id, tasks, comments };
       })
     );
 
     const calendarTasks: any[] = [];
-    const jobOverdueTasks: any[] = [];  // ALL overdue tasks across PM jobs
-    const myOverdueTasks: any[] = [];   // Only overdue tasks assigned to user
+    const jobOverdueTasks: any[] = [];
+    const myOverdueTasks: any[] = [];
 
-    for (const { jobId, tasks } of jobTaskResults) {
+    // Collect recent comments (last 48 hours) across all jobs
+    const cutoffTime = now.getTime() - 48 * 60 * 60 * 1000; // 48 hours ago
+    const recentComments: any[] = [];
+
+    for (const { jobId, tasks, comments } of jobDataResults) {
       const job = myJobs.find((j: any) => j.id === jobId);
       if (!job) continue;
 
+      // Process tasks
       for (const task of tasks) {
         if (task.isGroup) continue;
         const isComplete = task.progress !== null && task.progress >= 1;
@@ -79,7 +80,6 @@ export async function GET(req: NextRequest) {
         if (!taskDate) continue;
         const dateStr = taskDate.split('T')[0];
 
-        // Overdue: before today and not complete
         if (dateStr < todayStr && !isComplete) {
           const overdueItem = {
             id: task.id, name: task.name, date: dateStr,
@@ -88,13 +88,10 @@ export async function GET(req: NextRequest) {
             isAssignedToMe: myTaskIds.has(task.id),
           };
           jobOverdueTasks.push(overdueItem);
-          if (myTaskIds.has(task.id)) {
-            myOverdueTasks.push(overdueItem);
-          }
+          if (myTaskIds.has(task.id)) myOverdueTasks.push(overdueItem);
           continue;
         }
 
-        // In 2-week forward window
         if (dateStr >= week1Start && dateStr <= week2End) {
           calendarTasks.push({
             id: task.id, name: task.name, date: dateStr,
@@ -106,11 +103,30 @@ export async function GET(req: NextRequest) {
           });
         }
       }
+
+      // Collect recent comments for this job
+      for (const c of comments) {
+        if (!c.createdAt) continue;
+        const commentTime = new Date(c.createdAt).getTime();
+        if (commentTime >= cutoffTime) {
+          recentComments.push({
+            id: c.id,
+            message: c.message || '',
+            author: c.name || 'Unknown',
+            createdAt: c.createdAt,
+            jobId: job.id,
+            jobName: job.name,
+            jobNumber: job.number,
+          });
+        }
+      }
     }
 
     calendarTasks.sort((a, b) => a.date.localeCompare(b.date) || a.jobName.localeCompare(b.jobName));
     jobOverdueTasks.sort((a, b) => a.date.localeCompare(b.date));
     myOverdueTasks.sort((a, b) => a.date.localeCompare(b.date));
+    // Sort comments newest first
+    recentComments.sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
 
     // Open tasks assigned to user
     const jobMap = new Map<string, any>();
@@ -132,8 +148,8 @@ export async function GET(req: NextRequest) {
       return a.endDate.localeCompare(b.endDate);
     });
 
-    // ── BRIEFING: schedule-focused, prep-oriented ──
-    const hour = new Date().getHours();
+    // ── BRIEFING: schedule-focused + recent communications ──
+    const hour = now.getHours();
     const dayNames = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
     const todayCalTasks = calendarTasks.filter(t => t.date === todayStr && !t.isComplete);
     const tomorrowCalTasks = calendarTasks.filter(t => t.date === tomorrowStr && !t.isComplete);
@@ -153,8 +169,8 @@ export async function GET(req: NextRequest) {
 
     const parts: string[] = [];
 
+    // Schedule section
     if (hour < 12) {
-      // MORNING: focus on today + peek at tomorrow
       if (todayCalTasks.length > 0) {
         parts.push(`On deck today: ${taskListNarrative(todayCalTasks)}.`);
       } else {
@@ -164,7 +180,6 @@ export async function GET(req: NextRequest) {
         parts.push(`${dayNames[tomorrowDow]}: ${taskListNarrative(tomorrowCalTasks, 2)}.`);
       }
     } else if (hour < 17) {
-      // AFTERNOON: remaining today + tomorrow preview
       if (todayCalTasks.length > 0) {
         parts.push(`Still on today's schedule: ${taskListNarrative(todayCalTasks, 2)}.`);
       }
@@ -172,7 +187,6 @@ export async function GET(req: NextRequest) {
         parts.push(`Tomorrow: ${taskListNarrative(tomorrowCalTasks)}.`);
       }
     } else {
-      // EVENING: prep for tomorrow + look ahead
       if (tomorrowCalTasks.length > 0) {
         parts.push(`Tomorrow's schedule: ${taskListNarrative(tomorrowCalTasks)}.`);
       } else {
@@ -183,22 +197,50 @@ export async function GET(req: NextRequest) {
       }
     }
 
-    // Add a heads-up if upcoming week has key milestones
+    // Assigned tasks heads-up
     const week1EndStr = new Date(upcomingMonday.getTime() + 6 * 86400000).toISOString().split('T')[0];
     const myWeek1Tasks = calendarTasks.filter(t => t.date >= week1Start && t.date <= week1EndStr && !t.isComplete && t.isAssignedToMe);
     if (myWeek1Tasks.length > 0) {
       parts.push(`${myWeek1Tasks.length} task${myWeek1Tasks.length > 1 ? 's' : ''} assigned to you this upcoming week.`);
     }
 
+    // Recent communications section
+    if (recentComments.length > 0) {
+      // Group by job and summarize
+      const commentsByJob = new Map<string, any[]>();
+      for (const c of recentComments) {
+        if (!commentsByJob.has(c.jobId)) commentsByJob.set(c.jobId, []);
+        commentsByJob.get(c.jobId)!.push(c);
+      }
+
+      const commParts: string[] = [];
+      for (const [jobId, jobComments] of commentsByJob) {
+        const jobName = jobComments[0].jobName.replace(/^#\d+\s*/, '');
+        const latest = jobComments[0]; // newest first
+        // Truncate message to keep briefing concise
+        const msgPreview = latest.message.length > 80
+          ? latest.message.substring(0, 77).trim() + '...'
+          : latest.message;
+        const authorFirst = latest.author.split(' ')[0];
+        if (jobComments.length === 1) {
+          commParts.push(`${authorFirst} on ${jobName}: "${msgPreview}"`);
+        } else {
+          commParts.push(`${jobComments.length} updates on ${jobName} — latest from ${authorFirst}: "${msgPreview}"`);
+        }
+      }
+      parts.push(`Recent activity: ${commParts.join('. ')}.`);
+    }
+
     return NextResponse.json({
       userName: user.name,
       briefing: parts.join(' '),
-      week1Start: week1Start,
+      week1Start,
       todayDate: todayStr,
       jobOverdueTasks: jobOverdueTasks.slice(0, 40),
       myOverdueTasks: myOverdueTasks.slice(0, 20),
       calendarTasks,
       openTasks,
+      recentComments: recentComments.slice(0, 10),
       activeJobCount: myJobs.length,
     });
   } catch (err: any) {
@@ -217,13 +259,11 @@ export async function PATCH(req: NextRequest) {
     const { taskId, complete, endDate } = body;
     if (!taskId) return NextResponse.json({ error: 'taskId required' }, { status: 400 });
 
-    // Date update
     if (endDate !== undefined) {
       await updateTask(taskId, { endDate });
       return NextResponse.json({ ok: true, taskId, endDate });
     }
 
-    // Completion toggle
     if (complete !== undefined) {
       await updateTaskProgress(taskId, complete ? 1 : 0);
       return NextResponse.json({ ok: true, taskId, progress: complete ? 1 : 0 });
