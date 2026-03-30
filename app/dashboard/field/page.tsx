@@ -233,10 +233,10 @@ export default function FieldDashboardPage() {
                   }
                 </button>
                 <span style={{ width: 5, height: 5, borderRadius: 3, background: jobColor(t.jobNumber), flexShrink: 0 }} />
-                <span style={{ flex: 1, overflow: 'hidden', minWidth: 0 }}>
-                  <span style={{ color: '#e8e0d8', display: 'block', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{t.name}</span>
-                  <span style={{ color: '#5a5550', fontSize: 9 }}>{t.jobName}</span>
-                </span>
+                <div style={{ flex: 1, overflow: 'hidden', minWidth: 0, display: 'flex', flexDirection: 'column' }}>
+                  <div style={{ color: '#e8e0d8', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', lineHeight: '14px' }}>{t.name}</div>
+                  <div style={{ color: '#5a5550', fontSize: 9, lineHeight: '12px' }}>{t.jobName}</div>
+                </div>
                 <span style={{ color: '#ef4444', fontSize: 10, fontWeight: 600, flexShrink: 0 }}>{days}d</span>
               </div>
             );
@@ -256,10 +256,10 @@ export default function FieldDashboardPage() {
                   }
                 </button>
                 <span style={{ width: 5, height: 5, borderRadius: 3, background: jobColor(t.jobNumber), flexShrink: 0 }} />
-                <span style={{ flex: 1, overflow: 'hidden', minWidth: 0 }}>
-                  <span style={{ color: '#e8e0d8', display: 'block', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{t.name}</span>
-                  <span style={{ color: '#5a5550', fontSize: 9 }}>{t.jobName}</span>
-                </span>
+                <div style={{ flex: 1, overflow: 'hidden', minWidth: 0, display: 'flex', flexDirection: 'column' }}>
+                  <div style={{ color: '#e8e0d8', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', lineHeight: '14px' }}>{t.name}</div>
+                  <div style={{ color: '#5a5550', fontSize: 9, lineHeight: '12px' }}>{t.jobName}</div>
+                </div>
                 <span style={{ color: isOverdue ? '#ef4444' : t.endDate === data.todayDate ? '#eab308' : '#5a5550', fontSize: 10, fontWeight: 500, flexShrink: 0 }}>{lbl}</span>
               </div>
             );
