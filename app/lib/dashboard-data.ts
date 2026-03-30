@@ -363,10 +363,10 @@ async function fetchARandCOData(
         }
 
         // Find CO root groups and their children
-        const coRootIds = new Set(
+        const coRootIds = new Set<string>(
           groups
             .filter((g: any) => /change\s*order|🔁|post\s*pricing/i.test(g.name || ''))
-            .map((g: any) => g.id)
+            .map((g: any) => g.id as string)
         );
 
         if (coRootIds.size === 0) return; // No COs in this job
