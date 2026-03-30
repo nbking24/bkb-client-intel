@@ -651,6 +651,7 @@ export default function FieldDashboardPage() {
   const [selectedTask, setSelectedTask] = useState<CalTask | null>(null);
   const [editingDate, setEditingDate] = useState('');
   const [savingDate, setSavingDate] = useState(false);
+  const [expandedCOStatus, setExpandedCOStatus] = useState<string | null>(null); // "jobId:status" key
   const popupRef = useRef<HTMLDivElement>(null);
 
   const fetchData = async (isRefresh = false) => {
@@ -895,7 +896,7 @@ export default function FieldDashboardPage() {
         );
       })()}
 
-      {/* CHANGE ORDER TRACKER — compact collapsible card */}
+      {/* CHANGE ORDER TRACKER — compact collapsible, grouped by job */}
       {data.changeOrders && data.changeOrders.length > 0 && (() => {
         const pending = data.changeOrders.filter(co => co.documentStatus !== 'approved');
         const pendingCount = pending.length;
@@ -905,10 +906,24 @@ export default function FieldDashboardPage() {
         const declined = pending.filter(co => co.documentStatus === 'declined').length;
         const hasAction = needsDoc > 0 || declined > 0;
 
+        // Group pending COs by job
+        const byJob = new Map<string, { jobName: string; jobNumber: string; cos: ChangeOrder[] }>();
+        for (const co of pending) {
+          if (!byJob.has(co.jobId)) byJob.set(co.jobId, { jobName: co.jobName, jobNumber: co.jobNumber, cos: [] });
+          byJob.get(co.jobId)!.cos.push(co);
+        }
+
+        const statusMeta: Record<string, { label: string; short: string; color: string; icon: any }> = {
+          needs_document: { label: 'Needs Doc', short: 'need doc', color: '#f59e0b', icon: FileWarning },
+          draft: { label: 'Draft', short: 'draft', color: '#3b82f6', icon: FileClock },
+          sent: { label: 'Sent', short: 'sent', color: '#8b5cf6', icon: Send },
+          declined: { label: 'Declined', short: 'declined', color: '#ef4444', icon: XCircle },
+        };
+
         return (
           <>
             <button
-              onClick={() => setShowTasks(showTasks === 'changeOrders' ? false : 'changeOrders')}
+              onClick={() => { setShowTasks(showTasks === 'changeOrders' ? false : 'changeOrders'); setExpandedCOStatus(null); }}
               style={{
                 width: '100%', display: 'flex', alignItems: 'center', gap: 8,
                 padding: '7px 10px', borderRadius: 8, border: 'none', cursor: 'pointer',
@@ -922,7 +937,6 @@ export default function FieldDashboardPage() {
               <div style={{ flex: 1, minWidth: 0, display: 'flex', alignItems: 'center', gap: 6 }}>
                 <span style={{ fontSize: 16, fontWeight: 700, color: hasAction ? '#f59e0b' : '#CDA274', lineHeight: 1 }}>{pendingCount}</span>
                 <span style={{ fontSize: 8, color: '#6a6058', whiteSpace: 'nowrap' }}>Change Orders</span>
-                {/* Mini status pills */}
                 <div style={{ display: 'flex', gap: 3, marginLeft: 4 }}>
                   {needsDoc > 0 && <span style={{ fontSize: 7, color: '#f59e0b', background: 'rgba(245,158,11,0.12)', padding: '1px 4px', borderRadius: 3, fontWeight: 600 }}>{needsDoc} need doc</span>}
                   {drafts > 0 && <span style={{ fontSize: 7, color: '#3b82f6', background: 'rgba(59,130,246,0.12)', padding: '1px 4px', borderRadius: 3, fontWeight: 600 }}>{drafts} draft</span>}
@@ -933,24 +947,68 @@ export default function FieldDashboardPage() {
               {showTasks === 'changeOrders' ? <ChevronUp size={11} style={{ color: '#6a6058' }} /> : <ChevronDown size={11} style={{ color: '#6a6058' }} />}
             </button>
             {showTasks === 'changeOrders' && (
-              <div style={{ background: '#1e1e1e', border: '1px solid rgba(205,162,116,0.08)', borderRadius: 8, padding: '6px 10px', marginBottom: 6, maxHeight: 200, overflowY: 'auto' }}>
-                {pending.map((co, idx) => {
-                  const statusConfig: Record<string, { label: string; color: string; icon: any }> = {
-                    needs_document: { label: 'Needs Doc', color: '#f59e0b', icon: FileWarning },
-                    draft: { label: 'Draft', color: '#3b82f6', icon: FileClock },
-                    sent: { label: 'Sent', color: '#8b5cf6', icon: Send },
-                    declined: { label: 'Declined', color: '#ef4444', icon: XCircle },
-                  };
-                  const config = statusConfig[co.documentStatus] || { label: co.documentStatus, color: '#5a5550', icon: FileClock };
-                  const IconComp = config.icon;
+              <div style={{ background: '#1e1e1e', border: '1px solid rgba(205,162,116,0.08)', borderRadius: 8, padding: '6px 10px', marginBottom: 6, maxHeight: 260, overflowY: 'auto' }}>
+                {Array.from(byJob.entries()).map(([jobId, { jobName, jobNumber, cos }]) => {
+                  // Count statuses for this job
+                  const jobStatuses: Record<string, ChangeOrder[]> = {};
+                  for (const co of cos) {
+                    if (!jobStatuses[co.documentStatus]) jobStatuses[co.documentStatus] = [];
+                    jobStatuses[co.documentStatus].push(co);
+                  }
+                  const statusOrder = ['needs_document', 'declined', 'draft', 'sent'];
+
                   return (
-                    <div key={idx} style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '3px 0', borderBottom: '1px solid rgba(205,162,116,0.04)', fontSize: 11 }}>
-                      <IconComp size={12} style={{ color: config.color, flexShrink: 0 }} />
-                      <div style={{ flex: 1, minWidth: 0, overflow: 'hidden' }}>
-                        <div style={{ color: '#e8e0d8', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', lineHeight: '14px' }}>{co.coName}</div>
-                        <div style={{ color: '#5a5550', fontSize: 9, lineHeight: '12px' }}>{co.jobName}</div>
+                    <div key={jobId} style={{ padding: '4px 0', borderBottom: '1px solid rgba(205,162,116,0.06)' }}>
+                      {/* Job row */}
+                      <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 2 }}>
+                        <span style={{ width: 5, height: 5, borderRadius: 3, background: jobColor(jobNumber), flexShrink: 0 }} />
+                        <span style={{ fontSize: 11, color: '#e8e0d8', fontWeight: 500, flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                          {jobName.replace(/^#\d+\s*/, '')}
+                        </span>
+                        {/* Clickable status counts */}
+                        <div style={{ display: 'flex', gap: 3, flexShrink: 0 }}>
+                          {statusOrder.map(status => {
+                            const items = jobStatuses[status];
+                            if (!items || items.length === 0) return null;
+                            const meta = statusMeta[status];
+                            const key = `${jobId}:${status}`;
+                            const isExpanded = expandedCOStatus === key;
+                            return (
+                              <button
+                                key={status}
+                                onClick={() => setExpandedCOStatus(isExpanded ? null : key)}
+                                style={{
+                                  display: 'flex', alignItems: 'center', gap: 3,
+                                  fontSize: 9, fontWeight: 600, color: meta.color,
+                                  background: isExpanded ? `${meta.color}25` : `${meta.color}12`,
+                                  padding: '2px 6px', borderRadius: 4,
+                                  border: isExpanded ? `1px solid ${meta.color}40` : '1px solid transparent',
+                                  cursor: 'pointer',
+                                }}
+                              >
+                                {items.length} {meta.short}
+                              </button>
+                            );
+                          })}
+                        </div>
                       </div>
-                      <span style={{ color: config.color, fontSize: 9, fontWeight: 600, flexShrink: 0, background: `${config.color}18`, padding: '1px 6px', borderRadius: 3 }}>{config.label}</span>
+                      {/* Expanded CO names for clicked status */}
+                      {statusOrder.map(status => {
+                        const key = `${jobId}:${status}`;
+                        if (expandedCOStatus !== key) return null;
+                        const items = jobStatuses[status] || [];
+                        const meta = statusMeta[status];
+                        return (
+                          <div key={status} style={{ marginLeft: 11, padding: '2px 0 4px' }}>
+                            {items.map((co, i) => (
+                              <div key={i} style={{ display: 'flex', alignItems: 'center', gap: 4, padding: '2px 0', fontSize: 10, color: '#c0b8a8' }}>
+                                <meta.icon size={9} style={{ color: meta.color, flexShrink: 0 }} />
+                                <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{co.coName}</span>
+                              </div>
+                            ))}
+                          </div>
+                        );
+                      })}
                     </div>
                   );
                 })}
