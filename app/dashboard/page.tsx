@@ -397,13 +397,17 @@ export default function DashboardOverview() {
           );
         })()}
 
-        {/* KPI 5: Pending Change Orders */}
+        {/* KPI 5: Pending Change Orders — clickable */}
         {(() => {
           const pending = stats?.pendingCOCount || 0;
           const approved = stats?.approvedCOCount || 0;
           const hasPending = pending > 0;
+          const isActive = showSection === 'changeorders';
           return (
-            <div style={{ background: '#1e1e1e', borderRadius: 6, padding: '6px 7px', borderLeft: `3px solid ${hasPending ? '#f59e0b' : '#22c55e'}` }}>
+            <button
+              onClick={() => setShowSection(isActive ? false : 'changeorders')}
+              style={{ background: isActive ? 'rgba(245,158,11,0.1)' : '#1e1e1e', borderRadius: 6, padding: '6px 7px', border: 'none', borderLeftWidth: 3, borderLeftStyle: 'solid', borderLeftColor: hasPending ? '#f59e0b' : '#22c55e', cursor: 'pointer', textAlign: 'left' }}
+            >
               <div style={{ display: 'flex', alignItems: 'center', gap: 3, marginBottom: 3 }}>
                 <FileWarning size={9} style={{ color: hasPending ? '#f59e0b' : '#22c55e' }} />
                 <span style={{ fontSize: 7, color: '#5a5550', fontWeight: 600, letterSpacing: '0.04em' }}>PENDING COs</span>
@@ -416,7 +420,7 @@ export default function DashboardOverview() {
                   {approved} approved
                 </div>
               )}
-            </div>
+            </button>
           );
         })()}
       </div>
@@ -467,6 +471,71 @@ export default function DashboardOverview() {
               );
             })
           )}
+        </div>
+      )}
+
+      {/* PENDING CHANGE ORDERS — expandable from KPI card click */}
+      {showSection === 'changeorders' && (
+        <div style={{ background: '#1e1e1e', border: '1px solid rgba(245,158,11,0.15)', borderRadius: 8, padding: '8px 10px', marginBottom: isTouch ? 10 : 6, maxHeight: 340, overflowY: 'auto' }}>
+          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 6 }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
+              <FileWarning size={10} style={{ color: '#f59e0b' }} />
+              <span style={{ fontSize: 9, fontWeight: 600, color: '#f59e0b', letterSpacing: '0.04em' }}>
+                CHANGE ORDERS ({changeOrders.length})
+              </span>
+            </div>
+            <div style={{ display: 'flex', gap: 8 }}>
+              <span style={{ fontSize: 9, color: '#f59e0b' }}>{changeOrders.filter(co => co.status === 'pending').length} pending</span>
+              <span style={{ fontSize: 9, color: '#22c55e' }}>{changeOrders.filter(co => co.status === 'approved').length} approved</span>
+            </div>
+          </div>
+          {changeOrders.length === 0 ? (
+            <p style={{ color: '#5a5550', fontSize: 11, textAlign: 'center', padding: 8 }}>No change orders</p>
+          ) : (() => {
+            // Group COs by job
+            const jobGroups = new Map<string, typeof changeOrders>();
+            for (const co of changeOrders) {
+              const key = co.jobName;
+              if (!jobGroups.has(key)) jobGroups.set(key, []);
+              jobGroups.get(key)!.push(co);
+            }
+            return Array.from(jobGroups.entries()).map(([jobName, cos]) => {
+              const pendingCount = cos.filter(c => c.status === 'pending').length;
+              const approvedCount = cos.filter(c => c.status === 'approved').length;
+              return (
+                <div key={jobName} style={{ marginBottom: 6 }}>
+                  <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '4px 0', borderBottom: '1px solid rgba(205,162,116,0.08)' }}>
+                    <p style={{ fontSize: 11, fontWeight: 600, color: '#e8e0d8', margin: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', flex: 1 }}>
+                      {jobName.replace(/^#\d+\s*/, '')}
+                    </p>
+                    <div style={{ display: 'flex', gap: 6, flexShrink: 0 }}>
+                      {pendingCount > 0 && (
+                        <span style={{ fontSize: 9, color: '#f59e0b', background: 'rgba(245,158,11,0.1)', padding: '1px 5px', borderRadius: 3 }}>
+                          {pendingCount} pending
+                        </span>
+                      )}
+                      {approvedCount > 0 && (
+                        <span style={{ fontSize: 9, color: '#22c55e', background: 'rgba(34,197,94,0.1)', padding: '1px 5px', borderRadius: 3 }}>
+                          {approvedCount} approved
+                        </span>
+                      )}
+                    </div>
+                  </div>
+                  {cos.map((co, i) => (
+                    <div key={i} style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '3px 0 3px 12px' }}>
+                      {co.status === 'approved'
+                        ? <FileCheck size={10} style={{ color: '#22c55e', flexShrink: 0 }} />
+                        : <FileWarning size={10} style={{ color: '#f59e0b', flexShrink: 0 }} />
+                      }
+                      <p style={{ fontSize: 10, color: co.status === 'approved' ? '#6a6058' : '#e8e0d8', margin: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                        {co.coName}
+                      </p>
+                    </div>
+                  ))}
+                </div>
+              );
+            });
+          })()}
         </div>
       )}
 
