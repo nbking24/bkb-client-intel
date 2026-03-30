@@ -915,6 +915,18 @@ The Field Hub is a mobile-optimized dashboard for field crew members (e.g., Evan
   recentComments: Comment[];   // Last 30 days
   activeJobCount: number;
   pmJobs: PmJob[];            // All PM jobs for job navigation
+  kpis: {
+    scheduleAdherence: number | null; // % on-track
+    totalCompletedLast30: number;
+    avgDaysOverdue: number;
+    overdueTaskCount: number;
+    staleTaskCount: number;
+    completedThisWeek: number;
+    completedLastWeek: number;
+    completionTrend: number;      // +/- vs last week
+    tasksNext7: number;
+    tasksNext30: number;
+  };
 }
 ```
 
@@ -930,6 +942,18 @@ The Field Hub is a mobile-optimized dashboard for field crew members (e.g., Evan
 ---
 
 ## 17. Changelog
+
+### 2026-03-30 — KPI Metrics on Field Dashboard
+- **Added 5 KPI metrics** displayed as a compact grid between the Ask Agent and task cards:
+  1. **On-Track %** — schedule adherence: % of tasks with due dates that are complete or not yet due (green ≥75%, yellow ≥50%, red <50%)
+  2. **Avg Days Overdue** — mean days past due across all open overdue tasks (green ≤7d, yellow ≤21d, red >21d)
+  3. **Stale Tasks** — count of tasks overdue 30+ days with zero progress (flags forgotten items)
+  4. **Completed / Week** — tasks completed in last 7 days with trend arrow vs prior week
+  5. **Task Density** — tasks due in next 7 days vs next 30 days (flags front-loaded workload)
+- **API changes**: `kpis` object added to GET `/api/field-dashboard` response
+- **UI**: 5-column grid with color-coded left borders, responsive to metric thresholds
+- **Note**: PAVE API has no `completedAt` timestamp on tasks. Schedule adherence uses "on-track" metric (complete OR not yet due) instead of time-of-completion accuracy. Weekly completion count uses tasks whose `endDate` falls in the window and `progress=1`.
+- **Files changed**: `app/api/field-dashboard/route.ts`, `app/dashboard/field/page.tsx`
 
 ### 2026-03-30 — Inline Ask Agent on Field Dashboard
 - **Incorporated Ask Agent directly into the field dashboard** as a collapsible inline chat widget at the top
