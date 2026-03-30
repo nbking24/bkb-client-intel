@@ -6,7 +6,7 @@ import {
   AlertTriangle, Loader2, RefreshCw, Calendar,
   Check, MessageSquare, ChevronDown, ChevronUp,
   Zap, ClipboardList, Circle, CheckCircle2,
-  X, Briefcase, CalendarDays
+  X, Briefcase, CalendarDays, ExternalLink
 } from 'lucide-react';
 import { useAuth } from '@/app/hooks/useAuth';
 import Link from 'next/link';
@@ -28,6 +28,10 @@ function jobColor(n: string): string {
   let h = 0;
   for (let i = 0; i < n.length; i++) h = h * 31 + n.charCodeAt(i);
   return PALETTE[Math.abs(h) % PALETTE.length];
+}
+
+function jtScheduleUrl(jobId: string): string {
+  return `https://app.jobtread.com/jobs/${jobId}/schedule`;
 }
 
 // Types
@@ -301,10 +305,10 @@ export default function FieldDashboardPage() {
                   }
                 </button>
                 <span style={{ width: 5, height: 5, borderRadius: 3, background: jobColor(t.jobNumber), flexShrink: 0 }} />
-                <div style={{ flex: 1, overflow: 'hidden', minWidth: 0, display: 'flex', flexDirection: 'column' }}>
+                <a href={jtScheduleUrl(t.jobId)} target="_blank" rel="noopener noreferrer" style={{ flex: 1, overflow: 'hidden', minWidth: 0, display: 'flex', flexDirection: 'column', textDecoration: 'none' }}>
                   <div style={{ color: '#e8e0d8', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', lineHeight: '14px' }}>{t.name}</div>
                   <div style={{ color: '#5a5550', fontSize: 9, lineHeight: '12px' }}>{t.jobName}{t.isAssignedToMe ? ' · assigned to you' : ''}</div>
-                </div>
+                </a>
                 <span style={{ color: '#f97316', fontSize: 10, fontWeight: 600, flexShrink: 0 }}>{days}d</span>
               </div>
             );
@@ -321,10 +325,10 @@ export default function FieldDashboardPage() {
                   }
                 </button>
                 <span style={{ width: 5, height: 5, borderRadius: 3, background: jobColor(t.jobNumber), flexShrink: 0 }} />
-                <div style={{ flex: 1, overflow: 'hidden', minWidth: 0, display: 'flex', flexDirection: 'column' }}>
+                <a href={jtScheduleUrl(t.jobId)} target="_blank" rel="noopener noreferrer" style={{ flex: 1, overflow: 'hidden', minWidth: 0, display: 'flex', flexDirection: 'column', textDecoration: 'none' }}>
                   <div style={{ color: '#e8e0d8', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', lineHeight: '14px' }}>{t.name}</div>
                   <div style={{ color: '#5a5550', fontSize: 9, lineHeight: '12px' }}>{t.jobName}</div>
-                </div>
+                </a>
                 <span style={{ color: '#ef4444', fontSize: 10, fontWeight: 600, flexShrink: 0 }}>{days}d</span>
               </div>
             );
@@ -344,10 +348,10 @@ export default function FieldDashboardPage() {
                   }
                 </button>
                 <span style={{ width: 5, height: 5, borderRadius: 3, background: jobColor(t.jobNumber), flexShrink: 0 }} />
-                <div style={{ flex: 1, overflow: 'hidden', minWidth: 0, display: 'flex', flexDirection: 'column' }}>
+                <a href={jtScheduleUrl(t.jobId)} target="_blank" rel="noopener noreferrer" style={{ flex: 1, overflow: 'hidden', minWidth: 0, display: 'flex', flexDirection: 'column', textDecoration: 'none' }}>
                   <div style={{ color: '#e8e0d8', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', lineHeight: '14px' }}>{t.name}</div>
                   <div style={{ color: '#5a5550', fontSize: 9, lineHeight: '12px' }}>{t.jobName}</div>
-                </div>
+                </a>
                 <span style={{ color: isOverdue ? '#ef4444' : t.endDate === data.todayDate ? '#eab308' : '#5a5550', fontSize: 10, fontWeight: 500, flexShrink: 0 }}>{lbl}</span>
               </div>
             );
@@ -514,6 +518,16 @@ export default function FieldDashboardPage() {
                     : <><Check size={13} /> Mark Complete</>
                 }
               </button>
+              <a
+                href={jtScheduleUrl(selectedTask.jobId)}
+                target="_blank" rel="noopener noreferrer"
+                style={{
+                  flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 5,
+                  padding: '7px 0', borderRadius: 6, fontSize: 12, fontWeight: 600, textDecoration: 'none',
+                  background: 'rgba(205,162,116,0.1)', color: '#CDA274',
+                }}>
+                <ExternalLink size={13} /> View in JobTread
+              </a>
             </div>
           </div>
         </div>
