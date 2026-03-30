@@ -895,7 +895,7 @@ The Field Hub is a mobile-optimized dashboard for field crew members (e.g., Evan
 ### API Endpoints
 | Endpoint | Method | Purpose |
 |---|---|---|
-| `/api/field-dashboard` | GET | Briefing, 2-week calendar tasks, three-category overdue/upcoming tasks, PM jobs list, recent comments |
+| `/api/field-dashboard` | GET | Briefing, 2-week calendar tasks, three-category overdue/upcoming tasks, PM jobs list, recent comments, CO tracker, KPIs, weather |
 | `/api/field-dashboard` | PATCH | Mark task complete/incomplete (`{ taskId, complete }`) or update due date (`{ taskId, endDate }`) |
 | `/api/chat` | POST | Inline Ask Agent chat — auto-routes to `field-staff` agent for field staff users |
 | `/api/field-job-schedule` | GET | Schedule phases/tasks for a specific job (legacy, still available) |
@@ -927,6 +927,12 @@ The Field Hub is a mobile-optimized dashboard for field crew members (e.g., Evan
     tasksNext7: number;
     tasksNext30: number;
   };
+  changeOrders: Array<{
+    jobId: string; jobName: string; jobNumber: string;
+    coName: string; coGroupId: string | null;
+    status: 'approved' | 'pending';  // approved = approved doc covers this CO; pending = no approved doc
+  }>;
+  weather: WeatherDay[];  // 10-day forecast from Open-Meteo
 }
 ```
 
@@ -939,20 +945,26 @@ The Field Hub is a mobile-optimized dashboard for field crew members (e.g., Evan
 - **Comment window**: 30 days (widened from 7 due to sparse activity)
 - **PAVE limitation**: `user` relation does NOT work on comment queries — removed from `commentFields` in `jobtread.ts`
 - JT membership IDs: nathan=`22P5SRwhLaYf`, evan=`22P5nJ7ncFj4`, terri=`22P5SpJkype2`
+- **PAVE cost item fields**: `approvedPrice` does NOT exist on cost groups OR cost items in PAVE. CO approval status must be determined via document status + cost group name matching, not via price fields.
+- **PAVE document cost groups**: Documents contain their own COPIES of cost groups with DIFFERENT IDs than budget groups. Matching must be done by name, not by ID.
 ---
 
 ## 17. Changelog
 
 ### 2026-03-30 — Change Order Submission System (Complete)
-- **CO Tracker Widget** on field dashboard — cross-references budget CO groups with CO documents to show lifecycle status
-  - Statuses: Needs Document → Draft → Sent → Approved / Declined
-  - Color-coded badges with lucide icons (FileWarning, FileClock, Send, FileCheck, XCircle)
-  - **Stale alerts**: 3-day threshold based on document `createdAt` — pulse animation on stale COs
-  - Sorted by urgency (needs_document first, approved last)
+- **CO Tracker Widget** on field dashboard — two-status model: **approved** vs **pending**
+  - Approved = any approved customerOrder document contains a cost group matching the CO name
+  - Pending = no approved document covers this CO yet
+  - Collapsible card: shows total CO count with pending (amber) / approved (green) pill counts
+  - Expanded: grouped by job with clickable rows showing individual CO names + status icons
+  - Uses FileCheck (green) and FileWarning (amber) lucide icons
 - **CO Tracking API** added to `GET /api/field-dashboard` response as `changeOrders` array
-  - Parallel fetch per PM job: lightweight cost group query + document statuses (incl. `createdAt`)
+  - Parallel fetch per PM job: cost group query + document query (with cost group names from docs)
   - Detects CO parent groups by name pattern (`/change\s*order|🔁|post\s*pricing/i`)
-  - Cross-references child budget groups with customerOrder documents
+  - Collects cost group names from all approved customerOrder documents
+  - Matches budget CO group names against approved doc cost group names for status
+  - Name-based deduplication handles phantom root groups (e.g., Zajick has 6 "Post Pricing Changes" roots)
+  - Structural groups filtered: Client Requested, Approved, Declined, Scope of Work
 - **CO Submission via Field-Staff Agent** — full change order workflow through inline Ask Agent:
   - 6-step guided process: job → describe change → targeted questions → photos → proposal → approval
   - Agent asks as many questions as needed: BKB labor hours, sub pricing, materials, follow-up needs, draft document, photos

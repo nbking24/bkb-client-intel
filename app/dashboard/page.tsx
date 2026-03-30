@@ -1,37 +1,25 @@
 'use client';
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useMemo } from 'react';
 import {
-  AlertTriangle, Clock, CheckCircle2, ArrowRight, Loader2,
-  RefreshCw, AlertCircle, Calendar, MessageSquare, Zap,
-  DollarSign, ClipboardList, ChevronRight, Mail, MapPin
+  AlertTriangle, Clock, CheckCircle2, Loader2,
+  RefreshCw, Calendar, MessageSquare, Zap,
+  DollarSign, ClipboardList, ChevronRight, Mail, MapPin,
+  ChevronUp, ChevronDown, TrendingUp, TrendingDown, Minus,
+  Target, Clock3, Activity, CalendarDays, Building2,
+  FileCheck, FileWarning, FileClock, XCircle
 } from 'lucide-react';
 import { useAuth } from '@/app/hooks/useAuth';
+import { useScreenSize } from '@/app/hooks/useScreenSize';
 import Link from 'next/link';
 
 function getToken() { return typeof window !== 'undefined' ? localStorage.getItem('bkb-token') || '' : ''; }
 
-function getGreeting(period?: string) {
-  if (period === 'morning') return 'Good morning';
-  if (period === 'midday') return 'Afternoon check-in';
-  if (period === 'evening') return 'Evening prep';
+function getGreeting() {
   const h = new Date().getHours();
   if (h < 12) return 'Good morning';
   if (h < 17) return 'Good afternoon';
   return 'Good evening';
-}
-
-function getSubGreeting(period?: string, tomorrowLabel?: string) {
-  if (period === 'morning') return 'Your day ahead';
-  if (period === 'midday') return 'What needs attention now';
-  if (period === 'evening') return `Preparing for ${tomorrowLabel || 'tomorrow'}`;
-  return '';
-}
-
-function formatDate(d: string | null) {
-  if (!d) return 'â';
-  const date = new Date(d);
-  return date.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
 }
 
 function timeAgo(dateStr: string) {
@@ -122,23 +110,14 @@ interface OverviewResponse {
 }
 
 // ============================================================
-// Style constants
-// ============================================================
-
-const CARD_STYLE = { background: '#1e1e1e', border: '1px solid rgba(205,162,116,0.08)' };
-const URGENCY = {
-  urgent: { bg: 'rgba(239,68,68,0.1)', text: '#ef4444', border: 'rgba(239,68,68,0.2)' },
-  high: { bg: 'rgba(234,179,8,0.1)', text: '#eab308', border: 'rgba(234,179,8,0.2)' },
-  medium: { bg: 'rgba(59,130,246,0.1)', text: '#3b82f6', border: 'rgba(59,130,246,0.2)' },
-  low: { bg: 'rgba(34,197,94,0.1)', text: '#22c55e', border: 'rgba(34,197,94,0.2)' },
-};
-
-// ============================================================
 // Main Dashboard Page
 // ============================================================
 
 export default function DashboardOverview() {
   const auth = useAuth();
+  const screen = useScreenSize();
+  const isMobile = screen === 'mobile';
+  const isTouch = screen !== 'desktop';
   const [overview, setOverview] = useState<OverviewResponse | null>(null);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
@@ -146,6 +125,7 @@ export default function DashboardOverview() {
   const [completingTaskId, setCompletingTaskId] = useState<string | null>(null);
   const [editingDateTaskId, setEditingDateTaskId] = useState<string | null>(null);
   const [pendingDate, setPendingDate] = useState('');
+  const [showSection, setShowSection] = useState<string | false>(false);
   const [cleanupState, setCleanupState] = useState<'idle' | 'scanning' | 'preview' | 'cleaning' | 'done'>('idle');
   const [cleanupData, setCleanupData] = useState<{ toArchive: Array<{ id: string; from: string; subject: string; reason: string }>; toKeep: any[] } | null>(null);
 
@@ -178,7 +158,6 @@ export default function DashboardOverview() {
       const data = await res.json();
       setCleanupData(data);
       setCleanupState('done');
-      // Auto-reset after 5 seconds
       setTimeout(() => { setCleanupState('idle'); setCleanupData(null); }, 5000);
     } catch {
       setCleanupState('idle');
@@ -194,7 +173,6 @@ export default function DashboardOverview() {
         body: JSON.stringify({ taskId, action: 'complete' }),
       });
       if (!res.ok) throw new Error('Failed to complete task');
-      // Remove from local state immediately
       if (overview) {
         const updatedTasks = overview.data.tasks.filter(t => t.id !== taskId);
         setOverview({
@@ -221,7 +199,6 @@ export default function DashboardOverview() {
         body: JSON.stringify({ taskId, action: 'update', endDate: newDate }),
       });
       if (!res.ok) throw new Error('Failed to update task date');
-      // Update in local state
       if (overview) {
         const updatedTasks = overview.data.tasks.map(t =>
           t.id === taskId ? { ...t, endDate: newDate, ...recalcUrgency(newDate) } : t
@@ -269,23 +246,22 @@ export default function DashboardOverview() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [auth.userId]);
 
-  // Auto-refresh every 15 minutes during work hours (8am-6pm)
-  // Also triggers inbox cleanup silently in the background
   useEffect(() => {
     const interval = setInterval(() => {
       const hour = new Date().getHours();
       if (hour >= 8 && hour < 18 && auth.userId && !refreshing) {
         fetchOverview(true);
-        // Trigger inbox cleanup silently (fire-and-forget)
         fetch('/api/cron/inbox-cleanup?internal=true').catch(() => {});
       }
-    }, 15 * 60 * 1000); // 15 minutes
+    }, 15 * 60 * 1000);
     return () => clearInterval(interval);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [auth.userId]);
 
   if (!auth.isAuthenticated || !auth.userId) {
-    return <div className="p-8 text-center" style={{ color: '#8a8078' }}>Loading...</div>;
+    return <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '80px 0' }}>
+      <Loader2 size={20} className="animate-spin" style={{ color: '#CDA274' }} />
+    </div>;
   }
 
   const analysis = overview?.analysis;
@@ -295,563 +271,568 @@ export default function DashboardOverview() {
   const calendarEvents = overview?.data?.calendarEvents || [];
   const tc = overview?.data?.timeContext;
   const tomorrowBriefing = analysis?.tomorrowBriefing;
+  const firstName = auth.user?.name?.split(' ')[0] || '';
+
+  // Categorize tasks
+  const urgentTasks = tasks.filter(t => t.urgency === 'urgent');
+  const highTasks = tasks.filter(t => t.urgency === 'high');
+  const normalTasks = tasks.filter(t => t.urgency === 'normal');
+  const todayStr = new Date().toISOString().split('T')[0];
+  const overdueTasks = tasks.filter(t => t.daysUntilDue !== null && t.daysUntilDue < 0);
+
+  if (loading && !overview) return (
+    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '80px 0' }}>
+      <Loader2 size={20} className="animate-spin" style={{ color: '#CDA274' }} />
+    </div>
+  );
+
+  if (error && !overview) return (
+    <div style={{ textAlign: 'center', padding: '60px 0' }}>
+      <p style={{ color: '#ef4444', fontSize: 13, marginBottom: 12 }}>{error}</p>
+      <button onClick={() => fetchOverview()} style={{ background: '#CDA274', color: '#1a1a1a', fontSize: 12, padding: '6px 16px', borderRadius: 6, border: 'none', cursor: 'pointer' }}>Retry</button>
+    </div>
+  );
+
+  if (!overview) return null;
 
   return (
-    <div className="p-4 md:p-6 max-w-6xl mx-auto space-y-6">
-      {/* Header â time-aware */}
-      <div className="flex items-center justify-between">
+    <div style={{ maxWidth: 960, margin: '0 auto', padding: isMobile ? '0 12px' : '0 8px' }}>
+      {/* HEADER */}
+      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: isTouch ? 10 : 6 }}>
         <div>
-          <h1 className="text-xl font-semibold" style={{ color: '#e8e0d8' }}>
-            {getGreeting(tc?.period)}, {auth.user?.name?.split(' ')[0]}
-          </h1>
-          <p className="text-sm mt-0.5" style={{ color: '#CDA274' }}>
-            {getSubGreeting(tc?.period, tc?.tomorrowLabel) || (loading ? 'Loading...' : '')}
-          </p>
-          <p className="text-xs mt-0.5" style={{ color: '#6a6058' }}>
-            {overview?._cached && overview._cachedAt
-              ? `Updated ${timeAgo(overview._cachedAt)}`
-              : loading ? '' : 'Fresh analysis'}
-          </p>
+          <h1 style={{ color: '#e8e0d8', fontSize: isTouch ? 22 : 18, fontWeight: 700, margin: 0 }}>{getGreeting()}, {firstName}</h1>
+          {overview._cached && overview._cachedAt && (
+            <span style={{ fontSize: 10, color: '#5a5550' }}>Updated {timeAgo(overview._cachedAt)}</span>
+          )}
         </div>
-        <button
-          onClick={() => fetchOverview(true)}
-          disabled={refreshing}
-          className="flex items-center gap-2 px-3 py-2 rounded-lg text-sm"
-          style={{ background: 'rgba(205,162,116,0.1)', color: '#CDA274' }}
-        >
-          <RefreshCw size={14} className={refreshing ? 'animate-spin' : ''} />
-          {refreshing ? 'Refreshing...' : 'Refresh'}
+        <button onClick={() => fetchOverview(true)} disabled={refreshing} style={{ padding: 5, borderRadius: 6, background: 'rgba(205,162,116,0.08)', border: 'none', cursor: 'pointer', lineHeight: 0 }}>
+          <RefreshCw size={12} className={refreshing ? 'animate-spin' : ''} style={{ color: '#CDA274' }} />
         </button>
       </div>
 
-      {/* Error state */}
-      {error && (
-        <div className="px-4 py-3 rounded-lg text-sm" style={{ background: 'rgba(239,68,68,0.1)', color: '#ef4444' }}>
-          {error}
-        </div>
-      )}
-
-      {/* Loading state */}
-      {loading && !overview && (
-        <div className="flex flex-col items-center justify-center py-20">
-          <Loader2 size={32} className="animate-spin mb-4" style={{ color: '#CDA274' }} />
-          <p style={{ color: '#8a8078' }}>Analyzing your dashboard...</p>
-        </div>
-      )}
-
-      {overview && (
-        <>
-          {/* Summary Cards */}
-          <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
-            <StatCard icon={AlertTriangle} label="Urgent" value={stats?.urgentTasks || 0} color="#ef4444" />
-            <StatCard icon={AlertCircle} label="High Priority" value={stats?.highPriorityTasks || 0} color="#f97316" />
-            <StatCard icon={Calendar} label="Due Today" value={stats?.tasksToday || 0} color="#eab308" />
-            <StatCard icon={CheckCircle2} label="Open Tasks" value={stats?.totalTasks || 0} color="#CDA274" />
+      {/* KPI GRID — placeholder, will be customized */}
+      <div style={{ display: 'grid', gridTemplateColumns: isMobile ? 'repeat(3, 1fr)' : 'repeat(5, 1fr)', gap: isTouch ? 6 : 4, marginBottom: isTouch ? 10 : 6 }}>
+        {/* KPI 1: Active Jobs */}
+        <div style={{ background: '#1e1e1e', borderRadius: 6, padding: '6px 7px', borderLeft: '3px solid #CDA274' }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 3, marginBottom: 3 }}>
+            <Building2 size={9} style={{ color: '#CDA274' }} />
+            <span style={{ fontSize: 7, color: '#5a5550', fontWeight: 600, letterSpacing: '0.04em' }}>ACTIVE JOBS</span>
           </div>
+          <div style={{ fontSize: 18, fontWeight: 700, color: '#CDA274', lineHeight: 1 }}>
+            {stats?.activeJobCount || 0}
+          </div>
+        </div>
 
-          {/* AI Summary */}
-          {analysis?.summary && (
-            <div className="px-4 py-3 rounded-lg" style={{ background: 'rgba(205,162,116,0.06)', border: '1px solid rgba(205,162,116,0.12)' }}>
-              <div className="flex items-center gap-2 mb-2">
-                <Zap size={14} style={{ color: '#CDA274' }} />
-                <span className="text-xs font-medium" style={{ color: '#CDA274' }}>AI Briefing</span>
+        {/* KPI 2: Urgent Tasks */}
+        <div style={{ background: '#1e1e1e', borderRadius: 6, padding: '6px 7px', borderLeft: `3px solid ${urgentTasks.length > 0 ? '#ef4444' : '#22c55e'}` }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 3, marginBottom: 3 }}>
+            <AlertTriangle size={9} style={{ color: urgentTasks.length > 0 ? '#ef4444' : '#22c55e' }} />
+            <span style={{ fontSize: 7, color: '#5a5550', fontWeight: 600, letterSpacing: '0.04em' }}>URGENT</span>
+          </div>
+          <div style={{ fontSize: 18, fontWeight: 700, color: urgentTasks.length > 0 ? '#ef4444' : '#22c55e', lineHeight: 1 }}>
+            {urgentTasks.length}
+          </div>
+        </div>
+
+        {/* KPI 3: Overdue */}
+        <div style={{ background: '#1e1e1e', borderRadius: 6, padding: '6px 7px', borderLeft: `3px solid ${overdueTasks.length > 0 ? '#f59e0b' : '#22c55e'}` }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 3, marginBottom: 3 }}>
+            <Clock3 size={9} style={{ color: overdueTasks.length > 0 ? '#f59e0b' : '#22c55e' }} />
+            <span style={{ fontSize: 7, color: '#5a5550', fontWeight: 600, letterSpacing: '0.04em' }}>OVERDUE</span>
+          </div>
+          <div style={{ fontSize: 18, fontWeight: 700, color: overdueTasks.length > 0 ? '#f59e0b' : '#22c55e', lineHeight: 1 }}>
+            {overdueTasks.length}
+          </div>
+        </div>
+
+        {/* KPI 4: Due Today */}
+        <div style={{ background: '#1e1e1e', borderRadius: 6, padding: '6px 7px', borderLeft: '3px solid #3b82f6' }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 3, marginBottom: 3 }}>
+            <Target size={9} style={{ color: '#3b82f6' }} />
+            <span style={{ fontSize: 7, color: '#5a5550', fontWeight: 600, letterSpacing: '0.04em' }}>DUE TODAY</span>
+          </div>
+          <div style={{ fontSize: 18, fontWeight: 700, color: '#3b82f6', lineHeight: 1 }}>
+            {stats?.tasksToday || 0}
+          </div>
+        </div>
+
+        {/* KPI 5: Unread Emails */}
+        <div style={{ background: '#1e1e1e', borderRadius: 6, padding: '6px 7px', borderLeft: `3px solid ${(stats?.unreadEmailCount || 0) > 0 ? '#22c55e' : '#5a5550'}` }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 3, marginBottom: 3 }}>
+            <Mail size={9} style={{ color: (stats?.unreadEmailCount || 0) > 0 ? '#22c55e' : '#5a5550' }} />
+            <span style={{ fontSize: 7, color: '#5a5550', fontWeight: 600, letterSpacing: '0.04em' }}>UNREAD</span>
+          </div>
+          <div style={{ fontSize: 18, fontWeight: 700, color: (stats?.unreadEmailCount || 0) > 0 ? '#22c55e' : '#5a5550', lineHeight: 1 }}>
+            {stats?.unreadEmailCount || 0}
+          </div>
+        </div>
+      </div>
+
+      {/* AI BRIEFING — compact, matches field dashboard style */}
+      {analysis?.summary && (
+        <div style={{ background: 'rgba(205,162,116,0.06)', border: '1px solid rgba(205,162,116,0.12)', borderRadius: 8, padding: '8px 10px', marginBottom: isTouch ? 10 : 6 }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 4, marginBottom: 4 }}>
+            <Zap size={10} style={{ color: '#CDA274' }} />
+            <span style={{ fontSize: 9, fontWeight: 600, color: '#CDA274' }}>AI BRIEFING</span>
+          </div>
+          <p style={{ fontSize: 12, color: '#e8e0d8', lineHeight: 1.5, margin: 0 }}>{analysis.summary}</p>
+        </div>
+      )}
+
+      {/* DO NOW — AI-suggested quick actions */}
+      {(analysis?.suggestedActions?.length ?? 0) > 0 && (
+        <div style={{ background: '#1a2218', border: '1px solid rgba(34,197,94,0.15)', borderRadius: 8, padding: '8px 10px', marginBottom: isTouch ? 10 : 6 }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 4, marginBottom: 6 }}>
+            <Zap size={10} style={{ color: '#22c55e' }} />
+            <span style={{ fontSize: 9, fontWeight: 600, color: '#22c55e' }}>DO NOW</span>
+          </div>
+          <div style={{ display: 'grid', gridTemplateColumns: isMobile ? '1fr' : 'repeat(3, 1fr)', gap: 4 }}>
+            {analysis!.suggestedActions!.slice(0, 6).map((action, i) => {
+              const iconMap: Record<string, string> = {
+                'reply-email': '✉️', 'complete-task': '✅', 'reschedule-task': '📅',
+                'follow-up': '💬', 'prep-meeting': '📋', 'review-document': '📄',
+              };
+              const icon = iconMap[action.actionType] || '⚡';
+              const priorityColor = action.priority === 'high' ? '#ef4444' : action.priority === 'medium' ? '#eab308' : '#22c55e';
+
+              const handleAction = async () => {
+                if ((action.actionType === 'reply-email' || action.actionType === 'follow-up') && action.context.recipient) {
+                  try {
+                    const subject = action.context.emailSubject ? `Re: ${action.context.emailSubject}` : (action.context.jobName ? `Re: ${action.context.jobName}` : '');
+                    const body = action.context.suggestedText || '';
+                    const res = await fetch('/api/dashboard/quick-action', {
+                      method: 'POST',
+                      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${getToken()}` },
+                      body: JSON.stringify({ actionType: 'draft-email', to: action.context.recipient, subject, body }),
+                    });
+                    const data = await res.json();
+                    if (data.gmailUrl) window.open(data.gmailUrl, '_blank');
+                    else window.open(`https://mail.google.com/mail/?view=cm&to=${encodeURIComponent(action.context.recipient)}&su=${encodeURIComponent(subject)}&body=${encodeURIComponent(body)}`, '_blank');
+                  } catch {
+                    const subject = action.context.emailSubject ? `Re: ${action.context.emailSubject}` : '';
+                    const body = action.context.suggestedText || '';
+                    window.open(`https://mail.google.com/mail/?view=cm&to=${encodeURIComponent(action.context.recipient)}&su=${encodeURIComponent(subject)}&body=${encodeURIComponent(body)}`, '_blank');
+                  }
+                } else if (action.actionType === 'complete-task' && action.context.taskName) {
+                  const task = tasks.find(t => t.name.toLowerCase().includes(action.context.taskName!.toLowerCase()));
+                  if (task) completeTask(task.id);
+                } else if (action.actionType === 'prep-meeting' || action.actionType === 'review-document') {
+                  const job = overview?.data?.activeJobs?.find((j: any) =>
+                    action.context.jobName && j.name.toLowerCase().includes(action.context.jobName.toLowerCase())
+                  );
+                  if (job) window.open(`https://app.jobtread.com/jobs/${job.id}`, '_blank');
+                }
+              };
+
+              return (
+                <button
+                  key={i}
+                  onClick={handleAction}
+                  style={{
+                    display: 'flex', alignItems: 'center', gap: 6,
+                    padding: '6px 8px', borderRadius: 6, border: '1px solid rgba(34,197,94,0.1)',
+                    background: 'rgba(34,197,94,0.05)', cursor: 'pointer', textAlign: 'left',
+                  }}
+                >
+                  <span style={{ fontSize: 12, flexShrink: 0 }}>{icon}</span>
+                  <div style={{ flex: 1, minWidth: 0 }}>
+                    <p style={{ fontSize: 11, fontWeight: 500, color: '#e8e0d8', margin: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{action.title}</p>
+                    {action.context.jobName && (
+                      <p style={{ fontSize: 9, color: '#6a6058', margin: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{action.context.jobName}</p>
+                    )}
+                  </div>
+                  <div style={{ width: 5, height: 5, borderRadius: 3, background: priorityColor, flexShrink: 0 }} />
+                </button>
+              );
+            })}
+          </div>
+        </div>
+      )}
+
+      {/* COLLAPSIBLE CARDS ROW — Urgent / Overdue / Total Tasks / Emails */}
+      <div style={{ display: 'flex', gap: 4, marginBottom: 6 }}>
+        {/* Urgent Tasks */}
+        <button
+          onClick={() => setShowSection(showSection === 'urgent' ? false : 'urgent')}
+          style={{
+            flex: 1, display: 'flex', alignItems: 'center', gap: 6,
+            padding: '7px 8px', borderRadius: 8, border: 'none', cursor: 'pointer',
+            background: urgentTasks.length > 0 ? 'rgba(239,68,68,0.08)' : '#1e1e1e',
+            borderWidth: 1, borderStyle: 'solid',
+            borderColor: urgentTasks.length > 0 ? 'rgba(239,68,68,0.18)' : 'rgba(205,162,116,0.06)',
+            textAlign: 'left',
+          }}
+        >
+          <AlertTriangle size={11} style={{ color: urgentTasks.length > 0 ? '#ef4444' : '#5a5550', flexShrink: 0 }} />
+          <span style={{ fontSize: 16, fontWeight: 700, color: urgentTasks.length > 0 ? '#ef4444' : '#5a5550', lineHeight: 1 }}>{urgentTasks.length}</span>
+          <span style={{ fontSize: 8, color: '#6a6058' }}>Urgent</span>
+        </button>
+
+        {/* Overdue */}
+        <button
+          onClick={() => setShowSection(showSection === 'overdue' ? false : 'overdue')}
+          style={{
+            flex: 1, display: 'flex', alignItems: 'center', gap: 6,
+            padding: '7px 8px', borderRadius: 8, border: 'none', cursor: 'pointer',
+            background: overdueTasks.length > 0 ? 'rgba(245,158,11,0.08)' : '#1e1e1e',
+            borderWidth: 1, borderStyle: 'solid',
+            borderColor: overdueTasks.length > 0 ? 'rgba(245,158,11,0.18)' : 'rgba(205,162,116,0.06)',
+            textAlign: 'left',
+          }}
+        >
+          <Clock size={11} style={{ color: overdueTasks.length > 0 ? '#f59e0b' : '#5a5550', flexShrink: 0 }} />
+          <span style={{ fontSize: 16, fontWeight: 700, color: overdueTasks.length > 0 ? '#f59e0b' : '#5a5550', lineHeight: 1 }}>{overdueTasks.length}</span>
+          <span style={{ fontSize: 8, color: '#6a6058' }}>Overdue</span>
+        </button>
+
+        {/* All Open Tasks */}
+        <button
+          onClick={() => setShowSection(showSection === 'tasks' ? false : 'tasks')}
+          style={{
+            flex: 1, display: 'flex', alignItems: 'center', gap: 6,
+            padding: '7px 8px', borderRadius: 8, border: 'none', cursor: 'pointer',
+            background: '#1e1e1e',
+            borderWidth: 1, borderStyle: 'solid',
+            borderColor: 'rgba(205,162,116,0.06)',
+            textAlign: 'left',
+          }}
+        >
+          <CheckCircle2 size={11} style={{ color: '#CDA274', flexShrink: 0 }} />
+          <span style={{ fontSize: 16, fontWeight: 700, color: '#CDA274', lineHeight: 1 }}>{tasks.length}</span>
+          <span style={{ fontSize: 8, color: '#6a6058' }}>Open</span>
+        </button>
+      </div>
+
+      {/* EXPANDED TASK LIST — shows when any card is clicked */}
+      {showSection && ['urgent', 'overdue', 'tasks'].includes(showSection) && (() => {
+        const sectionTasks = showSection === 'urgent' ? urgentTasks
+          : showSection === 'overdue' ? overdueTasks
+          : tasks;
+        const sectionLabel = showSection === 'urgent' ? 'Urgent Tasks'
+          : showSection === 'overdue' ? 'Overdue Tasks'
+          : 'All Open Tasks';
+        const sectionColor = showSection === 'urgent' ? '#ef4444'
+          : showSection === 'overdue' ? '#f59e0b'
+          : '#CDA274';
+
+        return (
+          <div style={{ background: '#1e1e1e', border: '1px solid rgba(205,162,116,0.08)', borderRadius: 8, padding: '6px 10px', marginBottom: 6, maxHeight: 300, overflowY: 'auto' }}>
+            <div style={{ fontSize: 9, fontWeight: 600, color: sectionColor, marginBottom: 4, letterSpacing: '0.04em' }}>{sectionLabel}</div>
+            {sectionTasks.length === 0 && (
+              <p style={{ color: '#5a5550', fontSize: 11, textAlign: 'center', padding: 8 }}>None</p>
+            )}
+            {sectionTasks.slice(0, 20).map(task => {
+              const isCompleting = completingTaskId === task.id;
+              const isEditingDate = editingDateTaskId === task.id;
+              return (
+                <div key={task.id} style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '5px 0', borderBottom: '1px solid rgba(205,162,116,0.04)', opacity: isCompleting ? 0.4 : 1 }}>
+                  <button
+                    onClick={() => completeTask(task.id)}
+                    disabled={isCompleting}
+                    style={{ width: isTouch ? 24 : 18, height: isTouch ? 24 : 18, borderRadius: '50%', border: '1px solid rgba(205,162,116,0.25)', background: 'transparent', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}
+                  >
+                    {isCompleting
+                      ? <Loader2 size={10} className="animate-spin" style={{ color: '#8a8078' }} />
+                      : <CheckCircle2 size={10} style={{ color: '#22c55e' }} />
+                    }
+                  </button>
+                  <div style={{ flex: 1, minWidth: 0 }}>
+                    <p style={{ fontSize: 11, color: '#e8e0d8', margin: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{task.name}</p>
+                    <p style={{ fontSize: 9, color: '#6a6058', margin: 0 }}>{task.jobName} #{task.jobNumber}</p>
+                  </div>
+                  {isEditingDate ? (
+                    <input
+                      type="date"
+                      autoFocus
+                      defaultValue={task.endDate || ''}
+                      onChange={(e) => setPendingDate(e.target.value)}
+                      onBlur={() => {
+                        if (pendingDate && pendingDate !== task.endDate) updateTaskDate(task.id, pendingDate);
+                        else { setEditingDateTaskId(null); setPendingDate(''); }
+                      }}
+                      onKeyDown={(e) => {
+                        if (e.key === 'Enter' && pendingDate) updateTaskDate(task.id, pendingDate);
+                        if (e.key === 'Escape') { setEditingDateTaskId(null); setPendingDate(''); }
+                      }}
+                      style={{ fontSize: 10, padding: '2px 4px', borderRadius: 4, background: '#2a2a2a', border: '1px solid rgba(205,162,116,0.3)', color: '#e8e0d8', width: 110, flexShrink: 0 }}
+                    />
+                  ) : (
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 4, flexShrink: 0 }}>
+                      {task.daysUntilDue !== null && task.daysUntilDue < 0 && (
+                        <button
+                          onClick={() => {
+                            const next = new Date();
+                            next.setDate(next.getDate() + 1);
+                            updateTaskDate(task.id, next.toISOString().split('T')[0]);
+                          }}
+                          style={{ fontSize: 9, color: '#eab308', background: 'rgba(234,179,8,0.1)', padding: '1px 4px', borderRadius: 3, border: '1px solid rgba(234,179,8,0.2)', cursor: 'pointer' }}
+                        >
+                          +1d
+                        </button>
+                      )}
+                      <button
+                        onClick={() => { setEditingDateTaskId(task.id); setPendingDate(task.endDate || ''); }}
+                        style={{ fontSize: 10, color: task.urgency === 'urgent' ? '#ef4444' : '#6a6058', background: 'transparent', border: 'none', cursor: 'pointer', padding: 0 }}
+                      >
+                        {task.daysUntilDue !== null
+                          ? (task.daysUntilDue < 0 ? `${Math.abs(task.daysUntilDue)}d overdue` : task.daysUntilDue === 0 ? 'Today' : `${task.daysUntilDue}d`)
+                          : 'No date'}
+                      </button>
+                    </div>
+                  )}
+                </div>
+              );
+            })}
+          </div>
+        );
+      })()}
+
+      {/* TWO-COLUMN: Calendar + Email */}
+      <div style={{ display: 'grid', gridTemplateColumns: isMobile ? '1fr' : '1fr 1fr', gap: 6, marginBottom: 6 }}>
+        {/* Upcoming Schedule */}
+        {calendarEvents.length > 0 && (
+          <div style={{ background: '#1e1e1e', border: '1px solid rgba(205,162,116,0.08)', borderRadius: 8, padding: '8px 10px' }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 4, marginBottom: 6 }}>
+              <Calendar size={10} style={{ color: '#8b5cf6' }} />
+              <span style={{ fontSize: 9, fontWeight: 600, color: '#8b5cf6' }}>SCHEDULE ({calendarEvents.length})</span>
+            </div>
+            {calendarEvents.slice(0, 6).map((event) => {
+              const start = new Date(event.start);
+              const isToday = start.toDateString() === new Date().toDateString();
+              const isTomorrow = start.toDateString() === new Date(Date.now() + 86400000).toDateString();
+              const dayLabel = isToday ? 'Today' : isTomorrow ? 'Tomorrow' : start.toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' });
+              const timeLabel = event.allDay ? 'All day' : start.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' });
+              const prepNote = analysis?.meetingPrepNotes?.find(p =>
+                event.summary.toLowerCase().includes(p.eventSummary.toLowerCase()) ||
+                p.eventSummary.toLowerCase().includes(event.summary.toLowerCase().slice(0, 15))
+              );
+              return (
+                <div key={event.id} style={{ display: 'flex', gap: 8, padding: '4px 0', borderBottom: '1px solid rgba(205,162,116,0.04)' }}>
+                  <div style={{ minWidth: 48, flexShrink: 0 }}>
+                    <p style={{ fontSize: 8, fontWeight: 600, color: isToday ? '#8b5cf6' : '#5a5550', margin: 0 }}>{dayLabel}</p>
+                    {!event.allDay && <p style={{ fontSize: 11, fontWeight: 600, color: '#e8e0d8', margin: 0 }}>{timeLabel}</p>}
+                  </div>
+                  <div style={{ flex: 1, minWidth: 0 }}>
+                    <p style={{ fontSize: 11, color: '#e8e0d8', margin: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{event.summary}</p>
+                    {event.location && (
+                      <p style={{ fontSize: 9, color: '#5a5550', margin: 0, display: 'flex', alignItems: 'center', gap: 2 }}>
+                        <MapPin size={8} /> {event.location.slice(0, 40)}
+                      </p>
+                    )}
+                    {prepNote && (
+                      <p style={{ fontSize: 9, color: '#a78bfa', background: 'rgba(139,92,246,0.1)', padding: '2px 4px', borderRadius: 3, margin: '2px 0 0' }}>{prepNote.prepNote}</p>
+                    )}
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        )}
+
+        {/* Inbox */}
+        {emails.length > 0 && (
+          <div style={{ background: '#1e1e1e', border: '1px solid rgba(205,162,116,0.08)', borderRadius: 8, padding: '8px 10px' }}>
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 6 }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
+                <Mail size={10} style={{ color: '#22c55e' }} />
+                <span style={{ fontSize: 9, fontWeight: 600, color: '#22c55e' }}>INBOX ({stats?.unreadEmailCount ?? 0} unread)</span>
               </div>
-              <p className="text-sm leading-relaxed" style={{ color: '#e8e0d8' }}>{analysis.summary}</p>
+              {cleanupState === 'idle' && (
+                <button
+                  onClick={scanInbox}
+                  style={{ fontSize: 8, padding: '2px 6px', borderRadius: 4, background: 'transparent', border: '1px solid rgba(205,162,116,0.15)', color: '#6a6058', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 3 }}
+                >
+                  <Zap size={8} /> Clean
+                </button>
+              )}
+              {cleanupState === 'scanning' && (
+                <span style={{ fontSize: 8, color: '#6a6058', display: 'flex', alignItems: 'center', gap: 3 }}>
+                  <Loader2 size={8} className="animate-spin" /> Scanning...
+                </span>
+              )}
+              {cleanupState === 'done' && (
+                <span style={{ fontSize: 8, color: '#22c55e' }}>Cleaned {cleanupData?.toArchive?.length || 0}</span>
+              )}
+            </div>
+
+            {/* Cleanup Preview */}
+            {cleanupState === 'preview' && cleanupData && (
+              <div style={{ background: 'rgba(234,179,8,0.05)', border: '1px solid rgba(234,179,8,0.15)', borderRadius: 6, padding: '6px 8px', marginBottom: 6 }}>
+                <p style={{ fontSize: 9, fontWeight: 600, color: '#eab308', margin: '0 0 4px' }}>
+                  AI found {cleanupData.toArchive.length} emails to archive:
+                </p>
+                <div style={{ maxHeight: 80, overflowY: 'auto', marginBottom: 4 }}>
+                  {cleanupData.toArchive.map((e, i) => (
+                    <p key={i} style={{ fontSize: 9, color: '#8a8078', margin: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                      {e.from}: {e.subject}
+                    </p>
+                  ))}
+                </div>
+                <div style={{ display: 'flex', gap: 6 }}>
+                  <button onClick={executeCleanup} style={{ fontSize: 10, padding: '3px 8px', borderRadius: 4, background: '#22c55e', color: '#1a1a1a', border: 'none', cursor: 'pointer', fontWeight: 600 }}>
+                    Archive {cleanupData.toArchive.length}
+                  </button>
+                  <button onClick={() => { setCleanupState('idle'); setCleanupData(null); }} style={{ fontSize: 10, color: '#6a6058', background: 'transparent', border: 'none', cursor: 'pointer' }}>
+                    Cancel
+                  </button>
+                </div>
+              </div>
+            )}
+
+            {cleanupState === 'cleaning' && (
+              <div style={{ display: 'flex', alignItems: 'center', gap: 4, padding: 6, background: 'rgba(34,197,94,0.05)', borderRadius: 4, marginBottom: 4 }}>
+                <Loader2 size={10} className="animate-spin" style={{ color: '#22c55e' }} />
+                <span style={{ fontSize: 9, color: '#22c55e' }}>Archiving...</span>
+              </div>
+            )}
+
+            {emails.slice(0, 6).map((email) => {
+              const fromName = email.from.replace(/<[^>]+>/, '').replace(/"/g, '').trim();
+              return (
+                <div key={email.id} style={{ display: 'flex', alignItems: 'start', gap: 6, padding: '4px 0', borderBottom: '1px solid rgba(205,162,116,0.04)' }}>
+                  {email.isUnread && <div style={{ width: 5, height: 5, borderRadius: 3, background: '#22c55e', flexShrink: 0, marginTop: 4 }} />}
+                  <div style={{ flex: 1, minWidth: 0 }}>
+                    <p style={{ fontSize: 10, fontWeight: email.isUnread ? 600 : 400, color: email.isUnread ? '#e8e0d8' : '#6a6058', margin: 0 }}>{fromName}</p>
+                    <p style={{ fontSize: 11, color: email.isUnread ? '#e8e0d8' : '#8a8078', margin: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{email.subject}</p>
+                    <p style={{ fontSize: 9, color: '#4a4a4a', margin: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{email.snippet.slice(0, 70)}</p>
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        )}
+      </div>
+
+      {/* INSIGHTS ROW — Urgent Items + Action Items side by side */}
+      {((analysis?.urgentItems?.length ?? 0) > 0 || (analysis?.actionItems?.length ?? 0) > 0) && (
+        <div style={{ display: 'grid', gridTemplateColumns: isMobile ? '1fr' : '1fr 1fr', gap: 6, marginBottom: 6 }}>
+          {(analysis?.urgentItems?.length ?? 0) > 0 && (
+            <div style={{ background: '#1e1e1e', border: '1px solid rgba(205,162,116,0.08)', borderRadius: 8, padding: '8px 10px' }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 4, marginBottom: 6 }}>
+                <AlertTriangle size={10} style={{ color: '#ef4444' }} />
+                <span style={{ fontSize: 9, fontWeight: 600, color: '#ef4444' }}>NEEDS ATTENTION</span>
+              </div>
+              {analysis!.urgentItems.map((item, i) => (
+                <div key={i} style={{ background: 'rgba(239,68,68,0.06)', border: '1px solid rgba(239,68,68,0.12)', borderRadius: 6, padding: '5px 8px', marginBottom: 3 }}>
+                  <p style={{ fontSize: 11, fontWeight: 500, color: '#e8e0d8', margin: 0 }}>{item.title}</p>
+                  <p style={{ fontSize: 9, color: '#6a6058', margin: 0 }}>{item.description}{item.jobName ? ` — ${item.jobName}` : ''}</p>
+                </div>
+              ))}
             </div>
           )}
 
-          {/* Do Now â AI-suggested quick actions */}
-          {(analysis?.suggestedActions?.length ?? 0) > 0 && (
-            <section className="rounded-lg p-4" style={{ background: '#1a2218', border: '1px solid rgba(34,197,94,0.15)' }}>
-              <h2 className="text-sm font-semibold mb-3 flex items-center gap-2" style={{ color: '#22c55e' }}>
-                <Zap size={14} /> Do Now
-              </h2>
-              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-2">
-                {analysis!.suggestedActions!.map((action, i) => {
-                  const iconMap: Record<string, string> = {
-                    'reply-email': 'âï¸', 'complete-task': 'â', 'reschedule-task': 'ð',
-                    'follow-up': 'ð¬', 'prep-meeting': 'ð', 'review-document': 'ð',
-                  };
-                  const icon = iconMap[action.actionType] || 'â¡';
-                  const priorityColor = action.priority === 'high' ? '#ef4444' : action.priority === 'medium' ? '#eab308' : '#22c55e';
-
-                  const handleAction = async () => {
-                    if ((action.actionType === 'reply-email' || action.actionType === 'follow-up') && action.context.recipient) {
-                      // Create a Gmail draft via API, then open it
-                      try {
-                        const subject = action.context.emailSubject ? `Re: ${action.context.emailSubject}` : (action.context.jobName ? `Re: ${action.context.jobName}` : '');
-                        const body = action.context.suggestedText || '';
-                        const res = await fetch('/api/dashboard/quick-action', {
-                          method: 'POST',
-                          headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${getToken()}` },
-                          body: JSON.stringify({
-                            actionType: 'draft-email',
-                            to: action.context.recipient,
-                            subject,
-                            body,
-                          }),
-                        });
-                        const data = await res.json();
-                        if (data.gmailUrl) {
-                          window.open(data.gmailUrl, '_blank');
-                        } else {
-                          // Fallback to compose URL
-                          window.open(`https://mail.google.com/mail/?view=cm&to=${encodeURIComponent(action.context.recipient)}&su=${encodeURIComponent(subject)}&body=${encodeURIComponent(body)}`, '_blank');
-                        }
-                      } catch {
-                        // Fallback to compose URL
-                        const subject = action.context.emailSubject ? `Re: ${action.context.emailSubject}` : '';
-                        const body = action.context.suggestedText || '';
-                        window.open(`https://mail.google.com/mail/?view=cm&to=${encodeURIComponent(action.context.recipient)}&su=${encodeURIComponent(subject)}&body=${encodeURIComponent(body)}`, '_blank');
-                      }
-                    } else if (action.actionType === 'complete-task' && action.context.taskName) {
-                      const task = tasks.find(t => t.name.toLowerCase().includes(action.context.taskName!.toLowerCase()));
-                      if (task) completeTask(task.id);
-                    } else if (action.actionType === 'prep-meeting' || action.actionType === 'review-document') {
-                      const job = overview?.data?.activeJobs?.find((j: any) =>
-                        action.context.jobName && j.name.toLowerCase().includes(action.context.jobName.toLowerCase())
-                      );
-                      if (job) window.open(`https://app.jobtread.com/jobs/${job.id}`, '_blank');
-                    }
-                  };
-
-                  return (
-                    <button
-                      key={i}
-                      onClick={handleAction}
-                      className="flex items-start gap-3 px-4 py-3 md:px-3 md:py-2.5 rounded-lg text-left transition-all hover:bg-white/[0.05] active:bg-white/[0.08]"
-                      style={{ background: 'rgba(34,197,94,0.05)', border: '1px solid rgba(34,197,94,0.1)' }}
-                    >
-                      <span className="text-base flex-shrink-0 mt-0.5">{icon}</span>
-                      <div className="min-w-0 flex-1">
-                        <p className="text-sm font-medium" style={{ color: '#e8e0d8' }}>{action.title}</p>
-                        {action.context.jobName && (
-                          <p className="text-xs mt-0.5" style={{ color: '#8a8078' }}>{action.context.jobName}</p>
-                        )}
-                      </div>
-                      <div className="w-1.5 h-1.5 rounded-full flex-shrink-0 mt-2" style={{ background: priorityColor }} />
-                    </button>
-                  );
-                })}
+          {(analysis?.actionItems?.length ?? 0) > 0 && (
+            <div style={{ background: '#1e1e1e', border: '1px solid rgba(205,162,116,0.08)', borderRadius: 8, padding: '8px 10px' }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 4, marginBottom: 6 }}>
+                <ClipboardList size={10} style={{ color: '#CDA274' }} />
+                <span style={{ fontSize: 9, fontWeight: 600, color: '#CDA274' }}>ACTION ITEMS</span>
               </div>
-            </section>
-          )}
-
-          {/* Two-column layout for insights */}
-          <div className="grid md:grid-cols-2 gap-4">
-            {/* Urgent Items */}
-            {(analysis?.urgentItems?.length ?? 0) > 0 && (
-              <section className="rounded-lg p-4" style={CARD_STYLE}>
-                <h2 className="text-sm font-semibold mb-3 flex items-center gap-2" style={{ color: '#ef4444' }}>
-                  <AlertTriangle size={14} /> Needs Immediate Attention
-                </h2>
-                <div className="space-y-2">
-                  {analysis!.urgentItems.map((item, i) => (
-                    <div key={i} className="px-3 py-2 rounded-lg" style={{ background: URGENCY.urgent.bg, border: `1px solid ${URGENCY.urgent.border}` }}>
-                      <p className="text-sm font-medium" style={{ color: '#e8e0d8' }}>{item.title}</p>
-                      <p className="text-xs mt-0.5" style={{ color: '#8a8078' }}>{item.description}{item.jobName ? ` â ${item.jobName}` : ''}</p>
-                    </div>
-                  ))}
-                </div>
-              </section>
-            )}
-
-            {/* Action Items */}
-            {(analysis?.actionItems?.length ?? 0) > 0 && (
-              <section className="rounded-lg p-4" style={CARD_STYLE}>
-                <h2 className="text-sm font-semibold mb-3 flex items-center gap-2" style={{ color: '#CDA274' }}>
-                  <ClipboardList size={14} /> Action Items
-                </h2>
-                <div className="space-y-2">
-                  {analysis!.actionItems.map((item, i) => {
-                    const style = URGENCY[item.priority] || URGENCY.medium;
-                    return (
-                      <div key={i} className="px-3 py-2 rounded-lg" style={{ background: style.bg, border: `1px solid ${style.border}` }}>
-                        <p className="text-sm" style={{ color: '#e8e0d8' }}>{item.action}</p>
-                        {item.jobName && <p className="text-xs mt-0.5" style={{ color: '#8a8078' }}>{item.jobName}</p>}
-                      </div>
-                    );
-                  })}
-                </div>
-              </section>
-            )}
-
-            {/* Upcoming Deadlines */}
-            {(analysis?.upcomingDeadlines?.length ?? 0) > 0 && (
-              <section className="rounded-lg p-4" style={CARD_STYLE}>
-                <h2 className="text-sm font-semibold mb-3 flex items-center gap-2" style={{ color: '#eab308' }}>
-                  <Clock size={14} /> Upcoming Deadlines
-                </h2>
-                <div className="space-y-2">
-                  {analysis!.upcomingDeadlines.map((item, i) => (
-                    <div key={i} className="flex items-center justify-between px-3 py-2 rounded-lg" style={{ background: 'rgba(234,179,8,0.05)' }}>
-                      <div>
-                        <p className="text-sm" style={{ color: '#e8e0d8' }}>{item.title}</p>
-                        {item.jobName && <p className="text-xs" style={{ color: '#8a8078' }}>{item.jobName}</p>}
-                      </div>
-                      <span className="text-xs flex-shrink-0 px-2 py-1 rounded" style={{ background: 'rgba(234,179,8,0.1)', color: '#eab308' }}>
-                        {item.daysUntilDue === 0 ? 'Today' : item.daysUntilDue === 1 ? 'Tomorrow' : `${item.daysUntilDue}d`}
-                      </span>
-                    </div>
-                  ))}
-                </div>
-              </section>
-            )}
-
-            {/* Flagged Messages */}
-            {(analysis?.flaggedMessages?.length ?? 0) > 0 && (
-              <section className="rounded-lg p-4" style={CARD_STYLE}>
-                <h2 className="text-sm font-semibold mb-3 flex items-center gap-2" style={{ color: '#3b82f6' }}>
-                  <MessageSquare size={14} /> Messages to Review
-                </h2>
-                <div className="space-y-2">
-                  {analysis!.flaggedMessages.map((msg, i) => (
-                    <div key={i} className="px-3 py-2 rounded-lg" style={{ background: 'rgba(59,130,246,0.05)' }}>
-                      <div className="flex items-center gap-2 mb-1">
-                        <span className="text-xs font-medium" style={{ color: '#3b82f6' }}>{msg.authorName}</span>
-                        <span className="text-xs" style={{ color: '#8a8078' }}>on {msg.jobName}</span>
-                      </div>
-                      <p className="text-xs" style={{ color: '#e8e0d8' }}>{msg.preview}</p>
-                      <p className="text-xs mt-1" style={{ color: '#8a8078' }}>{msg.reason}</p>
-                    </div>
-                  ))}
-                </div>
-              </section>
-            )}
-          </div>
-
-          {/* Tomorrow Preview â prominent in evening, collapsed in morning/midday */}
-          {tomorrowBriefing && (tomorrowBriefing.headline || tomorrowBriefing.calendarWalkthrough?.length > 0 || tomorrowBriefing.prepTonightOrAM?.length > 0) && (
-            <section className="rounded-lg p-4" style={{ background: tc?.period === 'evening' ? '#1a2332' : '#1e1e1e', border: tc?.period === 'evening' ? '1px solid rgba(139,92,246,0.2)' : '1px solid rgba(205,162,116,0.08)' }}>
-              <h2 className="text-sm font-semibold mb-3 flex items-center gap-2" style={{ color: '#8b5cf6' }}>
-                <Calendar size={14} /> {tc?.tomorrowLabel ? `${tc.tomorrowLabel.charAt(0).toUpperCase() + tc.tomorrowLabel.slice(1)}'s Preview` : "Tomorrow's Preview"}
-              </h2>
-              {tomorrowBriefing.headline && (
-                <p className="text-sm mb-3" style={{ color: '#e8e0d8' }}>{tomorrowBriefing.headline}</p>
-              )}
-              <div className="grid md:grid-cols-2 gap-4">
-                {/* Calendar walkthrough */}
-                {tomorrowBriefing.calendarWalkthrough?.length > 0 && (
-                  <div>
-                    <p className="text-xs font-medium mb-2" style={{ color: '#8a8078' }}>SCHEDULE</p>
-                    <div className="space-y-2">
-                      {tomorrowBriefing.calendarWalkthrough.map((item, i) => (
-                        <div key={i} className="flex gap-3 px-2 py-1.5 rounded" style={{ background: 'rgba(139,92,246,0.05)' }}>
-                          <span className="text-xs font-medium flex-shrink-0 pt-0.5" style={{ color: '#8b5cf6', minWidth: '60px' }}>{item.time}</span>
-                          <div className="min-w-0">
-                            <p className="text-sm" style={{ color: '#e8e0d8' }}>{item.event}</p>
-                            {item.prepNote && <p className="text-xs mt-0.5" style={{ color: '#8a8078' }}>{item.prepNote}</p>}
-                          </div>
-                        </div>
-                      ))}
-                    </div>
-                  </div>
-                )}
-                {/* Prep tasks */}
-                {(tomorrowBriefing.prepTonightOrAM?.length > 0 || tomorrowBriefing.tasksDue?.length > 0) && (
-                  <div>
-                    {tomorrowBriefing.prepTonightOrAM?.length > 0 && (
-                      <>
-                        <p className="text-xs font-medium mb-2" style={{ color: '#8a8078' }}>
-                          {tc?.period === 'evening' ? 'PREP TONIGHT' : 'PREP FOR TOMORROW'}
-                        </p>
-                        <div className="space-y-1.5">
-                          {tomorrowBriefing.prepTonightOrAM.map((item, i) => (
-                            <div key={i} className="flex items-start gap-2 px-2 py-1.5 rounded" style={{ background: 'rgba(234,179,8,0.05)' }}>
-                              <CheckCircle2 size={12} className="flex-shrink-0 mt-0.5" style={{ color: '#eab308' }} />
-                              <p className="text-sm" style={{ color: '#e8e0d8' }}>{item}</p>
-                            </div>
-                          ))}
-                        </div>
-                      </>
-                    )}
-                    {tomorrowBriefing.tasksDue?.length > 0 && (
-                      <div className="mt-3">
-                        <p className="text-xs font-medium mb-2" style={{ color: '#8a8078' }}>TASKS DUE</p>
-                        <div className="space-y-1">
-                          {tomorrowBriefing.tasksDue.map((item, i) => (
-                            <div key={i} className="px-2 py-1 text-sm" style={{ color: '#a09890' }}>
-                              {item.task} <span style={{ color: '#6a6058' }}>â {item.jobName}</span>
-                            </div>
-                          ))}
-                        </div>
-                      </div>
-                    )}
-                  </div>
-                )}
-              </div>
-            </section>
-          )}
-
-          {/* Calendar & Email â two-column layout */}
-          <div className="grid md:grid-cols-2 gap-4">
-            {/* Upcoming Schedule with AI prep notes */}
-            {calendarEvents.length > 0 && (
-              <section className="rounded-lg p-4" style={CARD_STYLE}>
-                <h2 className="text-sm font-semibold mb-3 flex items-center gap-2" style={{ color: '#8b5cf6' }}>
-                  <Calendar size={14} /> Upcoming Schedule ({calendarEvents.length})
-                </h2>
-                <div className="space-y-2">
-                  {calendarEvents.slice(0, 8).map((event) => {
-                    const start = new Date(event.start);
-                    const isToday = start.toDateString() === new Date().toDateString();
-                    const isTomorrow = start.toDateString() === new Date(Date.now() + 86400000).toDateString();
-                    const dayLabel = isToday ? 'Today' : isTomorrow ? 'Tomorrow' : start.toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' });
-                    const timeLabel = event.allDay ? 'All day' : start.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' });
-                    // Find matching prep note from AI
-                    const prepNote = analysis?.meetingPrepNotes?.find(p =>
-                      event.summary.toLowerCase().includes(p.eventSummary.toLowerCase()) ||
-                      p.eventSummary.toLowerCase().includes(event.summary.toLowerCase().slice(0, 15))
-                    );
-                    return (
-                      <div key={event.id} className="flex items-start gap-3 px-3 py-2 rounded-lg" style={{ background: isToday ? 'rgba(139,92,246,0.08)' : 'rgba(139,92,246,0.03)' }}>
-                        <div className="flex-shrink-0 text-center pt-0.5" style={{ minWidth: '48px' }}>
-                          <p className="text-[10px] font-medium" style={{ color: isToday ? '#8b5cf6' : '#8a8078' }}>{dayLabel}</p>
-                          {!event.allDay && <p className="text-xs font-semibold" style={{ color: '#e8e0d8' }}>{timeLabel}</p>}
-                        </div>
-                        <div className="flex-1 min-w-0">
-                          <p className="text-sm truncate" style={{ color: '#e8e0d8' }}>{event.summary}</p>
-                          {event.location && (
-                            <p className="text-xs truncate flex items-center gap-1 mt-0.5" style={{ color: '#8a8078' }}>
-                              <MapPin size={10} /> {event.location.slice(0, 50)}
-                            </p>
-                          )}
-                          {prepNote && (
-                            <p className="text-xs mt-1 px-2 py-1 rounded" style={{ background: 'rgba(139,92,246,0.1)', color: '#a78bfa' }}>
-                              {prepNote.prepNote}
-                            </p>
-                          )}
-                        </div>
-                      </div>
-                    );
-                  })}
-                </div>
-              </section>
-            )}
-
-            {/* Recent Emails with AI Cleanup */}
-            {emails.length > 0 && (
-              <section className="rounded-lg p-4" style={CARD_STYLE}>
-                <div className="flex items-center justify-between mb-3">
-                  <h2 className="text-sm font-semibold flex items-center gap-2" style={{ color: '#22c55e' }}>
-                    <Mail size={14} /> Inbox ({stats?.unreadEmailCount ?? 0} unread)
-                  </h2>
-                  {cleanupState === 'idle' && (
-                    <button
-                      onClick={scanInbox}
-                      className="text-[10px] px-2 py-1 rounded hover:bg-white/10 active:bg-white/20 flex items-center gap-1"
-                      style={{ color: '#8a8078', border: '1px solid rgba(205,162,116,0.15)' }}
-                    >
-                      <Zap size={10} /> Clean Inbox
-                    </button>
-                  )}
-                  {cleanupState === 'scanning' && (
-                    <span className="text-[10px] flex items-center gap-1" style={{ color: '#8a8078' }}>
-                      <Loader2 size={10} className="animate-spin" /> AI scanning...
-                    </span>
-                  )}
-                  {cleanupState === 'done' && (
-                    <span className="text-[10px]" style={{ color: '#22c55e' }}>
-                      Cleaned {cleanupData?.toArchive?.length || 0} emails
-                    </span>
-                  )}
-                </div>
-
-                {/* Cleanup Preview */}
-                {cleanupState === 'preview' && cleanupData && (
-                  <div className="mb-3 p-3 rounded-lg" style={{ background: 'rgba(234,179,8,0.05)', border: '1px solid rgba(234,179,8,0.15)' }}>
-                    <p className="text-xs font-medium mb-2" style={{ color: '#eab308' }}>
-                      AI found {cleanupData.toArchive.length} emails to archive:
-                    </p>
-                    <div className="space-y-1 mb-2 max-h-32 overflow-y-auto">
-                      {cleanupData.toArchive.map((e, i) => (
-                        <p key={i} className="text-xs truncate" style={{ color: '#a09890' }}>
-                          {e.from}: {e.subject}
-                        </p>
-                      ))}
-                    </div>
-                    <div className="flex gap-2">
-                      <button
-                        onClick={executeCleanup}
-                        className="text-xs px-3 py-1.5 rounded font-medium active:bg-green-700"
-                        style={{ background: '#22c55e', color: '#1a1a1a' }}
-                      >
-                        Archive {cleanupData.toArchive.length} emails
-                      </button>
-                      <button
-                        onClick={() => { setCleanupState('idle'); setCleanupData(null); }}
-                        className="text-xs px-3 py-1.5 rounded"
-                        style={{ color: '#8a8078' }}
-                      >
-                        Cancel
-                      </button>
-                    </div>
-                  </div>
-                )}
-
-                {cleanupState === 'cleaning' && (
-                  <div className="mb-3 p-3 rounded-lg flex items-center gap-2" style={{ background: 'rgba(34,197,94,0.05)' }}>
-                    <Loader2 size={12} className="animate-spin" style={{ color: '#22c55e' }} />
-                    <span className="text-xs" style={{ color: '#22c55e' }}>Archiving emails...</span>
-                  </div>
-                )}
-                <div className="space-y-1">
-                  {emails.slice(0, 8).map((email) => {
-                    // Extract just the name from "Name <email>" format
-                    const fromName = email.from.replace(/<[^>]+>/, '').replace(/"/g, '').trim();
-                    return (
-                      <div key={email.id} className="flex items-start gap-3 px-3 py-3 md:py-2 rounded-lg hover:bg-white/[0.02]" style={email.isUnread ? { background: 'rgba(34,197,94,0.05)' } : {}}>
-                        {email.isUnread && (
-                          <div className="w-2 h-2 rounded-full flex-shrink-0 mt-1.5" style={{ background: '#22c55e' }} />
-                        )}
-                        <div className="flex-1 min-w-0">
-                          <div className="flex items-center gap-2">
-                            <p className="text-xs font-medium truncate" style={{ color: email.isUnread ? '#e8e0d8' : '#8a8078' }}>{fromName}</p>
-                          </div>
-                          <p className="text-sm truncate" style={{ color: email.isUnread ? '#e8e0d8' : '#a09890' }}>{email.subject}</p>
-                          <p className="text-xs truncate mt-0.5" style={{ color: '#6a6058' }}>{email.snippet.slice(0, 80)}</p>
-                        </div>
-                      </div>
-                    );
-                  })}
-                </div>
-              </section>
-            )}
-          </div>
-
-          {/* Task List */}
-          <section className="rounded-lg p-4" style={CARD_STYLE}>
-            <h2 className="text-sm font-semibold mb-3 flex items-center gap-2" style={{ color: '#e8e0d8' }}>
-              <CheckCircle2 size={14} /> Your Tasks ({tasks.length})
-            </h2>
-            <div className="space-y-1">
-              {tasks.slice(0, 15).map(task => {
-                const urgStyle = task.urgency === 'urgent' ? URGENCY.urgent : task.urgency === 'high' ? URGENCY.high : { bg: 'transparent', text: '#8a8078', border: 'transparent' };
-                const isCompleting = completingTaskId === task.id;
-                const isEditingDate = editingDateTaskId === task.id;
+              {analysis!.actionItems.slice(0, 6).map((item, i) => {
+                const color = item.priority === 'high' ? '#ef4444' : item.priority === 'medium' ? '#eab308' : '#22c55e';
                 return (
-                  <div key={task.id} className="flex items-center gap-2 md:gap-3 px-2 md:px-3 py-3 md:py-2 rounded-lg hover:bg-white/[0.02] group" style={isCompleting ? { opacity: 0.4 } : {}}>
-                    {/* Complete button */}
-                    <button
-                      onClick={() => completeTask(task.id)}
-                      disabled={isCompleting}
-                      className="flex-shrink-0 w-7 h-7 md:w-5 md:h-5 rounded-full border flex items-center justify-center hover:bg-green-500/20 active:bg-green-500/30 transition-colors"
-                      style={{ borderColor: 'rgba(205,162,116,0.25)' }}
-                      title="Mark complete"
-                    >
-                      {isCompleting
-                        ? <Loader2 size={12} className="animate-spin" style={{ color: '#8a8078' }} />
-                        : <CheckCircle2 size={12} className="md:opacity-0 md:group-hover:opacity-100 transition-opacity" style={{ color: '#22c55e' }} />
-                      }
-                    </button>
-                    {/* Urgency badge */}
-                    <span className="text-[10px] px-1.5 py-0.5 rounded font-medium flex-shrink-0" style={{ background: urgStyle.bg, color: urgStyle.text }}>
-                      {task.urgency === 'urgent' ? 'URG' : task.urgency === 'high' ? 'HIGH' : ''}
-                    </span>
-                    {/* Task info */}
-                    <div className="flex-1 min-w-0">
-                      <p className="text-sm truncate" style={{ color: '#e8e0d8' }}>{task.name}</p>
-                      <p className="text-xs truncate" style={{ color: '#8a8078' }}>{task.jobName} #{task.jobNumber}</p>
+                  <div key={i} style={{ display: 'flex', alignItems: 'start', gap: 6, padding: '4px 0', borderBottom: '1px solid rgba(205,162,116,0.04)' }}>
+                    <div style={{ width: 4, height: 4, borderRadius: 2, background: color, flexShrink: 0, marginTop: 5 }} />
+                    <div style={{ flex: 1, minWidth: 0 }}>
+                      <p style={{ fontSize: 11, color: '#e8e0d8', margin: 0 }}>{item.action}</p>
+                      {item.jobName && <p style={{ fontSize: 9, color: '#5a5550', margin: 0 }}>{item.jobName}</p>}
                     </div>
-                    {/* Due date â clickable to edit */}
-                    {isEditingDate ? (
-                      <input
-                        type="date"
-                        autoFocus
-                        defaultValue={task.endDate || ''}
-                        onChange={(e) => setPendingDate(e.target.value)}
-                        onBlur={() => {
-                          if (pendingDate && pendingDate !== task.endDate) {
-                            updateTaskDate(task.id, pendingDate);
-                          } else {
-                            setEditingDateTaskId(null);
-                            setPendingDate('');
-                          }
-                        }}
-                        onKeyDown={(e) => {
-                          if (e.key === 'Enter' && pendingDate) updateTaskDate(task.id, pendingDate);
-                          if (e.key === 'Escape') { setEditingDateTaskId(null); setPendingDate(''); }
-                        }}
-                        className="text-xs px-2 py-1 rounded outline-none w-32 flex-shrink-0"
-                        style={{ background: '#2a2a2a', border: '1px solid rgba(205,162,116,0.3)', color: '#e8e0d8' }}
-                      />
-                    ) : (
-                      <div className="flex items-center gap-1.5 flex-shrink-0">
-                        {/* Quick reschedule buttons for overdue tasks */}
-                        {task.daysUntilDue !== null && task.daysUntilDue < 0 && (
-                          <button
-                            onClick={() => {
-                              const next = new Date();
-                              next.setDate(next.getDate() + 1);
-                              updateTaskDate(task.id, next.toISOString().split('T')[0]);
-                            }}
-                            className="text-[10px] md:text-[10px] px-2 py-1 md:px-1.5 md:py-0.5 rounded hover:bg-white/10 active:bg-white/20"
-                            style={{ color: '#eab308', border: '1px solid rgba(234,179,8,0.2)' }}
-                            title="Reschedule to tomorrow"
-                          >
-                            +1d
-                          </button>
-                        )}
-                        <button
-                          onClick={() => { setEditingDateTaskId(task.id); setPendingDate(task.endDate || ''); }}
-                          className="text-xs px-2 py-1 md:px-0 md:py-0 rounded hover:underline cursor-pointer"
-                          style={{ color: task.urgency === 'urgent' ? '#ef4444' : '#8a8078' }}
-                          title="Click to change due date"
-                        >
-                          {task.daysUntilDue !== null
-                            ? (task.daysUntilDue < 0 ? `${Math.abs(task.daysUntilDue)}d overdue` : task.daysUntilDue === 0 ? 'Today' : `${task.daysUntilDue}d`)
-                            : task.endDate ? formatDate(task.endDate) : 'No date'}
-                        </button>
-                      </div>
-                    )}
                   </div>
                 );
               })}
-              {tasks.length === 0 && !loading && (
-                <p className="text-center py-4 text-sm" style={{ color: '#8a8078' }}>No open tasks</p>
-              )}
             </div>
-          </section>
+          )}
+        </div>
+      )}
 
-          {/* Quick Actions */}
-          <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
-            {auth.permissions?.canViewBills && (
-              <QuickAction href="/dashboard/invoicing" icon={DollarSign} label="Invoicing" />
+      {/* TOMORROW PREVIEW */}
+      {tomorrowBriefing && (tomorrowBriefing.headline || tomorrowBriefing.calendarWalkthrough?.length > 0 || tomorrowBriefing.prepTonightOrAM?.length > 0) && (
+        <div style={{
+          background: tc?.period === 'evening' ? '#1a2332' : '#1e1e1e',
+          border: tc?.period === 'evening' ? '1px solid rgba(139,92,246,0.2)' : '1px solid rgba(205,162,116,0.08)',
+          borderRadius: 8, padding: '8px 10px', marginBottom: 6,
+        }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 4, marginBottom: 6 }}>
+            <Calendar size={10} style={{ color: '#8b5cf6' }} />
+            <span style={{ fontSize: 9, fontWeight: 600, color: '#8b5cf6' }}>
+              {tc?.tomorrowLabel ? `${tc.tomorrowLabel.charAt(0).toUpperCase() + tc.tomorrowLabel.slice(1)}'s Preview` : "Tomorrow's Preview"}
+            </span>
+          </div>
+          {tomorrowBriefing.headline && (
+            <p style={{ fontSize: 12, color: '#e8e0d8', margin: '0 0 6px' }}>{tomorrowBriefing.headline}</p>
+          )}
+          <div style={{ display: 'grid', gridTemplateColumns: isMobile ? '1fr' : '1fr 1fr', gap: 8 }}>
+            {tomorrowBriefing.calendarWalkthrough?.length > 0 && (
+              <div>
+                <p style={{ fontSize: 8, fontWeight: 600, color: '#5a5550', marginBottom: 4, letterSpacing: '0.04em' }}>SCHEDULE</p>
+                {tomorrowBriefing.calendarWalkthrough.map((item, i) => (
+                  <div key={i} style={{ display: 'flex', gap: 6, padding: '3px 0' }}>
+                    <span style={{ fontSize: 10, fontWeight: 600, color: '#8b5cf6', minWidth: 50, flexShrink: 0 }}>{item.time}</span>
+                    <div style={{ flex: 1, minWidth: 0 }}>
+                      <p style={{ fontSize: 11, color: '#e8e0d8', margin: 0 }}>{item.event}</p>
+                      {item.prepNote && <p style={{ fontSize: 9, color: '#6a6058', margin: 0 }}>{item.prepNote}</p>}
+                    </div>
+                  </div>
+                ))}
+              </div>
             )}
-            <QuickAction href="/dashboard/precon" icon={ClipboardList} label="Pre-Construction" />
-            <QuickAction href="/dashboard/ask" icon={MessageSquare} label="Ask Agent" />
-            {auth.permissions?.canViewGrid && (
-              <QuickAction href="/dashboard/spec-writer" icon={ArrowRight} label="Spec Writer" />
+            {(tomorrowBriefing.prepTonightOrAM?.length > 0 || tomorrowBriefing.tasksDue?.length > 0) && (
+              <div>
+                {tomorrowBriefing.prepTonightOrAM?.length > 0 && (
+                  <>
+                    <p style={{ fontSize: 8, fontWeight: 600, color: '#5a5550', marginBottom: 4, letterSpacing: '0.04em' }}>
+                      {tc?.period === 'evening' ? 'PREP TONIGHT' : 'PREP FOR TOMORROW'}
+                    </p>
+                    {tomorrowBriefing.prepTonightOrAM.map((item, i) => (
+                      <div key={i} style={{ display: 'flex', alignItems: 'start', gap: 4, padding: '2px 0' }}>
+                        <CheckCircle2 size={9} style={{ color: '#eab308', flexShrink: 0, marginTop: 2 }} />
+                        <p style={{ fontSize: 11, color: '#e8e0d8', margin: 0 }}>{item}</p>
+                      </div>
+                    ))}
+                  </>
+                )}
+                {tomorrowBriefing.tasksDue?.length > 0 && (
+                  <div style={{ marginTop: 6 }}>
+                    <p style={{ fontSize: 8, fontWeight: 600, color: '#5a5550', marginBottom: 4, letterSpacing: '0.04em' }}>TASKS DUE</p>
+                    {tomorrowBriefing.tasksDue.map((item, i) => (
+                      <p key={i} style={{ fontSize: 11, color: '#8a8078', margin: '2px 0' }}>
+                        {item.task} <span style={{ color: '#5a5550' }}>— {item.jobName}</span>
+                      </p>
+                    ))}
+                  </div>
+                )}
+              </div>
             )}
           </div>
-        </>
+        </div>
       )}
-    </div>
-  );
-}
 
-// ============================================================
-// Sub-components
-// ============================================================
-
-function StatCard({ icon: Icon, label, value, color }: { icon: any; label: string; value: number; color: string }) {
-  return (
-    <div className="rounded-lg px-4 py-3" style={CARD_STYLE}>
-      <div className="flex items-center gap-2 mb-1">
-        <Icon size={14} style={{ color }} />
-        <span className="text-xs" style={{ color: '#8a8078' }}>{label}</span>
+      {/* QUICK NAVIGATION */}
+      <div style={{ display: 'grid', gridTemplateColumns: isMobile ? 'repeat(2, 1fr)' : 'repeat(4, 1fr)', gap: 4 }}>
+        {auth.permissions?.canViewBills && (
+          <Link href="/dashboard/invoicing" style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '8px 10px', borderRadius: 8, background: '#1e1e1e', border: '1px solid rgba(205,162,116,0.06)', textDecoration: 'none' }}>
+            <DollarSign size={12} style={{ color: '#CDA274' }} />
+            <span style={{ fontSize: 11, color: '#e8e0d8' }}>Invoicing</span>
+            <ChevronRight size={10} style={{ color: '#5a5550', marginLeft: 'auto' }} />
+          </Link>
+        )}
+        <Link href="/dashboard/precon" style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '8px 10px', borderRadius: 8, background: '#1e1e1e', border: '1px solid rgba(205,162,116,0.06)', textDecoration: 'none' }}>
+          <ClipboardList size={12} style={{ color: '#CDA274' }} />
+          <span style={{ fontSize: 11, color: '#e8e0d8' }}>Pre-Con</span>
+          <ChevronRight size={10} style={{ color: '#5a5550', marginLeft: 'auto' }} />
+        </Link>
+        <Link href="/dashboard/ask" style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '8px 10px', borderRadius: 8, background: '#1e1e1e', border: '1px solid rgba(205,162,116,0.06)', textDecoration: 'none' }}>
+          <MessageSquare size={12} style={{ color: '#CDA274' }} />
+          <span style={{ fontSize: 11, color: '#e8e0d8' }}>Ask Agent</span>
+          <ChevronRight size={10} style={{ color: '#5a5550', marginLeft: 'auto' }} />
+        </Link>
+        {auth.permissions?.canViewGrid && (
+          <Link href="/dashboard/spec-writer" style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '8px 10px', borderRadius: 8, background: '#1e1e1e', border: '1px solid rgba(205,162,116,0.06)', textDecoration: 'none' }}>
+            <ChevronRight size={12} style={{ color: '#CDA274' }} />
+            <span style={{ fontSize: 11, color: '#e8e0d8' }}>Spec Writer</span>
+            <ChevronRight size={10} style={{ color: '#5a5550', marginLeft: 'auto' }} />
+          </Link>
+        )}
       </div>
-      <p className="text-2xl font-bold" style={{ color }}>{value}</p>
     </div>
-  );
-}
-
-function QuickAction({ href, icon: Icon, label }: { href: string; icon: any; label: string }) {
-  return (
-    <Link href={href} className="flex items-center gap-2 px-3 py-3 rounded-lg transition-colors hover:bg-white/[0.03]" style={CARD_STYLE}>
-      <Icon size={14} style={{ color: '#CDA274' }} />
-      <span className="text-sm" style={{ color: '#e8e0d8' }}>{label}</span>
-      <ChevronRight size={12} className="ml-auto" style={{ color: '#8a8078' }} />
-    </Link>
   );
 }
