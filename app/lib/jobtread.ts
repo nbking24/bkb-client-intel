@@ -1636,6 +1636,7 @@ export async function getCommentsForTarget(targetId: string, targetType: string,
     createdAt: {},
     isPinned: {},
     parentComment: { id: {} },
+    user: { id: {}, name: {} },
   };
 
   // Strategy 1: Sub-collection query through the parent entity, with pagination

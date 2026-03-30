@@ -112,7 +112,7 @@ export async function GET(req: NextRequest) {
           recentComments.push({
             id: c.id,
             message: c.message || '',
-            author: c.name || 'Unknown',
+            author: c.user?.name || c.name || 'Unknown',
             createdAt: c.createdAt,
             jobId: job.id,
             jobName: job.name,
@@ -204,22 +204,25 @@ export async function GET(req: NextRequest) {
       parts.push(`${myWeek1Tasks.length} task${myWeek1Tasks.length > 1 ? 's' : ''} assigned to you this upcoming week.`);
     }
 
-    // Recent communications section
+    // Recent communications section — limit to 3 most active jobs
     if (recentComments.length > 0) {
-      // Group by job and summarize
       const commentsByJob = new Map<string, any[]>();
       for (const c of recentComments) {
         if (!commentsByJob.has(c.jobId)) commentsByJob.set(c.jobId, []);
         commentsByJob.get(c.jobId)!.push(c);
       }
 
+      // Sort jobs by most recent comment, take top 3
+      const sortedJobs = Array.from(commentsByJob.entries())
+        .sort((a, b) => new Date(b[1][0].createdAt).getTime() - new Date(a[1][0].createdAt).getTime())
+        .slice(0, 3);
+
       const commParts: string[] = [];
-      for (const [jobId, jobComments] of commentsByJob) {
+      for (const [jobId, jobComments] of sortedJobs) {
         const jobName = jobComments[0].jobName.replace(/^#\d+\s*/, '');
         const latest = jobComments[0]; // newest first
-        // Truncate message to keep briefing concise
-        const msgPreview = latest.message.length > 80
-          ? latest.message.substring(0, 77).trim() + '...'
+        const msgPreview = latest.message.length > 60
+          ? latest.message.substring(0, 57).trim() + '...'
           : latest.message;
         const authorFirst = latest.author.split(' ')[0];
         if (jobComments.length === 1) {
