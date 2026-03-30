@@ -14,7 +14,7 @@ import { TEAM_USERS } from '@/app/lib/constants';
  */
 
 async function getCOTrackingForJob(jobId: string): Promise<{
-  budgetCOs: Array<{ id: string; name: string }>;
+  budgetCOs: Array<{ id: string; name: string; descendantIds: string[] }>;
   documents: Array<{ id: string; name: string; subject?: string; number: string; status: string; type: string; createdAt?: string; costGroupIds?: string[] }>;
 }> {
   try {
@@ -93,9 +93,25 @@ async function getCOTrackingForJob(jobId: string): Promise<{
 
     // Recursively find CO groups — direct children of structural groups like "Client Requested"
     // These are the actual named change orders (e.g., "Foyer & Crown Moulding", "Kitchen Ceiling")
-    const budgetCOs: Array<{ id: string; name: string }> = [];
+    const budgetCOs: Array<{ id: string; name: string; descendantIds: string[] }> = [];
     const visited = new Set<string>();
     const seenNames = new Set<string>(); // Deduplicate COs by name (phantom root groups create dupes)
+
+    // Helper: collect all descendant group IDs for a given group
+    // Documents may link to child groups within a CO, not the CO group itself
+    function collectDescendants(groupId: string): string[] {
+      const result: string[] = [];
+      const stack = [groupId];
+      while (stack.length > 0) {
+        const current = stack.pop()!;
+        const kids = childrenOf.get(current) || [];
+        for (const kid of kids) {
+          result.push(kid.id);
+          stack.push(kid.id);
+        }
+      }
+      return result;
+    }
 
     function findCOGroups(parentId: string, depth: number) {
       const children = childrenOf.get(parentId) || [];
@@ -113,7 +129,7 @@ async function getCOTrackingForJob(jobId: string): Promise<{
           const normName = (child.name || '').trim().toLowerCase();
           if (!seenNames.has(normName)) {
             seenNames.add(normName);
-            budgetCOs.push({ id: child.id, name: child.name });
+            budgetCOs.push({ id: child.id, name: child.name, descendantIds: collectDescendants(child.id) });
           }
         }
       }
@@ -529,10 +545,14 @@ export async function GET(req: NextRequest) {
 
       // Each budget CO group is a separate change order
       for (const co of jobCO.budgetCOs) {
-        // Primary match: find CO documents whose costGroupIds include this budget group's ID
+        // Build the full set of group IDs that belong to this CO (self + all descendants)
+        // Documents may link to child groups within a CO, not the CO group itself
+        const coGroupIds = new Set([co.id, ...(co.descendantIds || [])]);
+
+        // Primary match: find CO documents whose costGroupIds overlap with this CO's group tree
         // This is the most reliable match — JT links documents directly to cost groups
         let docIdx = unmatchedDocs.findIndex((d: any) =>
-          d.costGroupIds && d.costGroupIds.includes(co.id)
+          d.costGroupIds && d.costGroupIds.some((gid: string) => coGroupIds.has(gid))
         );
 
         // Fallback: name-based matching if no costGroupId match found
@@ -564,10 +584,11 @@ export async function GET(req: NextRequest) {
           const docAge = doc.createdAt ? now - new Date(doc.createdAt).getTime() : Infinity;
           isStale = (documentStatus === 'draft' && docAge > STALE_THRESHOLD_MS);
         } else {
-          // No matching document — check if any already-matched approved doc covers this group
-          // (documents can link to multiple cost groups, so check all docs not just unmatched)
+          // No matching document — check if any approved doc (across ALL docs) covers this CO group tree
+          // Documents can link to multiple cost groups and may already be matched to another CO
           const approvedViaDoc = jobCO.documents.some((d: any) =>
-            d.status === 'approved' && d.costGroupIds && d.costGroupIds.includes(co.id)
+            d.status === 'approved' && d.costGroupIds &&
+            d.costGroupIds.some((gid: string) => coGroupIds.has(gid))
           );
           if (approvedViaDoc) {
             documentStatus = 'approved';
