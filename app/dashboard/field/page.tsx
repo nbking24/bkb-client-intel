@@ -895,57 +895,73 @@ export default function FieldDashboardPage() {
         );
       })()}
 
-      {/* CHANGE ORDER TRACKER */}
-      {data.changeOrders && data.changeOrders.length > 0 && (
-        <div style={{ background: '#1e293b', borderRadius: 12, padding: '16px 20px', marginBottom: 16 }}>
-          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 12 }}>
-            <h3 style={{ color: '#f1f5f9', fontSize: 15, fontWeight: 600, margin: 0 }}>
-              Change Order Tracker
-            </h3>
-            <span style={{ color: '#94a3b8', fontSize: 12 }}>
-              {data.changeOrders.filter(co => co.documentStatus !== 'approved').length} pending
-            </span>
-          </div>
-          <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
-            {data.changeOrders.map((co, idx) => {
-              const statusConfig: Record<string, { label: string; color: string; bg: string; icon: any }> = {
-                needs_document: { label: 'Needs Document', color: '#f59e0b', bg: 'rgba(245,158,11,0.1)', icon: FileWarning },
-                draft: { label: 'Draft', color: '#3b82f6', bg: 'rgba(59,130,246,0.1)', icon: FileClock },
-                sent: { label: 'Sent', color: '#8b5cf6', bg: 'rgba(139,92,246,0.1)', icon: Send },
-                approved: { label: 'Approved', color: '#10b981', bg: 'rgba(16,185,129,0.1)', icon: FileCheck },
-                declined: { label: 'Declined', color: '#ef4444', bg: 'rgba(239,68,68,0.1)', icon: XCircle },
-              };
-              const config = statusConfig[co.documentStatus] || statusConfig.draft;
-              const IconComp = config.icon;
-              return (
-                <div key={idx} style={{
-                  display: 'flex', alignItems: 'center', justifyContent: 'space-between',
-                  background: co.isStale && co.documentStatus !== 'approved' ? 'rgba(245,158,11,0.05)' : '#0f172a',
-                  borderRadius: 8, padding: '10px 14px',
-                  borderLeft: `3px solid ${config.color}`,
-                }}>
-                  <div style={{ flex: 1, minWidth: 0 }}>
-                    <div style={{ color: '#e2e8f0', fontSize: 13, fontWeight: 500, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
-                      {co.coName}
-                    </div>
-                    <div style={{ color: '#64748b', fontSize: 11, marginTop: 2 }}>
-                      {co.jobName} #{co.jobNumber}
-                    </div>
-                  </div>
-                  <div style={{
-                    display: 'flex', alignItems: 'center', gap: 6,
-                    background: config.bg, borderRadius: 12, padding: '4px 10px',
-                    ...(co.isStale && co.documentStatus !== 'approved' && co.documentStatus !== 'sent' ? { animation: 'pulse 2s infinite' } : {}),
-                  }}>
-                    <IconComp size={12} color={config.color} />
-                    <span style={{ color: config.color, fontSize: 11, fontWeight: 600 }}>{config.label}</span>
-                  </div>
+      {/* CHANGE ORDER TRACKER — compact collapsible card */}
+      {data.changeOrders && data.changeOrders.length > 0 && (() => {
+        const pending = data.changeOrders.filter(co => co.documentStatus !== 'approved');
+        const pendingCount = pending.length;
+        const needsDoc = pending.filter(co => co.documentStatus === 'needs_document').length;
+        const drafts = pending.filter(co => co.documentStatus === 'draft').length;
+        const sent = pending.filter(co => co.documentStatus === 'sent').length;
+        const declined = pending.filter(co => co.documentStatus === 'declined').length;
+        const hasAction = needsDoc > 0 || declined > 0;
+
+        return (
+          <>
+            <button
+              onClick={() => setShowTasks(showTasks === 'changeOrders' ? false : 'changeOrders')}
+              style={{
+                width: '100%', display: 'flex', alignItems: 'center', gap: 8,
+                padding: '7px 10px', borderRadius: 8, border: 'none', cursor: 'pointer',
+                background: hasAction ? 'rgba(245,158,11,0.07)' : '#1e1e1e',
+                borderWidth: 1, borderStyle: 'solid',
+                borderColor: hasAction ? 'rgba(245,158,11,0.18)' : 'rgba(205,162,116,0.06)',
+                textAlign: 'left', marginBottom: 6,
+              }}
+            >
+              <FileClock size={12} style={{ color: hasAction ? '#f59e0b' : '#CDA274', flexShrink: 0 }} />
+              <div style={{ flex: 1, minWidth: 0, display: 'flex', alignItems: 'center', gap: 6 }}>
+                <span style={{ fontSize: 16, fontWeight: 700, color: hasAction ? '#f59e0b' : '#CDA274', lineHeight: 1 }}>{pendingCount}</span>
+                <span style={{ fontSize: 8, color: '#6a6058', whiteSpace: 'nowrap' }}>Change Orders</span>
+                {/* Mini status pills */}
+                <div style={{ display: 'flex', gap: 3, marginLeft: 4 }}>
+                  {needsDoc > 0 && <span style={{ fontSize: 7, color: '#f59e0b', background: 'rgba(245,158,11,0.12)', padding: '1px 4px', borderRadius: 3, fontWeight: 600 }}>{needsDoc} need doc</span>}
+                  {drafts > 0 && <span style={{ fontSize: 7, color: '#3b82f6', background: 'rgba(59,130,246,0.12)', padding: '1px 4px', borderRadius: 3, fontWeight: 600 }}>{drafts} draft</span>}
+                  {sent > 0 && <span style={{ fontSize: 7, color: '#8b5cf6', background: 'rgba(139,92,246,0.12)', padding: '1px 4px', borderRadius: 3, fontWeight: 600 }}>{sent} sent</span>}
+                  {declined > 0 && <span style={{ fontSize: 7, color: '#ef4444', background: 'rgba(239,68,68,0.12)', padding: '1px 4px', borderRadius: 3, fontWeight: 600 }}>{declined} declined</span>}
                 </div>
-              );
-            })}
-          </div>
-        </div>
-      )}
+              </div>
+              {showTasks === 'changeOrders' ? <ChevronUp size={11} style={{ color: '#6a6058' }} /> : <ChevronDown size={11} style={{ color: '#6a6058' }} />}
+            </button>
+            {showTasks === 'changeOrders' && (
+              <div style={{ background: '#1e1e1e', border: '1px solid rgba(205,162,116,0.08)', borderRadius: 8, padding: '6px 10px', marginBottom: 6, maxHeight: 200, overflowY: 'auto' }}>
+                {pending.map((co, idx) => {
+                  const statusConfig: Record<string, { label: string; color: string; icon: any }> = {
+                    needs_document: { label: 'Needs Doc', color: '#f59e0b', icon: FileWarning },
+                    draft: { label: 'Draft', color: '#3b82f6', icon: FileClock },
+                    sent: { label: 'Sent', color: '#8b5cf6', icon: Send },
+                    declined: { label: 'Declined', color: '#ef4444', icon: XCircle },
+                  };
+                  const config = statusConfig[co.documentStatus] || { label: co.documentStatus, color: '#5a5550', icon: FileClock };
+                  const IconComp = config.icon;
+                  return (
+                    <div key={idx} style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '3px 0', borderBottom: '1px solid rgba(205,162,116,0.04)', fontSize: 11 }}>
+                      <IconComp size={12} style={{ color: config.color, flexShrink: 0 }} />
+                      <div style={{ flex: 1, minWidth: 0, overflow: 'hidden' }}>
+                        <div style={{ color: '#e8e0d8', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', lineHeight: '14px' }}>{co.coName}</div>
+                        <div style={{ color: '#5a5550', fontSize: 9, lineHeight: '12px' }}>{co.jobName}</div>
+                      </div>
+                      <span style={{ color: config.color, fontSize: 9, fontWeight: 600, flexShrink: 0, background: `${config.color}18`, padding: '1px 6px', borderRadius: 3 }}>{config.label}</span>
+                    </div>
+                  );
+                })}
+                {pending.length === 0 && (
+                  <p style={{ color: '#5a5550', fontSize: 11, textAlign: 'center', padding: 8 }}>All change orders approved</p>
+                )}
+              </div>
+            )}
+          </>
+        );
+      })()}
 
       {/* THREE TASK CARDS: Job Overdue | My Overdue | Open Tasks */}
       <div style={{ display: 'flex', gap: 4, marginBottom: 6 }}>
