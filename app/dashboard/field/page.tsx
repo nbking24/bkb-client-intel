@@ -63,7 +63,7 @@ function InlineAskAgent({ pmJobs }: { pmJobs: { id: string; name: string; number
   const [loading, setLoading] = useState(false);
   const [lastAgent, setLastAgent] = useState<string | null>(null);
   const [selectedJobId, setSelectedJobId] = useState('');
-  const [agentMode, setAgentMode] = useState<'change-order' | 'specs'>('change-order');
+  const [agentMode, setAgentMode] = useState<'general' | 'change-order' | 'specs'>('general');
   const [phaseEdit, setPhaseEdit] = useState<string | null>(null);
   const [attachedImages, setAttachedImages] = useState<Array<{ file: File; preview: string }>>([]);
   const [uploadedUrls, setUploadedUrls] = useState<string[]>([]);
@@ -161,7 +161,7 @@ function InlineAskAgent({ pmJobs }: { pmJobs: { id: string; name: string; number
     const contextParts: string[] = [];
     if (agentMode === 'change-order') {
       contextParts.push('MODE: CHANGE ORDER SUBMISSION. The user is submitting a change order. Follow the CO submission flow — ask targeted questions, gather all details, then output a @@CO_PROPOSAL@@ for approval.');
-    } else {
+    } else if (agentMode === 'specs') {
       contextParts.push('MODE: SPECS ONLY. The user is asking about approved specifications. ONLY answer based on approved documents and specs for this job. Do NOT offer to create change orders, tasks, or modifications — just provide spec information from approved documents.');
     }
     if (selectedJob) {
@@ -259,7 +259,7 @@ function InlineAskAgent({ pmJobs }: { pmJobs: { id: string; name: string; number
   const lastMsgNeedsConfirm = messages.length > 0 && messages[messages.length - 1].role === 'assistant' && messages[messages.length - 1].needsConfirmation && !loading;
 
   // When mode changes, reset conversation and auto-prime the agent
-  const handleModeChange = (mode: 'change-order' | 'specs') => {
+  const handleModeChange = (mode: 'general' | 'change-order' | 'specs') => {
     setAgentMode(mode);
     setMessages([]);
     setLastAgent(null);
@@ -294,27 +294,24 @@ function InlineAskAgent({ pmJobs }: { pmJobs: { id: string; name: string; number
           {/* Mode Selector */}
           <div style={{ padding: '6px 10px', borderBottom: '1px solid rgba(205,162,116,0.06)', display: 'flex', alignItems: 'center', gap: 6 }}>
             <div style={{ display: 'flex', borderRadius: 6, overflow: 'hidden', border: '1px solid rgba(205,162,116,0.15)', flexShrink: 0 }}>
-              <button
-                onClick={() => handleModeChange('change-order')}
-                style={{
-                  padding: '4px 10px', fontSize: 10, fontWeight: 600, border: 'none', cursor: 'pointer',
-                  background: agentMode === 'change-order' ? 'rgba(205,162,116,0.2)' : 'transparent',
-                  color: agentMode === 'change-order' ? '#CDA274' : '#5a5550',
-                }}
-              >
-                Change Order
-              </button>
-              <button
-                onClick={() => handleModeChange('specs')}
-                style={{
-                  padding: '4px 10px', fontSize: 10, fontWeight: 600, border: 'none', cursor: 'pointer',
-                  borderLeft: '1px solid rgba(205,162,116,0.15)',
-                  background: agentMode === 'specs' ? 'rgba(205,162,116,0.2)' : 'transparent',
-                  color: agentMode === 'specs' ? '#CDA274' : '#5a5550',
-                }}
-              >
-                Specs
-              </button>
+              {([
+                { key: 'general', label: 'Agent' },
+                { key: 'change-order', label: 'Change Order' },
+                { key: 'specs', label: 'Specs' },
+              ] as const).map((mode, idx) => (
+                <button
+                  key={mode.key}
+                  onClick={() => handleModeChange(mode.key)}
+                  style={{
+                    padding: '4px 10px', fontSize: 10, fontWeight: 600, border: 'none', cursor: 'pointer',
+                    ...(idx > 0 ? { borderLeft: '1px solid rgba(205,162,116,0.15)' } : {}),
+                    background: agentMode === mode.key ? 'rgba(205,162,116,0.2)' : 'transparent',
+                    color: agentMode === mode.key ? '#CDA274' : '#5a5550',
+                  }}
+                >
+                  {mode.label}
+                </button>
+              ))}
             </div>
             <select
               value={selectedJobId}
@@ -340,9 +337,9 @@ function InlineAskAgent({ pmJobs }: { pmJobs: { id: string; name: string; number
             {messages.length === 0 && !loading && (
               <div style={{ padding: '8px 0', textAlign: 'center' }}>
                 <p style={{ fontSize: 10, color: '#5a5550', marginBottom: 4 }}>
-                  {agentMode === 'change-order'
-                    ? 'Describe the change — I\'ll ask questions and build the CO'
-                    : 'Ask about approved specs for this job'}
+                  {agentMode === 'general' && 'Ask about tasks, schedules, or anything on this job'}
+                  {agentMode === 'change-order' && 'Describe the change — I\'ll ask questions and build the CO'}
+                  {agentMode === 'specs' && 'Ask about approved specs for this job'}
                 </p>
                 {agentMode === 'change-order' && (
                   <p style={{ fontSize: 9, color: '#8a8078', marginTop: 2 }}>
@@ -513,7 +510,9 @@ function InlineAskAgent({ pmJobs }: { pmJobs: { id: string; name: string; number
               value={query}
               onChange={e => { setQuery(e.target.value); e.target.style.height = 'auto'; e.target.style.height = Math.min(e.target.scrollHeight, 80) + 'px'; }}
               onKeyDown={e => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); if (query.trim() && !loading) handleSubmit(e as any); } }}
-              placeholder={agentMode === 'change-order'
+              placeholder={agentMode === 'general'
+                ? (selectedJob ? `Ask about #${selectedJob.number} ${selectedJob.name}...` : 'Ask about tasks, schedules, or jobs...')
+                : agentMode === 'change-order'
                 ? (selectedJob ? `Describe the change for #${selectedJob.number}...` : 'Select a job, then describe the change...')
                 : (selectedJob ? `Ask about specs for #${selectedJob.number}...` : 'Select a job to look up specs...')}
               rows={1}
