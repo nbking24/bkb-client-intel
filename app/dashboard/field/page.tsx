@@ -192,6 +192,17 @@ export default function FieldDashboardPage() {
     return d.toISOString().split('T')[0];
   }, [data?.week1Start]);
 
+  // Tasks assigned to Evan in the next 7 days
+  const myNext7Days = useMemo(() => {
+    if (!data?.calendarTasks || !data?.todayDate) return [];
+    const today = new Date(data.todayDate + 'T12:00:00');
+    const in7 = new Date(today.getTime() + 7 * 86400000);
+    const in7Str = in7.toISOString().split('T')[0];
+    return data.calendarTasks
+      .filter(t => t.isAssignedToMe && !t.isComplete && t.date >= data.todayDate && t.date <= in7Str)
+      .sort((a, b) => a.date.localeCompare(b.date));
+  }, [data?.calendarTasks, data?.todayDate]);
+
   const firstName = data?.userName?.split(' ')[0] || auth.user?.name?.split(' ')[0] || '';
   const jobOverdueCount = data?.jobOverdueTasks?.length || 0;
   const myOverdueCount = data?.myOverdueTasks?.length || 0;
@@ -354,6 +365,41 @@ export default function FieldDashboardPage() {
           {((showTasks === 'jobOverdue' && jobOverdueCount === 0) || (showTasks === 'myOverdue' && myOverdueCount === 0) || (showTasks === 'upcoming' && myUpcomingCount === 0)) && (
             <p style={{ color: '#5a5550', fontSize: 11, textAlign: 'center', padding: 8 }}>None</p>
           )}
+        </div>
+      )}
+
+      {/* ASSIGNED TASKS - NEXT 7 DAYS HIGHLIGHT */}
+      {myNext7Days.length > 0 && (
+        <div style={{
+          background: 'rgba(59,130,246,0.08)', border: '1px solid rgba(59,130,246,0.2)',
+          borderRadius: 8, padding: '8px 10px', marginBottom: 6,
+        }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 5, marginBottom: 5 }}>
+            <CalendarDays size={11} style={{ color: '#3b82f6' }} />
+            <span style={{ fontSize: 9, fontWeight: 700, color: '#3b82f6', letterSpacing: '0.06em' }}>YOUR TASKS THIS WEEK</span>
+          </div>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 3 }}>
+            {myNext7Days.map(t => {
+              const c = jobColor(t.jobNumber);
+              const dayLabel = t.date === data.todayDate ? 'Today'
+                : t.date === new Date(new Date(data.todayDate + 'T12:00:00').getTime() + 86400000).toISOString().split('T')[0] ? 'Tomorrow'
+                : new Date(t.date + 'T12:00:00').toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' });
+              return (
+                <a key={t.id} href={jtScheduleUrl(t.jobId)} target="_blank" rel="noopener noreferrer"
+                  style={{
+                    display: 'flex', alignItems: 'center', gap: 6,
+                    padding: '4px 6px', borderRadius: 5,
+                    background: 'rgba(59,130,246,0.06)',
+                    textDecoration: 'none', fontSize: 11,
+                  }}>
+                  <span style={{ width: 6, height: 6, borderRadius: 3, background: c, flexShrink: 0 }} />
+                  <span style={{ color: '#e8e0d8', flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{t.name}</span>
+                  <span style={{ color: '#6a8ab5', fontSize: 9, flexShrink: 0 }}>{t.jobName.replace(/^#\d+\s*/, '')}</span>
+                  <span style={{ color: '#3b82f6', fontSize: 10, fontWeight: 600, flexShrink: 0 }}>{dayLabel}</span>
+                </a>
+              );
+            })}
+          </div>
         </div>
       )}
 
