@@ -112,7 +112,7 @@ export async function GET(req: NextRequest) {
           recentComments.push({
             id: c.id,
             message: c.message || '',
-            author: c.user?.name || c.name || 'Unknown',
+            author: c.name || 'Team',
             createdAt: c.createdAt,
             jobId: job.id,
             jobName: job.name,
@@ -224,11 +224,13 @@ export async function GET(req: NextRequest) {
         const msgPreview = latest.message.length > 60
           ? latest.message.substring(0, 57).trim() + '...'
           : latest.message;
-        const authorFirst = latest.author.split(' ')[0];
+        const author = latest.author && latest.author !== 'Team' ? latest.author.split(' ')[0] : '';
         if (jobComments.length === 1) {
-          commParts.push(`${authorFirst} on ${jobName}: "${msgPreview}"`);
+          commParts.push(author ? `${author} on ${jobName}: "${msgPreview}"` : `${jobName}: "${msgPreview}"`);
         } else {
-          commParts.push(`${jobComments.length} updates on ${jobName} — latest from ${authorFirst}: "${msgPreview}"`);
+          commParts.push(author
+            ? `${jobComments.length} updates on ${jobName} — latest from ${author}: "${msgPreview}"`
+            : `${jobComments.length} updates on ${jobName}: "${msgPreview}"`);
         }
       }
       parts.push(`Recent activity: ${commParts.join('. ')}.`);
