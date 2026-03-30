@@ -54,7 +54,7 @@ export async function GET(req: NextRequest) {
       myJobs.map(async (job: any) => {
         const [tasks, comments] = await Promise.all([
           getTasksForJob(job.id).catch(() => []),
-          getCommentsForTarget(job.id, 'job', 15, { includeUser: true }).catch((err) => { console.error('Comment fetch error for job', job.id, err?.message || err); return []; }),
+          getCommentsForTarget(job.id, 'job', 15).catch((err) => { console.error('Comment fetch error for job', job.id, err?.message || err); return []; }),
         ]);
         return { jobId: job.id, tasks, comments };
       })
@@ -112,7 +112,7 @@ export async function GET(req: NextRequest) {
           recentComments.push({
             id: c.id,
             message: c.message || '',
-            author: c.user?.name || c.name || 'Unknown',
+            author: c.name && c.name !== 'Unknown' ? c.name : '',
             createdAt: c.createdAt,
             jobId: job.id,
             jobName: job.name,
@@ -224,13 +224,10 @@ export async function GET(req: NextRequest) {
         const msgPreview = latest.message.length > 60
           ? latest.message.substring(0, 57).trim() + '...'
           : latest.message;
-        const author = latest.author && latest.author !== 'Team' ? latest.author.split(' ')[0] : '';
         if (jobComments.length === 1) {
-          commParts.push(author ? `${author} on ${jobName}: "${msgPreview}"` : `${jobName}: "${msgPreview}"`);
+          commParts.push(`${jobName}: "${msgPreview}"`);
         } else {
-          commParts.push(author
-            ? `${jobComments.length} updates on ${jobName} — latest from ${author}: "${msgPreview}"`
-            : `${jobComments.length} updates on ${jobName}: "${msgPreview}"`);
+          commParts.push(`${jobComments.length} updates on ${jobName} — latest: "${msgPreview}"`);
         }
       }
       parts.push(`Recent activity: ${commParts.join('. ')}.`);

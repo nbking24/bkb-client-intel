@@ -1624,7 +1624,7 @@ export interface JTComment {
   parentComment?: { id: string } | null;
 }
 
-export async function getCommentsForTarget(targetId: string, targetType: string, limit = 200, options?: { includeUser?: boolean }): Promise<JTComment[]> {
+export async function getCommentsForTarget(targetId: string, targetType: string, limit = 200): Promise<JTComment[]> {
   // Paginate to get all comments (default limit raised to 200, supports multi-page fetching)
   // Try querying comments through the parent entity first
   // targetType can be: job, task, document, costItem, etc.
@@ -1638,15 +1638,7 @@ export async function getCommentsForTarget(targetId: string, targetType: string,
     isPinned: {},
     parentComment: { id: {} },
   };
-  const commentFieldsWithUser = {
-    ...commentFieldsBase,
-    user: { id: {}, name: {} },
-  };
 
-  // If caller needs user info, skip Strategy 1 (sub-collection doesn't support user relation)
-  if (options?.includeUser) {
-    // Go straight to org-level query which supports user relation
-  } else {
   // Strategy 1: Sub-collection query through the parent entity, with pagination
   try {
     let allComments: any[] = [];
@@ -1688,7 +1680,6 @@ export async function getCommentsForTarget(targetId: string, targetType: string,
   } catch (_err: any) {
     // Fall through to org-level query
   }
-  } // end of else (skip Strategy 1 when includeUser)
 
   // Strategy 2: Fallback â query through organization with targetId filter, with pagination
   let allComments: any[] = [];
@@ -1708,7 +1699,7 @@ export async function getCommentsForTarget(targetId: string, targetType: string,
         comments: {
           $: pageParams,
           nextPage: {},
-          nodes: commentFieldsWithUser,
+          nodes: commentFieldsBase,
         },
       },
     });
