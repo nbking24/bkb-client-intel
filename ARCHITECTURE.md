@@ -943,6 +943,15 @@ The Field Hub is a mobile-optimized dashboard for field crew members (e.g., Evan
 
 ## 17. Changelog
 
+### 2026-03-30 — 10-Day Weather Forecast Strip
+- **Added weather forecast strip** to field dashboard, positioned above week calendars
+- **Data source**: Open-Meteo free API (no key required), Perkasie PA coordinates (40.37, -75.26)
+- **API**: Parallel `fetch` in `GET /api/field-dashboard` — non-blocking, fails gracefully to empty array
+- **UI**: 10-column responsive grid showing day name, WMO-coded weather icon (lucide-react), high/low temps (°F), precipitation chance with droplet icon
+- **Visual cues**: Today highlighted with blue ring, weekends muted opacity, rain days (≥50% precip) get blue tint
+- **WMO icon mapping**: Clear→Sun, Cloudy→Cloud, Drizzle→CloudDrizzle, Rain→CloudRain, Snow→CloudSnow, Thunderstorm→CloudLightning, Fog→CloudFog
+- **Files changed**: `app/api/field-dashboard/route.ts`, `app/dashboard/field/page.tsx`
+
 ### 2026-03-30 — KPI Metrics on Field Dashboard
 - **Added 5 KPI metrics** displayed as a compact grid between the Ask Agent and task cards:
   1. **On-Track %** — schedule adherence: % of tasks with due dates that are complete or not yet due (green ≥75%, yellow ≥50%, red <50%)
