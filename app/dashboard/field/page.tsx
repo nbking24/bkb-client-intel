@@ -224,14 +224,6 @@ export default function FieldDashboardPage() {
         </div>
       </div>
 
-      {/* BRIEFING */}
-      <div style={{ background: 'rgba(205,162,116,0.06)', border: '1px solid rgba(205,162,116,0.12)', borderRadius: 8, padding: '8px 12px', marginBottom: 6 }}>
-        <div style={{ display: 'flex', alignItems: 'center', gap: 5, marginBottom: 3 }}>
-          <Zap size={10} style={{ color: '#CDA274' }} />
-          <span style={{ fontSize: 9, fontWeight: 700, color: '#CDA274', letterSpacing: '0.06em' }}>BRIEFING</span>
-        </div>
-        <p style={{ fontSize: 12, lineHeight: '17px', color: '#e8e0d8', margin: 0 }}>{data.briefing}</p>
-      </div>
 
       {/* THREE TASK CARDS: Job Overdue | My Overdue | Open Tasks */}
       <div style={{ display: 'flex', gap: 4, marginBottom: 6 }}>
