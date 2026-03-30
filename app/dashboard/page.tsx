@@ -292,6 +292,8 @@ export default function DashboardOverview() {
   const tasks = overview?.data?.tasks || [];
   const emails = overview?.data?.recentEmails || [];
   const calendarEvents = overview?.data?.calendarEvents || [];
+  const outstandingInvoices = overview?.data?.outstandingInvoices || [];
+  const changeOrders = overview?.data?.changeOrders || [];
   const tc = overview?.data?.timeContext;
   const tomorrowBriefing = analysis?.tomorrowBriefing;
   const firstName = auth.user?.name?.split(' ')[0] || '';
@@ -368,13 +370,17 @@ export default function DashboardOverview() {
           </div>
         </div>
 
-        {/* KPI 4: Outstanding Invoices (AR) */}
+        {/* KPI 4: Outstanding Invoices (AR) — clickable */}
         {(() => {
           const invCount = stats?.outstandingInvoiceCount || 0;
           const invTotal = stats?.outstandingInvoiceTotal || 0;
           const hasOutstanding = invCount > 0;
+          const isActive = showSection === 'invoices';
           return (
-            <div style={{ background: '#1e1e1e', borderRadius: 6, padding: '6px 7px', borderLeft: `3px solid ${hasOutstanding ? '#f59e0b' : '#22c55e'}` }}>
+            <button
+              onClick={() => setShowSection(isActive ? false : 'invoices')}
+              style={{ background: isActive ? 'rgba(245,158,11,0.1)' : '#1e1e1e', borderRadius: 6, padding: '6px 7px', borderLeft: `3px solid ${hasOutstanding ? '#f59e0b' : '#22c55e'}`, border: 'none', borderLeftWidth: 3, borderLeftStyle: 'solid', borderLeftColor: hasOutstanding ? '#f59e0b' : '#22c55e', cursor: 'pointer', textAlign: 'left' }}
+            >
               <div style={{ display: 'flex', alignItems: 'center', gap: 3, marginBottom: 3 }}>
                 <DollarSign size={9} style={{ color: hasOutstanding ? '#f59e0b' : '#22c55e' }} />
                 <span style={{ fontSize: 7, color: '#5a5550', fontWeight: 600, letterSpacing: '0.04em' }}>OUTSTANDING AR</span>
@@ -387,7 +393,7 @@ export default function DashboardOverview() {
                   ${invTotal >= 1000 ? `${(invTotal / 1000).toFixed(1)}k` : invTotal.toFixed(0)}
                 </div>
               )}
-            </div>
+            </button>
           );
         })()}
 
@@ -414,6 +420,55 @@ export default function DashboardOverview() {
           );
         })()}
       </div>
+
+      {/* OUTSTANDING INVOICES — expandable from KPI card click */}
+      {showSection === 'invoices' && (
+        <div style={{ background: '#1e1e1e', border: '1px solid rgba(245,158,11,0.15)', borderRadius: 8, padding: '8px 10px', marginBottom: isTouch ? 10 : 6, maxHeight: 340, overflowY: 'auto' }}>
+          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 6 }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
+              <DollarSign size={10} style={{ color: '#f59e0b' }} />
+              <span style={{ fontSize: 9, fontWeight: 600, color: '#f59e0b', letterSpacing: '0.04em' }}>
+                OUTSTANDING INVOICES ({outstandingInvoices.length})
+              </span>
+            </div>
+            {outstandingInvoices.length > 0 && (
+              <span style={{ fontSize: 9, color: '#6a6058' }}>
+                Total: ${(stats?.outstandingInvoiceTotal || 0).toLocaleString('en-US', { minimumFractionDigits: 0, maximumFractionDigits: 0 })}
+              </span>
+            )}
+          </div>
+          {outstandingInvoices.length === 0 ? (
+            <p style={{ color: '#22c55e', fontSize: 11, textAlign: 'center', padding: 8 }}>All invoices paid</p>
+          ) : (
+            outstandingInvoices.map((inv) => {
+              const isOverdue = inv.daysPending > 30;
+              const isWarning = inv.daysPending > 14;
+              const statusColor = isOverdue ? '#ef4444' : isWarning ? '#f59e0b' : '#6a6058';
+              return (
+                <div key={inv.id} style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '5px 0', borderBottom: '1px solid rgba(205,162,116,0.04)' }}>
+                  <div style={{ width: 5, height: 5, borderRadius: 3, background: statusColor, flexShrink: 0 }} />
+                  <div style={{ flex: 1, minWidth: 0 }}>
+                    <p style={{ fontSize: 11, color: '#e8e0d8', margin: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                      {inv.jobName.replace(/^#\d+\s*/, '')}
+                    </p>
+                    <p style={{ fontSize: 9, color: '#6a6058', margin: 0 }}>
+                      Invoice #{inv.documentNumber}
+                    </p>
+                  </div>
+                  <div style={{ textAlign: 'right', flexShrink: 0 }}>
+                    <p style={{ fontSize: 12, fontWeight: 600, color: '#e8e0d8', margin: 0 }}>
+                      ${inv.amount.toLocaleString('en-US', { minimumFractionDigits: 0, maximumFractionDigits: 0 })}
+                    </p>
+                    <p style={{ fontSize: 9, color: statusColor, margin: 0, fontWeight: isOverdue ? 600 : 400 }}>
+                      {inv.daysPending}d pending
+                    </p>
+                  </div>
+                </div>
+              );
+            })
+          )}
+        </div>
+      )}
 
       {/* AI BRIEFING — compact, matches field dashboard style */}
       {analysis?.summary && (
