@@ -54,7 +54,7 @@ export async function GET(req: NextRequest) {
       myJobs.map(async (job: any) => {
         const [tasks, comments] = await Promise.all([
           getTasksForJob(job.id).catch(() => []),
-          getCommentsForTarget(job.id, 'job', 15).catch((err) => { console.error('Comment fetch error for job', job.id, err?.message || err); return []; }),
+          getCommentsForTarget(job.id, 'job', 15, { includeUser: true }).catch((err) => { console.error('Comment fetch error for job', job.id, err?.message || err); return []; }),
         ]);
         return { jobId: job.id, tasks, comments };
       })
@@ -112,7 +112,7 @@ export async function GET(req: NextRequest) {
           recentComments.push({
             id: c.id,
             message: c.message || '',
-            author: c.name || 'Team',
+            author: c.user?.name || c.name || 'Unknown',
             createdAt: c.createdAt,
             jobId: job.id,
             jobName: job.name,
