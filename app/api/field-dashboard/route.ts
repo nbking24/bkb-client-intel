@@ -184,9 +184,9 @@ export async function GET(req: NextRequest) {
           return { jobId: job.id, tasks, comments };
         })
       ),
-      // Scan ALL active jobs for COs (not just PM's jobs) — field staff need visibility across all projects
+      // Scan PM's jobs for COs — limited to user's jobs to stay within Vercel timeout
       Promise.all(
-        activeJobs.map(async (job: any) => {
+        myJobs.map(async (job: any) => {
           const tracking = await getCOTrackingForJob(job.id).catch(() => ({ budgetCOs: [], documents: [] }));
           return { jobId: job.id, jobName: job.name, jobNumber: job.number, ...tracking };
         })
