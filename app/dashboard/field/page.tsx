@@ -618,11 +618,7 @@ interface ChangeOrder {
   jobNumber: string;
   coName: string;
   coGroupId: string | null;
-  hasDocument: boolean;
-  documentStatus: 'needs_document' | 'draft' | 'sent' | 'approved' | 'declined';
-  documentId: string | null;
-  documentNumber?: string;
-  isStale: boolean;
+  status: 'approved' | 'pending';
 }
 interface Data {
   userName: string; briefing: string;
@@ -898,27 +894,17 @@ export default function FieldDashboardPage() {
 
       {/* CHANGE ORDER TRACKER — compact collapsible, grouped by job */}
       {data.changeOrders && data.changeOrders.length > 0 && (() => {
-        const pending = data.changeOrders.filter(co => co.documentStatus !== 'approved');
-        const pendingCount = pending.length;
-        const needsDoc = pending.filter(co => co.documentStatus === 'needs_document').length;
-        const drafts = pending.filter(co => co.documentStatus === 'draft').length;
-        const sent = pending.filter(co => co.documentStatus === 'sent').length;
-        const declined = pending.filter(co => co.documentStatus === 'declined').length;
-        const hasAction = needsDoc > 0 || declined > 0;
+        const pendingCOs = data.changeOrders.filter(co => co.status === 'pending');
+        const approvedCOs = data.changeOrders.filter(co => co.status === 'approved');
+        const pendingCount = pendingCOs.length;
+        const totalCount = data.changeOrders.length;
 
-        // Group pending COs by job
+        // Group ALL COs by job for expanded view
         const byJob = new Map<string, { jobName: string; jobNumber: string; cos: ChangeOrder[] }>();
-        for (const co of pending) {
+        for (const co of data.changeOrders) {
           if (!byJob.has(co.jobId)) byJob.set(co.jobId, { jobName: co.jobName, jobNumber: co.jobNumber, cos: [] });
           byJob.get(co.jobId)!.cos.push(co);
         }
-
-        const statusMeta: Record<string, { label: string; short: string; color: string; icon: any }> = {
-          needs_document: { label: 'Needs Doc', short: 'need doc', color: '#f59e0b', icon: FileWarning },
-          draft: { label: 'Draft', short: 'draft', color: '#3b82f6', icon: FileClock },
-          sent: { label: 'Sent', short: 'sent', color: '#8b5cf6', icon: Send },
-          declined: { label: 'Declined', short: 'declined', color: '#ef4444', icon: XCircle },
-        };
 
         return (
           <>
@@ -927,21 +913,19 @@ export default function FieldDashboardPage() {
               style={{
                 width: '100%', display: 'flex', alignItems: 'center', gap: 8,
                 padding: '7px 10px', borderRadius: 8, border: 'none', cursor: 'pointer',
-                background: hasAction ? 'rgba(245,158,11,0.07)' : '#1e1e1e',
+                background: pendingCount > 0 ? 'rgba(245,158,11,0.07)' : '#1e1e1e',
                 borderWidth: 1, borderStyle: 'solid',
-                borderColor: hasAction ? 'rgba(245,158,11,0.18)' : 'rgba(205,162,116,0.06)',
+                borderColor: pendingCount > 0 ? 'rgba(245,158,11,0.18)' : 'rgba(205,162,116,0.06)',
                 textAlign: 'left', marginBottom: 6,
               }}
             >
-              <FileClock size={12} style={{ color: hasAction ? '#f59e0b' : '#CDA274', flexShrink: 0 }} />
+              <FileClock size={12} style={{ color: pendingCount > 0 ? '#f59e0b' : '#CDA274', flexShrink: 0 }} />
               <div style={{ flex: 1, minWidth: 0, display: 'flex', alignItems: 'center', gap: 6 }}>
-                <span style={{ fontSize: 16, fontWeight: 700, color: hasAction ? '#f59e0b' : '#CDA274', lineHeight: 1 }}>{pendingCount}</span>
+                <span style={{ fontSize: 16, fontWeight: 700, color: pendingCount > 0 ? '#f59e0b' : '#22c55e', lineHeight: 1 }}>{totalCount}</span>
                 <span style={{ fontSize: 8, color: '#6a6058', whiteSpace: 'nowrap' }}>Change Orders</span>
                 <div style={{ display: 'flex', gap: 3, marginLeft: 4 }}>
-                  {needsDoc > 0 && <span style={{ fontSize: 7, color: '#f59e0b', background: 'rgba(245,158,11,0.12)', padding: '1px 4px', borderRadius: 3, fontWeight: 600 }}>{needsDoc} need doc</span>}
-                  {drafts > 0 && <span style={{ fontSize: 7, color: '#3b82f6', background: 'rgba(59,130,246,0.12)', padding: '1px 4px', borderRadius: 3, fontWeight: 600 }}>{drafts} draft</span>}
-                  {sent > 0 && <span style={{ fontSize: 7, color: '#8b5cf6', background: 'rgba(139,92,246,0.12)', padding: '1px 4px', borderRadius: 3, fontWeight: 600 }}>{sent} sent</span>}
-                  {declined > 0 && <span style={{ fontSize: 7, color: '#ef4444', background: 'rgba(239,68,68,0.12)', padding: '1px 4px', borderRadius: 3, fontWeight: 600 }}>{declined} declined</span>}
+                  {pendingCount > 0 && <span style={{ fontSize: 7, color: '#f59e0b', background: 'rgba(245,158,11,0.12)', padding: '1px 4px', borderRadius: 3, fontWeight: 600 }}>{pendingCount} pending</span>}
+                  {approvedCOs.length > 0 && <span style={{ fontSize: 7, color: '#22c55e', background: 'rgba(34,197,94,0.12)', padding: '1px 4px', borderRadius: 3, fontWeight: 600 }}>{approvedCOs.length} approved</span>}
                 </div>
               </div>
               {showTasks === 'changeOrders' ? <ChevronUp size={11} style={{ color: '#6a6058' }} /> : <ChevronDown size={11} style={{ color: '#6a6058' }} />}
@@ -949,72 +933,56 @@ export default function FieldDashboardPage() {
             {showTasks === 'changeOrders' && (
               <div style={{ background: '#1e1e1e', border: '1px solid rgba(205,162,116,0.08)', borderRadius: 8, padding: '6px 10px', marginBottom: 6, maxHeight: 260, overflowY: 'auto' }}>
                 {Array.from(byJob.entries()).map(([jobId, { jobName, jobNumber, cos }]) => {
-                  // Count statuses for this job
-                  const jobStatuses: Record<string, ChangeOrder[]> = {};
-                  for (const co of cos) {
-                    if (!jobStatuses[co.documentStatus]) jobStatuses[co.documentStatus] = [];
-                    jobStatuses[co.documentStatus].push(co);
-                  }
-                  const statusOrder = ['needs_document', 'declined', 'draft', 'sent'];
+                  const jobPending = cos.filter(co => co.status === 'pending');
+                  const jobApproved = cos.filter(co => co.status === 'approved');
+                  const isJobExpanded = expandedCOStatus === jobId;
 
                   return (
                     <div key={jobId} style={{ padding: '4px 0', borderBottom: '1px solid rgba(205,162,116,0.06)' }}>
-                      {/* Job row */}
-                      <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 2 }}>
+                      <button
+                        onClick={() => setExpandedCOStatus(isJobExpanded ? null : jobId)}
+                        style={{
+                          width: '100%', display: 'flex', alignItems: 'center', gap: 6, marginBottom: 2,
+                          background: 'transparent', border: 'none', cursor: 'pointer', padding: 0, textAlign: 'left',
+                        }}
+                      >
                         <span style={{ width: 5, height: 5, borderRadius: 3, background: jobColor(jobNumber), flexShrink: 0 }} />
                         <span style={{ fontSize: 11, color: '#e8e0d8', fontWeight: 500, flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
                           {jobName.replace(/^#\d+\s*/, '')}
                         </span>
-                        {/* Clickable status counts */}
                         <div style={{ display: 'flex', gap: 3, flexShrink: 0 }}>
-                          {statusOrder.map(status => {
-                            const items = jobStatuses[status];
-                            if (!items || items.length === 0) return null;
-                            const meta = statusMeta[status];
-                            const key = `${jobId}:${status}`;
-                            const isExpanded = expandedCOStatus === key;
-                            return (
-                              <button
-                                key={status}
-                                onClick={() => setExpandedCOStatus(isExpanded ? null : key)}
-                                style={{
-                                  display: 'flex', alignItems: 'center', gap: 3,
-                                  fontSize: 9, fontWeight: 600, color: meta.color,
-                                  background: isExpanded ? `${meta.color}25` : `${meta.color}12`,
-                                  padding: '2px 6px', borderRadius: 4,
-                                  border: isExpanded ? `1px solid ${meta.color}40` : '1px solid transparent',
-                                  cursor: 'pointer',
-                                }}
-                              >
-                                {items.length} {meta.short}
-                              </button>
-                            );
-                          })}
+                          {jobPending.length > 0 && (
+                            <span style={{ fontSize: 9, fontWeight: 600, color: '#f59e0b', background: 'rgba(245,158,11,0.12)', padding: '2px 6px', borderRadius: 4 }}>
+                              {jobPending.length} pending
+                            </span>
+                          )}
+                          {jobApproved.length > 0 && (
+                            <span style={{ fontSize: 9, fontWeight: 600, color: '#22c55e', background: 'rgba(34,197,94,0.12)', padding: '2px 6px', borderRadius: 4 }}>
+                              {jobApproved.length} approved
+                            </span>
+                          )}
                         </div>
-                      </div>
-                      {/* Expanded CO names for clicked status */}
-                      {statusOrder.map(status => {
-                        const key = `${jobId}:${status}`;
-                        if (expandedCOStatus !== key) return null;
-                        const items = jobStatuses[status] || [];
-                        const meta = statusMeta[status];
-                        return (
-                          <div key={status} style={{ marginLeft: 11, padding: '2px 0 4px' }}>
-                            {items.map((co, i) => (
-                              <div key={i} style={{ display: 'flex', alignItems: 'center', gap: 4, padding: '2px 0', fontSize: 10, color: '#c0b8a8' }}>
-                                <meta.icon size={9} style={{ color: meta.color, flexShrink: 0 }} />
-                                <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{co.coName}</span>
-                              </div>
-                            ))}
-                          </div>
-                        );
-                      })}
+                        {isJobExpanded ? <ChevronUp size={9} style={{ color: '#6a6058' }} /> : <ChevronDown size={9} style={{ color: '#6a6058' }} />}
+                      </button>
+                      {isJobExpanded && (
+                        <div style={{ marginLeft: 11, padding: '2px 0 4px' }}>
+                          {cos.map((co, i) => (
+                            <div key={i} style={{ display: 'flex', alignItems: 'center', gap: 4, padding: '2px 0', fontSize: 10, color: '#c0b8a8' }}>
+                              {co.status === 'approved'
+                                ? <FileCheck size={9} style={{ color: '#22c55e', flexShrink: 0 }} />
+                                : <FileWarning size={9} style={{ color: '#f59e0b', flexShrink: 0 }} />
+                              }
+                              <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{co.coName}</span>
+                              <span style={{ fontSize: 8, color: co.status === 'approved' ? '#22c55e' : '#f59e0b', marginLeft: 'auto', flexShrink: 0 }}>
+                                {co.status}
+                              </span>
+                            </div>
+                          ))}
+                        </div>
+                      )}
                     </div>
                   );
                 })}
-                {pending.length === 0 && (
-                  <p style={{ color: '#5a5550', fontSize: 11, textAlign: 'center', padding: 8 }}>All change orders approved</p>
-                )}
               </div>
             )}
           </>
