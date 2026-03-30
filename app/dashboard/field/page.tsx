@@ -10,13 +10,15 @@ import {
   Send, Bot, User, CheckCircle, XCircle,
   TrendingUp, TrendingDown, Minus, Target, Clock3, Activity,
   Sun, Cloud, CloudRain, CloudSnow, CloudDrizzle, CloudLightning, CloudFog, Droplets,
-  FileWarning, FileCheck, FileClock
+  FileWarning, FileCheck, FileClock,
+  Paperclip, ImageIcon, X as XIcon
 } from 'lucide-react';
 import { useAuth } from '@/app/hooks/useAuth';
 import {
   formatContent,
   type ChatMessage,
   type TaskConfirmData,
+  type COProposalData,
 } from '@/app/hooks/useAskAgent';
 
 function getToken() {
@@ -62,8 +64,12 @@ function InlineAskAgent({ pmJobs }: { pmJobs: { id: string; name: string; number
   const [lastAgent, setLastAgent] = useState<string | null>(null);
   const [selectedJobId, setSelectedJobId] = useState('');
   const [phaseEdit, setPhaseEdit] = useState<string | null>(null);
+  const [attachedImages, setAttachedImages] = useState<Array<{ file: File; preview: string }>>([]);
+  const [uploadedUrls, setUploadedUrls] = useState<string[]>([]);
+  const [uploading, setUploading] = useState(false);
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLTextAreaElement>(null);
+  const fileInputRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
@@ -76,12 +82,90 @@ function InlineAskAgent({ pmJobs }: { pmJobs: { id: string; name: string; number
 
   const selectedJob = useMemo(() => pmJobs.find(j => j.id === selectedJobId) || null, [pmJobs, selectedJobId]);
 
+  const handleImageAttach = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const files = Array.from(e.target.files || []);
+    const newImages = files.slice(0, 10 - attachedImages.length).map(file => ({
+      file,
+      preview: URL.createObjectURL(file),
+    }));
+    setAttachedImages(prev => [...prev, ...newImages]);
+    if (fileInputRef.current) fileInputRef.current.value = '';
+  };
+
+  const removeImage = (idx: number) => {
+    setAttachedImages(prev => {
+      URL.revokeObjectURL(prev[idx].preview);
+      return prev.filter((_, i) => i !== idx);
+    });
+  };
+
+  const uploadImages = async (): Promise<string[]> => {
+    if (attachedImages.length === 0) return uploadedUrls;
+    setUploading(true);
+    try {
+      const formData = new FormData();
+      for (const img of attachedImages) formData.append('files', img.file);
+      const res = await fetch('/api/upload', {
+        method: 'POST',
+        headers: { 'Authorization': `Bearer ${getAuthToken()}` },
+        body: formData,
+      });
+      if (!res.ok) throw new Error('Upload failed');
+      const data = await res.json();
+      const urls = (data.uploaded || []).map((u: any) => u.url);
+      setUploadedUrls(prev => [...prev, ...urls]);
+      // Clear attached images after upload
+      attachedImages.forEach(img => URL.revokeObjectURL(img.preview));
+      setAttachedImages([]);
+      return [...uploadedUrls, ...urls];
+    } catch (err) {
+      console.error('Image upload error:', err);
+      return uploadedUrls;
+    } finally {
+      setUploading(false);
+    }
+  };
+
   const sendMessage = useCallback(async (userMsg: string) => {
     if (!userMsg.trim() || loading) return;
 
+    // Upload any attached images first
+    let allImageUrls = [...uploadedUrls];
+    if (attachedImages.length > 0) {
+      setUploading(true);
+      try {
+        const formData = new FormData();
+        for (const img of attachedImages) formData.append('files', img.file);
+        const res = await fetch('/api/upload', {
+          method: 'POST',
+          headers: { 'Authorization': `Bearer ${getAuthToken()}` },
+          body: formData,
+        });
+        if (res.ok) {
+          const data = await res.json();
+          const newUrls = (data.uploaded || []).map((u: any) => u.url);
+          allImageUrls = [...allImageUrls, ...newUrls];
+          setUploadedUrls(allImageUrls);
+        }
+      } catch (err) {
+        console.error('Image upload error:', err);
+      } finally {
+        attachedImages.forEach(img => URL.revokeObjectURL(img.preview));
+        setAttachedImages([]);
+        setUploading(false);
+      }
+    }
+
     let messageForApi = userMsg;
+    const contextParts: string[] = [];
     if (selectedJob) {
-      messageForApi = `[Context: The user has selected job "${selectedJob.name}" (#${selectedJob.number}, ID: ${selectedJob.id}). Use this as the target job for their question.]\n\n${userMsg}`;
+      contextParts.push(`The user has selected job "${selectedJob.name}" (#${selectedJob.number}, ID: ${selectedJob.id}). Use this as the target job for their question.`);
+    }
+    if (allImageUrls.length > 0) {
+      contextParts.push(`The user has uploaded ${allImageUrls.length} photo(s) for this change order. Image URLs: ${JSON.stringify(allImageUrls)}. Include these as imageUrls in any @@CO_PROPOSAL@@ you create.`);
+    }
+    if (contextParts.length > 0) {
+      messageForApi = `[Context: ${contextParts.join(' ')}]\n\n${userMsg}`;
     }
 
     setMessages(prev => [...prev, { role: 'user', content: userMsg }]);
@@ -121,6 +205,7 @@ function InlineAskAgent({ pmJobs }: { pmJobs: { id: string; name: string; number
           agent: data.agent,
           needsConfirmation: data.needsConfirmation || false,
           taskConfirm: data.taskConfirm || undefined,
+          coProposal: data.coProposal || undefined,
         },
       ]);
     } catch (err) {
@@ -168,9 +253,9 @@ function InlineAskAgent({ pmJobs }: { pmJobs: { id: string; name: string; number
   const lastMsgNeedsConfirm = messages.length > 0 && messages[messages.length - 1].role === 'assistant' && messages[messages.length - 1].needsConfirmation && !loading;
 
   const suggestions = [
+    'Submit a change order',
     'What specs are approved for this job?',
     'Show me all overdue tasks',
-    'Create a task for inspections',
     "What's the schedule look like?",
   ];
 
@@ -189,7 +274,7 @@ function InlineAskAgent({ pmJobs }: { pmJobs: { id: string; name: string; number
           <Bot size={12} style={{ color: '#CDA274' }} />
         </div>
         <span style={{ flex: 1, fontSize: 12, fontWeight: 600, color: '#CDA274' }}>Ask Agent</span>
-        <span style={{ fontSize: 9, color: '#5a5550' }}>Tasks · Specs · Schedule</span>
+        <span style={{ fontSize: 9, color: '#5a5550' }}>Tasks · Specs · Change Orders</span>
         {open ? <ChevronUp size={12} style={{ color: '#5a5550' }} /> : <ChevronDown size={12} style={{ color: '#5a5550' }} />}
       </button>
 
@@ -257,8 +342,8 @@ function InlineAskAgent({ pmJobs }: { pmJobs: { id: string; name: string; number
                   )}
                 </div>
 
-                {/* Confirmation buttons */}
-                {msg.needsConfirmation && i === messages.length - 1 && !loading && (
+                {/* Task Confirmation buttons */}
+                {msg.needsConfirmation && msg.taskConfirm && i === messages.length - 1 && !loading && (
                   <div style={{ marginLeft: 24, marginTop: 4, display: 'flex', gap: 6 }}>
                     <button onClick={() => { handleConfirm(phaseEdit ? { phase: phaseEdit } : undefined); setPhaseEdit(null); }}
                       style={{ display: 'flex', alignItems: 'center', gap: 4, padding: '4px 10px', borderRadius: 5, fontSize: 11, fontWeight: 600, background: 'rgba(34,197,94,0.15)', color: '#22c55e', border: 'none', cursor: 'pointer' }}>
@@ -270,6 +355,67 @@ function InlineAskAgent({ pmJobs }: { pmJobs: { id: string; name: string; number
                     </button>
                   </div>
                 )}
+
+                {/* CO Proposal approval UI */}
+                {msg.coProposal && i === messages.length - 1 && msg.needsConfirmation && !loading && (() => {
+                  const co = msg.coProposal!;
+                  const totalPrice = co.lineItems.reduce((s, li) => s + (li.unitPrice * li.quantity), 0);
+                  const totalCost = co.lineItems.reduce((s, li) => s + (li.unitCost * li.quantity), 0);
+                  return (
+                    <div style={{ marginLeft: 24, marginTop: 6 }}>
+                      <div style={{ background: '#1e293b', borderRadius: 8, padding: 10, marginBottom: 6, border: '1px solid rgba(59,130,246,0.2)' }}>
+                        <div style={{ fontSize: 12, fontWeight: 600, color: '#93c5fd', marginBottom: 6 }}>
+                          CO: {co.coName}
+                        </div>
+                        <table style={{ width: '100%', fontSize: 10, borderCollapse: 'collapse' }}>
+                          <thead>
+                            <tr style={{ color: '#64748b', borderBottom: '1px solid rgba(100,116,139,0.2)' }}>
+                              <th style={{ textAlign: 'left', padding: '2px 4px' }}>Item</th>
+                              <th style={{ textAlign: 'right', padding: '2px 4px' }}>Qty</th>
+                              <th style={{ textAlign: 'right', padding: '2px 4px' }}>Cost</th>
+                              <th style={{ textAlign: 'right', padding: '2px 4px' }}>Price</th>
+                            </tr>
+                          </thead>
+                          <tbody>
+                            {co.lineItems.map((li, liIdx) => (
+                              <tr key={liIdx} style={{ color: '#e2e8f0', borderBottom: '1px solid rgba(100,116,139,0.1)' }}>
+                                <td style={{ padding: '3px 4px' }}>{li.name}</td>
+                                <td style={{ textAlign: 'right', padding: '3px 4px', color: '#94a3b8' }}>{li.quantity}</td>
+                                <td style={{ textAlign: 'right', padding: '3px 4px', color: '#94a3b8' }}>${(li.unitCost * li.quantity).toFixed(0)}</td>
+                                <td style={{ textAlign: 'right', padding: '3px 4px', fontWeight: 500 }}>${(li.unitPrice * li.quantity).toFixed(0)}</td>
+                              </tr>
+                            ))}
+                          </tbody>
+                          <tfoot>
+                            <tr style={{ color: '#f1f5f9', fontWeight: 600, borderTop: '1px solid rgba(100,116,139,0.3)' }}>
+                              <td style={{ padding: '4px' }}>Total</td>
+                              <td></td>
+                              <td style={{ textAlign: 'right', padding: '4px', color: '#94a3b8' }}>${totalCost.toFixed(0)}</td>
+                              <td style={{ textAlign: 'right', padding: '4px' }}>${totalPrice.toFixed(0)}</td>
+                            </tr>
+                          </tfoot>
+                        </table>
+                        {co.createDocument && <div style={{ fontSize: 9, color: '#60a5fa', marginTop: 4 }}>+ Draft CO document will be created</div>}
+                        {co.followUp?.needed && <div style={{ fontSize: 9, color: '#f59e0b', marginTop: 2 }}>+ Follow-up task → {co.followUp.assignTo || 'Nathan'} by {co.followUp.dueDate || 'TBD'}</div>}
+                        {co.imageUrls && co.imageUrls.length > 0 && <div style={{ fontSize: 9, color: '#22c55e', marginTop: 2 }}>+ {co.imageUrls.length} photo(s) will be attached</div>}
+                      </div>
+                      <div style={{ display: 'flex', gap: 6 }}>
+                        <button onClick={() => {
+                          setMessages(prev => prev.map((m, mi) => mi === prev.length - 1 ? { ...m, needsConfirmation: false } : m));
+                          sendMessage('Yes, approve this change order. Create it now.\n\n[APPROVED CO DATA — execute create_change_order tool now]\n' + JSON.stringify(co));
+                          setUploadedUrls([]); // Clear uploaded URLs after CO approval
+                        }}
+                          style={{ display: 'flex', alignItems: 'center', gap: 4, padding: '5px 12px', borderRadius: 5, fontSize: 11, fontWeight: 600, background: 'rgba(34,197,94,0.15)', color: '#22c55e', border: 'none', cursor: 'pointer' }}>
+                          <CheckCircle size={12} /> Approve CO
+                        </button>
+                        <button onClick={handleDecline}
+                          style={{ display: 'flex', alignItems: 'center', gap: 4, padding: '5px 12px', borderRadius: 5, fontSize: 11, fontWeight: 600, background: 'rgba(239,68,68,0.1)', color: '#ef4444', border: 'none', cursor: 'pointer' }}>
+                          <XCircle size={12} /> Cancel
+                        </button>
+                      </div>
+                    </div>
+                  );
+                })()}
               </div>
             ))}
 
@@ -287,8 +433,46 @@ function InlineAskAgent({ pmJobs }: { pmJobs: { id: string; name: string; number
             <div ref={messagesEndRef} />
           </div>
 
+          {/* Image Preview Strip */}
+          {attachedImages.length > 0 && (
+            <div style={{ display: 'flex', gap: 6, padding: '6px 10px', borderTop: '1px solid rgba(205,162,116,0.06)', overflowX: 'auto' }}>
+              {attachedImages.map((img, idx) => (
+                <div key={idx} style={{ position: 'relative', flexShrink: 0 }}>
+                  <img src={img.preview} alt={img.file.name}
+                    style={{ width: 48, height: 48, borderRadius: 6, objectFit: 'cover', border: '1px solid rgba(205,162,116,0.15)' }} />
+                  <button onClick={() => removeImage(idx)}
+                    style={{
+                      position: 'absolute', top: -4, right: -4, width: 16, height: 16, borderRadius: 8,
+                      background: '#ef4444', border: 'none', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center',
+                    }}>
+                    <XIcon size={8} color="#fff" />
+                  </button>
+                </div>
+              ))}
+              {uploading && <div style={{ display: 'flex', alignItems: 'center', gap: 4, fontSize: 10, color: '#CDA274' }}><Loader2 size={12} className="animate-spin" /> Uploading...</div>}
+            </div>
+          )}
+
+          {/* Uploaded URLs indicator */}
+          {uploadedUrls.length > 0 && attachedImages.length === 0 && (
+            <div style={{ padding: '4px 10px', borderTop: '1px solid rgba(205,162,116,0.06)', display: 'flex', alignItems: 'center', gap: 4 }}>
+              <ImageIcon size={10} color="#22c55e" />
+              <span style={{ fontSize: 9, color: '#22c55e' }}>{uploadedUrls.length} photo(s) ready to attach to change order</span>
+              <button onClick={() => setUploadedUrls([])} style={{ fontSize: 9, color: '#5a5550', background: 'none', border: 'none', cursor: 'pointer', textDecoration: 'underline', marginLeft: 'auto' }}>Clear</button>
+            </div>
+          )}
+
           {/* Input */}
           <form onSubmit={handleSubmit} style={{ display: 'flex', alignItems: 'center', gap: 4, padding: '6px 10px', borderTop: '1px solid rgba(205,162,116,0.06)' }}>
+            <input ref={fileInputRef} type="file" accept="image/*" multiple onChange={handleImageAttach} style={{ display: 'none' }} />
+            <button type="button" onClick={() => fileInputRef.current?.click()} title="Attach photos"
+              style={{
+                width: 28, height: 28, borderRadius: 6, border: 'none', cursor: 'pointer', flexShrink: 0,
+                background: attachedImages.length > 0 ? 'rgba(205,162,116,0.15)' : 'transparent',
+                display: 'flex', alignItems: 'center', justifyContent: 'center',
+              }}>
+              <Paperclip size={13} style={{ color: attachedImages.length > 0 ? '#CDA274' : '#5a5550' }} />
+            </button>
             <textarea
               ref={inputRef}
               value={query}
@@ -296,7 +480,7 @@ function InlineAskAgent({ pmJobs }: { pmJobs: { id: string; name: string; number
               onKeyDown={e => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); if (query.trim() && !loading) handleSubmit(e as any); } }}
               placeholder={selectedJob ? `Ask about #${selectedJob.number} ${selectedJob.name}...` : 'Ask about tasks, specs, or schedules...'}
               rows={1}
-              disabled={loading}
+              disabled={loading || uploading}
               style={{
                 flex: 1, background: '#242424', border: '1px solid rgba(205,162,116,0.1)',
                 borderRadius: 6, color: '#e8e0d8', fontSize: 11, padding: '6px 8px',
@@ -304,7 +488,7 @@ function InlineAskAgent({ pmJobs }: { pmJobs: { id: string; name: string; number
                 fontFamily: 'inherit',
               }}
             />
-            <button type="submit" disabled={!query.trim() || loading}
+            <button type="submit" disabled={!query.trim() || loading || uploading}
               style={{
                 width: 28, height: 28, borderRadius: 6, border: 'none', cursor: query.trim() && !loading ? 'pointer' : 'default',
                 background: query.trim() && !loading ? 'rgba(205,162,116,0.15)' : 'transparent',

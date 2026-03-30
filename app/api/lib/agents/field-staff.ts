@@ -199,9 +199,12 @@ const fieldStaff: AgentModule = {
       '   - Do you have all the details or does this need follow-up from Nathan/Terri?\n' +
       '   - If follow-up needed: what should the follow-up task say and when is it due?\n' +
       '   - Should we create a draft Change Order document for Nathan to review?\n' +
-      '4. When you have enough info, output a @@CO_PROPOSAL@@ block for approval:\n' +
-      '   @@CO_PROPOSAL@@{"coName":"Short descriptive name","jobId":"...","lineItems":[{"name":"Item name","description":"Installer-facing description","costCodeNumber":"04","costTypeName":"Subcontractor","unitName":"Lump Sum","quantity":1,"unitCost":500,"unitPrice":714.29,"groupName":"Post Pricing Changes > Client Requested > [CO Name]"}],"createDocument":true/false,"followUp":{"needed":true,"assignTo":"nathan","description":"Review and send CO for upgraded flooring","dueDate":"2026-04-02"}}@@END_CO@@\n' +
-      '5. NEVER create budget items directly — always output the proposal for user approval first\n\n' +
+      '4. Ask if they have any photos to include (e.g., rot damage, existing conditions, scope reference)\n' +
+      '   - If they uploaded images, their public URLs will be in the conversation context as imageUrls\n' +
+      '   - Include these URLs in your CO proposal so they get attached to the budget group in JobTread\n' +
+      '5. When you have enough info, output a @@CO_PROPOSAL@@ block for approval:\n' +
+      '   @@CO_PROPOSAL@@{"coName":"Short descriptive name","jobId":"...","groupDescription":"Client-facing markdown description of what this CO covers","lineItems":[{"name":"Item name","description":"Installer-facing description","costCodeNumber":"04","costTypeName":"Subcontractor","unitName":"Lump Sum","quantity":1,"unitCost":500,"unitPrice":714.29}],"imageUrls":["https://..."],"createDocument":true/false,"followUp":{"needed":true,"assignTo":"nathan","description":"Review and send CO for upgraded flooring","dueDate":"2026-04-02"}}@@END_CO@@\n' +
+      '6. NEVER create budget items directly — always output the proposal for user approval first\n\n' +
       'CHANGE ORDER PRICING RULES:\n' +
       '- BKB Labor: $85/hr cost, $125/hr price (32% margin)\n' +
       '- Subcontractor: cost / 0.70 = price (30% margin)\n' +
@@ -378,6 +381,12 @@ const fieldStaff: AgentModule = {
             },
           },
           createDocument: { type: 'boolean', description: 'Whether to create a draft CO document' },
+          groupDescription: { type: 'string', description: 'Client-facing markdown description for the CO group' },
+          imageUrls: {
+            type: 'array',
+            description: 'Public URLs of photos to attach to the CO group (from /api/upload)',
+            items: { type: 'string' },
+          },
           followUp: {
             type: 'object',
             description: 'Optional follow-up task',
@@ -669,74 +678,229 @@ const fieldStaff: AgentModule = {
 
       if (name === 'create_change_order') {
         try {
-          const { jobId, coName, lineItems, createDocument, followUp } = input;
+          const { jobId, coName, lineItems, createDocument, followUp, imageUrls, groupDescription } = input;
 
-          // For now, just validate and return a success message
-          // In a real implementation, this would create cost items via PAVE
           if (!lineItems || lineItems.length === 0) {
             return JSON.stringify({ success: false, error: 'No line items provided' });
           }
 
-          const results: string[] = [];
-          const totalAmount = lineItems.reduce((sum: number, item: any) => sum + ((item.unitPrice || 0) * (item.quantity || 1)), 0);
+          const totalCost = lineItems.reduce((sum: number, item: any) => sum + ((item.unitCost || 0) * (item.quantity || 1)), 0);
+          const totalPrice = lineItems.reduce((sum: number, item: any) => sum + ((item.unitPrice || 0) * (item.quantity || 1)), 0);
+
+          // ── Step 1: Fetch cost codes, cost types, and units for ID resolution ──
+          const [ccData, ctData, uData] = await Promise.all([
+            pave({ organization: { $: { id: process.env.JOBTREAD_ORG_ID || '22P5SRwhLaYe' }, costCodes: { $: { size: 50 }, nodes: { id: {}, name: {}, number: {} } } } }),
+            pave({ organization: { $: { id: process.env.JOBTREAD_ORG_ID || '22P5SRwhLaYe' }, costTypes: { $: { size: 20 }, nodes: { id: {}, name: {} } } } }),
+            pave({ organization: { $: { id: process.env.JOBTREAD_ORG_ID || '22P5SRwhLaYe' }, units: { $: { size: 20 }, nodes: { id: {}, name: {} } } } }),
+          ]);
+
+          const costCodes = (ccData as any)?.organization?.costCodes?.nodes || [];
+          const costTypes = (ctData as any)?.organization?.costTypes?.nodes || [];
+          const units = (uData as any)?.organization?.units?.nodes || [];
+
+          const codeMap = new Map(costCodes.map((c: any) => [c.number, c.id]));
+          const typeMap = new Map(costTypes.map((t: any) => [t.name.toLowerCase(), t.id]));
+          const unitMap = new Map(units.map((u: any) => [u.name.toLowerCase(), u.id]));
+          // Common abbreviations
+          const abbrevMap: Record<string, string> = {
+            'ea': 'each', 'ls': 'lump sum', 'sf': 'square feet', 'lf': 'linear feet',
+            'hr': 'hours', 'hrs': 'hours', 'sq': 'squares', 'mo': 'months', 'day': 'days',
+          };
+          for (const [abbr, full] of Object.entries(abbrevMap)) {
+            const id = unitMap.get(full);
+            if (id) unitMap.set(abbr, id);
+          }
+
+          // ── Step 2: Find or create "🔁 Change Orders" parent group ──
+          const groupData = await pave({
+            job: {
+              $: { id: jobId },
+              costGroups: {
+                $: { size: 200 },
+                nodes: { id: {}, name: {}, parentCostGroup: { id: {}, name: {} } },
+              },
+            },
+          });
+          const allGroups = (groupData as any)?.job?.costGroups?.nodes || [];
+
+          // Find the CO parent group
+          let coParentGroup = allGroups.find((g: any) =>
+            /🔁\s*change\s*order|^change\s*order|post\s*pricing/i.test(g.name || '')
+          );
+
+          if (!coParentGroup) {
+            // Create the parent group at job level
+            const createParentResult = await pave({
+              createCostGroup: {
+                $: { jobId, name: '🔁 Change Orders' },
+                createdCostGroup: { id: {}, name: {} },
+              },
+            });
+            coParentGroup = (createParentResult as any)?.createCostGroup?.createdCostGroup;
+            if (!coParentGroup?.id) throw new Error('Failed to create Change Orders parent group');
+          }
+
+          // ── Step 3: Create the CO subgroup ──
+          const coGroupDesc = groupDescription || `Change order: ${coName}\n\nTotal: $${totalPrice.toFixed(2)}\nLine items: ${lineItems.length}`;
+          const createGroupResult = await pave({
+            createCostGroup: {
+              $: {
+                parentCostGroupId: coParentGroup.id,
+                name: `CO: ${coName}`,
+                description: coGroupDesc,
+              },
+              createdCostGroup: { id: {}, name: {} },
+            },
+          });
+          const coGroup = (createGroupResult as any)?.createCostGroup?.createdCostGroup;
+          if (!coGroup?.id) throw new Error('Failed to create CO group: ' + coName);
+
+          // ── Step 4: Create cost items under the CO group ──
+          const createdItems: string[] = [];
+          const itemIds: string[] = [];
 
           for (const item of lineItems) {
-            results.push(`Created: ${item.name} (${item.quantity || 1} × $${(item.unitPrice || 0).toFixed(2)})`);
+            const costCodeId = codeMap.get(item.costCodeNumber) || '';
+            const costTypeId = typeMap.get((item.costTypeName || 'materials').toLowerCase()) || '';
+            const unitId = unitMap.get((item.unitName || 'lump sum').toLowerCase()) || '';
+
+            const createItemResult = await pave({
+              createCostItem: {
+                $: {
+                  costGroupId: coGroup.id,
+                  name: item.name,
+                  ...(item.description ? { description: item.description } : {}),
+                  ...(costCodeId ? { costCodeId } : {}),
+                  ...(costTypeId ? { costTypeId } : {}),
+                  ...(unitId ? { unitId } : {}),
+                  quantity: item.quantity || 1,
+                  unitCost: item.unitCost || 0,
+                  unitPrice: item.unitPrice || 0,
+                },
+                createdCostItem: { id: {}, name: {} },
+              },
+            });
+            const created = (createItemResult as any)?.createCostItem?.createdCostItem;
+            if (created?.id) {
+              itemIds.push(created.id);
+              createdItems.push(`✓ ${item.name} (${item.quantity || 1} × $${(item.unitPrice || 0).toFixed(2)})`);
+            } else {
+              createdItems.push(`✗ Failed: ${item.name}`);
+            }
           }
 
-          // Create follow-up task if requested
+          // ── Step 5: Upload images and attach to CO group ──
+          const imageResults: string[] = [];
+          if (imageUrls && imageUrls.length > 0) {
+            for (const imgUrl of imageUrls) {
+              try {
+                // Upload file to the job
+                const fileName = imgUrl.split('/').pop() || 'co-photo.jpg';
+                const uploadResult = await pave({
+                  createFile: {
+                    $: {
+                      targetType: 'job',
+                      targetId: jobId,
+                      url: imgUrl,
+                      name: fileName,
+                    },
+                    createdFile: { id: {}, name: {}, url: {} },
+                  },
+                });
+                const uploadedFile = (uploadResult as any)?.createFile?.createdFile;
+
+                if (uploadedFile?.id) {
+                  // Attach to the CO cost group
+                  await pave({
+                    createFile: {
+                      $: {
+                        targetType: 'costGroup',
+                        targetId: coGroup.id,
+                        url: imgUrl,
+                        name: fileName,
+                      },
+                      createdFile: { id: {} },
+                    },
+                  });
+                  imageResults.push(`✓ ${fileName} attached to CO group`);
+                }
+              } catch (imgErr: any) {
+                imageResults.push(`✗ Image upload failed: ${imgErr?.message || 'unknown error'}`);
+              }
+            }
+          }
+
+          // ── Step 6: Create draft CO document if requested ──
+          let documentResult = null;
+          if (createDocument) {
+            try {
+              // Create a customerOrder document from the CO group's cost items
+              const docResult = await pave({
+                createDocument: {
+                  $: {
+                    jobId,
+                    type: 'customerOrder',
+                    name: `Change Order: ${coName}`,
+                    ...(itemIds.length > 0 ? { costItemIds: itemIds } : {}),
+                  },
+                  createdDocument: { id: {}, name: {}, number: {} },
+                },
+              });
+              const doc = (docResult as any)?.createDocument?.createdDocument;
+              if (doc?.id) {
+                documentResult = { id: doc.id, name: doc.name, number: doc.number, status: 'draft' };
+              }
+            } catch (docErr: any) {
+              documentResult = { error: 'Draft document creation failed: ' + (docErr?.message || '') };
+            }
+          }
+
+          // ── Step 7: Always create a follow-up task for Nathan ──
           let taskResult = null;
-          if (followUp?.needed) {
-            try {
-              const members = await getMembers();
-              const assignSearch = (followUp.assignTo || 'nathan').toLowerCase();
-              const match = members.find((m: any) => (m.user?.name || '').toLowerCase().includes(assignSearch));
-              const assignedMembershipIds = match ? [match.id] : [];
+          try {
+            const members = await getMembers();
+            const nathan = members.find((m: any) => (m.user?.name || '').toLowerCase().includes('nathan'));
+            const assignedMembershipIds = nathan ? [nathan.id] : [];
 
-              const task = await createTask({
-                jobId,
-                name: `CO Follow-up: ${coName}`,
-                description: followUp.description || `Review and finalize change order: ${coName}`,
-                startDate: new Date().toISOString().split('T')[0],
-                endDate: followUp.dueDate || new Date(Date.now() + 3 * 86400000).toISOString().split('T')[0],
-                assignedMembershipIds,
-              });
-              taskResult = { id: task.id, name: task.name, assignedTo: followUp.assignTo };
-            } catch (err: any) {
-              taskResult = { error: 'Failed to create follow-up task: ' + (err?.message || '') };
+            const taskName = followUp?.needed
+              ? `CO Follow-up: ${coName}`
+              : `Review CO: ${coName}`;
+            const taskDesc = followUp?.needed
+              ? (followUp.description || `Follow up and finalize change order: ${coName}`)
+              : `Change order submitted by field staff. Review budget items and ${createDocument ? 'review draft document' : 'create CO document'}.\n\nChange Order: ${coName}\nLine Items: ${lineItems.length}\nTotal: $${totalPrice.toFixed(2)}`;
+            const dueDate = followUp?.dueDate || new Date(Date.now() + 3 * 86400000).toISOString().split('T')[0];
+
+            // If followUp specifies a different assignee, find them
+            let taskAssignees = assignedMembershipIds;
+            if (followUp?.assignTo && followUp.assignTo.toLowerCase() !== 'nathan') {
+              const search = followUp.assignTo.toLowerCase();
+              const match = members.find((m: any) => (m.user?.name || '').toLowerCase().includes(search));
+              if (match) taskAssignees = [match.id];
             }
-          }
 
-          // Always create a follow-up task for Nathan to review
-          if (!followUp?.needed) {
-            try {
-              const members = await getMembers();
-              const nathan = members.find((m: any) => (m.user?.name || '').toLowerCase().includes('nathan'));
-              const assignedMembershipIds = nathan ? [nathan.id] : [];
-
-              const task = await createTask({
-                jobId,
-                name: `Review CO: ${coName}`,
-                description: `Change order submitted by field staff. Review budget items and create/send CO document.\n\nChange Order: ${coName}\nLine Items: ${lineItems.length}\nTotal: $${totalAmount.toFixed(2)}`,
-                startDate: new Date().toISOString().split('T')[0],
-                endDate: new Date(Date.now() + 3 * 86400000).toISOString().split('T')[0],
-                assignedMembershipIds,
-              });
-              taskResult = { id: task.id, name: task.name, assignedTo: 'nathan', auto: true };
-            } catch (err: any) {
-              // Non-fatal — CO was still created
-            }
+            const task = await createTask({
+              jobId,
+              name: taskName,
+              description: taskDesc,
+              startDate: new Date().toISOString().split('T')[0],
+              endDate: dueDate,
+              assignedMembershipIds: taskAssignees,
+            });
+            taskResult = { id: task.id, name: task.name, assignedTo: followUp?.assignTo || 'nathan' };
+          } catch (err: any) {
+            taskResult = { error: 'Follow-up task creation failed: ' + (err?.message || '') };
           }
 
           return JSON.stringify({
             success: true,
-            message: `Change order "${coName}" submitted with ${results.length} line items.`,
-            total: `$${totalAmount.toFixed(2)}`,
-            budgetItems: results,
+            message: `Change order "${coName}" created in JobTread with ${createdItems.filter(i => i.startsWith('✓')).length} budget items.`,
+            coGroupId: coGroup.id,
+            coGroupName: coGroup.name,
+            total: `$${totalPrice.toFixed(2)} (cost: $${totalCost.toFixed(2)})`,
+            budgetItems: createdItems,
+            images: imageResults.length > 0 ? imageResults : undefined,
+            document: documentResult,
             followUpTask: taskResult,
-            documentNote: createDocument
-              ? 'Draft document creation noted — Nathan will review and create the CO document from the budget items.'
-              : 'No document requested. Nathan will review the budget items.',
           });
         } catch (err: any) {
           console.error('[field-staff] CO creation error:', err?.message);

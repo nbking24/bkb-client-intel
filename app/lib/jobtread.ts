@@ -1121,7 +1121,7 @@ export async function getDocumentsForJob(jobId: string): Promise<JTDocument[]> {
  * Lightweight query: get just document IDs, names, and statuses for a job.
  * Much smaller payload than getDocumentsForJob â used for filtering cost items by approval status.
  */
-export async function getDocumentStatusesForJob(jobId: string): Promise<Array<{ id: string; name: string; number: string; status: string; type: string }>> {
+export async function getDocumentStatusesForJob(jobId: string): Promise<Array<{ id: string; name: string; number: string; status: string; type: string; createdAt?: string }>> {
   const data = await pave({
     job: {
       $: { id: jobId },
@@ -1133,6 +1133,7 @@ export async function getDocumentStatusesForJob(jobId: string): Promise<Array<{ 
           number: {},
           status: {},
           type: {},
+          createdAt: {},
         },
       },
     },

@@ -452,6 +452,9 @@ export async function GET(req: NextRequest) {
         declined: jobCO.documents.filter((d: any) => d.status === 'declined'),
       };
 
+      const STALE_THRESHOLD_MS = 3 * 24 * 60 * 60 * 1000; // 3 days
+      const now = Date.now();
+
       // Each budget CO group is a separate change order
       for (const co of jobCO.budgetCOs) {
         changeOrders.push({
@@ -463,7 +466,7 @@ export async function GET(req: NextRequest) {
           hasDocument: false,
           documentStatus: 'needs_document',
           documentId: null,
-          isStale: true,
+          isStale: true, // No document at all = always stale
         });
       }
 
@@ -475,6 +478,10 @@ export async function GET(req: NextRequest) {
               : doc.status === 'issued' ? 'sent'
                 : 'draft';
 
+        // Calculate stale based on 3-day threshold
+        const docAge = doc.createdAt ? now - new Date(doc.createdAt).getTime() : Infinity;
+        const isStaleByAge = docAge > STALE_THRESHOLD_MS;
+
         // Try to find matching budget CO
         const matchIdx = changeOrders.findIndex((co: any) =>
           co.jobId === jobCO.jobId && co.documentStatus === 'needs_document'
@@ -485,7 +492,7 @@ export async function GET(req: NextRequest) {
           changeOrders[matchIdx].documentStatus = status;
           changeOrders[matchIdx].documentId = doc.id;
           changeOrders[matchIdx].documentNumber = doc.number;
-          changeOrders[matchIdx].isStale = (status === 'draft');
+          changeOrders[matchIdx].isStale = (status === 'draft' && isStaleByAge);
         } else {
           // Document exists but no matching budget group
           changeOrders.push({
@@ -498,7 +505,7 @@ export async function GET(req: NextRequest) {
             documentStatus: status,
             documentId: doc.id,
             documentNumber: doc.number,
-            isStale: (status === 'draft'),
+            isStale: (status === 'draft' && isStaleByAge),
           });
         }
       }

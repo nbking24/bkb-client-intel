@@ -14,12 +14,39 @@ export interface TaskConfirmData {
   endDate?: string;
 }
 
+export interface COLineItem {
+  name: string;
+  description?: string;
+  costCodeNumber: string;
+  costTypeName: string;
+  unitName: string;
+  quantity: number;
+  unitCost: number;
+  unitPrice: number;
+}
+
+export interface COProposalData {
+  coName: string;
+  jobId: string;
+  groupDescription?: string;
+  lineItems: COLineItem[];
+  imageUrls?: string[];
+  createDocument?: boolean;
+  followUp?: {
+    needed: boolean;
+    assignTo?: string;
+    description?: string;
+    dueDate?: string;
+  };
+}
+
 export interface ChatMessage {
   role: 'user' | 'assistant';
   content: string;
   agent?: string;
   needsConfirmation?: boolean;
   taskConfirm?: TaskConfirmData;
+  coProposal?: COProposalData;
 }
 
 export interface ConversationSummary {

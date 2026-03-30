@@ -93,11 +93,26 @@ export async function POST(req: NextRequest) {
       reply = reply.trim();
     }
 
+    // Extract CO proposal block from reply (if present)
+    let coProposal = null;
+    const coFencedMatch = reply.match(/```\w*\s*@@CO_PROPOSAL@@\s*([\s\S]*?)\s*@@END_CO@@\s*```/);
+    const coRawMatch = reply.match(/@@CO_PROPOSAL@@\s*([\s\S]*?)\s*@@END_CO@@/);
+    const coMatch = coFencedMatch || coRawMatch;
+    if (coMatch) {
+      try {
+        coProposal = JSON.parse(coMatch[1].trim());
+      } catch { /* non-fatal: malformed JSON */ }
+      reply = reply.replace(/```\w*\s*@@CO_PROPOSAL@@[\s\S]*?@@END_CO@@\s*```/g, '');
+      reply = reply.replace(/@@CO_PROPOSAL@@[\s\S]*?@@END_CO@@/g, '');
+      reply = reply.trim();
+    }
+
     return NextResponse.json({
       reply,
       agent: result.agentName,
-      needsConfirmation: result.needsConfirmation || !!taskConfirm,
+      needsConfirmation: result.needsConfirmation || !!taskConfirm || !!coProposal,
       taskConfirm,
+      coProposal,
     });
   } catch (err) {
     console.error('Chat error:', err);
