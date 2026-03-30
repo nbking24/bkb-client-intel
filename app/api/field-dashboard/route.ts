@@ -19,12 +19,13 @@ async function getCOTrackingForJob(jobId: string): Promise<{
 }> {
   try {
     // Fetch cost groups with cursor-based pagination (PAVE max size is 100)
+    // Large jobs like Zajick have 500+ groups — use up to 10 pages (1000 groups max)
     const docs = await getDocumentStatusesForJob(jobId);
 
     let allGroups: any[] = [];
     let nextPage: string | null = null;
 
-    for (let i = 0; i < 5; i++) {
+    for (let i = 0; i < 10; i++) {
       const pageParams: Record<string, unknown> = { size: 100 };
       if (nextPage) pageParams.page = nextPage;
 
@@ -68,31 +69,30 @@ async function getCOTrackingForJob(jobId: string): Promise<{
       }
     }
 
-    // Recursively find leaf CO groups (groups with no children that are descendants of a CO root)
-    // Also collect intermediate groups that have items (some COs are direct children)
+    // Recursively find CO groups — direct children of structural groups like "Client Requested"
+    // These are the actual named change orders (e.g., "Foyer & Crown Moulding", "Kitchen Ceiling")
     const budgetCOs: Array<{ id: string; name: string }> = [];
     const visited = new Set<string>();
+    const seenNames = new Set<string>(); // Deduplicate COs by name (phantom root groups create dupes)
 
     function findCOGroups(parentId: string, depth: number) {
       const children = childrenOf.get(parentId) || [];
       for (const child of children) {
         if (visited.has(child.id)) continue;
         visited.add(child.id);
-        const grandChildren = childrenOf.get(child.id) || [];
 
-        // Skip known structural groups (e.g., "Client Requested", "Owner Requested", "🟢 Approved")
+        // Skip known structural groups — recurse into them but don't count them as COs
         const isStructural = /^(client|owner|bkb)\s+requested$|^🟢\s*approved$|^🔴\s*declined$|^scope\s*of\s*work$/i.test(child.name?.trim() || '');
 
-        if (isStructural && grandChildren.length > 0) {
-          // Structural group — recurse into it but don't add it as a CO
+        if (isStructural) {
           findCOGroups(child.id, depth + 1);
-        } else if (grandChildren.length > 0 && depth < 3) {
-          // Has children and not too deep — this could be a CO group that contains scope subgroups
-          // Add it as a CO (it's likely "CO: Name" with line item subgroups)
-          budgetCOs.push({ id: child.id, name: child.name });
-        } else {
-          // Leaf group or deep enough — this is a CO
-          budgetCOs.push({ id: child.id, name: child.name });
+        } else if (depth <= 3) {
+          // This is an actual CO group — deduplicate by name
+          const normName = (child.name || '').trim().toLowerCase();
+          if (!seenNames.has(normName)) {
+            seenNames.add(normName);
+            budgetCOs.push({ id: child.id, name: child.name });
+          }
         }
       }
     }
@@ -102,7 +102,6 @@ async function getCOTrackingForJob(jobId: string): Promise<{
     }
 
     // Filter documents that are change orders (customerOrder type)
-    // CO documents are typically named "Change Order" or have "CO" in the name
     const coDocuments = docs.filter((d: any) =>
       d.type === 'customerOrder' && /change\s*order|^co\b/i.test(d.name || '')
     );
