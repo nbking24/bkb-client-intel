@@ -60,9 +60,10 @@ Focus on: items needing his direct attention, client communications requiring re
 Be direct and specific — Nathan is hands-on and wants actionable items, not generic advice.`;
     case 'admin':
       return `You are providing a dashboard briefing for TERRI KING (Terri Dalavai), the OFFICE MANAGER of Brett King Builder-Contractor (BKB).
-Terri handles: invoicing, billing, accounts payable/receivable, client scheduling, permit submissions, vendor coordination, and administrative communication.
-Focus on: billing and invoicing priorities, client/vendor follow-ups needed, scheduling tasks, permit status, and items other team members have asked her to handle.
-Be specific about which clients and projects need attention.`;
+Terri handles: invoicing, billing, accounts payable/receivable, client scheduling, permit submissions, vendor coordination, payroll, and administrative communication.
+Focus on: outstanding invoices needing follow-up (especially those over 30 days), pending change orders that need invoicing once approved, billing and invoicing priorities, client/vendor follow-ups needed, scheduling tasks, and items other team members have asked her to handle.
+If there are outstanding invoices aging past 30 days, flag them prominently. If approved COs haven't been invoiced, suggest invoicing them.
+Be specific about which clients, projects, and dollar amounts need attention.`;
     case 'field_sup':
       return `You are providing a dashboard briefing for a LEAD CARPENTER / PROJECT MANAGER in the field.
 Focus on: today's job site priorities, upcoming task deadlines, material needs, crew coordination,
@@ -169,8 +170,14 @@ STATS:
 - ${data.stats.unreadEmailCount} unread emails in primary inbox
 - ${data.stats.upcomingEventsCount} calendar events this week
 - ${data.stats.tomorrowEventsCount} events ${tc.tomorrowLabel}
+- ${data.stats.outstandingInvoiceCount || 0} outstanding invoices (AR) totaling $${(data.stats.outstandingInvoiceTotal || 0).toLocaleString()}
+- ${data.stats.pendingCOCount || 0} pending change orders, ${data.stats.approvedCOCount || 0} approved
 
-TASKS ASSIGNED TO ${data.userName.toUpperCase()}:
+${(data.outstandingInvoices?.length ?? 0) > 0 ? `OUTSTANDING INVOICES (sent but unpaid — flag any overdue, suggest follow-up):
+${data.outstandingInvoices!.map(inv => `- ${inv.jobName.replace(/^#\d+\s*/, '')} Invoice #${inv.documentNumber}: $${inv.amount.toLocaleString()} — ${inv.daysPending} days pending${inv.daysPending > 30 ? ' ⚠️ OVERDUE' : inv.daysPending > 14 ? ' (aging)' : ''}`).join('\n')}
+` : ''}${(data.changeOrders?.length ?? 0) > 0 ? `CHANGE ORDERS (pending = not yet approved by client, approved = client signed off):
+${data.changeOrders!.map(co => `- ${co.jobName.replace(/^#\d+\s*/, '')}: ${co.coName} — ${co.status.toUpperCase()}`).join('\n')}
+` : ''}TASKS ASSIGNED TO ${data.userName.toUpperCase()}:
 ${taskSummary || '(no tasks currently assigned in JobTread)'}
 
 JT MESSAGES DIRECTED AT ${data.userName.toUpperCase()} (from other team members/clients — these need review/response):
