@@ -85,6 +85,23 @@ export interface TextMessage {
   contactDisplay: string;
 }
 
+export interface OutstandingInvoice {
+  id: string;
+  documentNumber: string;
+  jobName: string;
+  jobId: string;
+  amount: number;
+  createdAt: string;
+  daysPending: number;
+}
+
+export interface ChangeOrderSummary {
+  jobId: string;
+  jobName: string;
+  coName: string;
+  status: 'approved' | 'pending';
+}
+
 export interface UserDashboardData {
   userId: string;
   userName: string;
@@ -101,6 +118,8 @@ export interface UserDashboardData {
   activeJobs: Array<{ id: string; name: string; number: string; status?: string }>;
   openItems: ProjectEvent[];
   openItemsFormatted: string;
+  outstandingInvoices: OutstandingInvoice[];
+  changeOrders: ChangeOrderSummary[];
   stats: {
     totalTasks: number;
     urgentTasks: number;
@@ -114,6 +133,10 @@ export interface UserDashboardData {
     tomorrowEventsCount: number;
     recentTextCount: number;
     openItemCount: number;
+    outstandingInvoiceCount: number;
+    outstandingInvoiceTotal: number;
+    pendingCOCount: number;
+    approvedCOCount: number;
   };
 }
 
@@ -258,6 +281,156 @@ function getTimeContext(): TimeContext {
     tomorrowLabel,
     tomorrowDate: `${tmY}-${tmM}-${tmD}`,
   };
+}
+
+/**
+ * Fetch outstanding invoices (sent but unpaid) and CO status across all active jobs.
+ * Queries documents per job in parallel batches to avoid overloading PAVE.
+ * Returns both AR data and change order summaries.
+ */
+async function fetchARandCOData(
+  activeJobs: Array<{ id: string; name: string; number: string }>
+): Promise<{ invoices: OutstandingInvoice[]; changeOrders: ChangeOrderSummary[] }> {
+  const invoices: OutstandingInvoice[] = [];
+  const changeOrders: ChangeOrderSummary[] = [];
+  const today = new Date();
+
+  // Process jobs in parallel batches of 8
+  const BATCH_SIZE = 8;
+  for (let i = 0; i < activeJobs.length; i += BATCH_SIZE) {
+    const batch = activeJobs.slice(i, i + BATCH_SIZE);
+    const results = await Promise.allSettled(
+      batch.map(async (job) => {
+        // Single PAVE query per job: get documents + cost groups
+        const [docData, groupData] = await Promise.all([
+          pave({
+            job: {
+              $: { id: job.id },
+              documents: {
+                $: { size: 50 },
+                nodes: {
+                  id: {}, number: {}, status: {}, type: {},
+                  price: {}, createdAt: {},
+                  costGroups: { nodes: { name: {} } },
+                },
+              },
+            },
+          }),
+          pave({
+            job: {
+              $: { id: job.id },
+              costGroups: {
+                $: { size: 100 },
+                nextPage: {},
+                nodes: {
+                  id: {}, name: {},
+                  parentCostGroup: { id: {}, name: {} },
+                },
+              },
+            },
+          }),
+        ]);
+
+        const docs = (docData as any)?.job?.documents?.nodes || [];
+        const groups = (groupData as any)?.job?.costGroups?.nodes || [];
+
+        // --- Outstanding Invoices (AR) ---
+        for (const doc of docs) {
+          if (doc.type === 'customerInvoice' && doc.status === 'pending') {
+            const created = new Date(doc.createdAt);
+            const daysPending = Math.floor((today.getTime() - created.getTime()) / (1000 * 60 * 60 * 24));
+            invoices.push({
+              id: doc.id,
+              documentNumber: doc.number || '',
+              jobName: job.name,
+              jobId: job.id,
+              amount: doc.price || 0,
+              createdAt: doc.createdAt,
+              daysPending,
+            });
+          }
+        }
+
+        // --- Change Order Tracking ---
+        // Collect approved CO document cost group names
+        const approvedCOGroupNames = new Set<string>();
+        for (const doc of docs) {
+          if (doc.type === 'customerOrder' && doc.status === 'approved') {
+            for (const g of (doc.costGroups?.nodes || [])) {
+              if (g.name) approvedCOGroupNames.add(g.name.trim().toLowerCase());
+            }
+          }
+        }
+
+        // Find CO root groups and their children
+        const coRootIds = new Set(
+          groups
+            .filter((g: any) => /change\s*order|🔁|post\s*pricing/i.test(g.name || ''))
+            .map((g: any) => g.id)
+        );
+
+        if (coRootIds.size === 0) return; // No COs in this job
+
+        const childrenOf = new Map<string, any[]>();
+        for (const g of groups) {
+          const pid = g.parentCostGroup?.id;
+          if (pid) {
+            if (!childrenOf.has(pid)) childrenOf.set(pid, []);
+            childrenOf.get(pid)!.push(g);
+          }
+        }
+
+        const visited = new Set<string>();
+        const seenNames = new Set<string>();
+
+        function findCOGroups(parentId: string, depth: number) {
+          const children = childrenOf.get(parentId) || [];
+          for (const child of children) {
+            if (visited.has(child.id)) continue;
+            visited.add(child.id);
+
+            const isStructural = /^(client|owner|bkb)\s+requested$|^[🟢✅]\s*approved$|^🔴\s*declined$|^scope\s*of\s*work$/i.test(child.name?.trim() || '');
+
+            if (isStructural) {
+              findCOGroups(child.id, depth + 1);
+            } else if (depth <= 3) {
+              const normName = (child.name || '').trim().toLowerCase();
+              if (!seenNames.has(normName)) {
+                seenNames.add(normName);
+                changeOrders.push({
+                  jobId: job.id,
+                  jobName: job.name,
+                  coName: child.name,
+                  status: approvedCOGroupNames.has(normName) ? 'approved' : 'pending',
+                });
+              }
+            }
+          }
+        }
+
+        for (const rootId of coRootIds) {
+          findCOGroups(rootId, 0);
+        }
+      })
+    );
+
+    // Log any failures but don't throw
+    for (const r of results) {
+      if (r.status === 'rejected') {
+        console.error('[DashboardData] AR/CO fetch error:', r.reason?.message || r.reason);
+      }
+    }
+  }
+
+  // Sort invoices: oldest (most days pending) first
+  invoices.sort((a, b) => b.daysPending - a.daysPending);
+  // Sort COs: pending first, then by job name
+  changeOrders.sort((a, b) => {
+    if (a.status === b.status) return a.jobName.localeCompare(b.jobName);
+    return a.status === 'pending' ? -1 : 1;
+  });
+
+  return { invoices, changeOrders };
 }
 
 export async function buildUserDashboardData(userId: string): Promise<UserDashboardData> {
@@ -436,6 +609,19 @@ export async function buildUserDashboardData(userId: string): Promise<UserDashbo
     console.error('[DashboardData] Failed to fetch PML open items:', err.message);
   }
 
+  // Fetch outstanding invoices (AR) and change order tracking for admin/owner roles
+  let outstandingInvoices: OutstandingInvoice[] = [];
+  let changeOrders: ChangeOrderSummary[] = [];
+  if (role === 'admin' || role === 'owner') {
+    try {
+      const arcoData = await fetchARandCOData(activeJobs);
+      outstandingInvoices = arcoData.invoices;
+      changeOrders = arcoData.changeOrders;
+    } catch (err: any) {
+      console.error('[DashboardData] Failed to fetch AR/CO data:', err.message);
+    }
+  }
+
   // Filter tomorrow's tasks
   const tomorrowTasks = tasks.filter(t => t.endDate?.startsWith(timeContext.tomorrowDate));
 
@@ -454,6 +640,10 @@ export async function buildUserDashboardData(userId: string): Promise<UserDashbo
     tomorrowEventsCount: tomorrowCalendarEvents.length,
     recentTextCount: recentTexts.length,
     openItemCount: openItems.length,
+    outstandingInvoiceCount: outstandingInvoices.length,
+    outstandingInvoiceTotal: outstandingInvoices.reduce((sum, inv) => sum + inv.amount, 0),
+    pendingCOCount: changeOrders.filter(co => co.status === 'pending').length,
+    approvedCOCount: changeOrders.filter(co => co.status === 'approved').length,
   };
 
   return {
@@ -472,6 +662,8 @@ export async function buildUserDashboardData(userId: string): Promise<UserDashbo
     activeJobs,
     openItems,
     openItemsFormatted,
+    outstandingInvoices,
+    changeOrders,
     stats,
   };
 }

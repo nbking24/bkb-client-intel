@@ -72,6 +72,23 @@ interface DashboardAnalysis {
   tomorrowBriefing?: TomorrowBriefing;
 }
 
+interface OutstandingInvoice {
+  id: string;
+  documentNumber: string;
+  jobName: string;
+  jobId: string;
+  amount: number;
+  createdAt: string;
+  daysPending: number;
+}
+
+interface ChangeOrderSummary {
+  jobId: string;
+  jobName: string;
+  coName: string;
+  status: 'approved' | 'pending';
+}
+
 interface DashboardData {
   timeContext?: { period: string; tomorrowLabel: string; tomorrowDate: string };
   stats: {
@@ -85,6 +102,10 @@ interface DashboardData {
     unreadEmailCount: number;
     upcomingEventsCount: number;
     tomorrowEventsCount: number;
+    outstandingInvoiceCount: number;
+    outstandingInvoiceTotal: number;
+    pendingCOCount: number;
+    approvedCOCount: number;
   };
   tasks: Array<{
     id: string; name: string; jobName: string; jobNumber: string;
@@ -99,6 +120,8 @@ interface DashboardData {
     allDay: boolean; location: string; attendeeCount: number;
   }>;
   activeJobs?: Array<{ id: string; name: string; number: string }>;
+  outstandingInvoices?: OutstandingInvoice[];
+  changeOrders?: ChangeOrderSummary[];
 }
 
 interface OverviewResponse {
@@ -310,7 +333,7 @@ export default function DashboardOverview() {
         </button>
       </div>
 
-      {/* KPI GRID — placeholder, will be customized */}
+      {/* KPI GRID */}
       <div style={{ display: 'grid', gridTemplateColumns: isMobile ? 'repeat(3, 1fr)' : 'repeat(5, 1fr)', gap: isTouch ? 6 : 4, marginBottom: isTouch ? 10 : 6 }}>
         {/* KPI 1: Active Jobs */}
         <div style={{ background: '#1e1e1e', borderRadius: 6, padding: '6px 7px', borderLeft: '3px solid #CDA274' }}>
@@ -323,49 +346,73 @@ export default function DashboardOverview() {
           </div>
         </div>
 
-        {/* KPI 2: Urgent Tasks */}
-        <div style={{ background: '#1e1e1e', borderRadius: 6, padding: '6px 7px', borderLeft: `3px solid ${urgentTasks.length > 0 ? '#ef4444' : '#22c55e'}` }}>
+        {/* KPI 2: Open Tasks */}
+        <div style={{ background: '#1e1e1e', borderRadius: 6, padding: '6px 7px', borderLeft: `3px solid ${tasks.length > 0 ? '#3b82f6' : '#5a5550'}` }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: 3, marginBottom: 3 }}>
-            <AlertTriangle size={9} style={{ color: urgentTasks.length > 0 ? '#ef4444' : '#22c55e' }} />
-            <span style={{ fontSize: 7, color: '#5a5550', fontWeight: 600, letterSpacing: '0.04em' }}>URGENT</span>
+            <ClipboardList size={9} style={{ color: tasks.length > 0 ? '#3b82f6' : '#5a5550' }} />
+            <span style={{ fontSize: 7, color: '#5a5550', fontWeight: 600, letterSpacing: '0.04em' }}>OPEN TASKS</span>
           </div>
-          <div style={{ fontSize: 18, fontWeight: 700, color: urgentTasks.length > 0 ? '#ef4444' : '#22c55e', lineHeight: 1 }}>
-            {urgentTasks.length}
+          <div style={{ fontSize: 18, fontWeight: 700, color: tasks.length > 0 ? '#3b82f6' : '#5a5550', lineHeight: 1 }}>
+            {tasks.length}
           </div>
         </div>
 
         {/* KPI 3: Overdue */}
-        <div style={{ background: '#1e1e1e', borderRadius: 6, padding: '6px 7px', borderLeft: `3px solid ${overdueTasks.length > 0 ? '#f59e0b' : '#22c55e'}` }}>
+        <div style={{ background: '#1e1e1e', borderRadius: 6, padding: '6px 7px', borderLeft: `3px solid ${overdueTasks.length > 0 ? '#ef4444' : '#22c55e'}` }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: 3, marginBottom: 3 }}>
-            <Clock3 size={9} style={{ color: overdueTasks.length > 0 ? '#f59e0b' : '#22c55e' }} />
+            <AlertTriangle size={9} style={{ color: overdueTasks.length > 0 ? '#ef4444' : '#22c55e' }} />
             <span style={{ fontSize: 7, color: '#5a5550', fontWeight: 600, letterSpacing: '0.04em' }}>OVERDUE</span>
           </div>
-          <div style={{ fontSize: 18, fontWeight: 700, color: overdueTasks.length > 0 ? '#f59e0b' : '#22c55e', lineHeight: 1 }}>
+          <div style={{ fontSize: 18, fontWeight: 700, color: overdueTasks.length > 0 ? '#ef4444' : '#22c55e', lineHeight: 1 }}>
             {overdueTasks.length}
           </div>
         </div>
 
-        {/* KPI 4: Due Today */}
-        <div style={{ background: '#1e1e1e', borderRadius: 6, padding: '6px 7px', borderLeft: '3px solid #3b82f6' }}>
-          <div style={{ display: 'flex', alignItems: 'center', gap: 3, marginBottom: 3 }}>
-            <Target size={9} style={{ color: '#3b82f6' }} />
-            <span style={{ fontSize: 7, color: '#5a5550', fontWeight: 600, letterSpacing: '0.04em' }}>DUE TODAY</span>
-          </div>
-          <div style={{ fontSize: 18, fontWeight: 700, color: '#3b82f6', lineHeight: 1 }}>
-            {stats?.tasksToday || 0}
-          </div>
-        </div>
+        {/* KPI 4: Outstanding Invoices (AR) */}
+        {(() => {
+          const invCount = stats?.outstandingInvoiceCount || 0;
+          const invTotal = stats?.outstandingInvoiceTotal || 0;
+          const hasOutstanding = invCount > 0;
+          return (
+            <div style={{ background: '#1e1e1e', borderRadius: 6, padding: '6px 7px', borderLeft: `3px solid ${hasOutstanding ? '#f59e0b' : '#22c55e'}` }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 3, marginBottom: 3 }}>
+                <DollarSign size={9} style={{ color: hasOutstanding ? '#f59e0b' : '#22c55e' }} />
+                <span style={{ fontSize: 7, color: '#5a5550', fontWeight: 600, letterSpacing: '0.04em' }}>OUTSTANDING AR</span>
+              </div>
+              <div style={{ fontSize: 18, fontWeight: 700, color: hasOutstanding ? '#f59e0b' : '#22c55e', lineHeight: 1 }}>
+                {invCount}
+              </div>
+              {hasOutstanding && (
+                <div style={{ fontSize: 8, color: '#6a6058', marginTop: 2 }}>
+                  ${invTotal >= 1000 ? `${(invTotal / 1000).toFixed(1)}k` : invTotal.toFixed(0)}
+                </div>
+              )}
+            </div>
+          );
+        })()}
 
-        {/* KPI 5: Unread Emails */}
-        <div style={{ background: '#1e1e1e', borderRadius: 6, padding: '6px 7px', borderLeft: `3px solid ${(stats?.unreadEmailCount || 0) > 0 ? '#22c55e' : '#5a5550'}` }}>
-          <div style={{ display: 'flex', alignItems: 'center', gap: 3, marginBottom: 3 }}>
-            <Mail size={9} style={{ color: (stats?.unreadEmailCount || 0) > 0 ? '#22c55e' : '#5a5550' }} />
-            <span style={{ fontSize: 7, color: '#5a5550', fontWeight: 600, letterSpacing: '0.04em' }}>UNREAD</span>
-          </div>
-          <div style={{ fontSize: 18, fontWeight: 700, color: (stats?.unreadEmailCount || 0) > 0 ? '#22c55e' : '#5a5550', lineHeight: 1 }}>
-            {stats?.unreadEmailCount || 0}
-          </div>
-        </div>
+        {/* KPI 5: Pending Change Orders */}
+        {(() => {
+          const pending = stats?.pendingCOCount || 0;
+          const approved = stats?.approvedCOCount || 0;
+          const hasPending = pending > 0;
+          return (
+            <div style={{ background: '#1e1e1e', borderRadius: 6, padding: '6px 7px', borderLeft: `3px solid ${hasPending ? '#f59e0b' : '#22c55e'}` }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 3, marginBottom: 3 }}>
+                <FileWarning size={9} style={{ color: hasPending ? '#f59e0b' : '#22c55e' }} />
+                <span style={{ fontSize: 7, color: '#5a5550', fontWeight: 600, letterSpacing: '0.04em' }}>PENDING COs</span>
+              </div>
+              <div style={{ fontSize: 18, fontWeight: 700, color: hasPending ? '#f59e0b' : '#22c55e', lineHeight: 1 }}>
+                {pending}
+              </div>
+              {(pending + approved) > 0 && (
+                <div style={{ fontSize: 8, color: '#6a6058', marginTop: 2 }}>
+                  {approved} approved
+                </div>
+              )}
+            </div>
+          );
+        })()}
       </div>
 
       {/* AI BRIEFING — compact, matches field dashboard style */}
