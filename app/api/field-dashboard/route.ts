@@ -64,8 +64,8 @@ export async function GET(req: NextRequest) {
     const jobOverdueTasks: any[] = [];
     const myOverdueTasks: any[] = [];
 
-    // Collect recent comments (last 48 hours) across all jobs
-    const cutoffTime = now.getTime() - 48 * 60 * 60 * 1000; // 48 hours ago
+    // Collect recent comments (last 7 days) across all jobs
+    const cutoffTime = now.getTime() - 7 * 24 * 60 * 60 * 1000; // 7 days ago
     const recentComments: any[] = [];
 
     for (const { jobId, tasks, comments } of jobDataResults) {
