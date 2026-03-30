@@ -403,7 +403,7 @@ export default function FieldDashboardPage() {
         </div>
       )}
 
-      {/* WEEK CALENDARS */}
+      {/* WEEK CALENDARS — shown before My Jobs */}
       {weeks.map((week, wi) => (
         <div key={wi} style={{ marginBottom: 6 }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 3 }}>
