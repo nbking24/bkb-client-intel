@@ -425,120 +425,6 @@ export default function DashboardOverview() {
         })()}
       </div>
 
-      {/* OUTSTANDING INVOICES — expandable from KPI card click */}
-      {showSection === 'invoices' && (
-        <div style={{ background: '#1e1e1e', border: '1px solid rgba(245,158,11,0.15)', borderRadius: 8, padding: '8px 10px', marginBottom: isTouch ? 10 : 6, maxHeight: 340, overflowY: 'auto' }}>
-          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 6 }}>
-            <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
-              <DollarSign size={10} style={{ color: '#f59e0b' }} />
-              <span style={{ fontSize: 9, fontWeight: 600, color: '#f59e0b', letterSpacing: '0.04em' }}>
-                OUTSTANDING INVOICES ({outstandingInvoices.length})
-              </span>
-            </div>
-            {outstandingInvoices.length > 0 && (
-              <span style={{ fontSize: 9, color: '#6a6058' }}>
-                Total: ${(stats?.outstandingInvoiceTotal || 0).toLocaleString('en-US', { minimumFractionDigits: 0, maximumFractionDigits: 0 })}
-              </span>
-            )}
-          </div>
-          {outstandingInvoices.length === 0 ? (
-            <p style={{ color: '#22c55e', fontSize: 11, textAlign: 'center', padding: 8 }}>All invoices paid</p>
-          ) : (
-            outstandingInvoices.map((inv) => {
-              const isOverdue = inv.daysPending > 30;
-              const isWarning = inv.daysPending > 14;
-              const statusColor = isOverdue ? '#ef4444' : isWarning ? '#f59e0b' : '#6a6058';
-              return (
-                <div key={inv.id} style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '5px 0', borderBottom: '1px solid rgba(205,162,116,0.04)' }}>
-                  <div style={{ width: 5, height: 5, borderRadius: 3, background: statusColor, flexShrink: 0 }} />
-                  <div style={{ flex: 1, minWidth: 0 }}>
-                    <p style={{ fontSize: 11, color: '#e8e0d8', margin: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                      {inv.jobName.replace(/^#\d+\s*/, '')}
-                    </p>
-                    <p style={{ fontSize: 9, color: '#6a6058', margin: 0 }}>
-                      Invoice #{inv.documentNumber}
-                    </p>
-                  </div>
-                  <div style={{ textAlign: 'right', flexShrink: 0 }}>
-                    <p style={{ fontSize: 12, fontWeight: 600, color: '#e8e0d8', margin: 0 }}>
-                      ${inv.amount.toLocaleString('en-US', { minimumFractionDigits: 0, maximumFractionDigits: 0 })}
-                    </p>
-                    <p style={{ fontSize: 9, color: statusColor, margin: 0, fontWeight: isOverdue ? 600 : 400 }}>
-                      {inv.daysPending}d pending
-                    </p>
-                  </div>
-                </div>
-              );
-            })
-          )}
-        </div>
-      )}
-
-      {/* PENDING CHANGE ORDERS — expandable from KPI card click */}
-      {showSection === 'changeorders' && (
-        <div style={{ background: '#1e1e1e', border: '1px solid rgba(245,158,11,0.15)', borderRadius: 8, padding: '8px 10px', marginBottom: isTouch ? 10 : 6, maxHeight: 340, overflowY: 'auto' }}>
-          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 6 }}>
-            <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
-              <FileWarning size={10} style={{ color: '#f59e0b' }} />
-              <span style={{ fontSize: 9, fontWeight: 600, color: '#f59e0b', letterSpacing: '0.04em' }}>
-                CHANGE ORDERS ({changeOrders.length})
-              </span>
-            </div>
-            <div style={{ display: 'flex', gap: 8 }}>
-              <span style={{ fontSize: 9, color: '#f59e0b' }}>{changeOrders.filter(co => co.status === 'pending').length} pending</span>
-              <span style={{ fontSize: 9, color: '#22c55e' }}>{changeOrders.filter(co => co.status === 'approved').length} approved</span>
-            </div>
-          </div>
-          {changeOrders.length === 0 ? (
-            <p style={{ color: '#5a5550', fontSize: 11, textAlign: 'center', padding: 8 }}>No change orders</p>
-          ) : (() => {
-            // Group COs by job
-            const jobGroups = new Map<string, typeof changeOrders>();
-            for (const co of changeOrders) {
-              const key = co.jobName;
-              if (!jobGroups.has(key)) jobGroups.set(key, []);
-              jobGroups.get(key)!.push(co);
-            }
-            return Array.from(jobGroups.entries()).map(([jobName, cos]) => {
-              const pendingCount = cos.filter(c => c.status === 'pending').length;
-              const approvedCount = cos.filter(c => c.status === 'approved').length;
-              return (
-                <div key={jobName} style={{ marginBottom: 6 }}>
-                  <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '4px 0', borderBottom: '1px solid rgba(205,162,116,0.08)' }}>
-                    <p style={{ fontSize: 11, fontWeight: 600, color: '#e8e0d8', margin: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', flex: 1 }}>
-                      {jobName.replace(/^#\d+\s*/, '')}
-                    </p>
-                    <div style={{ display: 'flex', gap: 6, flexShrink: 0 }}>
-                      {pendingCount > 0 && (
-                        <span style={{ fontSize: 9, color: '#f59e0b', background: 'rgba(245,158,11,0.1)', padding: '1px 5px', borderRadius: 3 }}>
-                          {pendingCount} pending
-                        </span>
-                      )}
-                      {approvedCount > 0 && (
-                        <span style={{ fontSize: 9, color: '#22c55e', background: 'rgba(34,197,94,0.1)', padding: '1px 5px', borderRadius: 3 }}>
-                          {approvedCount} approved
-                        </span>
-                      )}
-                    </div>
-                  </div>
-                  {cos.map((co, i) => (
-                    <div key={i} style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '3px 0 3px 12px' }}>
-                      {co.status === 'approved'
-                        ? <FileCheck size={10} style={{ color: '#22c55e', flexShrink: 0 }} />
-                        : <FileWarning size={10} style={{ color: '#f59e0b', flexShrink: 0 }} />
-                      }
-                      <p style={{ fontSize: 10, color: co.status === 'approved' ? '#6a6058' : '#e8e0d8', margin: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                        {co.coName}
-                      </p>
-                    </div>
-                  ))}
-                </div>
-              );
-            });
-          })()}
-        </div>
-      )}
-
       {/* AI BRIEFING — compact, matches field dashboard style */}
       {analysis?.summary && (
         <div style={{ background: 'rgba(205,162,116,0.06)', border: '1px solid rgba(205,162,116,0.12)', borderRadius: 8, padding: '8px 10px', marginBottom: isTouch ? 10 : 6 }}>
@@ -617,6 +503,119 @@ export default function DashboardOverview() {
               );
             })}
           </div>
+        </div>
+      )}
+
+      {/* OUTSTANDING INVOICES — expandable from KPI card click */}
+      {showSection === 'invoices' && (
+        <div style={{ background: '#1e1e1e', border: '1px solid rgba(245,158,11,0.15)', borderRadius: 8, padding: '8px 10px', marginBottom: isTouch ? 10 : 6, maxHeight: 340, overflowY: 'auto' }}>
+          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 6 }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
+              <DollarSign size={10} style={{ color: '#f59e0b' }} />
+              <span style={{ fontSize: 9, fontWeight: 600, color: '#f59e0b', letterSpacing: '0.04em' }}>
+                OUTSTANDING INVOICES ({outstandingInvoices.length})
+              </span>
+            </div>
+            {outstandingInvoices.length > 0 && (
+              <span style={{ fontSize: 9, color: '#6a6058' }}>
+                Total: ${(stats?.outstandingInvoiceTotal || 0).toLocaleString('en-US', { minimumFractionDigits: 0, maximumFractionDigits: 0 })}
+              </span>
+            )}
+          </div>
+          {outstandingInvoices.length === 0 ? (
+            <p style={{ color: '#22c55e', fontSize: 11, textAlign: 'center', padding: 8 }}>All invoices paid</p>
+          ) : (
+            outstandingInvoices.map((inv) => {
+              const isOverdue = inv.daysPending > 30;
+              const isWarning = inv.daysPending > 14;
+              const statusColor = isOverdue ? '#ef4444' : isWarning ? '#f59e0b' : '#6a6058';
+              return (
+                <div key={inv.id} style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '5px 0', borderBottom: '1px solid rgba(205,162,116,0.04)' }}>
+                  <div style={{ width: 5, height: 5, borderRadius: 3, background: statusColor, flexShrink: 0 }} />
+                  <div style={{ flex: 1, minWidth: 0 }}>
+                    <p style={{ fontSize: 11, color: '#e8e0d8', margin: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                      {inv.jobName.replace(/^#\d+\s*/, '')}
+                    </p>
+                    <p style={{ fontSize: 9, color: '#6a6058', margin: 0 }}>
+                      Invoice #{inv.documentNumber}
+                    </p>
+                  </div>
+                  <div style={{ textAlign: 'right', flexShrink: 0 }}>
+                    <p style={{ fontSize: 12, fontWeight: 600, color: '#e8e0d8', margin: 0 }}>
+                      ${inv.amount.toLocaleString('en-US', { minimumFractionDigits: 0, maximumFractionDigits: 0 })}
+                    </p>
+                    <p style={{ fontSize: 9, color: statusColor, margin: 0, fontWeight: isOverdue ? 600 : 400 }}>
+                      {inv.daysPending}d pending
+                    </p>
+                  </div>
+                </div>
+              );
+            })
+          )}
+        </div>
+      )}
+
+      {/* PENDING CHANGE ORDERS — expandable from KPI card click */}
+      {showSection === 'changeorders' && (
+        <div style={{ background: '#1e1e1e', border: '1px solid rgba(245,158,11,0.15)', borderRadius: 8, padding: '8px 10px', marginBottom: isTouch ? 10 : 6, maxHeight: 340, overflowY: 'auto' }}>
+          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 6 }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
+              <FileWarning size={10} style={{ color: '#f59e0b' }} />
+              <span style={{ fontSize: 9, fontWeight: 600, color: '#f59e0b', letterSpacing: '0.04em' }}>
+                CHANGE ORDERS ({changeOrders.length})
+              </span>
+            </div>
+            <div style={{ display: 'flex', gap: 8 }}>
+              <span style={{ fontSize: 9, color: '#f59e0b' }}>{changeOrders.filter(co => co.status === 'pending').length} pending</span>
+              <span style={{ fontSize: 9, color: '#22c55e' }}>{changeOrders.filter(co => co.status === 'approved').length} approved</span>
+            </div>
+          </div>
+          {changeOrders.length === 0 ? (
+            <p style={{ color: '#5a5550', fontSize: 11, textAlign: 'center', padding: 8 }}>No change orders</p>
+          ) : (() => {
+            const jobGroups = new Map<string, typeof changeOrders>();
+            for (const co of changeOrders) {
+              const key = co.jobName;
+              if (!jobGroups.has(key)) jobGroups.set(key, []);
+              jobGroups.get(key)!.push(co);
+            }
+            return Array.from(jobGroups.entries()).map(([jobName, cos]) => {
+              const pendingCount = cos.filter(c => c.status === 'pending').length;
+              const approvedCount = cos.filter(c => c.status === 'approved').length;
+              return (
+                <div key={jobName} style={{ marginBottom: 6 }}>
+                  <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '4px 0', borderBottom: '1px solid rgba(205,162,116,0.08)' }}>
+                    <p style={{ fontSize: 11, fontWeight: 600, color: '#e8e0d8', margin: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', flex: 1 }}>
+                      {jobName.replace(/^#\d+\s*/, '')}
+                    </p>
+                    <div style={{ display: 'flex', gap: 6, flexShrink: 0 }}>
+                      {pendingCount > 0 && (
+                        <span style={{ fontSize: 9, color: '#f59e0b', background: 'rgba(245,158,11,0.1)', padding: '1px 5px', borderRadius: 3 }}>
+                          {pendingCount} pending
+                        </span>
+                      )}
+                      {approvedCount > 0 && (
+                        <span style={{ fontSize: 9, color: '#22c55e', background: 'rgba(34,197,94,0.1)', padding: '1px 5px', borderRadius: 3 }}>
+                          {approvedCount} approved
+                        </span>
+                      )}
+                    </div>
+                  </div>
+                  {cos.map((co, i) => (
+                    <div key={i} style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '3px 0 3px 12px' }}>
+                      {co.status === 'approved'
+                        ? <FileCheck size={10} style={{ color: '#22c55e', flexShrink: 0 }} />
+                        : <FileWarning size={10} style={{ color: '#f59e0b', flexShrink: 0 }} />
+                      }
+                      <p style={{ fontSize: 10, color: co.status === 'approved' ? '#6a6058' : '#e8e0d8', margin: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                        {co.coName}
+                      </p>
+                    </div>
+                  ))}
+                </div>
+              );
+            });
+          })()}
         </div>
       )}
 
