@@ -63,6 +63,7 @@ function InlineAskAgent({ pmJobs }: { pmJobs: { id: string; name: string; number
   const [loading, setLoading] = useState(false);
   const [lastAgent, setLastAgent] = useState<string | null>(null);
   const [selectedJobId, setSelectedJobId] = useState('');
+  const [agentMode, setAgentMode] = useState<'change-order' | 'specs'>('change-order');
   const [phaseEdit, setPhaseEdit] = useState<string | null>(null);
   const [attachedImages, setAttachedImages] = useState<Array<{ file: File; preview: string }>>([]);
   const [uploadedUrls, setUploadedUrls] = useState<string[]>([]);
@@ -158,6 +159,11 @@ function InlineAskAgent({ pmJobs }: { pmJobs: { id: string; name: string; number
 
     let messageForApi = userMsg;
     const contextParts: string[] = [];
+    if (agentMode === 'change-order') {
+      contextParts.push('MODE: CHANGE ORDER SUBMISSION. The user is submitting a change order. Follow the CO submission flow — ask targeted questions, gather all details, then output a @@CO_PROPOSAL@@ for approval.');
+    } else {
+      contextParts.push('MODE: SPECS ONLY. The user is asking about approved specifications. ONLY answer based on approved documents and specs for this job. Do NOT offer to create change orders, tasks, or modifications — just provide spec information from approved documents.');
+    }
     if (selectedJob) {
       contextParts.push(`The user has selected job "${selectedJob.name}" (#${selectedJob.number}, ID: ${selectedJob.id}). Use this as the target job for their question.`);
     }
@@ -252,12 +258,16 @@ function InlineAskAgent({ pmJobs }: { pmJobs: { id: string; name: string; number
 
   const lastMsgNeedsConfirm = messages.length > 0 && messages[messages.length - 1].role === 'assistant' && messages[messages.length - 1].needsConfirmation && !loading;
 
-  const suggestions = [
-    'Submit a change order',
-    'What specs are approved for this job?',
-    'Show me all overdue tasks',
-    "What's the schedule look like?",
-  ];
+  // When mode changes, reset conversation and auto-prime the agent
+  const handleModeChange = (mode: 'change-order' | 'specs') => {
+    setAgentMode(mode);
+    setMessages([]);
+    setLastAgent(null);
+    setUploadedUrls([]);
+    attachedImages.forEach(img => URL.revokeObjectURL(img.preview));
+    setAttachedImages([]);
+    setQuery('');
+  };
 
   return (
     <div style={{ marginBottom: 6, borderRadius: 8, border: '1px solid rgba(205,162,116,0.12)', overflow: 'hidden', background: '#1a1a1a' }}>
@@ -281,9 +291,31 @@ function InlineAskAgent({ pmJobs }: { pmJobs: { id: string; name: string; number
       {/* Chat Body */}
       {open && (
         <div style={{ borderTop: '1px solid rgba(205,162,116,0.08)' }}>
-          {/* Job Selector */}
+          {/* Mode Selector */}
           <div style={{ padding: '6px 10px', borderBottom: '1px solid rgba(205,162,116,0.06)', display: 'flex', alignItems: 'center', gap: 6 }}>
-            <span style={{ fontSize: 9, color: '#5a5550', flexShrink: 0 }}>Job:</span>
+            <div style={{ display: 'flex', borderRadius: 6, overflow: 'hidden', border: '1px solid rgba(205,162,116,0.15)', flexShrink: 0 }}>
+              <button
+                onClick={() => handleModeChange('change-order')}
+                style={{
+                  padding: '4px 10px', fontSize: 10, fontWeight: 600, border: 'none', cursor: 'pointer',
+                  background: agentMode === 'change-order' ? 'rgba(205,162,116,0.2)' : 'transparent',
+                  color: agentMode === 'change-order' ? '#CDA274' : '#5a5550',
+                }}
+              >
+                Change Order
+              </button>
+              <button
+                onClick={() => handleModeChange('specs')}
+                style={{
+                  padding: '4px 10px', fontSize: 10, fontWeight: 600, border: 'none', cursor: 'pointer',
+                  borderLeft: '1px solid rgba(205,162,116,0.15)',
+                  background: agentMode === 'specs' ? 'rgba(205,162,116,0.2)' : 'transparent',
+                  color: agentMode === 'specs' ? '#CDA274' : '#5a5550',
+                }}
+              >
+                Specs
+              </button>
+            </div>
             <select
               value={selectedJobId}
               onChange={e => setSelectedJobId(e.target.value)}
@@ -299,23 +331,24 @@ function InlineAskAgent({ pmJobs }: { pmJobs: { id: string; name: string; number
               ))}
             </select>
             {messages.length > 0 && (
-              <button onClick={() => { setMessages([]); setLastAgent(null); }} style={{ fontSize: 9, color: '#5a5550', background: 'none', border: 'none', cursor: 'pointer', textDecoration: 'underline' }}>Clear</button>
+              <button onClick={() => { setMessages([]); setLastAgent(null); setUploadedUrls([]); }} style={{ fontSize: 9, color: '#5a5550', background: 'none', border: 'none', cursor: 'pointer', textDecoration: 'underline' }}>Clear</button>
             )}
           </div>
 
           {/* Messages */}
           <div style={{ maxHeight: 300, overflowY: 'auto', padding: '6px 10px' }}>
             {messages.length === 0 && !loading && (
-              <div style={{ padding: '8px 0' }}>
-                <p style={{ fontSize: 10, color: '#5a5550', marginBottom: 6, textAlign: 'center' }}>Ask about tasks, specs, or schedules</p>
-                <div style={{ display: 'flex', flexWrap: 'wrap', gap: 4, justifyContent: 'center' }}>
-                  {suggestions.map(s => (
-                    <button key={s} onClick={() => { setQuery(s); inputRef.current?.focus(); }}
-                      style={{ fontSize: 9, padding: '3px 8px', borderRadius: 4, background: 'rgba(205,162,116,0.06)', border: '1px solid rgba(205,162,116,0.08)', color: '#8a8078', cursor: 'pointer' }}>
-                      {s}
-                    </button>
-                  ))}
-                </div>
+              <div style={{ padding: '8px 0', textAlign: 'center' }}>
+                <p style={{ fontSize: 10, color: '#5a5550', marginBottom: 4 }}>
+                  {agentMode === 'change-order'
+                    ? 'Describe the change — I\'ll ask questions and build the CO'
+                    : 'Ask about approved specs for this job'}
+                </p>
+                {agentMode === 'change-order' && (
+                  <p style={{ fontSize: 9, color: '#8a8078', marginTop: 2 }}>
+                    Use the <Paperclip size={9} style={{ display: 'inline', verticalAlign: 'middle', color: '#CDA274' }} /> button to attach photos
+                  </p>
+                )}
               </div>
             )}
 
@@ -465,20 +498,24 @@ function InlineAskAgent({ pmJobs }: { pmJobs: { id: string; name: string; number
           {/* Input */}
           <form onSubmit={handleSubmit} style={{ display: 'flex', alignItems: 'center', gap: 4, padding: '6px 10px', borderTop: '1px solid rgba(205,162,116,0.06)' }}>
             <input ref={fileInputRef} type="file" accept="image/*" multiple onChange={handleImageAttach} style={{ display: 'none' }} />
-            <button type="button" onClick={() => fileInputRef.current?.click()} title="Attach photos"
-              style={{
-                width: 28, height: 28, borderRadius: 6, border: 'none', cursor: 'pointer', flexShrink: 0,
-                background: attachedImages.length > 0 ? 'rgba(205,162,116,0.15)' : 'transparent',
-                display: 'flex', alignItems: 'center', justifyContent: 'center',
-              }}>
-              <Paperclip size={13} style={{ color: attachedImages.length > 0 ? '#CDA274' : '#5a5550' }} />
-            </button>
+            {agentMode === 'change-order' && (
+              <button type="button" onClick={() => fileInputRef.current?.click()} title="Attach photos"
+                style={{
+                  width: 28, height: 28, borderRadius: 6, border: 'none', cursor: 'pointer', flexShrink: 0,
+                  background: attachedImages.length > 0 ? 'rgba(205,162,116,0.15)' : 'transparent',
+                  display: 'flex', alignItems: 'center', justifyContent: 'center',
+                }}>
+                <Paperclip size={13} style={{ color: attachedImages.length > 0 ? '#CDA274' : '#5a5550' }} />
+              </button>
+            )}
             <textarea
               ref={inputRef}
               value={query}
               onChange={e => { setQuery(e.target.value); e.target.style.height = 'auto'; e.target.style.height = Math.min(e.target.scrollHeight, 80) + 'px'; }}
               onKeyDown={e => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); if (query.trim() && !loading) handleSubmit(e as any); } }}
-              placeholder={selectedJob ? `Ask about #${selectedJob.number} ${selectedJob.name}...` : 'Ask about tasks, specs, or schedules...'}
+              placeholder={agentMode === 'change-order'
+                ? (selectedJob ? `Describe the change for #${selectedJob.number}...` : 'Select a job, then describe the change...')
+                : (selectedJob ? `Ask about specs for #${selectedJob.number}...` : 'Select a job to look up specs...')}
               rows={1}
               disabled={loading || uploading}
               style={{
