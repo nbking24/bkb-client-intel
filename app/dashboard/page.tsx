@@ -177,10 +177,10 @@ function RenderContent({ content }: { content: string }) {
   );
 }
 
-function InlineAskAgent({ pmJobs, screen }: { pmJobs: { id: string; name: string; number: string }[]; screen: 'mobile' | 'tablet' | 'desktop' }) {
+function InlineAskAgent({ pmJobs, screen, hideToggle, defaultOpen }: { pmJobs: { id: string; name: string; number: string }[]; screen: 'mobile' | 'tablet' | 'desktop'; hideToggle?: boolean; defaultOpen?: boolean }) {
   const isMobile = screen === 'mobile';
   const isTouch = screen !== 'desktop';
-  const [open, setOpen] = useState(false);
+  const [open, setOpen] = useState(defaultOpen ?? false);
   const [query, setQuery] = useState('');
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [loading, setLoading] = useState(false);
@@ -365,7 +365,7 @@ function InlineAskAgent({ pmJobs, screen }: { pmJobs: { id: string; name: string
   return (
     <div style={{ marginBottom: 6, borderRadius: 8, border: '1px solid rgba(205,162,116,0.12)', overflow: 'hidden', background: '#1a1a1a' }}>
       {/* Toggle Bar */}
-      <button
+      {!hideToggle && <button
         onClick={() => setOpen(!open)}
         style={{
           width: '100%', display: 'flex', alignItems: 'center', gap: isTouch ? 8 : 6,
@@ -379,7 +379,7 @@ function InlineAskAgent({ pmJobs, screen }: { pmJobs: { id: string; name: string
         <span style={{ flex: 1, fontSize: isTouch ? 14 : 12, fontWeight: 600, color: '#CDA274' }}>Ask Agent</span>
         {!isMobile && <span style={{ fontSize: isTouch ? 11 : 9, color: '#5a5550' }}>Tasks Â· Specs Â· Change Orders</span>}
         {open ? <ChevronUp size={isTouch ? 16 : 12} style={{ color: '#5a5550' }} /> : <ChevronDown size={isTouch ? 16 : 12} style={{ color: '#5a5550' }} />}
-      </button>
+      </button>}
 
       {/* Chat Body */}
       {open && (
@@ -700,6 +700,7 @@ export default function DashboardOverview() {
 
   // Waiting On tracking
   const [showWaitingOnPanel, setShowWaitingOnPanel] = useState(false);
+  const [showAgentPanel, setShowAgentPanel] = useState(false);
   const [panelTab, setPanelTab] = useState<'waitingOn' | 'newTask'>('waitingOn');
   const [stNewTaskName, setStNewTaskName] = useState('');
   const [stNewTaskJob, setStNewTaskJob] = useState('');
@@ -1176,8 +1177,24 @@ export default function DashboardOverview() {
         </button>
       </div>
 
-      {/* ASK AGENT */}
-      <InlineAskAgent pmJobs={overview?.data?.activeJobs || []} screen={'desktop'} />
+      {/* ACTION BUTTONS ROW */}
+      <div style={{ display: 'flex', gap: 6, marginBottom: 6 }}>
+        <button onClick={() => { setShowWaitingOnPanel(true); setShowAgentPanel(false); }}
+          style={{ flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6,
+            background: '#1e1e1e', border: '1px solid rgba(205,162,116,0.08)', borderRadius: 8,
+            padding: '7px 10px', cursor: 'pointer' }}>
+          <span style={{ fontSize: 13, color: '#CDA274' }}>+</span>
+          <span style={{ fontSize: 9, fontWeight: 600, color: '#CDA274', letterSpacing: '0.04em' }}>QUICK ADD</span>
+        </button>
+        <button onClick={() => { setShowAgentPanel(!showAgentPanel); }}
+          style={{ flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6,
+            background: showAgentPanel ? 'rgba(205,162,116,0.08)' : '#1e1e1e', border: '1px solid rgba(205,162,116,0.08)', borderRadius: 8,
+            padding: '7px 10px', cursor: 'pointer' }}>
+          <Bot size={12} style={{ color: '#CDA274' }} />
+          <span style={{ fontSize: 9, fontWeight: 600, color: '#CDA274', letterSpacing: '0.04em' }}>ASK AGENT</span>
+        </button>
+      </div>
+      {showAgentPanel && <InlineAskAgent pmJobs={overview?.data?.activeJobs || []} screen={'desktop'} hideToggle defaultOpen />}
 
       {/* KPI GRID */}
       <div style={{ display: 'grid', gridTemplateColumns: isMobile ? 'repeat(3, 1fr)' : 'repeat(5, 1fr)', gap: isTouch ? 6 : 4, marginBottom: isTouch ? 10 : 6 }}>
@@ -1608,14 +1625,7 @@ export default function DashboardOverview() {
         </div>
       ))}
 
-              {/* QUICK ADD – single button */}
-              <button onClick={() => setShowWaitingOnPanel(true)}
-                style={{ width: '100%', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6,
-                  background: '#1e1e1e', border: '1px solid rgba(205,162,116,0.08)', borderRadius: 8,
-                  padding: '7px 10px', marginBottom: 6, cursor: 'pointer' }}>
-                <span style={{ fontSize: 13, color: '#CDA274' }}>+</span>
-                <span style={{ fontSize: 9, fontWeight: 600, color: '#CDA274', letterSpacing: '0.04em' }}>QUICK ADD</span>
-              </button>
+
       {/* ALL TASKS â grouped by job, collapsible, filtered to overdue + next 4 weeks */}
       {tasks.length > 0 && (() => {
         // Filter tasks: overdue or due within next 4 weeks (28 days)
