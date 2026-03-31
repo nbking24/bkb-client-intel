@@ -1579,7 +1579,6 @@ export default function DashboardOverview() {
       {/* ── WAITING ON — ⏳ task tracker ─────────────────────── */}
       {(() => {
         const woTasks = tasks.filter(t => t.name.startsWith('⏳'));
-        if (woTasks.length === 0 && !showWaitingOnForm) return null;
 
         // Aging color logic
         function agingColor(daysUntilDue: number | null): string {
