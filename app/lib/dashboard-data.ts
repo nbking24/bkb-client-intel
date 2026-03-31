@@ -454,7 +454,7 @@ async function fetchARandCOData(
             comments: {
               $: { size: 100 },
               nodes: {
-                id: {}, body: {}, createdAt: {}, name: {},
+                id: {}, message: {}, createdAt: {}, name: {},
               },
             },
           },
@@ -474,7 +474,7 @@ async function fetchARandCOData(
       let lastResumeDate = 0;
 
       for (const c of comments) {
-        const body = (c.body || '') + ' ' + (c.name || '');
+        const body = (c.message || '') + ' ' + (c.name || '');
         if (AR_AUTO_RE.test(body)) {
           // Determine tier from subject/name
           let tier = 'reminder';

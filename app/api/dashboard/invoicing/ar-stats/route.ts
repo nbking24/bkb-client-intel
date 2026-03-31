@@ -61,7 +61,7 @@ export async function GET() {
             $: { id: job.id },
             comments: {
               $: { size: 50 },
-              nodes: { id: {}, body: {}, createdAt: {}, name: {} },
+              nodes: { id: {}, message: {}, createdAt: {}, name: {} },
             },
           },
         });
@@ -73,7 +73,7 @@ export async function GET() {
         let lastResumeDate = 0;
 
         for (const c of comments) {
-          const body = (c.body || '') + ' ' + (c.name || '');
+          const body = (c.message || '') + ' ' + (c.name || '');
 
           if (AR_AUTO_RE.test(body)) {
             jobReminderCount++;

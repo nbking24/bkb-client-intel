@@ -84,7 +84,7 @@ export async function GET(req: NextRequest) {
         comments: {
           $: { size: 200 },
           nodes: {
-            id: {}, body: {}, createdAt: {},
+            id: {}, message: {}, createdAt: {},
           },
         },
       },
@@ -95,7 +95,7 @@ export async function GET(req: NextRequest) {
     let lastResumeDate = 0;
 
     for (const c of comments) {
-      const body = (c.body || '');
+      const body = (c.message || '');
       if (/\[AR-HOLD\]/i.test(body)) {
         const d = new Date(c.createdAt).getTime();
         if (d > lastHoldDate) lastHoldDate = d;
