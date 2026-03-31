@@ -174,6 +174,7 @@ export default function DashboardOverview() {
   const [editingDateTaskId, setEditingDateTaskId] = useState<string | null>(null);
   const [pendingDate, setPendingDate] = useState('');
   const [showSection, setShowSection] = useState<string | false>(false);
+  const [collapsedJobs, setCollapsedJobs] = useState<Set<string>>(new Set());
   // Calendar task popup
   const [selectedCalTask, setSelectedCalTask] = useState<{ id: string; name: string; jobId: string; jobName: string; jobNumber: string; endDate: string | null; progress: number } | null>(null);
   const [calEditingDate, setCalEditingDate] = useState('');
@@ -845,108 +846,149 @@ export default function DashboardOverview() {
         </div>
       ))}
 
-      {/* INSIGHTS ROW — Urgent Items + Action Items side by side */}
-      {((analysis?.urgentItems?.length ?? 0) > 0 || (analysis?.actionItems?.length ?? 0) > 0) && (
-        <div style={{ display: 'grid', gridTemplateColumns: isMobile ? '1fr' : '1fr 1fr', gap: 6, marginBottom: 6 }}>
-          {(analysis?.urgentItems?.length ?? 0) > 0 && (
-            <div style={{ background: '#1e1e1e', border: '1px solid rgba(205,162,116,0.08)', borderRadius: 8, padding: '8px 10px' }}>
-              <div style={{ display: 'flex', alignItems: 'center', gap: 4, marginBottom: 6 }}>
-                <AlertTriangle size={10} style={{ color: '#ef4444' }} />
-                <span style={{ fontSize: 9, fontWeight: 600, color: '#ef4444' }}>NEEDS ATTENTION</span>
-              </div>
-              {analysis!.urgentItems.map((item, i) => (
-                <div key={i} style={{ background: 'rgba(239,68,68,0.06)', border: '1px solid rgba(239,68,68,0.12)', borderRadius: 6, padding: '5px 8px', marginBottom: 3 }}>
-                  <p style={{ fontSize: 11, fontWeight: 500, color: '#e8e0d8', margin: 0 }}>{item.title}</p>
-                  <p style={{ fontSize: 9, color: '#6a6058', margin: 0 }}>{item.description}{item.jobName ? ` — ${item.jobName}` : ''}</p>
-                </div>
-              ))}
-            </div>
-          )}
-
-          {(analysis?.actionItems?.length ?? 0) > 0 && (
-            <div style={{ background: '#1e1e1e', border: '1px solid rgba(205,162,116,0.08)', borderRadius: 8, padding: '8px 10px' }}>
-              <div style={{ display: 'flex', alignItems: 'center', gap: 4, marginBottom: 6 }}>
+      {/* ALL TASKS — grouped by job, collapsible */}
+      {tasks.length > 0 && (() => {
+        const jobGroups = new Map<string, typeof tasks>();
+        for (const t of tasks) {
+          const key = t.jobName || 'Unassigned';
+          if (!jobGroups.has(key)) jobGroups.set(key, []);
+          jobGroups.get(key)!.push(t);
+        }
+        // Sort jobs by number of urgent/overdue tasks descending
+        const sortedJobs = Array.from(jobGroups.entries()).sort((a, b) => {
+          const aUrgent = a[1].filter(t => t.urgency === 'urgent').length;
+          const bUrgent = b[1].filter(t => t.urgency === 'urgent').length;
+          return bUrgent - aUrgent || b[1].length - a[1].length;
+        });
+        return (
+          <div style={{ background: '#1e1e1e', border: '1px solid rgba(205,162,116,0.08)', borderRadius: 8, padding: '8px 10px', marginBottom: 6 }}>
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 6 }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
                 <ClipboardList size={10} style={{ color: '#CDA274' }} />
-                <span style={{ fontSize: 9, fontWeight: 600, color: '#CDA274' }}>ACTION ITEMS</span>
+                <span style={{ fontSize: 9, fontWeight: 600, color: '#CDA274', letterSpacing: '0.04em' }}>ALL TASKS ({tasks.length})</span>
               </div>
-              {analysis!.actionItems.slice(0, 6).map((item, i) => {
-                const color = item.priority === 'high' ? '#ef4444' : item.priority === 'medium' ? '#eab308' : '#22c55e';
-                return (
-                  <div key={i} style={{ display: 'flex', alignItems: 'start', gap: 6, padding: '4px 0', borderBottom: '1px solid rgba(205,162,116,0.04)' }}>
-                    <div style={{ width: 4, height: 4, borderRadius: 2, background: color, flexShrink: 0, marginTop: 5 }} />
-                    <div style={{ flex: 1, minWidth: 0 }}>
-                      <p style={{ fontSize: 11, color: '#e8e0d8', margin: 0 }}>{item.action}</p>
-                      {item.jobName && <p style={{ fontSize: 9, color: '#5a5550', margin: 0 }}>{item.jobName}</p>}
-                    </div>
-                  </div>
-                );
-              })}
+              <button
+                onClick={() => {
+                  if (collapsedJobs.size === sortedJobs.length) {
+                    setCollapsedJobs(new Set());
+                  } else {
+                    setCollapsedJobs(new Set(sortedJobs.map(([name]) => name)));
+                  }
+                }}
+                style={{ fontSize: 8, color: '#6a6058', background: 'transparent', border: 'none', cursor: 'pointer', padding: '2px 4px' }}
+              >
+                {collapsedJobs.size === sortedJobs.length ? 'Expand All' : 'Collapse All'}
+              </button>
             </div>
-          )}
-        </div>
-      )}
-
-      {/* TOMORROW PREVIEW */}
-      {tomorrowBriefing && (tomorrowBriefing.headline || tomorrowBriefing.calendarWalkthrough?.length > 0 || tomorrowBriefing.prepTonightOrAM?.length > 0) && (
-        <div style={{
-          background: tc?.period === 'evening' ? '#1a2332' : '#1e1e1e',
-          border: tc?.period === 'evening' ? '1px solid rgba(139,92,246,0.2)' : '1px solid rgba(205,162,116,0.08)',
-          borderRadius: 8, padding: '8px 10px', marginBottom: 6,
-        }}>
-          <div style={{ display: 'flex', alignItems: 'center', gap: 4, marginBottom: 6 }}>
-            <Calendar size={10} style={{ color: '#8b5cf6' }} />
-            <span style={{ fontSize: 9, fontWeight: 600, color: '#8b5cf6' }}>
-              {tc?.tomorrowLabel ? `${tc.tomorrowLabel.charAt(0).toUpperCase() + tc.tomorrowLabel.slice(1)}'s Preview` : "Tomorrow's Preview"}
-            </span>
-          </div>
-          {tomorrowBriefing.headline && (
-            <p style={{ fontSize: 12, color: '#e8e0d8', margin: '0 0 6px' }}>{tomorrowBriefing.headline}</p>
-          )}
-          <div style={{ display: 'grid', gridTemplateColumns: isMobile ? '1fr' : '1fr 1fr', gap: 8 }}>
-            {tomorrowBriefing.calendarWalkthrough?.length > 0 && (
-              <div>
-                <p style={{ fontSize: 8, fontWeight: 600, color: '#5a5550', marginBottom: 4, letterSpacing: '0.04em' }}>SCHEDULE</p>
-                {tomorrowBriefing.calendarWalkthrough.map((item, i) => (
-                  <div key={i} style={{ display: 'flex', gap: 6, padding: '3px 0' }}>
-                    <span style={{ fontSize: 10, fontWeight: 600, color: '#8b5cf6', minWidth: 50, flexShrink: 0 }}>{item.time}</span>
-                    <div style={{ flex: 1, minWidth: 0 }}>
-                      <p style={{ fontSize: 11, color: '#e8e0d8', margin: 0 }}>{item.event}</p>
-                      {item.prepNote && <p style={{ fontSize: 9, color: '#6a6058', margin: 0 }}>{item.prepNote}</p>}
+            {sortedJobs.map(([jobName, jobTasks]) => {
+              const isCollapsed = collapsedJobs.has(jobName);
+              const c = jobColor(jobTasks[0].jobNumber);
+              const urgentCount = jobTasks.filter(t => t.urgency === 'urgent').length;
+              const toggleCollapse = () => {
+                setCollapsedJobs(prev => {
+                  const next = new Set(prev);
+                  if (next.has(jobName)) next.delete(jobName); else next.add(jobName);
+                  return next;
+                });
+              };
+              return (
+                <div key={jobName} style={{ marginBottom: 4 }}>
+                  <button
+                    onClick={toggleCollapse}
+                    style={{
+                      display: 'flex', alignItems: 'center', gap: 6, width: '100%',
+                      padding: '5px 4px', borderRadius: 4, border: 'none', cursor: 'pointer',
+                      background: 'rgba(205,162,116,0.04)', textAlign: 'left',
+                    }}
+                  >
+                    <span style={{ width: 6, height: 6, borderRadius: 3, background: c, flexShrink: 0 }} />
+                    <span style={{ fontSize: 11, fontWeight: 600, color: '#e8e0d8', flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                      {jobName.replace(/^#\d+\s*/, '')}
+                    </span>
+                    <span style={{ fontSize: 9, color: '#6a6058', flexShrink: 0 }}>{jobTasks.length}</span>
+                    {urgentCount > 0 && (
+                      <span style={{ fontSize: 8, color: '#ef4444', background: 'rgba(239,68,68,0.1)', padding: '1px 4px', borderRadius: 3, flexShrink: 0 }}>
+                        {urgentCount} overdue
+                      </span>
+                    )}
+                    {isCollapsed ? <ChevronDown size={10} style={{ color: '#5a5550', flexShrink: 0 }} /> : <ChevronUp size={10} style={{ color: '#5a5550', flexShrink: 0 }} />}
+                  </button>
+                  {!isCollapsed && (
+                    <div style={{ paddingLeft: 12 }}>
+                      {jobTasks.sort((a, b) => {
+                        if (a.daysUntilDue === null && b.daysUntilDue === null) return 0;
+                        if (a.daysUntilDue === null) return 1;
+                        if (b.daysUntilDue === null) return -1;
+                        return a.daysUntilDue - b.daysUntilDue;
+                      }).map(task => {
+                        const isCompleting = completingTaskId === task.id;
+                        const isEditingDate = editingDateTaskId === task.id;
+                        const statusColor = task.urgency === 'urgent' ? '#ef4444' : task.urgency === 'high' ? '#eab308' : '#6a6058';
+                        return (
+                          <div key={task.id} style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '4px 0', borderBottom: '1px solid rgba(205,162,116,0.04)', opacity: isCompleting ? 0.4 : 1 }}>
+                            <button
+                              onClick={() => completeTask(task.id)}
+                              disabled={isCompleting}
+                              style={{ width: 18, height: 18, borderRadius: '50%', border: '1px solid rgba(205,162,116,0.25)', background: 'transparent', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}
+                            >
+                              {isCompleting
+                                ? <Loader2 size={10} className="animate-spin" style={{ color: '#8a8078' }} />
+                                : <Check size={10} style={{ color: '#22c55e' }} />
+                              }
+                            </button>
+                            <div style={{ flex: 1, minWidth: 0 }}>
+                              <p style={{ fontSize: 11, color: '#e8e0d8', margin: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{task.name}</p>
+                            </div>
+                            {isEditingDate ? (
+                              <input
+                                type="date"
+                                autoFocus
+                                defaultValue={task.endDate || ''}
+                                onChange={(e) => setPendingDate(e.target.value)}
+                                onBlur={() => {
+                                  if (pendingDate && pendingDate !== task.endDate) updateTaskDate(task.id, pendingDate);
+                                  else { setEditingDateTaskId(null); setPendingDate(''); }
+                                }}
+                                onKeyDown={(e) => {
+                                  if (e.key === 'Enter' && pendingDate) updateTaskDate(task.id, pendingDate);
+                                  if (e.key === 'Escape') { setEditingDateTaskId(null); setPendingDate(''); }
+                                }}
+                                style={{ fontSize: 10, padding: '2px 4px', borderRadius: 4, background: '#2a2a2a', border: '1px solid rgba(205,162,116,0.3)', color: '#e8e0d8', width: 110, flexShrink: 0, colorScheme: 'dark' }}
+                              />
+                            ) : (
+                              <div style={{ display: 'flex', alignItems: 'center', gap: 4, flexShrink: 0 }}>
+                                <button
+                                  onClick={() => { setEditingDateTaskId(task.id); setPendingDate(task.endDate || ''); }}
+                                  style={{ fontSize: 10, color: statusColor, background: 'transparent', border: 'none', cursor: 'pointer', padding: 0 }}
+                                >
+                                  {task.daysUntilDue !== null
+                                    ? (task.daysUntilDue < 0 ? `${Math.abs(task.daysUntilDue)}d overdue` : task.daysUntilDue === 0 ? 'Today' : `${task.daysUntilDue}d`)
+                                    : 'No date'}
+                                </button>
+                                {task.jobId && (
+                                  <a
+                                    href={jtScheduleUrl(task.jobId)}
+                                    target="_blank"
+                                    rel="noopener noreferrer"
+                                    style={{ lineHeight: 0, flexShrink: 0 }}
+                                    title="View in JobTread"
+                                  >
+                                    <ExternalLink size={10} style={{ color: '#5a5550' }} />
+                                  </a>
+                                )}
+                              </div>
+                            )}
+                          </div>
+                        );
+                      })}
                     </div>
-                  </div>
-                ))}
-              </div>
-            )}
-            {(tomorrowBriefing.prepTonightOrAM?.length > 0 || tomorrowBriefing.tasksDue?.length > 0) && (
-              <div>
-                {tomorrowBriefing.prepTonightOrAM?.length > 0 && (
-                  <>
-                    <p style={{ fontSize: 8, fontWeight: 600, color: '#5a5550', marginBottom: 4, letterSpacing: '0.04em' }}>
-                      {tc?.period === 'evening' ? 'PREP TONIGHT' : 'PREP FOR TOMORROW'}
-                    </p>
-                    {tomorrowBriefing.prepTonightOrAM.map((item, i) => (
-                      <div key={i} style={{ display: 'flex', alignItems: 'start', gap: 4, padding: '2px 0' }}>
-                        <CheckCircle2 size={9} style={{ color: '#eab308', flexShrink: 0, marginTop: 2 }} />
-                        <p style={{ fontSize: 11, color: '#e8e0d8', margin: 0 }}>{item}</p>
-                      </div>
-                    ))}
-                  </>
-                )}
-                {tomorrowBriefing.tasksDue?.length > 0 && (
-                  <div style={{ marginTop: 6 }}>
-                    <p style={{ fontSize: 8, fontWeight: 600, color: '#5a5550', marginBottom: 4, letterSpacing: '0.04em' }}>TASKS DUE</p>
-                    {tomorrowBriefing.tasksDue.map((item, i) => (
-                      <p key={i} style={{ fontSize: 11, color: '#8a8078', margin: '2px 0' }}>
-                        {item.task} <span style={{ color: '#5a5550' }}>— {item.jobName}</span>
-                      </p>
-                    ))}
-                  </div>
-                )}
-              </div>
-            )}
+                  )}
+                </div>
+              );
+            })}
           </div>
-        </div>
-      )}
+        );
+      })()}
 
       {/* CALENDAR TASK POPUP */}
       {selectedCalTask && (
