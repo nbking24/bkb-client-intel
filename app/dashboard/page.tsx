@@ -7,7 +7,8 @@ import {
   DollarSign, ClipboardList, ChevronRight,
   ChevronUp, ChevronDown, TrendingUp, TrendingDown, Minus,
   Target, Clock3, Activity, CalendarDays, Building2,
-  FileCheck, FileWarning, FileClock, XCircle, Send
+  FileCheck, FileWarning, FileClock, XCircle, Send,
+  X, ExternalLink, Check
 } from 'lucide-react';
 import { useAuth } from '@/app/hooks/useAuth';
 // Terri accesses dashboard on desktop only — no responsive hook needed
@@ -173,6 +174,11 @@ export default function DashboardOverview() {
   const [editingDateTaskId, setEditingDateTaskId] = useState<string | null>(null);
   const [pendingDate, setPendingDate] = useState('');
   const [showSection, setShowSection] = useState<string | false>(false);
+  // Calendar task popup
+  const [selectedCalTask, setSelectedCalTask] = useState<{ id: string; name: string; jobId: string; jobName: string; jobNumber: string; endDate: string | null; progress: number } | null>(null);
+  const [calEditingDate, setCalEditingDate] = useState('');
+  const [calSavingDate, setCalSavingDate] = useState(false);
+  const [calCompleting, setCalCompleting] = useState(false);
   // AR Stats
   const [arStats, setArStats] = useState<{
     totalRemindersSent: number;
@@ -228,6 +234,53 @@ export default function DashboardOverview() {
     } finally {
       setEditingDateTaskId(null);
       setPendingDate('');
+    }
+  }
+
+  // Calendar popup actions
+  async function completeCalTask() {
+    if (!selectedCalTask) return;
+    setCalCompleting(true);
+    try {
+      const res = await fetch('/api/dashboard/tasks', {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${getToken()}` },
+        body: JSON.stringify({ taskId: selectedCalTask.id, action: 'complete' }),
+      });
+      if (!res.ok) throw new Error('Failed');
+      if (overview) {
+        const updatedTasks = overview.data.tasks.filter(t => t.id !== selectedCalTask.id);
+        setOverview({ ...overview, data: { ...overview.data, tasks: updatedTasks, stats: { ...overview.data.stats, totalTasks: updatedTasks.length } } });
+      }
+      setSelectedCalTask(null);
+    } catch (err: any) {
+      console.error('Complete cal task failed:', err);
+    } finally {
+      setCalCompleting(false);
+    }
+  }
+
+  async function saveCalDate() {
+    if (!selectedCalTask || !calEditingDate) return;
+    setCalSavingDate(true);
+    try {
+      const res = await fetch('/api/dashboard/tasks', {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${getToken()}` },
+        body: JSON.stringify({ taskId: selectedCalTask.id, action: 'update', endDate: calEditingDate }),
+      });
+      if (!res.ok) throw new Error('Failed');
+      if (overview) {
+        const updatedTasks = overview.data.tasks.map(t =>
+          t.id === selectedCalTask.id ? { ...t, endDate: calEditingDate, ...recalcUrgency(calEditingDate) } : t
+        );
+        setOverview({ ...overview, data: { ...overview.data, tasks: updatedTasks } });
+      }
+      setSelectedCalTask(null);
+    } catch (err: any) {
+      console.error('Save cal date failed:', err);
+    } finally {
+      setCalSavingDate(false);
     }
   }
 
@@ -758,24 +811,25 @@ export default function DashboardOverview() {
                   <div style={{ flex: 1, padding: '1px 2px 3px', display: 'flex', flexDirection: 'column', gap: 1, overflow: 'hidden' }}>
                     {incomplete.map(task => {
                       const c = jobColor(task.jobNumber);
+                      const isSelected = selectedCalTask?.id === task.id;
                       return (
-                        <a
+                        <div
                           key={task.id}
-                          href={task.jobId ? jtScheduleUrl(task.jobId) : '#'}
-                          target="_blank"
-                          rel="noopener noreferrer"
+                          onClick={() => {
+                            setSelectedCalTask(task);
+                            setCalEditingDate(task.endDate || '');
+                          }}
                           style={{
                             padding: '2px 3px', borderRadius: 3, cursor: 'pointer',
                             borderLeft: `3px solid ${c}`,
-                            background: `${c}18`,
+                            background: isSelected ? `${c}50` : `${c}18`,
                             fontSize: 9, lineHeight: '12px', color: '#e8e0d8',
-                            display: 'block', textDecoration: 'none',
                             overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
                           }}
                           title={`${task.name} — ${task.jobName}`}
                         >
                           {task.name}
-                        </a>
+                        </div>
                       );
                     })}
                     {complete.length > 0 && (
@@ -890,6 +944,89 @@ export default function DashboardOverview() {
                 )}
               </div>
             )}
+          </div>
+        </div>
+      )}
+
+      {/* CALENDAR TASK POPUP */}
+      {selectedCalTask && (
+        <div style={{
+          position: 'fixed', top: 0, left: 0, right: 0, bottom: 0,
+          background: 'rgba(0,0,0,0.5)', display: 'flex', alignItems: 'center', justifyContent: 'center',
+          zIndex: 1000,
+        }} onClick={() => setSelectedCalTask(null)}>
+          <div onClick={e => e.stopPropagation()} style={{
+            background: '#252525', borderRadius: 12, padding: 16, minWidth: 280, maxWidth: 360,
+            border: '1px solid rgba(205,162,116,0.15)', boxShadow: '0 12px 40px rgba(0,0,0,0.6)',
+          }}>
+            {/* Header */}
+            <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', marginBottom: 10 }}>
+              <div style={{ flex: 1, minWidth: 0 }}>
+                <div style={{ fontSize: 14, fontWeight: 600, color: '#e8e0d8', lineHeight: '18px' }}>{selectedCalTask.name}</div>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 5, marginTop: 4 }}>
+                  <span style={{ width: 7, height: 7, borderRadius: 4, background: jobColor(selectedCalTask.jobNumber), flexShrink: 0 }} />
+                  <span style={{ fontSize: 11, color: '#8a8078' }}>#{selectedCalTask.jobNumber} {selectedCalTask.jobName}</span>
+                </div>
+              </div>
+              <button onClick={() => setSelectedCalTask(null)} style={{ background: 'none', border: 'none', cursor: 'pointer', padding: 2, lineHeight: 0 }}>
+                <X size={14} style={{ color: '#6a6058' }} />
+              </button>
+            </div>
+
+            {/* Date edit */}
+            <div style={{ marginBottom: 12 }}>
+              <label style={{ fontSize: 10, color: '#6a6058', fontWeight: 600, display: 'block', marginBottom: 4 }}>DUE DATE</label>
+              <div style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
+                <input
+                  type="date"
+                  value={calEditingDate}
+                  onChange={e => setCalEditingDate(e.target.value)}
+                  style={{
+                    flex: 1, background: '#1a1a1a', border: '1px solid rgba(205,162,116,0.15)', borderRadius: 6,
+                    color: '#e8e0d8', fontSize: 12, padding: '5px 8px',
+                    colorScheme: 'dark',
+                  }}
+                />
+                {calEditingDate !== (selectedCalTask.endDate || '') && (
+                  <button onClick={saveCalDate} disabled={calSavingDate}
+                    style={{
+                      background: '#CDA274', color: '#1a1a1a', fontSize: 11, fontWeight: 600,
+                      padding: '5px 10px', borderRadius: 6, border: 'none', cursor: 'pointer',
+                      opacity: calSavingDate ? 0.5 : 1,
+                    }}>
+                    {calSavingDate ? 'Saving...' : 'Save'}
+                  </button>
+                )}
+              </div>
+            </div>
+
+            {/* Actions */}
+            <div style={{ display: 'flex', gap: 8 }}>
+              <button
+                onClick={completeCalTask}
+                disabled={calCompleting}
+                style={{
+                  flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 5,
+                  padding: '7px 0', borderRadius: 6, border: 'none', cursor: 'pointer', fontSize: 12, fontWeight: 600,
+                  background: 'rgba(34,197,94,0.1)', color: '#22c55e',
+                  opacity: calCompleting ? 0.5 : 1,
+                }}>
+                {calCompleting
+                  ? <Loader2 size={13} className="animate-spin" />
+                  : <><Check size={13} /> Mark Complete</>
+                }
+              </button>
+              <a
+                href={selectedCalTask.jobId ? jtScheduleUrl(selectedCalTask.jobId) : '#'}
+                target="_blank" rel="noopener noreferrer"
+                style={{
+                  flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 5,
+                  padding: '7px 0', borderRadius: 6, fontSize: 12, fontWeight: 600, textDecoration: 'none',
+                  background: 'rgba(205,162,116,0.1)', color: '#CDA274',
+                }}>
+                <ExternalLink size={13} /> View in JobTread
+              </a>
+            </div>
           </div>
         </div>
       )}
