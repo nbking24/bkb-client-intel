@@ -1543,7 +1543,7 @@ export default function DashboardOverview() {
             {top5.map((t, i) => {
               const d = agingDays(t);
               const label = t.name.replace(/^⏳\s*/, '');
-              const jobName = (overview?.data?.activeJobs || []).find((j: any) => j.id === t.targetId)?.name || '';
+              const jobName = t.jobName || '';
               return (
                 <div key={t.id || i} style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '4px 6px', borderRadius: 6, background: agingBg(d), marginBottom: 2 }}>
                   <div style={{ width: 6, height: 6, borderRadius: '50%', background: agingColor(d), flexShrink: 0 }} />
