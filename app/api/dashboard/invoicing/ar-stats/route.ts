@@ -6,7 +6,7 @@
 // ============================================================
 
 import { NextResponse } from 'next/server';
-import { pave, getActiveJobs } from '@/app/lib/jobtread';
+import { pave } from '@/app/lib/jobtread';
 
 export const runtime = 'nodejs';
 
@@ -19,9 +19,18 @@ interface ArStatRecord {
 
 export async function GET() {
   try {
-    // 1. Get active jobs using the shared helper
-    const allJobs = await getActiveJobs(100);
-    const jobs = allJobs.map(j => ({ id: j.id, name: j.name }));
+    // 1. Get active (non-closed) jobs — lightweight query with just id and name
+    const ORG_ID = process.env.JOBTREAD_ORG_ID || '22P5SRwhLaYe';
+    const jobsResp = await pave({
+      organization: {
+        $: { id: ORG_ID },
+        jobs: {
+          $: { size: 50, where: ['closedOn', '=', null] },
+          nodes: { id: {}, name: {} },
+        },
+      },
+    });
+    const jobs: Array<{ id: string; name: string }> = ((jobsResp as any)?.organization?.jobs?.nodes || []);
     if (jobs.length === 0) {
       return NextResponse.json({
         totalRemindersSent: 0,
@@ -46,7 +55,7 @@ export async function GET() {
     const TIER_RE = /\b(20-day|30-day|45-day|60-day)\b/i;
 
     // Process in batches of 8 to avoid overwhelming the API
-    const BATCH_SIZE = 8;
+    const BATCH_SIZE = 4;
     for (let i = 0; i < jobs.length; i += BATCH_SIZE) {
       const batch = jobs.slice(i, i + BATCH_SIZE);
       const results = await Promise.allSettled(
@@ -55,7 +64,7 @@ export async function GET() {
             job: {
               $: { id: job.id },
               comments: {
-                $: { size: 100 },
+                $: { size: 50 },
                 nodes: { id: {}, body: {}, createdAt: {} },
               },
             },
