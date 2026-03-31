@@ -4,7 +4,7 @@
 >
 > **Nathan:** If starting a new conversation, mention this doc or say "review the architecture doc" so the assistant knows to read it first.
 
-**Last updated:** 2026-03-28
+**Last updated:** 2026-03-31
 **Repo:** `github.com/nbking24/bkb-client-intel`
 **Deploy:** Vercel (auto-deploy on push to `main`)
 **Live URL:** `https://bkb-client-intel.vercel.app`
@@ -42,7 +42,7 @@ app/
 ÃÂ¢ÃÂÃÂ   ÃÂ¢ÃÂÃÂÃÂ¢ÃÂÃÂÃÂ¢ÃÂÃÂ ask/page.tsx                  # Mobile Ask Agent (/m/ask)
 ÃÂ¢ÃÂÃÂÃÂ¢ÃÂÃÂÃÂ¢ÃÂÃÂ dashboard/
 ÃÂ¢ÃÂÃÂ   ÃÂ¢ÃÂÃÂÃÂ¢ÃÂÃÂÃÂ¢ÃÂÃÂ layout.tsx                    # Dashboard shell (header + 4-item sidebar + Ask Agent button + auth gate)
-ÃÂ¢ÃÂÃÂ   ÃÂ¢ÃÂÃÂÃÂ¢ÃÂÃÂÃÂ¢ÃÂÃÂ page.tsx                      # Overview ÃÂ¢ÃÂÃÂ time-aware AI briefing, tasks, calendar, email, chat
+ÃÂ¢ÃÂÃÂ   ÃÂ¢ÃÂÃÂÃÂ¢ÃÂÃÂÃÂ¢ÃÂÃÂ page.tsx                      # Overview (Terri's dashboard) — KPIs, 2-week calendar, inline Ask Agent, task list with search + create
 ÃÂ¢ÃÂÃÂ   ÃÂ¢ÃÂÃÂÃÂ¢ÃÂÃÂÃÂ¢ÃÂÃÂ login/page.tsx                # Per-user PIN login (setup + sign-in flow)
 ÃÂ¢ÃÂÃÂ   ÃÂ¢ÃÂÃÂÃÂ¢ÃÂÃÂÃÂ¢ÃÂÃÂ components/
 ÃÂ¢ÃÂÃÂ   ÃÂ¢ÃÂÃÂ   ÃÂ¢ÃÂÃÂÃÂ¢ÃÂÃÂÃÂ¢ÃÂÃÂ AskAgentPanel.tsx         # Slide-out Ask Agent panel (Know-it-All / Approved Specs toggle)
@@ -104,6 +104,7 @@ app/
 ÃÂ¢ÃÂÃÂ   ÃÂ¢ÃÂÃÂ   ÃÂ¢ÃÂÃÂ   ÃÂ¢ÃÂÃÂÃÂ¢ÃÂÃÂÃÂ¢ÃÂÃÂ queue-invoice/route.ts         # Queue invoice creation request (Supabase ÃÂ¢ÃÂÃÂ scheduled task)
 ÃÂ¢ÃÂÃÂ   ÃÂ¢ÃÂÃÂ   ÃÂ¢ÃÂÃÂÃÂ¢ÃÂÃÂÃÂ¢ÃÂÃÂ projects/route.ts        # Active projects list
 ÃÂ¢ÃÂÃÂ   ÃÂ¢ÃÂÃÂ   ÃÂ¢ÃÂÃÂÃÂ¢ÃÂÃÂÃÂ¢ÃÂÃÂ tasks/route.ts           # Task list + PATCH for complete/update
+ÃÂ¢ÃÂÃÂ   ÃÂ¢ÃÂÃÂ   ÃÂ¢ÃÂÃÂÃÂ¢ÃÂÃÂÃÂ¢ÃÂÃÂ create-task/route.ts     # Create task under a phase for any job (used by overview dashboard)
 ÃÂ¢ÃÂÃÂ   ÃÂ¢ÃÂÃÂ   ÃÂ¢ÃÂÃÂÃÂ¢ÃÂÃÂÃÂ¢ÃÂÃÂ chat/route.ts           # Dashboard chat widget endpoint (separate from Ask Agent)
 ÃÂ¢ÃÂÃÂ   ÃÂ¢ÃÂÃÂ   ÃÂ¢ÃÂÃÂÃÂ¢ÃÂÃÂÃÂ¢ÃÂÃÂ inbox-cleanup/route.ts  # AI-powered email triage + archive
 ÃÂ¢ÃÂÃÂ   ÃÂ¢ÃÂÃÂ   ÃÂ¢ÃÂÃÂÃÂ¢ÃÂÃÂÃÂ¢ÃÂÃÂ quick-action/route.ts   # Do Now action handler (Gmail draft creation)
@@ -949,7 +950,112 @@ The Field Hub is a mobile-optimized dashboard for field crew members (e.g., Evan
 - **PAVE document cost groups**: Documents contain their own COPIES of cost groups with DIFFERENT IDs than budget groups. Matching must be done by name, not by ID.
 ---
 
-## 17. Changelog
+## 17. Overview Dashboard (Terri)
+
+The Overview Dashboard (`/dashboard`) is Terri's primary workspace — a desktop-only dashboard showing KPIs, a 2-week task calendar, inline Ask Agent, and a filterable task list with task creation capabilities.
+
+### Route
+- **Page**: `/dashboard` (`app/dashboard/page.tsx`)
+- **Auth**: Token-based via localStorage (`bkb-token`), uses `useAuth()` hook
+- **Desktop only**: `isMobile = false`, `isTouch = false` hardcoded
+
+### Features
+
+#### Inline Ask Agent (Top of Dashboard)
+- Collapsible chat widget embedded after the header greeting, before KPI grid
+- Copied from Evan's field dashboard `InlineAskAgent` component (identical implementation)
+- **Three modes**: Agent (general), Change Order, Specs — mode selector bar with job dropdown
+- **Job selector**: Pre-populated from `overview.data.activeJobs` (all active BKB jobs)
+- **CO Proposal approval UI**: Line items table with Approve/Cancel buttons
+- **Image attachment**: Paperclip button in Change Order mode, preview strip, upload to `/api/upload`
+- Auth token via `getAuthToken()` using `NEXT_PUBLIC_APP_PIN`
+- Uses `/api/chat` endpoint (routes to Know-it-All agent for non-field users)
+
+#### KPI Grid (5 metrics)
+1. **Active Jobs** — count of active JT jobs (gold left border)
+2. **Open Tasks** — clickable, expands task detail section (blue)
+3. **Overdue** — clickable, shows overdue tasks only (red/amber)
+4. **Outstanding Invoices** — total amount with count (amber/green)
+5. **Pending COs** — change order counts (amber)
+
+#### 2-Week Calendar View
+- Forward-looking from current Monday: "This Week" and "Next Week" in 7-column grid
+- Each day cell shows tasks as colored pills with left-border accent
+- Tasks are **color-coded by job** using 12-color hash-based palette (deterministic from job number via `jobColor()`)
+- Today's cell highlighted with golden background
+- Weekend columns have muted background
+- **Clickable tasks**: Opens a popup modal with Mark Complete, Edit Due Date, and View in JobTread link
+- Computed inline (IIFE, not useMemo) to avoid React hooks-after-early-return violation
+
+#### Task Detail Popup (Calendar)
+- Modal overlay when clicking a calendar task
+- Shows task name, job info with color dot
+- Inline date picker with Save button for rescheduling
+- Mark Complete button with loading state
+- Direct "View in JobTread" link to job schedule
+
+#### All Tasks Section (Collapsible by Job)
+- **Filtered to overdue + next 4 weeks** (28 days) — tasks beyond this window are hidden
+- **Date range label** shown next to header: "Overdue thru [date]"
+- Tasks with no due date are included (may need attention)
+- **Search box** at top — filters job groups by project name in real-time, with clear button
+- Grouped by job name, sorted A-Z
+- Each job group is **collapsible** with chevron toggle, shows task count and overdue count
+- Expand All / Collapse All toggle button
+- Per-task actions: Mark Complete (circle checkbox), Edit Due Date (inline date picker), View in JobTread (external link)
+- **Create Task button (+)** on each job group header — opens a modal to create a new task
+
+#### Create Task Modal
+- Triggered by "+" button on any job group
+- Fields: Task Name (text, auto-focused), Phase/Category (dropdown with all 9 BKB standard phases), Due Date (optional)
+- Defaults to "In Production" phase
+- Creates task via `POST /api/dashboard/create-task` endpoint
+- Task appears immediately in the UI after creation (optimistic update)
+- **9 BKB Standard Phases**: Admin Tasks, Conceptual Design, Design Development, Contract, Preconstruction, In Production, Inspections, Punch List, Project Completion
+
+### API Endpoints
+| Endpoint | Method | Purpose |
+|---|---|---|
+| `/api/dashboard/overview` | GET | Dashboard overview data + AI analysis (cached in Supabase) |
+| `/api/dashboard/tasks` | PATCH | Mark task complete or update due date (`{ taskId, action, endDate? }`) |
+| `/api/dashboard/create-task` | POST | Create task under a phase (`{ jobId, taskName, phaseName, endDate? }`) — looks up phase by name, creates group if missing |
+| `/api/chat` | POST | Inline Ask Agent chat (routes to Know-it-All for non-field users) |
+
+### Key Implementation Details
+- **Data source**: `overview.data.tasks` from the overview API, each task includes `jobId` field (added to `DashboardTask` interface in `dashboard-data.ts`)
+- **Calendar weeks**: Computed as inline IIFE (not `useMemo`) because hooks cannot be placed after conditional early returns — React rules of hooks constraint
+- **Task-by-date mapping**: Also computed inline for the same hooks constraint reason
+- **Job color mapping**: Same 12-color PALETTE and `jobColor()` hash function as field dashboard
+- **Removed sections**: Do Now, Schedule, Email/Inbox, Action Items, Needs Attention, Tomorrow's Preview, Quick Navigation links — replaced with calendar + task list + Ask Agent
+- **Helper functions**: `getToken()` (localStorage auth), `getAuthToken()` (PIN-based for chat API), `getGreeting()` (time-of-day greeting), `timeAgo()` (relative timestamps), `recalcUrgency()` (recompute urgency after date change), `jtScheduleUrl()` (JobTread schedule deep link)
+
+### Files
+| File | Purpose |
+|---|---|
+| `app/dashboard/page.tsx` | Main overview dashboard (Terri) — all UI components including InlineAskAgent, RenderContent |
+| `app/api/dashboard/create-task/route.ts` | Create task under a phase for any job |
+| `app/api/dashboard/tasks/route.ts` | Task list + PATCH for complete/update |
+| `app/api/dashboard/overview/route.ts` | Dashboard overview data aggregation + AI analysis |
+| `app/lib/dashboard-data.ts` | Data aggregation (JT tasks with jobId, comments, Gmail, Calendar) |
+
+---
+
+## 18. Changelog
+
+### 2026-03-31 — Overview Dashboard Redesign (Terri)
+- **Removed** from overview dashboard: Do Now block, Schedule block, Email/Inbox block, Action Items, Needs Attention, Tomorrow's Preview, Quick Navigation links at bottom
+- **Added 2-week calendar grid** matching Evan's field dashboard format — shows only Terri's tasks, color-coded by job, clickable with popup modal (Mark Complete, Edit Due Date, View in JobTread)
+- **Added Inline Ask Agent** at top of dashboard — full copy of Evan's `InlineAskAgent` component with Agent/Change Order/Specs modes, job selector, CO proposal approval UI, image attachments
+- **Added collapsible task list** organized by job name (A-Z), with per-task actions: mark complete, edit due date, view in JobTread
+- **Added task search box** at top of All Tasks section — filters job groups by project name in real-time
+- **Added create task button (+)** on each job group — opens modal with task name, phase/category selector (9 BKB standard phases), optional due date
+- **Added `POST /api/dashboard/create-task`** endpoint — creates task under specified phase, creates phase group if it doesn't exist
+- **Filtered All Tasks** to only show overdue tasks and tasks due within the next 4 weeks (28 days), with date range label in header
+- **Added `jobId`** to `DashboardTask` interface in `dashboard-data.ts` so calendar tasks can link to JobTread
+- **Added `getAuthToken()`** function and `RenderContent` component to overview dashboard for Ask Agent support
+- **Added Section 17** to ARCHITECTURE.md documenting the full overview dashboard design
+- **Files changed**: `app/dashboard/page.tsx`, `app/api/dashboard/create-task/route.ts` (new), `app/lib/dashboard-data.ts`
+- **React hooks constraint**: Calendar weeks and task-by-date mapping use inline IIFEs instead of `useMemo` because hooks cannot be placed after conditional early returns (`if (!auth.isAuthenticated)`)
 
 ### 2026-03-30 — Change Order Submission System (Complete)
 - **CO Tracker Widget** on field dashboard — two-status model: **approved** vs **pending**
