@@ -700,15 +700,6 @@ export default function DashboardOverview() {
 
   // Waiting On tracking
   const [showWaitingOnPanel, setShowWaitingOnPanel] = useState(false);
-  const [panelTab, setPanelTab] = useState('waitingOn');
-  const [stNewTaskName, setStNewTaskName] = useState('');
-  const [stNewTaskJob, setStNewTaskJob] = useState('');
-  const [stNewTaskPhase, setStNewTaskPhase] = useState('');
-  const [stNewTaskDate, setStNewTaskDate] = useState('');
-  const [stNewTaskAssignee, setStNewTaskAssignee] = useState('');
-  const [creatingSt, setCreatingSt] = useState(false);
-
-  const BKB_PHASES = ['Admin Tasks', 'Conceptual Design', 'Design Development', 'Contract', 'Preconstruction', 'In Production', 'Inspections', 'Punch List', 'Project Completion'];
   const [showWaitingOnForm, setShowWaitingOnForm] = useState(false);
   const [woTaskName, setWoTaskName] = useState('');
   const [woJobId, setWoJobId] = useState('');
@@ -924,45 +915,6 @@ export default function DashboardOverview() {
     } finally {
       setCompletingWoId(null);
     }
-
-  // ── Create standalone task (from Quick Add panel) ──────────────
-  async function createStandaloneTask() {
-    if (!stNewTaskName.trim() || !stNewTaskJob || !stNewTaskPhase) return;
-    setCreatingSt(true);
-    try {
-      const res = await fetch('/api/dashboard/create-task', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          jobId: stNewTaskJob,
-          name: stNewTaskName.trim(),
-          phase: stNewTaskPhase,
-          date: stNewTaskDate || undefined,
-        }),
-      });
-      if (!res.ok) throw new Error(await res.text());
-      const data = await res.json();
-      if (overview && data.task) {
-        const matchedJob = overview.data.activeJobs?.find((j: any) => j.id === stNewTaskJob);
-        const newTask = {
-          id: data.task.id,
-          name: stNewTaskName.trim(),
-          jobName: matchedJob ? `#${matchedJob.number} ${matchedJob.name}` : '',
-          jobId: stNewTaskJob,
-          dueDate: stNewTaskDate || null,
-          daysUntilDue: stNewTaskDate ? Math.ceil((new Date(stNewTaskDate).getTime() - Date.now()) / 86400000) : null,
-          status: 'open',
-        };
-        setOverview({ ...overview, data: { ...overview.data, tasks: [...overview.data.tasks, newTask] } });
-      }
-      setStNewTaskName(''); setStNewTaskJob(''); setStNewTaskPhase(''); setStNewTaskDate(''); setStNewTaskAssignee('');
-    } catch (err: any) {
-      console.error('Failed to create task:', err);
-      alert('Failed to create task: ' + err.message);
-    } finally {
-      setCreatingSt(false);
-    }
-  }
   }
 
   async function completeTask(taskId: string) {
