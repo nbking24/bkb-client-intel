@@ -82,7 +82,7 @@ export async function GET(req: NextRequest) {
       job: {
         $: { id: jobId },
         comments: {
-          $: { size: 200 },
+          $: { size: 100 },
           nodes: {
             id: {}, message: {}, createdAt: {},
           },
