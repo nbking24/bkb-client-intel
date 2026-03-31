@@ -1411,10 +1411,24 @@ export default function DashboardOverview() {
         </div>
       ))}
 
-      {/* ALL TASKS — grouped by job, collapsible */}
+      {/* ALL TASKS — grouped by job, collapsible, filtered to overdue + next 4 weeks */}
       {tasks.length > 0 && (() => {
+        // Filter tasks: overdue or due within next 4 weeks (28 days)
+        const now = new Date();
+        const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+        const fourWeeksOut = new Date(today);
+        fourWeeksOut.setDate(today.getDate() + 28);
+        const rangeEndStr = fourWeeksOut.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+        const todayStr2 = today.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+
+        const filteredTasks = tasks.filter(t => {
+          if (!t.endDate) return true; // No date = show (could be urgent)
+          const d = new Date(t.endDate + 'T12:00:00');
+          return d <= fourWeeksOut; // Overdue (before today) or within 4 weeks
+        });
+
         const jobGroups = new Map<string, typeof tasks>();
-        for (const t of tasks) {
+        for (const t of filteredTasks) {
           const key = t.jobName || 'Unassigned';
           if (!jobGroups.has(key)) jobGroups.set(key, []);
           jobGroups.get(key)!.push(t);
@@ -1432,7 +1446,8 @@ export default function DashboardOverview() {
             <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 6 }}>
               <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
                 <ClipboardList size={10} style={{ color: '#CDA274' }} />
-                <span style={{ fontSize: 9, fontWeight: 600, color: '#CDA274', letterSpacing: '0.04em' }}>ALL TASKS ({tasks.length})</span>
+                <span style={{ fontSize: 9, fontWeight: 600, color: '#CDA274', letterSpacing: '0.04em' }}>ALL TASKS ({filteredTasks.length})</span>
+                <span style={{ fontSize: 8, color: '#5a5550', marginLeft: 2 }}>Overdue thru {rangeEndStr}</span>
               </div>
               <button
                 onClick={() => {
