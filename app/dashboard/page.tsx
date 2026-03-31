@@ -324,7 +324,8 @@ export default function DashboardOverview() {
         };
       }),
     }));
-  }, [todayStr]);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   const tasksByDate = useMemo(() => {
     const m: Record<string, typeof tasks> = {};
@@ -335,7 +336,8 @@ export default function DashboardOverview() {
       m[d].push(t);
     }
     return m;
-  }, [tasks]);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [overview]);
 
   if (loading && !overview) return (
     <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '80px 0' }}>
