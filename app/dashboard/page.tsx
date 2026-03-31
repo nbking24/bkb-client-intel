@@ -72,6 +72,11 @@ interface DashboardAnalysis {
   tomorrowBriefing?: TomorrowBriefing;
 }
 
+interface ArAutoRecord {
+  date: string;
+  tier: string;
+}
+
 interface OutstandingInvoice {
   id: string;
   documentNumber: string;
@@ -80,6 +85,8 @@ interface OutstandingInvoice {
   amount: number;
   createdAt: string;
   daysPending: number;
+  arAutoSent?: ArAutoRecord[];
+  arHold?: boolean;
 }
 
 interface ChangeOrderSummary {
@@ -534,25 +541,51 @@ export default function DashboardOverview() {
               const isOverdue = inv.daysPending > 30;
               const isWarning = inv.daysPending > 14;
               const statusColor = isOverdue ? '#ef4444' : isWarning ? '#f59e0b' : '#6a6058';
+              const hasArAuto = inv.arAutoSent && inv.arAutoSent.length > 0;
+              const lastArSent = hasArAuto ? inv.arAutoSent![0] : null;
+              const isHeld = inv.arHold === true;
               return (
-                <div key={inv.id} style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '5px 0', borderBottom: '1px solid rgba(205,162,116,0.04)' }}>
-                  <div style={{ width: 5, height: 5, borderRadius: 3, background: statusColor, flexShrink: 0 }} />
-                  <div style={{ flex: 1, minWidth: 0 }}>
-                    <p style={{ fontSize: 11, color: '#e8e0d8', margin: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                      {inv.jobName.replace(/^#\d+\s*/, '')}
-                    </p>
-                    <p style={{ fontSize: 9, color: '#6a6058', margin: 0 }}>
-                      Invoice #{inv.documentNumber}
-                    </p>
+                <div key={inv.id} style={{ padding: '5px 0', borderBottom: '1px solid rgba(205,162,116,0.04)' }}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                    <div style={{ width: 5, height: 5, borderRadius: 3, background: statusColor, flexShrink: 0 }} />
+                    <div style={{ flex: 1, minWidth: 0 }}>
+                      <p style={{ fontSize: 11, color: '#e8e0d8', margin: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                        {inv.jobName.replace(/^#\d+\s*/, '')}
+                      </p>
+                      <p style={{ fontSize: 9, color: '#6a6058', margin: 0 }}>
+                        Invoice #{inv.documentNumber}
+                      </p>
+                    </div>
+                    <div style={{ textAlign: 'right', flexShrink: 0 }}>
+                      <p style={{ fontSize: 12, fontWeight: 600, color: '#e8e0d8', margin: 0 }}>
+                        ${inv.amount.toLocaleString('en-US', { minimumFractionDigits: 0, maximumFractionDigits: 0 })}
+                      </p>
+                      <p style={{ fontSize: 9, color: statusColor, margin: 0, fontWeight: isOverdue ? 600 : 400 }}>
+                        {inv.daysPending}d pending
+                      </p>
+                    </div>
                   </div>
-                  <div style={{ textAlign: 'right', flexShrink: 0 }}>
-                    <p style={{ fontSize: 12, fontWeight: 600, color: '#e8e0d8', margin: 0 }}>
-                      ${inv.amount.toLocaleString('en-US', { minimumFractionDigits: 0, maximumFractionDigits: 0 })}
-                    </p>
-                    <p style={{ fontSize: 9, color: statusColor, margin: 0, fontWeight: isOverdue ? 600 : 400 }}>
-                      {inv.daysPending}d pending
-                    </p>
-                  </div>
+                  {/* AR Auto-Reminder Status */}
+                  {(hasArAuto || isHeld) && (
+                    <div style={{ marginLeft: 13, marginTop: 3, display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
+                      {isHeld && (
+                        <span style={{ fontSize: 8, background: 'rgba(239,68,68,0.12)', color: '#f87171', padding: '1px 5px', borderRadius: 3, fontWeight: 500 }}>
+                          AR-HOLD
+                        </span>
+                      )}
+                      {hasArAuto && (
+                        <span style={{ fontSize: 8, background: 'rgba(34,197,94,0.1)', color: '#4ade80', padding: '1px 5px', borderRadius: 3 }}
+                          title={`${inv.arAutoSent!.length} reminder(s) sent. Last: ${lastArSent!.tier} on ${new Date(lastArSent!.date).toLocaleDateString()}`}>
+                          Reminder sent {new Date(lastArSent!.date).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })} ({lastArSent!.tier})
+                        </span>
+                      )}
+                      {hasArAuto && inv.arAutoSent!.length > 1 && (
+                        <span style={{ fontSize: 8, color: '#6a6058' }}>
+                          +{inv.arAutoSent!.length - 1} prior
+                        </span>
+                      )}
+                    </div>
+                  )}
                 </div>
               );
             })

@@ -85,6 +85,11 @@ export interface TextMessage {
   contactDisplay: string;
 }
 
+export interface ArAutoRecord {
+  date: string;        // ISO date when the AR-AUTO message was sent
+  tier: string;        // e.g. "20-day", "30-day", "45-day", "60-day"
+}
+
 export interface OutstandingInvoice {
   id: string;
   documentNumber: string;
@@ -93,6 +98,8 @@ export interface OutstandingInvoice {
   amount: number;
   createdAt: string;
   daysPending: number;
+  arAutoSent?: ArAutoRecord[];  // history of automated AR reminders sent
+  arHold?: boolean;             // true if [AR-HOLD] is active on this job
 }
 
 export interface ChangeOrderSummary {
@@ -429,6 +436,81 @@ async function fetchARandCOData(
     if (a.status === b.status) return a.jobName.localeCompare(b.jobName);
     return a.status === 'pending' ? -1 : 1;
   });
+
+  // --- Enrich invoices with AR-AUTO comment history ---
+  // Get unique job IDs from invoices to minimize API calls
+  const invoiceJobIds = [...new Set(invoices.map(inv => inv.jobId))];
+  const AR_AUTO_RE = /\[AR-AUTO\]/i;
+  const AR_HOLD_RE = /\[AR-HOLD\]/i;
+  const AR_RESUME_RE = /\[AR-RESUME\]/i;
+  const TIER_RE = /(?:Friendly Reminder|Quick Follow-Up|Checking In)/i;
+
+  try {
+    const commentResults = await Promise.allSettled(
+      invoiceJobIds.map(async (jobId) => {
+        const resp = await pave({
+          job: {
+            $: { id: jobId },
+            comments: {
+              $: { size: 100 },
+              nodes: {
+                id: {}, body: {}, createdAt: {}, name: {},
+              },
+            },
+          },
+        });
+        return { jobId, comments: (resp as any)?.job?.comments?.nodes || [] };
+      })
+    );
+
+    // Build a map of jobId → { arRecords, isHeld }
+    const arDataByJob = new Map<string, { records: ArAutoRecord[]; isHeld: boolean }>();
+
+    for (const result of commentResults) {
+      if (result.status !== 'fulfilled') continue;
+      const { jobId, comments } = result.value;
+      const records: ArAutoRecord[] = [];
+      let lastHoldDate = 0;
+      let lastResumeDate = 0;
+
+      for (const c of comments) {
+        const body = (c.body || '') + ' ' + (c.name || '');
+        if (AR_AUTO_RE.test(body)) {
+          // Determine tier from subject/name
+          let tier = 'reminder';
+          const name = c.name || '';
+          if (/Friendly Reminder/i.test(name)) tier = '20-day';
+          else if (/Quick Follow-Up/i.test(name)) tier = '30-day';
+          else if (/Checking In/i.test(name)) tier = '45/60-day';
+          records.push({ date: c.createdAt, tier });
+        }
+        if (AR_HOLD_RE.test(body)) {
+          const d = new Date(c.createdAt).getTime();
+          if (d > lastHoldDate) lastHoldDate = d;
+        }
+        if (AR_RESUME_RE.test(body)) {
+          const d = new Date(c.createdAt).getTime();
+          if (d > lastResumeDate) lastResumeDate = d;
+        }
+      }
+
+      // Sort records newest first
+      records.sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
+      const isHeld = lastHoldDate > 0 && lastHoldDate > lastResumeDate;
+      arDataByJob.set(jobId, { records, isHeld });
+    }
+
+    // Enrich each invoice
+    for (const inv of invoices) {
+      const arData = arDataByJob.get(inv.jobId);
+      if (arData) {
+        inv.arAutoSent = arData.records;
+        inv.arHold = arData.isHeld;
+      }
+    }
+  } catch (err: any) {
+    console.error('[DashboardData] AR comment enrichment error:', err.message);
+  }
 
   return { invoices, changeOrders };
 }
