@@ -730,7 +730,6 @@ export default function DashboardOverview() {
     { id: '22P5sPMTN8mH', name: 'Jimmy', label: 'Jimmy' },
   ];
   const TERRI_MEMBERSHIP_ID = '22P5SpJkype2';
-  const BKB_PHASES = ['Admin Tasks', 'Conceptual Design', 'Design Development', 'Contract', 'Preconstruction', 'In Production', 'Inspections', 'Punch List', 'Project Completion'];
 
   async function createNewTask() {
     if (!newTaskForm || !newTaskName.trim() || !newTaskPhase) return;
@@ -995,29 +994,6 @@ export default function DashboardOverview() {
     } finally {
       setCalCompleting(false);
     }
-  }
-
-  async function createStandaloneTask() {
-    if (!stNewTaskName.trim() || !stNewTaskJob || !stNewTaskPhase) return;
-    setCreatingSt(true);
-    try {
-      const res = await fetch('/api/dashboard/create-task', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ jobId: stNewTaskJob, name: stNewTaskName.trim(), phase: stNewTaskPhase, date: stNewTaskDate || undefined }),
-      });
-      if (!res.ok) throw new Error(await res.text());
-      const data = await res.json();
-      if (overview && data.task) {
-        const mj = overview.data.activeJobs?.find((j: any) => j.id === stNewTaskJob);
-        setOverview({ ...overview, data: { ...overview.data, tasks: [...overview.data.tasks, { id: data.task.id, name: stNewTaskName.trim(), jobName: mj ? String(mj.number) + ' ' + mj.name : '', jobId: stNewTaskJob, dueDate: stNewTaskDate || null, daysUntilDue: stNewTaskDate ? Math.ceil((new Date(stNewTaskDate).getTime() - Date.now()) / 86400000) : null, status: 'open' }] } });
-      }
-      setStNewTaskName(''); setStNewTaskJob(''); setStNewTaskPhase(''); setStNewTaskDate(''); setStNewTaskAssignee('');
-      setPanelTab('waitingOn');
-    } catch (err: any) {
-      console.error('Create task failed:', err);
-      alert('Failed: ' + err.message);
-    } finally { setCreatingSt(false); }
   }
 
   async function saveCalDate() {
@@ -1608,34 +1584,32 @@ export default function DashboardOverview() {
         </div>
       ))}
 
-          {/* QUICK ADD – two buttons */}
-          {(() => {
-            const woTasks = tasks.filter((t: any) => t.name.startsWith(String.fromCharCode(9203)));
-            const overdueCount = woTasks.filter((t: any) => t.daysUntilDue !== null && t.daysUntilDue < 0).length;
-            return (
-              <div style={{ display: "flex", gap: 6, marginBottom: 6 }}>
-                <button onClick={() => { setPanelTab('newTask'); setShowWaitingOnPanel(true); }}
-                  style={{ flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6,
-                    background: '#1e1e1e', border: '1px solid rgba(205,162,116,0.08)', borderRadius: 8,
-                    padding: '7px 10px', cursor: 'pointer' }}>
-                  <span style={{ fontSize: 13, color: '#CDA274' }}>+</span>
-                  <span style={{ fontSize: 9, fontWeight: 600, color: '#CDA274', letterSpacing: '0.04em' }}>NEW TASK</span>
-                </button>
-                <button onClick={() => { setPanelTab('waitingOn'); setShowWaitingOnPanel(true); }}
-                  style={{ flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6,
-                    background: '#1e1e1e', border: '1px solid rgba(205,162,116,0.08)', borderRadius: 8,
-                    padding: '7px 10px', cursor: 'pointer' }}>
-                  <Hourglass size={10} style={{ color: "#CDA274" }} />
-                  <span style={{ fontSize: 9, fontWeight: 600, color: '#CDA274', letterSpacing: '0.04em' }}>WAITING ON ({woTasks.length})</span>
-                  {overdueCount > 0 && (
-                    <span style={{ fontSize: 8, color: '#ef4444', background: 'rgba(239,68,68,0.1)', padding: '1px 5px', borderRadius: 3 }}>
-                      {overdueCount} overdue
-                    </span>
-                  )}
-                </button>
-              </div>
-            );
-          })()}
+      {/* WAITING ON — compact bar, opens side panel */}
+      {(() => {
+        const woTasks = tasks.filter(t => t.name.startsWith('⏳'));
+        const overdueCount = woTasks.filter(t => t.daysUntilDue !== null && t.daysUntilDue < 0).length;
+        return (
+          <button
+            onClick={() => setShowWaitingOnPanel(true)}
+            style={{
+              width: '100%', display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+              background: '#1e1e1e', border: '1px solid rgba(205,162,116,0.08)', borderRadius: 8,
+              padding: '7px 10px', marginBottom: 6, cursor: 'pointer',
+            }}
+          >
+            <div style={{ display: 'flex', alignItems: 'center', gap: 5 }}>
+              <Hourglass size={10} style={{ color: '#CDA274' }} />
+              <span style={{ fontSize: 9, fontWeight: 600, color: '#CDA274', letterSpacing: '0.04em' }}>WAITING ON ({woTasks.length})</span>
+              {overdueCount > 0 && (
+                <span style={{ fontSize: 8, color: '#ef4444', background: 'rgba(239,68,68,0.1)', padding: '1px 5px', borderRadius: 3 }}>
+                  {overdueCount} overdue
+                </span>
+              )}
+            </div>
+            <ChevronRight size={12} style={{ color: '#5a5550' }} />
+          </button>
+        );
+      })()}
       {/* ALL TASKS â grouped by job, collapsible, filtered to overdue + next 4 weeks */}
       {tasks.length > 0 && (() => {
         // Filter tasks: overdue or due within next 4 weeks (28 days)
@@ -1870,54 +1844,6 @@ export default function DashboardOverview() {
               </div>
               {/* Scrollable content */}
               <div style={{ flex: 1, overflowY: 'auto', padding: '8px 12px' }}>
-                {panelTab === 'newTask' && (
-                  <div style={{ padding: '4px 0' }}>
-                    <div>
-                      <label style={{ fontSize: 9, color: '#6a6058', fontWeight: 600, display: 'block', marginBottom: 3 }}>TASK NAME</label>
-                      <input type="text" autoFocus placeholder="e.g. Order appliances" value={stNewTaskName} onChange={e => setStNewTaskName(e.target.value)}
-                        style={{ width: '100%', background: '#1a1a1a', border: '1px solid rgba(205,162,116,0.15)', borderRadius: 5, color: '#e0e0d8', fontSize: 12, padding: '7px 10px', outline: 'none', boxSizing: 'border-box' as const }} />
-                    </div>
-                    <div style={{ marginTop: 8 }}>
-                      <label style={{ fontSize: 9, color: '#6a6058', fontWeight: 600, display: 'block', marginBottom: 3 }}>JOB</label>
-                      <select value={stNewTaskJob} onChange={e => setStNewTaskJob(e.target.value)}
-                        style={{ width: '100%', background: '#1a1a1a', border: '1px solid rgba(205,162,116,0.15)', borderRadius: 5, color: stNewTaskJob ? '#CDA274' : '#5a5550', fontSize: 11, padding: '7px 8px', outline: 'none', cursor: 'pointer', boxSizing: 'border-box' as const }}>
-                        <option value="">Select job...</option>
-                        {overview?.data?.activeJobs?.map((j: any) => (<option key={j.id} value={j.id}>{j.number} - {j.name}</option>))}
-                      </select>
-                    </div>
-                    <div style={{ marginTop: 8 }}>
-                      <label style={{ fontSize: 9, color: '#6a6058', fontWeight: 600, display: 'block', marginBottom: 3 }}>PHASE</label>
-                      <select value={stNewTaskPhase} onChange={e => setStNewTaskPhase(e.target.value)}
-                        style={{ width: '100%', background: '#1a1a1a', border: '1px solid rgba(205,162,116,0.15)', borderRadius: 5, color: stNewTaskPhase ? '#CDA274' : '#5a5550', fontSize: 11, padding: '7px 8px', outline: 'none', cursor: 'pointer', boxSizing: 'border-box' as const }}>
-                        <option value="">Select phase...</option>
-                        {BKB_PHASES.map(p => (<option key={p} value={p}>{p}</option>))}
-                      </select>
-                    </div>
-                    <div style={{ marginTop: 8 }}>
-                      <label style={{ fontSize: 9, color: '#6a6058', fontWeight: 600, display: 'block', marginBottom: 3 }}>ASSIGN TO</label>
-                      <select value={stNewTaskAssignee} onChange={e => setStNewTaskAssignee(e.target.value)}
-                        style={{ width: '100%', background: '#1a1a1a', border: '1px solid rgba(205,162,116,0.15)', borderRadius: 5, color: stNewTaskAssignee ? '#CDA274' : '#5a5550', fontSize: 11, padding: '7px 8px', outline: 'none', cursor: 'pointer', boxSizing: 'border-box' as const }}>
-                        <option value="">Select assignee...</option>
-                        {TEAM_ASSIGNEES.map((a: any) => (<option key={a.id} value={a.id}>{a.label}</option>))}
-                      </select>
-                    </div>
-                    <div style={{ marginTop: 8 }}>
-                      <label style={{ fontSize: 9, color: '#6a6058', fontWeight: 600, display: 'block', marginBottom: 3 }}>DUE DATE</label>
-                      <input type="date" value={stNewTaskDate} onChange={e => setStNewTaskDate(e.target.value)}
-                        style={{ width: '100%', background: '#1a1a1a', border: '1px solid rgba(205,162,116,0.15)', borderRadius: 5, color: stNewTaskDate ? '#CDA274' : '#5a5550', fontSize: 11, padding: '7px 8px', outline: 'none', cursor: 'pointer', boxSizing: 'border-box' as const }} />
-                    </div>
-                    <button onClick={createStandaloneTask} disabled={!stNewTaskName.trim() || !stNewTaskJob || !stNewTaskPhase || creatingSt}
-                      style={{ marginTop: 12, width: '100%', padding: '10px', borderRadius: 6, border: 'none',
-                        background: (!stNewTaskName.trim() || !stNewTaskJob || !stNewTaskPhase) ? '#333' : '#CDA274',
-                        color: (!stNewTaskName.trim() || !stNewTaskJob || !stNewTaskPhase) ? '#666' : '#1a1a1a',
-                        fontWeight: 600, fontSize: 12,
-                        cursor: (!stNewTaskName.trim() || !stNewTaskJob || !stNewTaskPhase) ? 'default' : 'pointer',
-                        opacity: creatingSt ? 0.5 : 1 }}>
-                      {creatingSt ? 'Creating...' : 'Create Task'}
-                    </button>
-                  </div>
-                )}
-                <div style={{ display: panelTab === 'waitingOn' ? 'block' : 'none' }}>
                 {showWaitingOnForm && (
                   <div style={{ background: '#242424', border: '1px solid rgba(205,162,116,0.12)', borderRadius: 8, padding: 12, marginBottom: 10 }}>
                     <div style={{ fontSize: 11, fontWeight: 600, color: '#CDA274', marginBottom: 8 }}>New Waiting On Item</div>
@@ -2217,7 +2143,6 @@ export default function DashboardOverview() {
                 }}>
                 {creatingTask ? 'Creating...' : 'Create Task'}
               </button>
-                </div>
             </div>
           </div>
         </div>
