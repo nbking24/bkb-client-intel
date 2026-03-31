@@ -25,7 +25,7 @@ export async function GET() {
       organization: {
         $: { id: ORG_ID },
         jobs: {
-          $: { size: 50, where: ['closedOn', '=', null] },
+          $: { size: 100, where: ['closedOn', '=', null] },
           nodes: { id: {}, name: {} },
         },
       },
