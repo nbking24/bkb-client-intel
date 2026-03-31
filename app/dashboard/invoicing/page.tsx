@@ -982,6 +982,7 @@ export default function InvoicingDashboard() {
     activeJobs: number;
     totalJobsTracked: number;
     recentReminders: Array<{ jobId: string; jobName: string; tier: string; date: string; invoiceNumber?: string }>;
+    heldJobIds?: string[];
   } | null>(null);
 
   async function toggleArHold(jobId: string, jobName: string) {
@@ -1044,6 +1045,14 @@ export default function InvoicingDashboard() {
       if (res.ok) {
         const data = await res.json();
         setArStats(data);
+        // Initialize AR hold state from the server data
+        if (data.heldJobIds && data.heldJobIds.length > 0) {
+          const holds: Record<string, boolean> = {};
+          for (const id of data.heldJobIds) {
+            holds[id] = true;
+          }
+          setArHolds(prev => ({ ...prev, ...holds }));
+        }
       }
     } catch {
       // non-critical — silently fail

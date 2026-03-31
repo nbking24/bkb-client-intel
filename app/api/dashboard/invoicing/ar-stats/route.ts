@@ -48,6 +48,7 @@ export async function GET() {
     let jobsOnHold = 0;
     let activeJobCount = 0;
     const recentReminders: ArStatRecord[] = [];
+    const heldJobIds: string[] = [];
 
     const AR_AUTO_RE = /\[AR-AUTO\]/i;
     const AR_HOLD_RE = /\[AR-HOLD\]/i;
@@ -99,8 +100,12 @@ export async function GET() {
         }
 
         const isHeld = lastHoldDate > 0 && lastHoldDate > lastResumeDate;
-        if (isHeld) jobsOnHold++;
-        else activeJobCount++;
+        if (isHeld) {
+          jobsOnHold++;
+          heldJobIds.push(job.id);
+        } else {
+          activeJobCount++;
+        }
         if (jobReminderCount > 0) jobsWithReminders++;
       } catch (err: any) {
         // Skip this job but continue with others
@@ -119,6 +124,7 @@ export async function GET() {
       activeJobs: activeJobCount,
       totalJobsTracked: jobs.length,
       recentReminders: recentReminders.slice(0, 10),
+      heldJobIds,
     });
   } catch (err: any) {
     console.error('[AR-Stats] Error:', err.message);
