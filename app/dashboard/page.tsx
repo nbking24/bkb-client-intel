@@ -4,7 +4,7 @@ import { useState, useEffect, useMemo } from 'react';
 import {
   AlertTriangle, Clock, CheckCircle2, Loader2,
   RefreshCw, Calendar, MessageSquare, Zap,
-  DollarSign, ClipboardList, ChevronRight, Mail, MapPin,
+  DollarSign, ClipboardList, ChevronRight,
   ChevronUp, ChevronDown, TrendingUp, TrendingDown, Minus,
   Target, Clock3, Activity, CalendarDays, Building2,
   FileCheck, FileWarning, FileClock, XCircle, Send
@@ -155,9 +155,6 @@ export default function DashboardOverview() {
   const [editingDateTaskId, setEditingDateTaskId] = useState<string | null>(null);
   const [pendingDate, setPendingDate] = useState('');
   const [showSection, setShowSection] = useState<string | false>(false);
-  const [cleanupState, setCleanupState] = useState<'idle' | 'scanning' | 'preview' | 'cleaning' | 'done'>('idle');
-  const [cleanupData, setCleanupData] = useState<{ toArchive: Array<{ id: string; from: string; subject: string; reason: string }>; toKeep: any[] } | null>(null);
-
   // AR Stats
   const [arStats, setArStats] = useState<{
     totalRemindersSent: number;
@@ -166,41 +163,6 @@ export default function DashboardOverview() {
     activeJobs: number;
     recentReminders: Array<{ jobName: string; tier: string; date: string }>;
   } | null>(null);
-
-  async function scanInbox() {
-    setCleanupState('scanning');
-    try {
-      const res = await fetch('/api/dashboard/inbox-cleanup', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${getToken()}` },
-        body: JSON.stringify({ mode: 'preview' }),
-      });
-      if (!res.ok) throw new Error('Scan failed');
-      const data = await res.json();
-      setCleanupData(data);
-      setCleanupState('preview');
-    } catch {
-      setCleanupState('idle');
-    }
-  }
-
-  async function executeCleanup() {
-    setCleanupState('cleaning');
-    try {
-      const res = await fetch('/api/dashboard/inbox-cleanup', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${getToken()}` },
-        body: JSON.stringify({ mode: 'execute' }),
-      });
-      if (!res.ok) throw new Error('Cleanup failed');
-      const data = await res.json();
-      setCleanupData(data);
-      setCleanupState('done');
-      setTimeout(() => { setCleanupState('idle'); setCleanupData(null); }, 5000);
-    } catch {
-      setCleanupState('idle');
-    }
-  }
 
   async function completeTask(taskId: string) {
     setCompletingTaskId(taskId);
@@ -292,7 +254,6 @@ export default function DashboardOverview() {
       const hour = new Date().getHours();
       if (hour >= 8 && hour < 18 && auth.userId && !refreshing) {
         fetchOverview(true);
-        fetch('/api/cron/inbox-cleanup?internal=true').catch(() => {});
       }
     }, 15 * 60 * 1000);
     return () => clearInterval(interval);
@@ -308,8 +269,6 @@ export default function DashboardOverview() {
   const analysis = overview?.analysis;
   const stats = overview?.data?.stats;
   const tasks = overview?.data?.tasks || [];
-  const emails = overview?.data?.recentEmails || [];
-  const calendarEvents = overview?.data?.calendarEvents || [];
   const outstandingInvoices = overview?.data?.outstandingInvoices || [];
   const changeOrders = overview?.data?.changeOrders || [];
   const tc = overview?.data?.timeContext;
@@ -457,76 +416,6 @@ export default function DashboardOverview() {
             <span style={{ fontSize: 9, fontWeight: 600, color: '#CDA274' }}>AI BRIEFING</span>
           </div>
           <p style={{ fontSize: 12, color: '#e8e0d8', lineHeight: 1.5, margin: 0 }}>{analysis.summary}</p>
-        </div>
-      )}
-
-      {/* DO NOW — AI-suggested quick actions */}
-      {(analysis?.suggestedActions?.length ?? 0) > 0 && (
-        <div style={{ background: '#1a2218', border: '1px solid rgba(34,197,94,0.15)', borderRadius: 8, padding: '8px 10px', marginBottom: isTouch ? 10 : 6 }}>
-          <div style={{ display: 'flex', alignItems: 'center', gap: 4, marginBottom: 6 }}>
-            <Zap size={10} style={{ color: '#22c55e' }} />
-            <span style={{ fontSize: 9, fontWeight: 600, color: '#22c55e' }}>DO NOW</span>
-          </div>
-          <div style={{ display: 'grid', gridTemplateColumns: isMobile ? '1fr' : 'repeat(3, 1fr)', gap: 4 }}>
-            {analysis!.suggestedActions!.slice(0, 6).map((action, i) => {
-              const iconMap: Record<string, string> = {
-                'reply-email': '✉️', 'complete-task': '✅', 'reschedule-task': '📅',
-                'follow-up': '💬', 'prep-meeting': '📋', 'review-document': '📄',
-              };
-              const icon = iconMap[action.actionType] || '⚡';
-              const priorityColor = action.priority === 'high' ? '#ef4444' : action.priority === 'medium' ? '#eab308' : '#22c55e';
-
-              const handleAction = async () => {
-                if ((action.actionType === 'reply-email' || action.actionType === 'follow-up') && action.context.recipient) {
-                  try {
-                    const subject = action.context.emailSubject ? `Re: ${action.context.emailSubject}` : (action.context.jobName ? `Re: ${action.context.jobName}` : '');
-                    const body = action.context.suggestedText || '';
-                    const res = await fetch('/api/dashboard/quick-action', {
-                      method: 'POST',
-                      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${getToken()}` },
-                      body: JSON.stringify({ actionType: 'draft-email', to: action.context.recipient, subject, body }),
-                    });
-                    const data = await res.json();
-                    if (data.gmailUrl) window.open(data.gmailUrl, '_blank');
-                    else window.open(`https://mail.google.com/mail/?view=cm&to=${encodeURIComponent(action.context.recipient)}&su=${encodeURIComponent(subject)}&body=${encodeURIComponent(body)}`, '_blank');
-                  } catch {
-                    const subject = action.context.emailSubject ? `Re: ${action.context.emailSubject}` : '';
-                    const body = action.context.suggestedText || '';
-                    window.open(`https://mail.google.com/mail/?view=cm&to=${encodeURIComponent(action.context.recipient)}&su=${encodeURIComponent(subject)}&body=${encodeURIComponent(body)}`, '_blank');
-                  }
-                } else if (action.actionType === 'complete-task' && action.context.taskName) {
-                  const task = tasks.find(t => t.name.toLowerCase().includes(action.context.taskName!.toLowerCase()));
-                  if (task) completeTask(task.id);
-                } else if (action.actionType === 'prep-meeting' || action.actionType === 'review-document') {
-                  const job = overview?.data?.activeJobs?.find((j: any) =>
-                    action.context.jobName && j.name.toLowerCase().includes(action.context.jobName.toLowerCase())
-                  );
-                  if (job) window.open(`https://app.jobtread.com/jobs/${job.id}`, '_blank');
-                }
-              };
-
-              return (
-                <button
-                  key={i}
-                  onClick={handleAction}
-                  style={{
-                    display: 'flex', alignItems: 'center', gap: 6,
-                    padding: '6px 8px', borderRadius: 6, border: '1px solid rgba(34,197,94,0.1)',
-                    background: 'rgba(34,197,94,0.05)', cursor: 'pointer', textAlign: 'left',
-                  }}
-                >
-                  <span style={{ fontSize: 12, flexShrink: 0 }}>{icon}</span>
-                  <div style={{ flex: 1, minWidth: 0 }}>
-                    <p style={{ fontSize: 11, fontWeight: 500, color: '#e8e0d8', margin: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{action.title}</p>
-                    {action.context.jobName && (
-                      <p style={{ fontSize: 9, color: '#6a6058', margin: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{action.context.jobName}</p>
-                    )}
-                  </div>
-                  <div style={{ width: 5, height: 5, borderRadius: 3, background: priorityColor, flexShrink: 0 }} />
-                </button>
-              );
-            })}
-          </div>
         </div>
       )}
 
@@ -786,122 +675,6 @@ export default function DashboardOverview() {
           </div>
         );
       })()}
-
-      {/* TWO-COLUMN: Calendar + Email */}
-      <div style={{ display: 'grid', gridTemplateColumns: isMobile ? '1fr' : '1fr 1fr', gap: 6, marginBottom: 6 }}>
-        {/* Upcoming Schedule */}
-        {calendarEvents.length > 0 && (
-          <div style={{ background: '#1e1e1e', border: '1px solid rgba(205,162,116,0.08)', borderRadius: 8, padding: '8px 10px' }}>
-            <div style={{ display: 'flex', alignItems: 'center', gap: 4, marginBottom: 6 }}>
-              <Calendar size={10} style={{ color: '#8b5cf6' }} />
-              <span style={{ fontSize: 9, fontWeight: 600, color: '#8b5cf6' }}>SCHEDULE ({calendarEvents.length})</span>
-            </div>
-            {calendarEvents.slice(0, 6).map((event) => {
-              const start = new Date(event.start);
-              const isToday = start.toDateString() === new Date().toDateString();
-              const isTomorrow = start.toDateString() === new Date(Date.now() + 86400000).toDateString();
-              const dayLabel = isToday ? 'Today' : isTomorrow ? 'Tomorrow' : start.toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' });
-              const timeLabel = event.allDay ? 'All day' : start.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' });
-              const prepNote = analysis?.meetingPrepNotes?.find(p =>
-                event.summary.toLowerCase().includes(p.eventSummary.toLowerCase()) ||
-                p.eventSummary.toLowerCase().includes(event.summary.toLowerCase().slice(0, 15))
-              );
-              return (
-                <div key={event.id} style={{ display: 'flex', gap: 8, padding: '4px 0', borderBottom: '1px solid rgba(205,162,116,0.04)' }}>
-                  <div style={{ minWidth: 48, flexShrink: 0 }}>
-                    <p style={{ fontSize: 8, fontWeight: 600, color: isToday ? '#8b5cf6' : '#5a5550', margin: 0 }}>{dayLabel}</p>
-                    {!event.allDay && <p style={{ fontSize: 11, fontWeight: 600, color: '#e8e0d8', margin: 0 }}>{timeLabel}</p>}
-                  </div>
-                  <div style={{ flex: 1, minWidth: 0 }}>
-                    <p style={{ fontSize: 11, color: '#e8e0d8', margin: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{event.summary}</p>
-                    {event.location && (
-                      <p style={{ fontSize: 9, color: '#5a5550', margin: 0, display: 'flex', alignItems: 'center', gap: 2 }}>
-                        <MapPin size={8} /> {event.location.slice(0, 40)}
-                      </p>
-                    )}
-                    {prepNote && (
-                      <p style={{ fontSize: 9, color: '#a78bfa', background: 'rgba(139,92,246,0.1)', padding: '2px 4px', borderRadius: 3, margin: '2px 0 0' }}>{prepNote.prepNote}</p>
-                    )}
-                  </div>
-                </div>
-              );
-            })}
-          </div>
-        )}
-
-        {/* Inbox */}
-        {emails.length > 0 && (
-          <div style={{ background: '#1e1e1e', border: '1px solid rgba(205,162,116,0.08)', borderRadius: 8, padding: '8px 10px' }}>
-            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 6 }}>
-              <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
-                <Mail size={10} style={{ color: '#22c55e' }} />
-                <span style={{ fontSize: 9, fontWeight: 600, color: '#22c55e' }}>INBOX ({stats?.unreadEmailCount ?? 0} unread)</span>
-              </div>
-              {cleanupState === 'idle' && (
-                <button
-                  onClick={scanInbox}
-                  style={{ fontSize: 8, padding: '2px 6px', borderRadius: 4, background: 'transparent', border: '1px solid rgba(205,162,116,0.15)', color: '#6a6058', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 3 }}
-                >
-                  <Zap size={8} /> Clean
-                </button>
-              )}
-              {cleanupState === 'scanning' && (
-                <span style={{ fontSize: 8, color: '#6a6058', display: 'flex', alignItems: 'center', gap: 3 }}>
-                  <Loader2 size={8} className="animate-spin" /> Scanning...
-                </span>
-              )}
-              {cleanupState === 'done' && (
-                <span style={{ fontSize: 8, color: '#22c55e' }}>Cleaned {cleanupData?.toArchive?.length || 0}</span>
-              )}
-            </div>
-
-            {/* Cleanup Preview */}
-            {cleanupState === 'preview' && cleanupData && (
-              <div style={{ background: 'rgba(234,179,8,0.05)', border: '1px solid rgba(234,179,8,0.15)', borderRadius: 6, padding: '6px 8px', marginBottom: 6 }}>
-                <p style={{ fontSize: 9, fontWeight: 600, color: '#eab308', margin: '0 0 4px' }}>
-                  AI found {cleanupData.toArchive.length} emails to archive:
-                </p>
-                <div style={{ maxHeight: 80, overflowY: 'auto', marginBottom: 4 }}>
-                  {cleanupData.toArchive.map((e, i) => (
-                    <p key={i} style={{ fontSize: 9, color: '#8a8078', margin: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                      {e.from}: {e.subject}
-                    </p>
-                  ))}
-                </div>
-                <div style={{ display: 'flex', gap: 6 }}>
-                  <button onClick={executeCleanup} style={{ fontSize: 10, padding: '3px 8px', borderRadius: 4, background: '#22c55e', color: '#1a1a1a', border: 'none', cursor: 'pointer', fontWeight: 600 }}>
-                    Archive {cleanupData.toArchive.length}
-                  </button>
-                  <button onClick={() => { setCleanupState('idle'); setCleanupData(null); }} style={{ fontSize: 10, color: '#6a6058', background: 'transparent', border: 'none', cursor: 'pointer' }}>
-                    Cancel
-                  </button>
-                </div>
-              </div>
-            )}
-
-            {cleanupState === 'cleaning' && (
-              <div style={{ display: 'flex', alignItems: 'center', gap: 4, padding: 6, background: 'rgba(34,197,94,0.05)', borderRadius: 4, marginBottom: 4 }}>
-                <Loader2 size={10} className="animate-spin" style={{ color: '#22c55e' }} />
-                <span style={{ fontSize: 9, color: '#22c55e' }}>Archiving...</span>
-              </div>
-            )}
-
-            {emails.slice(0, 6).map((email) => {
-              const fromName = email.from.replace(/<[^>]+>/, '').replace(/"/g, '').trim();
-              return (
-                <div key={email.id} style={{ display: 'flex', alignItems: 'start', gap: 6, padding: '4px 0', borderBottom: '1px solid rgba(205,162,116,0.04)' }}>
-                  {email.isUnread && <div style={{ width: 5, height: 5, borderRadius: 3, background: '#22c55e', flexShrink: 0, marginTop: 4 }} />}
-                  <div style={{ flex: 1, minWidth: 0 }}>
-                    <p style={{ fontSize: 10, fontWeight: email.isUnread ? 600 : 400, color: email.isUnread ? '#e8e0d8' : '#6a6058', margin: 0 }}>{fromName}</p>
-                    <p style={{ fontSize: 11, color: email.isUnread ? '#e8e0d8' : '#8a8078', margin: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{email.subject}</p>
-                    <p style={{ fontSize: 9, color: '#4a4a4a', margin: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{email.snippet.slice(0, 70)}</p>
-                  </div>
-                </div>
-              );
-            })}
-          </div>
-        )}
-      </div>
 
       {/* INSIGHTS ROW — Urgent Items + Action Items side by side */}
       {((analysis?.urgentItems?.length ?? 0) > 0 || (analysis?.actionItems?.length ?? 0) > 0) && (
