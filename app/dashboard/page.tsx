@@ -9,7 +9,7 @@ import {
   Target, Clock3, Activity, CalendarDays, Building2,
   FileCheck, FileWarning, FileClock, XCircle, Send,
   X, ExternalLink, Check, Bot, User, CheckCircle,
-  Paperclip, ImageIcon, X as XIcon
+  Paperclip, ImageIcon, X as XIcon, Plus, Search
 } from 'lucide-react';
 import { useAuth } from '@/app/hooks/useAuth';
 import {
@@ -684,6 +684,72 @@ export default function DashboardOverview() {
     activeJobs: number;
     recentReminders: Array<{ jobName: string; tier: string; date: string }>;
   } | null>(null);
+  // Task search and creation
+  const [taskSearch, setTaskSearch] = useState('');
+  const [newTaskForm, setNewTaskForm] = useState<{ jobId: string; jobName: string } | null>(null);
+  const [newTaskName, setNewTaskName] = useState('');
+  const [newTaskPhase, setNewTaskPhase] = useState('In Production');
+  const [newTaskDate, setNewTaskDate] = useState('');
+  const [creatingTask, setCreatingTask] = useState(false);
+
+  const PHASES = [
+    'Admin Tasks', 'Conceptual Design', 'Design Development', 'Contract',
+    'Preconstruction', 'In Production', 'Inspections', 'Punch List', 'Project Completion',
+  ];
+
+  async function createNewTask() {
+    if (!newTaskForm || !newTaskName.trim() || !newTaskPhase) return;
+    setCreatingTask(true);
+    try {
+      const res = await fetch('/api/dashboard/create-task', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${getToken()}` },
+        body: JSON.stringify({
+          jobId: newTaskForm.jobId,
+          taskName: newTaskName.trim(),
+          phaseName: newTaskPhase,
+          endDate: newTaskDate || undefined,
+        }),
+      });
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({ error: 'Failed' }));
+        throw new Error(err.error || 'Failed to create task');
+      }
+      const data = await res.json();
+      // Add task to local state so it appears immediately
+      if (overview && data.task) {
+        const newTask = {
+          id: data.task.id,
+          name: newTaskName.trim(),
+          jobId: newTaskForm.jobId,
+          jobName: newTaskForm.jobName,
+          jobNumber: '',
+          endDate: newTaskDate || null,
+          progress: 0,
+          urgency: 'normal' as string,
+          daysUntilDue: newTaskDate ? Math.ceil((new Date(newTaskDate).getTime() - Date.now()) / 86400000) : null,
+        };
+        setOverview({
+          ...overview,
+          data: {
+            ...overview.data,
+            tasks: [...overview.data.tasks, newTask],
+            stats: { ...overview.data.stats, totalTasks: overview.data.tasks.length + 1 },
+          },
+        });
+      }
+      // Reset form
+      setNewTaskForm(null);
+      setNewTaskName('');
+      setNewTaskPhase('In Production');
+      setNewTaskDate('');
+    } catch (err: any) {
+      console.error('Create task failed:', err);
+      alert('Failed to create task: ' + err.message);
+    } finally {
+      setCreatingTask(false);
+    }
+  }
 
   async function completeTask(taskId: string) {
     setCompletingTaskId(taskId);
@@ -1357,6 +1423,10 @@ export default function DashboardOverview() {
         const sortedJobs = Array.from(jobGroups.entries()).sort((a, b) =>
           a[0].replace(/^#\d+\s*/, '').localeCompare(b[0].replace(/^#\d+\s*/, ''))
         );
+        // Filter by search
+        const filteredJobs = taskSearch.trim()
+          ? sortedJobs.filter(([name]) => name.toLowerCase().includes(taskSearch.toLowerCase()))
+          : sortedJobs;
         return (
           <div style={{ background: '#1e1e1e', border: '1px solid rgba(205,162,116,0.08)', borderRadius: 8, padding: '8px 10px', marginBottom: 6 }}>
             <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 6 }}>
@@ -1377,7 +1447,35 @@ export default function DashboardOverview() {
                 {collapsedJobs.size === sortedJobs.length ? 'Expand All' : 'Collapse All'}
               </button>
             </div>
-            {sortedJobs.map(([jobName, jobTasks]) => {
+            {/* Search box */}
+            <div style={{ position: 'relative', marginBottom: 6 }}>
+              <Search size={11} style={{ position: 'absolute', left: 8, top: '50%', transform: 'translateY(-50%)', color: '#5a5550' }} />
+              <input
+                type="text"
+                placeholder="Search by project name..."
+                value={taskSearch}
+                onChange={e => setTaskSearch(e.target.value)}
+                style={{
+                  width: '100%', padding: '5px 8px 5px 26px', fontSize: 11, borderRadius: 5,
+                  background: '#242424', border: '1px solid rgba(205,162,116,0.1)', color: '#e8e0d8',
+                  outline: 'none', boxSizing: 'border-box',
+                }}
+              />
+              {taskSearch && (
+                <button
+                  onClick={() => setTaskSearch('')}
+                  style={{ position: 'absolute', right: 6, top: '50%', transform: 'translateY(-50%)', background: 'none', border: 'none', cursor: 'pointer', padding: 0, lineHeight: 0 }}
+                >
+                  <X size={10} style={{ color: '#5a5550' }} />
+                </button>
+              )}
+            </div>
+            {taskSearch && filteredJobs.length === 0 && (
+              <div style={{ textAlign: 'center', padding: '8px 0', fontSize: 10, color: '#5a5550' }}>
+                No projects match "{taskSearch}"
+              </div>
+            )}
+            {filteredJobs.map(([jobName, jobTasks]) => {
               const isCollapsed = collapsedJobs.has(jobName);
               const c = jobColor(jobTasks[0].jobNumber);
               const urgentCount = jobTasks.filter(t => t.urgency === 'urgent').length;
@@ -1390,26 +1488,44 @@ export default function DashboardOverview() {
               };
               return (
                 <div key={jobName} style={{ marginBottom: 4 }}>
-                  <button
-                    onClick={toggleCollapse}
-                    style={{
-                      display: 'flex', alignItems: 'center', gap: 6, width: '100%',
-                      padding: '5px 4px', borderRadius: 4, border: 'none', cursor: 'pointer',
-                      background: 'rgba(205,162,116,0.04)', textAlign: 'left',
-                    }}
-                  >
-                    <span style={{ width: 6, height: 6, borderRadius: 3, background: c, flexShrink: 0 }} />
-                    <span style={{ fontSize: 11, fontWeight: 600, color: '#e8e0d8', flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                      {jobName.replace(/^#\d+\s*/, '')}
-                    </span>
-                    <span style={{ fontSize: 9, color: '#6a6058', flexShrink: 0 }}>{jobTasks.length}</span>
-                    {urgentCount > 0 && (
-                      <span style={{ fontSize: 8, color: '#ef4444', background: 'rgba(239,68,68,0.1)', padding: '1px 4px', borderRadius: 3, flexShrink: 0 }}>
-                        {urgentCount} overdue
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 2 }}>
+                    <button
+                      onClick={toggleCollapse}
+                      style={{
+                        display: 'flex', alignItems: 'center', gap: 6, flex: 1, minWidth: 0,
+                        padding: '5px 4px', borderRadius: 4, border: 'none', cursor: 'pointer',
+                        background: 'rgba(205,162,116,0.04)', textAlign: 'left',
+                      }}
+                    >
+                      <span style={{ width: 6, height: 6, borderRadius: 3, background: c, flexShrink: 0 }} />
+                      <span style={{ fontSize: 11, fontWeight: 600, color: '#e8e0d8', flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                        {jobName.replace(/^#\d+\s*/, '')}
                       </span>
-                    )}
-                    {isCollapsed ? <ChevronDown size={10} style={{ color: '#5a5550', flexShrink: 0 }} /> : <ChevronUp size={10} style={{ color: '#5a5550', flexShrink: 0 }} />}
-                  </button>
+                      <span style={{ fontSize: 9, color: '#6a6058', flexShrink: 0 }}>{jobTasks.length}</span>
+                      {urgentCount > 0 && (
+                        <span style={{ fontSize: 8, color: '#ef4444', background: 'rgba(239,68,68,0.1)', padding: '1px 4px', borderRadius: 3, flexShrink: 0 }}>
+                          {urgentCount} overdue
+                        </span>
+                      )}
+                      {isCollapsed ? <ChevronDown size={10} style={{ color: '#5a5550', flexShrink: 0 }} /> : <ChevronUp size={10} style={{ color: '#5a5550', flexShrink: 0 }} />}
+                    </button>
+                    <button
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        setNewTaskForm({ jobId: jobTasks[0].jobId, jobName });
+                        setNewTaskName('');
+                        setNewTaskPhase('In Production');
+                        setNewTaskDate('');
+                      }}
+                      title="Add task to this project"
+                      style={{
+                        width: 22, height: 22, borderRadius: 4, border: 'none', cursor: 'pointer',
+                        background: 'rgba(205,162,116,0.08)', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0,
+                      }}
+                    >
+                      <Plus size={11} style={{ color: '#CDA274' }} />
+                    </button>
+                  </div>
                   {!isCollapsed && (
                     <div style={{ paddingLeft: 12 }}>
                       {jobTasks.sort((a, b) => {
@@ -1565,6 +1681,103 @@ export default function DashboardOverview() {
                 }}>
                 <ExternalLink size={13} /> View in JobTread
               </a>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* NEW TASK MODAL */}
+      {newTaskForm && (
+        <div style={{
+          position: 'fixed', top: 0, left: 0, right: 0, bottom: 0,
+          background: 'rgba(0,0,0,0.5)', display: 'flex', alignItems: 'center', justifyContent: 'center',
+          zIndex: 1000,
+        }} onClick={() => setNewTaskForm(null)}>
+          <div onClick={e => e.stopPropagation()} style={{
+            background: '#252525', borderRadius: 12, padding: 16, minWidth: 320, maxWidth: 400,
+            border: '1px solid rgba(205,162,116,0.15)', boxShadow: '0 12px 40px rgba(0,0,0,0.6)',
+          }}>
+            {/* Header */}
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 12 }}>
+              <div>
+                <div style={{ fontSize: 14, fontWeight: 600, color: '#e8e0d8' }}>New Task</div>
+                <div style={{ fontSize: 11, color: '#8a8078', marginTop: 2 }}>{newTaskForm.jobName.replace(/^#\d+\s*/, '')}</div>
+              </div>
+              <button onClick={() => setNewTaskForm(null)} style={{ background: 'none', border: 'none', cursor: 'pointer', padding: 2, lineHeight: 0 }}>
+                <X size={14} style={{ color: '#6a6058' }} />
+              </button>
+            </div>
+
+            {/* Task Name */}
+            <div style={{ marginBottom: 10 }}>
+              <label style={{ fontSize: 10, color: '#6a6058', fontWeight: 600, display: 'block', marginBottom: 4 }}>TASK NAME</label>
+              <input
+                type="text"
+                autoFocus
+                placeholder="Enter task name..."
+                value={newTaskName}
+                onChange={e => setNewTaskName(e.target.value)}
+                onKeyDown={e => { if (e.key === 'Enter' && newTaskName.trim()) createNewTask(); }}
+                style={{
+                  width: '100%', background: '#1a1a1a', border: '1px solid rgba(205,162,116,0.15)', borderRadius: 6,
+                  color: '#e8e0d8', fontSize: 12, padding: '7px 10px', outline: 'none', boxSizing: 'border-box',
+                }}
+              />
+            </div>
+
+            {/* Phase (Category) Selector */}
+            <div style={{ marginBottom: 10 }}>
+              <label style={{ fontSize: 10, color: '#6a6058', fontWeight: 600, display: 'block', marginBottom: 4 }}>PHASE (CATEGORY)</label>
+              <select
+                value={newTaskPhase}
+                onChange={e => setNewTaskPhase(e.target.value)}
+                style={{
+                  width: '100%', background: '#1a1a1a', border: '1px solid rgba(205,162,116,0.15)', borderRadius: 6,
+                  color: '#CDA274', fontSize: 12, padding: '7px 10px', outline: 'none', cursor: 'pointer', boxSizing: 'border-box',
+                }}
+              >
+                {PHASES.map(p => (
+                  <option key={p} value={p}>{p}</option>
+                ))}
+              </select>
+            </div>
+
+            {/* Due Date */}
+            <div style={{ marginBottom: 14 }}>
+              <label style={{ fontSize: 10, color: '#6a6058', fontWeight: 600, display: 'block', marginBottom: 4 }}>DUE DATE (OPTIONAL)</label>
+              <input
+                type="date"
+                value={newTaskDate}
+                onChange={e => setNewTaskDate(e.target.value)}
+                style={{
+                  width: '100%', background: '#1a1a1a', border: '1px solid rgba(205,162,116,0.15)', borderRadius: 6,
+                  color: '#e8e0d8', fontSize: 12, padding: '7px 10px', colorScheme: 'dark', outline: 'none', boxSizing: 'border-box',
+                }}
+              />
+            </div>
+
+            {/* Actions */}
+            <div style={{ display: 'flex', gap: 8 }}>
+              <button
+                onClick={() => setNewTaskForm(null)}
+                style={{
+                  flex: 1, padding: '8px 0', borderRadius: 6, border: '1px solid rgba(205,162,116,0.15)', cursor: 'pointer',
+                  fontSize: 12, fontWeight: 600, background: 'transparent', color: '#6a6058',
+                }}>
+                Cancel
+              </button>
+              <button
+                onClick={createNewTask}
+                disabled={!newTaskName.trim() || creatingTask}
+                style={{
+                  flex: 1, padding: '8px 0', borderRadius: 6, border: 'none', cursor: newTaskName.trim() && !creatingTask ? 'pointer' : 'default',
+                  fontSize: 12, fontWeight: 600,
+                  background: newTaskName.trim() ? '#CDA274' : 'rgba(205,162,116,0.2)',
+                  color: newTaskName.trim() ? '#1a1a1a' : '#6a6058',
+                  opacity: creatingTask ? 0.5 : 1,
+                }}>
+                {creatingTask ? 'Creating...' : 'Create Task'}
+              </button>
             </div>
           </div>
         </div>
