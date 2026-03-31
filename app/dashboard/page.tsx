@@ -9,7 +9,8 @@ import {
   Target, Clock3, Activity, CalendarDays, Building2,
   FileCheck, FileWarning, FileClock, XCircle, Send,
   X, ExternalLink, Check, Bot, User, CheckCircle,
-  Paperclip, ImageIcon, X as XIcon, Plus, Search
+  Paperclip, ImageIcon, X as XIcon, Plus, Search,
+  Hourglass, UserCheck, ChevronRight
 } from 'lucide-react';
 import { useAuth } from '@/app/hooks/useAuth';
 import {
@@ -697,6 +698,31 @@ export default function DashboardOverview() {
     'Preconstruction', 'In Production', 'Inspections', 'Punch List', 'Project Completion',
   ];
 
+  // Waiting On tracking
+  const [showWaitingOnForm, setShowWaitingOnForm] = useState(false);
+  const [woTaskName, setWoTaskName] = useState('');
+  const [woJobId, setWoJobId] = useState('');
+  const [woDescription, setWoDescription] = useState('');
+  const [woDate, setWoDate] = useState('');
+  const [woAssignee, setWoAssignee] = useState('');
+  const [creatingWo, setCreatingWo] = useState(false);
+  const [expandedWoTask, setExpandedWoTask] = useState<string | null>(null);
+  const [woComments, setWoComments] = useState<Record<string, any[]>>({});
+  const [loadingWoComments, setLoadingWoComments] = useState<string | null>(null);
+  const [woNewComment, setWoNewComment] = useState('');
+  const [postingWoComment, setPostingWoComment] = useState(false);
+  const [completingWoId, setCompletingWoId] = useState<string | null>(null);
+
+  const TEAM_ASSIGNEES = [
+    { id: '22P5SRwhLaYf', name: 'Nathan King', label: 'Nathan' },
+    { id: '22P6GTaPEbkh', name: 'Brett King', label: 'Brett' },
+    { id: '22P5nJ7ncFj4', name: 'Evan Harrington', label: 'Evan' },
+    { id: '22P6GTEnhCre', name: 'Josh King', label: 'Josh' },
+    { id: '22P5icFXKZgA', name: 'Dave Steich', label: 'Dave' },
+    { id: '22P5sPMTN8mH', name: 'Jimmy', label: 'Jimmy' },
+  ];
+  const TERRI_MEMBERSHIP_ID = '22P5SpJkype2';
+
   async function createNewTask() {
     if (!newTaskForm || !newTaskName.trim() || !newTaskPhase) return;
     setCreatingTask(true);
@@ -748,6 +774,145 @@ export default function DashboardOverview() {
       alert('Failed to create task: ' + err.message);
     } finally {
       setCreatingTask(false);
+    }
+  }
+
+  // ── Waiting On functions ──────────────────────────────
+  async function createWaitingOnTask() {
+    if (!woTaskName.trim() || !woJobId || !woAssignee) return;
+    setCreatingWo(true);
+    try {
+      const assigneeInfo = TEAM_ASSIGNEES.find(a => a.id === woAssignee);
+      const fullName = `${assigneeInfo?.label || 'Team'}: ${woTaskName.trim()}`;
+
+      const res = await fetch('/api/dashboard/waiting-on', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${getToken()}` },
+        body: JSON.stringify({
+          jobId: woJobId,
+          taskName: fullName,
+          description: woDescription.trim() || undefined,
+          endDate: woDate || undefined,
+          assigneeMembershipId: woAssignee,
+          terriMembershipId: TERRI_MEMBERSHIP_ID,
+        }),
+      });
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({ error: 'Failed' }));
+        throw new Error(err.error || 'Failed to create waiting-on task');
+      }
+      const data = await res.json();
+
+      // Add to local tasks so it appears immediately
+      if (overview && data.task) {
+        const activeJob = overview.data.activeJobs?.find(j => j.id === woJobId);
+        const newTask = {
+          id: data.task.id,
+          name: data.formattedName,
+          jobId: woJobId,
+          jobName: activeJob ? `#${activeJob.number} ${activeJob.name}` : '',
+          jobNumber: activeJob?.number || '',
+          endDate: data.dueDate || null,
+          progress: 0,
+          urgency: 'normal' as string,
+          daysUntilDue: data.dueDate ? Math.ceil((new Date(data.dueDate).getTime() - Date.now()) / 86400000) : null,
+        };
+        setOverview({
+          ...overview,
+          data: {
+            ...overview.data,
+            tasks: [...overview.data.tasks, newTask],
+            stats: { ...overview.data.stats, totalTasks: overview.data.tasks.length + 1 },
+          },
+        });
+      }
+
+      // Reset form
+      setShowWaitingOnForm(false);
+      setWoTaskName('');
+      setWoJobId('');
+      setWoDescription('');
+      setWoDate('');
+      setWoAssignee('');
+    } catch (err: any) {
+      console.error('Create waiting-on task failed:', err);
+      alert('Failed to create: ' + err.message);
+    } finally {
+      setCreatingWo(false);
+    }
+  }
+
+  async function fetchWoComments(taskId: string) {
+    if (woComments[taskId]) return; // Already loaded
+    setLoadingWoComments(taskId);
+    try {
+      const res = await fetch(`/api/dashboard/waiting-on?taskId=${taskId}`, {
+        headers: { Authorization: `Bearer ${getToken()}` },
+      });
+      if (!res.ok) throw new Error('Failed to fetch comments');
+      const data = await res.json();
+      setWoComments(prev => ({ ...prev, [taskId]: data.comments || [] }));
+    } catch (err) {
+      console.error('Fetch comments failed:', err);
+      setWoComments(prev => ({ ...prev, [taskId]: [] }));
+    } finally {
+      setLoadingWoComments(null);
+    }
+  }
+
+  async function postWoComment(taskId: string) {
+    if (!woNewComment.trim()) return;
+    setPostingWoComment(true);
+    try {
+      const res = await fetch('/api/dashboard/waiting-on', {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${getToken()}` },
+        body: JSON.stringify({
+          taskId,
+          message: woNewComment.trim(),
+          authorName: 'Terri King',
+        }),
+      });
+      if (!res.ok) throw new Error('Failed to post comment');
+      const data = await res.json();
+      // Add comment to local state
+      setWoComments(prev => ({
+        ...prev,
+        [taskId]: [data.comment, ...(prev[taskId] || [])],
+      }));
+      setWoNewComment('');
+    } catch (err: any) {
+      console.error('Post comment failed:', err);
+      alert('Failed to post comment: ' + err.message);
+    } finally {
+      setPostingWoComment(false);
+    }
+  }
+
+  async function completeWoTask(taskId: string) {
+    setCompletingWoId(taskId);
+    try {
+      const res = await fetch('/api/dashboard/tasks', {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${getToken()}` },
+        body: JSON.stringify({ taskId, action: 'complete' }),
+      });
+      if (!res.ok) throw new Error('Failed to complete task');
+      if (overview) {
+        const updatedTasks = overview.data.tasks.filter(t => t.id !== taskId);
+        setOverview({
+          ...overview,
+          data: {
+            ...overview.data,
+            tasks: updatedTasks,
+            stats: { ...overview.data.stats, totalTasks: updatedTasks.length },
+          },
+        });
+      }
+    } catch (err: any) {
+      console.error('Complete WO task failed:', err);
+    } finally {
+      setCompletingWoId(null);
     }
   }
 
@@ -1410,6 +1575,292 @@ export default function DashboardOverview() {
           </div>
         </div>
       ))}
+
+      {/* ── WAITING ON — ⏳ task tracker ─────────────────────── */}
+      {(() => {
+        const woTasks = tasks.filter(t => t.name.startsWith('⏳'));
+        if (woTasks.length === 0 && !showWaitingOnForm) return null;
+
+        // Aging color logic
+        function agingColor(daysUntilDue: number | null): string {
+          if (daysUntilDue === null) return '#6a6058';
+          if (daysUntilDue < -7) return '#ef4444'; // 7+ days overdue → red
+          if (daysUntilDue < -3) return '#f97316'; // 3-7 days overdue → orange
+          if (daysUntilDue < 0) return '#eab308';  // 0-3 days overdue → yellow
+          return '#6a6058'; // not yet due
+        }
+        function agingBg(daysUntilDue: number | null): string {
+          if (daysUntilDue === null) return 'transparent';
+          if (daysUntilDue < -7) return 'rgba(239,68,68,0.08)';
+          if (daysUntilDue < -3) return 'rgba(249,115,22,0.08)';
+          if (daysUntilDue < 0) return 'rgba(234,179,8,0.06)';
+          return 'transparent';
+        }
+        // Sort: most overdue first
+        const sorted = [...woTasks].sort((a, b) => {
+          const aDays = a.daysUntilDue ?? 999;
+          const bDays = b.daysUntilDue ?? 999;
+          return aDays - bDays;
+        });
+
+        return (
+          <div style={{ background: '#1e1e1e', border: '1px solid rgba(205,162,116,0.08)', borderRadius: 8, padding: '8px 10px', marginBottom: 6 }}>
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 6 }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
+                <Hourglass size={10} style={{ color: '#CDA274' }} />
+                <span style={{ fontSize: 9, fontWeight: 600, color: '#CDA274', letterSpacing: '0.04em' }}>WAITING ON ({woTasks.length})</span>
+              </div>
+              <button
+                onClick={() => {
+                  setShowWaitingOnForm(!showWaitingOnForm);
+                  if (!showWaitingOnForm) {
+                    setWoTaskName('');
+                    setWoJobId('');
+                    setWoDescription('');
+                    setWoDate('');
+                    setWoAssignee('');
+                  }
+                }}
+                style={{ display: 'flex', alignItems: 'center', gap: 3, fontSize: 9, color: '#CDA274', background: 'rgba(205,162,116,0.08)', border: 'none', cursor: 'pointer', padding: '3px 8px', borderRadius: 4 }}
+              >
+                <Plus size={10} /> New
+              </button>
+            </div>
+
+            {/* Inline creation form */}
+            {showWaitingOnForm && (
+              <div style={{ background: '#242424', border: '1px solid rgba(205,162,116,0.12)', borderRadius: 6, padding: 10, marginBottom: 8 }}>
+                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 6, marginBottom: 6 }}>
+                  {/* Task name */}
+                  <div style={{ gridColumn: '1 / -1' }}>
+                    <label style={{ fontSize: 9, color: '#6a6058', fontWeight: 600, display: 'block', marginBottom: 2 }}>WHAT ARE YOU WAITING ON?</label>
+                    <input
+                      type="text"
+                      autoFocus
+                      placeholder="e.g. Approval on the tile selection"
+                      value={woTaskName}
+                      onChange={e => setWoTaskName(e.target.value)}
+                      style={{
+                        width: '100%', background: '#1a1a1a', border: '1px solid rgba(205,162,116,0.15)', borderRadius: 5,
+                        color: '#e8e0d8', fontSize: 11, padding: '6px 8px', outline: 'none', boxSizing: 'border-box',
+                      }}
+                    />
+                  </div>
+                  {/* Job selector */}
+                  <div>
+                    <label style={{ fontSize: 9, color: '#6a6058', fontWeight: 600, display: 'block', marginBottom: 2 }}>JOB</label>
+                    <select
+                      value={woJobId}
+                      onChange={e => setWoJobId(e.target.value)}
+                      style={{
+                        width: '100%', background: '#1a1a1a', border: '1px solid rgba(205,162,116,0.15)', borderRadius: 5,
+                        color: woJobId ? '#CDA274' : '#5a5550', fontSize: 11, padding: '6px 8px', outline: 'none', cursor: 'pointer', boxSizing: 'border-box',
+                      }}
+                    >
+                      <option value="">Select job...</option>
+                      {(overview?.data?.activeJobs || []).map(j => (
+                        <option key={j.id} value={j.id}>#{j.number} {j.name}</option>
+                      ))}
+                    </select>
+                  </div>
+                  {/* Assignee */}
+                  <div>
+                    <label style={{ fontSize: 9, color: '#6a6058', fontWeight: 600, display: 'block', marginBottom: 2 }}>WHO ARE YOU WAITING ON?</label>
+                    <select
+                      value={woAssignee}
+                      onChange={e => setWoAssignee(e.target.value)}
+                      style={{
+                        width: '100%', background: '#1a1a1a', border: '1px solid rgba(205,162,116,0.15)', borderRadius: 5,
+                        color: woAssignee ? '#CDA274' : '#5a5550', fontSize: 11, padding: '6px 8px', outline: 'none', cursor: 'pointer', boxSizing: 'border-box',
+                      }}
+                    >
+                      <option value="">Select person...</option>
+                      {TEAM_ASSIGNEES.map(a => (
+                        <option key={a.id} value={a.id}>{a.label}</option>
+                      ))}
+                    </select>
+                  </div>
+                  {/* Due date */}
+                  <div>
+                    <label style={{ fontSize: 9, color: '#6a6058', fontWeight: 600, display: 'block', marginBottom: 2 }}>FOLLOW UP BY</label>
+                    <input
+                      type="date"
+                      value={woDate}
+                      onChange={e => setWoDate(e.target.value)}
+                      style={{
+                        width: '100%', background: '#1a1a1a', border: '1px solid rgba(205,162,116,0.15)', borderRadius: 5,
+                        color: '#e8e0d8', fontSize: 11, padding: '6px 8px', colorScheme: 'dark', outline: 'none', boxSizing: 'border-box',
+                      }}
+                    />
+                    <div style={{ fontSize: 8, color: '#5a5550', marginTop: 1 }}>Default: 3 business days</div>
+                  </div>
+                  {/* Description */}
+                  <div>
+                    <label style={{ fontSize: 9, color: '#6a6058', fontWeight: 600, display: 'block', marginBottom: 2 }}>NOTE (OPTIONAL)</label>
+                    <input
+                      type="text"
+                      placeholder="Context or details..."
+                      value={woDescription}
+                      onChange={e => setWoDescription(e.target.value)}
+                      style={{
+                        width: '100%', background: '#1a1a1a', border: '1px solid rgba(205,162,116,0.15)', borderRadius: 5,
+                        color: '#e8e0d8', fontSize: 11, padding: '6px 8px', outline: 'none', boxSizing: 'border-box',
+                      }}
+                    />
+                  </div>
+                </div>
+                <div style={{ display: 'flex', gap: 6, justifyContent: 'flex-end' }}>
+                  <button
+                    onClick={() => setShowWaitingOnForm(false)}
+                    style={{ fontSize: 10, color: '#6a6058', background: 'transparent', border: '1px solid rgba(205,162,116,0.1)', borderRadius: 4, padding: '4px 10px', cursor: 'pointer' }}
+                  >
+                    Cancel
+                  </button>
+                  <button
+                    onClick={createWaitingOnTask}
+                    disabled={!woTaskName.trim() || !woJobId || !woAssignee || creatingWo}
+                    style={{
+                      fontSize: 10, fontWeight: 600, borderRadius: 4, padding: '4px 12px', border: 'none', cursor: (woTaskName.trim() && woJobId && woAssignee && !creatingWo) ? 'pointer' : 'default',
+                      background: (woTaskName.trim() && woJobId && woAssignee) ? '#CDA274' : 'rgba(205,162,116,0.2)',
+                      color: (woTaskName.trim() && woJobId && woAssignee) ? '#1a1a1a' : '#6a6058',
+                      opacity: creatingWo ? 0.5 : 1,
+                    }}
+                  >
+                    {creatingWo ? 'Creating...' : 'Create'}
+                  </button>
+                </div>
+              </div>
+            )}
+
+            {/* Waiting On items list */}
+            {sorted.length === 0 && !showWaitingOnForm && (
+              <div style={{ textAlign: 'center', padding: '8px 0', fontSize: 10, color: '#5a5550' }}>
+                No open items — click "+ New" to track something
+              </div>
+            )}
+            {sorted.map(task => {
+              const isExpanded = expandedWoTask === task.id;
+              const isCompleting = completingWoId === task.id;
+              const ac = agingColor(task.daysUntilDue);
+              const ab = agingBg(task.daysUntilDue);
+              // Parse task display: remove ⏳ prefix
+              const displayName = task.name.replace(/^⏳\s*/, '');
+              const comments = woComments[task.id];
+              const isLoadingComments = loadingWoComments === task.id;
+
+              return (
+                <div key={task.id} style={{ marginBottom: 2, borderRadius: 5, background: ab, transition: 'background 0.2s' }}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 5, padding: '5px 4px' }}>
+                    {/* Complete button */}
+                    <button
+                      onClick={() => completeWoTask(task.id)}
+                      disabled={isCompleting}
+                      title="Mark resolved"
+                      style={{ width: 18, height: 18, borderRadius: '50%', border: `1.5px solid ${ac}`, background: 'transparent', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0, opacity: isCompleting ? 0.4 : 1 }}
+                    >
+                      {isCompleting
+                        ? <Loader2 size={9} className="animate-spin" style={{ color: '#8a8078' }} />
+                        : <Check size={9} style={{ color: ac }} />
+                      }
+                    </button>
+                    {/* Task info — clickable to expand */}
+                    <button
+                      onClick={() => {
+                        if (isExpanded) {
+                          setExpandedWoTask(null);
+                        } else {
+                          setExpandedWoTask(task.id);
+                          fetchWoComments(task.id);
+                        }
+                      }}
+                      style={{ flex: 1, minWidth: 0, display: 'flex', alignItems: 'center', gap: 4, background: 'none', border: 'none', cursor: 'pointer', textAlign: 'left', padding: 0 }}
+                    >
+                      <div style={{ flex: 1, minWidth: 0 }}>
+                        <div style={{ fontSize: 11, color: '#e8e0d8', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', fontWeight: 500 }}>{displayName}</div>
+                        <div style={{ fontSize: 9, color: '#5a5550', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                          {task.jobName?.replace(/^#\d+\s*/, '') || ''}
+                        </div>
+                      </div>
+                      <ChevronRight size={10} style={{ color: '#5a5550', transform: isExpanded ? 'rotate(90deg)' : 'none', transition: 'transform 0.15s', flexShrink: 0 }} />
+                    </button>
+                    {/* Age badge */}
+                    <div style={{ fontSize: 9, color: ac, fontWeight: 600, flexShrink: 0, minWidth: 32, textAlign: 'right' }}>
+                      {task.daysUntilDue !== null
+                        ? (task.daysUntilDue < 0 ? `${Math.abs(task.daysUntilDue)}d ago` : task.daysUntilDue === 0 ? 'Today' : `${task.daysUntilDue}d`)
+                        : 'No date'}
+                    </div>
+                  </div>
+
+                  {/* Expanded comment thread */}
+                  {isExpanded && (
+                    <div style={{ padding: '0 4px 6px 28px' }}>
+                      {/* Comment input */}
+                      <div style={{ display: 'flex', gap: 4, marginBottom: 6 }}>
+                        <input
+                          type="text"
+                          placeholder="Add a note or follow-up..."
+                          value={woNewComment}
+                          onChange={e => setWoNewComment(e.target.value)}
+                          onKeyDown={e => { if (e.key === 'Enter' && woNewComment.trim()) postWoComment(task.id); }}
+                          style={{
+                            flex: 1, background: '#1a1a1a', border: '1px solid rgba(205,162,116,0.12)', borderRadius: 4,
+                            color: '#e8e0d8', fontSize: 10, padding: '4px 6px', outline: 'none',
+                          }}
+                        />
+                        <button
+                          onClick={() => postWoComment(task.id)}
+                          disabled={!woNewComment.trim() || postingWoComment}
+                          style={{
+                            background: woNewComment.trim() ? '#CDA274' : 'rgba(205,162,116,0.15)', border: 'none', borderRadius: 4,
+                            padding: '4px 8px', cursor: woNewComment.trim() ? 'pointer' : 'default', lineHeight: 0,
+                            opacity: postingWoComment ? 0.5 : 1,
+                          }}
+                        >
+                          <Send size={10} style={{ color: woNewComment.trim() ? '#1a1a1a' : '#5a5550' }} />
+                        </button>
+                      </div>
+
+                      {/* Comments list */}
+                      {isLoadingComments && (
+                        <div style={{ display: 'flex', alignItems: 'center', gap: 4, padding: '4px 0' }}>
+                          <Loader2 size={10} className="animate-spin" style={{ color: '#5a5550' }} />
+                          <span style={{ fontSize: 9, color: '#5a5550' }}>Loading comments...</span>
+                        </div>
+                      )}
+                      {comments && comments.length === 0 && !isLoadingComments && (
+                        <div style={{ fontSize: 9, color: '#3a3a3a', padding: '2px 0' }}>No comments yet</div>
+                      )}
+                      {comments && comments.slice(0, 5).map((c: any, i: number) => (
+                        <div key={c.id || i} style={{ padding: '3px 0', borderBottom: '1px solid rgba(205,162,116,0.04)' }}>
+                          <div style={{ display: 'flex', alignItems: 'center', gap: 4, marginBottom: 1 }}>
+                            <span style={{ fontSize: 9, fontWeight: 600, color: '#CDA274' }}>{c.name || 'Unknown'}</span>
+                            {c.createdAt && <span style={{ fontSize: 8, color: '#3a3a3a' }}>{timeAgo(c.createdAt)}</span>}
+                          </div>
+                          <div style={{ fontSize: 10, color: '#c8c0b8', lineHeight: '14px' }}>{c.message}</div>
+                        </div>
+                      ))}
+                      {comments && comments.length > 5 && (
+                        <div style={{ fontSize: 8, color: '#5a5550', padding: '2px 0' }}>+{comments.length - 5} more in JobTread</div>
+                      )}
+                      {/* Link to JT */}
+                      {task.jobId && (
+                        <a
+                          href={`https://app.jobtread.com/jobs/${task.jobId}/schedule`}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          style={{ display: 'inline-flex', alignItems: 'center', gap: 3, fontSize: 9, color: '#5a5550', marginTop: 3, textDecoration: 'none' }}
+                        >
+                          <ExternalLink size={8} /> View in JobTread
+                        </a>
+                      )}
+                    </div>
+                  )}
+                </div>
+              );
+            })}
+          </div>
+        );
+      })()}
 
       {/* ALL TASKS — grouped by job, collapsible, filtered to overdue + next 4 weeks */}
       {tasks.length > 0 && (() => {
