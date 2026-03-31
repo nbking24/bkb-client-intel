@@ -769,7 +769,7 @@ export default function DashboardOverview() {
           data: {
             ...overview.data,
             tasks: [...overview.data.tasks, newTask],
-            stats: { ...overview.data.stats, totalTasks: overview.data.tasks.length + 1 },
+            stats: { ...overview.data.stats, totalTasks: (overview.data.tasks || []).length + 1 },
           },
         });
       }
@@ -831,7 +831,7 @@ export default function DashboardOverview() {
           data: {
             ...overview.data,
             tasks: [...overview.data.tasks, newTask],
-            stats: { ...overview.data.stats, totalTasks: overview.data.tasks.length + 1 },
+            stats: { ...overview.data.stats, totalTasks: (overview.data.tasks || []).length + 1 },
           },
         });
       }
@@ -908,7 +908,7 @@ export default function DashboardOverview() {
       });
       if (!res.ok) throw new Error('Failed to complete task');
       if (overview) {
-        const updatedTasks = overview.data.tasks.filter(t => t.id !== taskId);
+        const updatedTasks = (overview.data.tasks || []).filter(t => t.id !== taskId);
         setOverview({
           ...overview,
           data: {
@@ -935,7 +935,7 @@ export default function DashboardOverview() {
       });
       if (!res.ok) throw new Error('Failed to complete task');
       if (overview) {
-        const updatedTasks = overview.data.tasks.filter(t => t.id !== taskId);
+        const updatedTasks = (overview.data.tasks || []).filter(t => t.id !== taskId);
         setOverview({
           ...overview,
           data: {
@@ -961,7 +961,7 @@ export default function DashboardOverview() {
       });
       if (!res.ok) throw new Error('Failed to update task date');
       if (overview) {
-        const updatedTasks = overview.data.tasks.map(t =>
+        const updatedTasks = (overview.data.tasks || []).map(t =>
           t.id === taskId ? { ...t, endDate: newDate, ...recalcUrgency(newDate) } : t
         );
         setOverview({ ...overview, data: { ...overview.data, tasks: updatedTasks } });
@@ -986,7 +986,7 @@ export default function DashboardOverview() {
       });
       if (!res.ok) throw new Error('Failed');
       if (overview) {
-        const updatedTasks = overview.data.tasks.filter(t => t.id !== selectedCalTask.id);
+        const updatedTasks = (overview.data.tasks || []).filter(t => t.id !== selectedCalTask.id);
         setOverview({ ...overview, data: { ...overview.data, tasks: updatedTasks, stats: { ...overview.data.stats, totalTasks: updatedTasks.length } } });
       }
       setSelectedCalTask(null);
@@ -1010,7 +1010,7 @@ export default function DashboardOverview() {
       const data = await res.json();
       if (overview && data.task) {
         const mj = overview.data.activeJobs?.find((j: any) => j.id === stNewTaskJob);
-        setOverview({ ...overview, data: { ...overview.data, tasks: [...overview.data.tasks, { id: data.task.id, name: stNewTaskName.trim(), jobName: mj ? String(mj.number) + ' ' + mj.name : '', jobId: stNewTaskJob, endDate: stNewTaskDate || null, status: 'open' } as any] } });
+        setOverview({ ...overview, data: { ...overview.data, tasks: [...(overview.data.tasks || []), { id: data.task.id, name: stNewTaskName.trim(), jobName: mj ? String(mj.number) + ' ' + mj.name : '', jobId: stNewTaskJob, endDate: stNewTaskDate || null, status: 'open' } as any] } });
       }
       setStNewTaskName(''); setStNewTaskJob(''); setStNewTaskPhase(''); setStNewTaskDate(''); setStNewTaskAssignee('');
       setPanelTab('waitingOn');
@@ -1031,7 +1031,7 @@ export default function DashboardOverview() {
       });
       if (!res.ok) throw new Error('Failed');
       if (overview) {
-        const updatedTasks = overview.data.tasks.map(t =>
+        const updatedTasks = (overview.data.tasks || []).map(t =>
           t.id === selectedCalTask.id ? { ...t, endDate: calEditingDate, ...recalcUrgency(calEditingDate) } : t
         );
         setOverview({ ...overview, data: { ...overview.data, tasks: updatedTasks } });
