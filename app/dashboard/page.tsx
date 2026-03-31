@@ -1184,7 +1184,9 @@ export default function DashboardOverview() {
             background: showWaitingOnPanel ? 'rgba(205,162,116,0.08)' : '#1e1e1e', border: '1px solid rgba(205,162,116,0.08)', borderRadius: 8,
             padding: '7px 10px', cursor: 'pointer' }}>
           <span style={{ fontSize: 13, color: '#CDA274' }}>+</span>
-          <span style={{ fontSize: 9, fontWeight: 600, color: '#CDA274', letterSpacing: '0.04em' }}>QUICK ADD</span>
+          <span style={{ fontSize: 9, fontWeight: 600, color: '#CDA274', letterSpacing: '0.04em' }}>
+            {(() => { const wc = tasks.filter(t => t.name.startsWith('⏳')).length; return wc > 0 ? `QUICK ADD (${wc} waiting)` : 'QUICK ADD'; })()}
+          </span>
         </button>
         <button onClick={() => { setShowAgentPanel(!showAgentPanel); setShowWaitingOnPanel(false); }}
           style={{ flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6,
@@ -1505,6 +1507,56 @@ export default function DashboardOverview() {
           <p style={{ fontSize: 12, color: '#e8e0d8', lineHeight: 1.5, margin: 0 }}>{analysis.summary}</p>
         </div>
       )}
+
+
+      {/* WAITING ON — persistent strip */}
+      {(() => {
+        const woItems = tasks.filter(t => t.name.startsWith('⏳'));
+        if (woItems.length === 0) return null;
+        function agingDays(t: any): number | null {
+          if (!t.endDate) return null;
+          return Math.round((new Date(t.endDate).getTime() - Date.now()) / 86400000);
+        }
+        function agingColor(d: number | null): string { if (d === null) return '#6a6058'; if (d < -7) return '#ef4444'; if (d < -3) return '#f97316'; if (d < 0) return '#eab308'; return '#22c55e'; }
+        function agingBg(d: number | null): string { if (d === null) return 'transparent'; if (d < -7) return 'rgba(239,68,68,0.08)'; if (d < -3) return 'rgba(249,115,22,0.08)'; if (d < 0) return 'rgba(234,179,8,0.06)'; return 'rgba(34,197,94,0.06)'; }
+        const sorted = [...woItems].sort((a, b) => {
+          const da = agingDays(a); const db = agingDays(b);
+          if (da === null && db === null) return 0; if (da === null) return 1; if (db === null) return -1;
+          return da - db;
+        });
+        const top5 = sorted.slice(0, 5);
+        return (
+          <div style={{ background: 'rgba(234,179,8,0.06)', border: '1px solid rgba(234,179,8,0.15)', borderRadius: 8, padding: '8px 10px', marginBottom: isTouch ? 10 : 6 }}>
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 6 }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
+                <Hourglass size={10} style={{ color: '#eab308' }} />
+                <span style={{ fontSize: 9, fontWeight: 600, color: '#eab308', letterSpacing: '0.04em' }}>
+                  WAITING ON ({woItems.length})
+                </span>
+              </div>
+              {woItems.length > 5 && (
+                <button onClick={() => { setShowWaitingOnPanel(true); }} style={{ background: 'none', border: 'none', cursor: 'pointer', fontSize: 9, color: '#CDA274', padding: 0 }}>
+                  View all <ChevronRight size={9} style={{ display: 'inline', verticalAlign: 'middle' }} />
+                </button>
+              )}
+            </div>
+            {top5.map((t, i) => {
+              const d = agingDays(t);
+              const label = t.name.replace(/^⏳\s*/, '');
+              const jobName = (overview?.data?.activeJobs || []).find((j: any) => j.id === t.targetId)?.name || '';
+              return (
+                <div key={t.id || i} style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '4px 6px', borderRadius: 6, background: agingBg(d), marginBottom: 2 }}>
+                  <div style={{ width: 6, height: 6, borderRadius: '50%', background: agingColor(d), flexShrink: 0 }} />
+                  <span style={{ fontSize: 11, color: '#e8e0d8', flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{label}</span>
+                  {jobName && <span style={{ fontSize: 9, color: '#6a6058', flexShrink: 0 }}>{jobName}</span>}
+                  {d !== null && <span style={{ fontSize: 9, color: agingColor(d), flexShrink: 0 }}>{d < 0 ? `${Math.abs(d)}d late` : d === 0 ? 'today' : `${d}d`}</span>}
+                </div>
+              );
+            })}
+          </div>
+        );
+      })()}
+
 
       {/* OUTSTANDING INVOICES â expandable from KPI card click */}
       {showSection === 'invoices' && (
