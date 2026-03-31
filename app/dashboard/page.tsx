@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect, useMemo } from 'react';
+import { useState, useEffect } from 'react';
 import {
   AlertTriangle, Clock, CheckCircle2, Loader2,
   RefreshCw, Calendar, MessageSquare, Zap,
@@ -301,11 +301,10 @@ export default function DashboardOverview() {
   const overdueTasks = tasks.filter(t => t.daysUntilDue !== null && t.daysUntilDue < 0);
 
   // Two-week calendar grid
-  const weeks = useMemo(() => {
+  const weeks = (() => {
     const now = new Date();
-    // Start from this Monday
     const day = now.getDay();
-    const diff = day === 0 ? -6 : 1 - day; // Monday = 1
+    const diff = day === 0 ? -6 : 1 - day;
     const monday = new Date(now);
     monday.setDate(now.getDate() + diff);
     monday.setHours(12, 0, 0, 0);
@@ -324,20 +323,15 @@ export default function DashboardOverview() {
         };
       }),
     }));
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+  })();
 
-  const tasksByDate = useMemo(() => {
-    const m: Record<string, typeof tasks> = {};
-    for (const t of tasks) {
-      const d = t.endDate;
-      if (!d) continue;
-      if (!m[d]) m[d] = [];
-      m[d].push(t);
-    }
-    return m;
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [overview]);
+  const tasksByDate: Record<string, typeof tasks> = {};
+  for (const t of tasks) {
+    const d = t.endDate;
+    if (!d) continue;
+    if (!tasksByDate[d]) tasksByDate[d] = [];
+    tasksByDate[d].push(t);
+  }
 
   if (loading && !overview) return (
     <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '80px 0' }}>
