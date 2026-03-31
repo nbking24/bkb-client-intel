@@ -1004,7 +1004,7 @@ export default function DashboardOverview() {
       const res = await fetch('/api/dashboard/create-task', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ jobId: stNewTaskJob, name: stNewTaskName.trim(), phase: stNewTaskPhase, date: stNewTaskDate || undefined }),
+        body: JSON.stringify({ jobId: stNewTaskJob, taskName: stNewTaskName.trim(), phaseName: stNewTaskPhase, endDate: stNewTaskDate || undefined }),
       });
       if (!res.ok) throw new Error(await res.text());
       const data = await res.json();
