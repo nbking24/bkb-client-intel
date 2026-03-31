@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useMemo } from 'react';
 import {
   DollarSign, AlertTriangle, Clock, CheckCircle2,
   RefreshCw, Loader2, FileText, TrendingUp,
@@ -968,6 +968,7 @@ export default function InvoicingDashboard() {
   const [contractExpanded, setContractExpanded] = useState(true);
   const [costPlusExpanded, setCostPlusExpanded] = useState(true);
   const [billableExpanded, setBillableExpanded] = useState(true);
+  const [openInvoicesExpanded, setOpenInvoicesExpanded] = useState(false);
 
   // AR Hold state: jobId → isHeld
   const [arHolds, setArHolds] = useState<Record<string, boolean>>({});
@@ -1126,6 +1127,185 @@ export default function InvoicingDashboard() {
           color={HEALTH_COLORS[summary.overallHealth].text}
         />
       </div>
+
+      {/* Open Invoices Awaiting Payment — Condensed Summary */}
+      {(() => {
+        // Aggregate all pending invoices from contract + cost-plus jobs
+        const allPending: Array<{
+          documentId: string;
+          documentNumber: string;
+          documentSubject: string | null;
+          amount: number;
+          daysPending: number;
+          jobId: string;
+          jobName: string;
+          clientName: string;
+        }> = [];
+
+        for (const job of (report.contractJobs || [])) {
+          for (const inv of (job.pendingInvoices || [])) {
+            allPending.push({
+              documentId: inv.documentId,
+              documentNumber: inv.documentNumber,
+              documentSubject: inv.documentSubject,
+              amount: inv.amount,
+              daysPending: inv.daysPending,
+              jobId: job.jobId,
+              jobName: job.jobName,
+              clientName: job.clientName,
+            });
+          }
+        }
+        for (const job of (report.costPlusJobs || [])) {
+          for (const inv of (job.releasedInvoices || [])) {
+            if (inv.status === 'open') {
+              allPending.push({
+                documentId: inv.documentId,
+                documentNumber: inv.documentNumber,
+                documentSubject: inv.documentSubject,
+                amount: inv.amount,
+                daysPending: Math.floor((Date.now() - new Date(inv.createdAt || '').getTime()) / 86400000),
+                jobId: job.jobId,
+                jobName: job.jobName,
+                clientName: job.clientName,
+              });
+            }
+          }
+        }
+
+        // Sort oldest first
+        allPending.sort((a, b) => b.daysPending - a.daysPending);
+        const totalOwed = allPending.reduce((s, inv) => s + inv.amount, 0);
+
+        if (allPending.length === 0) return null;
+
+        return (
+          <div
+            className="rounded-lg overflow-hidden"
+            style={{ background: '#242424', border: '1px solid rgba(234,179,8,0.15)' }}
+          >
+            {/* Clickable header */}
+            <button
+              onClick={() => setOpenInvoicesExpanded(!openInvoicesExpanded)}
+              className="w-full flex items-center justify-between px-4 py-3 transition-colors hover:bg-white/[0.02]"
+            >
+              <div className="flex items-center gap-2">
+                <DollarSign size={16} style={{ color: '#eab308' }} />
+                <span className="text-sm font-semibold" style={{ color: '#eab308' }}>
+                  Open Invoices Awaiting Payment
+                </span>
+                <span
+                  className="text-xs px-1.5 py-0.5 rounded-full font-medium"
+                  style={{ background: 'rgba(234,179,8,0.15)', color: '#eab308' }}
+                >
+                  {allPending.length}
+                </span>
+              </div>
+              <div className="flex items-center gap-3">
+                <span className="text-lg font-bold" style={{ color: '#e8e0d8' }}>
+                  {formatCurrency(totalOwed)}
+                </span>
+                {openInvoicesExpanded
+                  ? <ChevronDown size={16} style={{ color: '#8a8078' }} />
+                  : <ChevronRight size={16} style={{ color: '#8a8078' }} />
+                }
+              </div>
+            </button>
+
+            {/* Expanded invoice list */}
+            {openInvoicesExpanded && (
+              <div className="px-4 pb-3" style={{ borderTop: '1px solid rgba(205,162,116,0.06)' }}>
+                {/* Column headers */}
+                <div className="flex items-center gap-2 py-2 text-[10px] font-medium" style={{ color: '#6a6058' }}>
+                  <span className="w-[60px]">Invoice</span>
+                  <span className="flex-1 min-w-0">Job / Client</span>
+                  <span className="w-[80px] text-right">Amount</span>
+                  <span className="w-[55px] text-right">Age</span>
+                  <span className="w-[120px] text-right">AR Reminders</span>
+                </div>
+
+                {allPending.map((inv) => {
+                  const ageColor = inv.daysPending > 60 ? '#ef4444' : inv.daysPending > 30 ? '#f97316' : inv.daysPending > 14 ? '#eab308' : '#8a8078';
+                  const isHeld = arHolds[inv.jobId] || false;
+                  const isToggling = arToggling === inv.jobId;
+
+                  return (
+                    <div
+                      key={inv.documentId}
+                      className="flex items-center gap-2 py-1.5"
+                      style={{ borderBottom: '1px solid rgba(205,162,116,0.04)' }}
+                    >
+                      {/* Invoice # */}
+                      <span className="w-[60px] text-[11px] font-mono" style={{ color: '#CDA274' }}>
+                        #{inv.documentNumber}
+                      </span>
+
+                      {/* Job + Client */}
+                      <div className="flex-1 min-w-0">
+                        <p className="text-[11px] truncate" style={{ color: '#e8e0d8', margin: 0 }}>
+                          {inv.jobName}
+                        </p>
+                        <p className="text-[9px] truncate" style={{ color: '#6a6058', margin: 0 }}>
+                          {inv.clientName}{inv.documentSubject ? ` — ${inv.documentSubject}` : ''}
+                        </p>
+                      </div>
+
+                      {/* Amount */}
+                      <span className="w-[80px] text-right text-[12px] font-semibold" style={{ color: '#e8e0d8' }}>
+                        {formatCurrency(inv.amount)}
+                      </span>
+
+                      {/* Age */}
+                      <span className="w-[55px] text-right text-[11px] font-medium" style={{ color: ageColor }}>
+                        {inv.daysPending}d
+                      </span>
+
+                      {/* AR Hold Toggle */}
+                      <div className="w-[120px] flex justify-end">
+                        <button
+                          onClick={() => toggleArHold(inv.jobId, inv.jobName)}
+                          disabled={isToggling}
+                          className="flex items-center gap-1 text-[9px] py-0.5 px-2 rounded transition-colors"
+                          style={{
+                            background: isHeld ? 'rgba(239,68,68,0.1)' : 'rgba(34,197,94,0.08)',
+                            color: isHeld ? '#f87171' : '#4ade80',
+                            border: `1px solid ${isHeld ? 'rgba(239,68,68,0.2)' : 'rgba(34,197,94,0.15)'}`,
+                            cursor: isToggling ? 'wait' : 'pointer',
+                            opacity: isToggling ? 0.5 : 1,
+                          }}
+                          title={isHeld ? 'Resume automated AR reminders for this job' : 'Pause automated AR reminders for this job'}
+                        >
+                          {isToggling ? (
+                            <Loader2 size={8} className="animate-spin" />
+                          ) : isHeld ? (
+                            <PlayCircle size={8} />
+                          ) : (
+                            <PauseCircle size={8} />
+                          )}
+                          {isHeld ? 'Paused' : 'Active'}
+                        </button>
+                      </div>
+                    </div>
+                  );
+                })}
+
+                {/* Footer totals */}
+                <div className="flex items-center justify-between pt-2 mt-1" style={{ borderTop: '1px solid rgba(205,162,116,0.08)' }}>
+                  <span className="text-[10px]" style={{ color: '#6a6058' }}>
+                    {allPending.filter(inv => inv.daysPending > 30).length} invoices over 30 days
+                  </span>
+                  <span className="text-[10px]" style={{ color: '#6a6058' }}>
+                    {Object.values(arHolds).filter(Boolean).length > 0
+                      ? `${Object.values(arHolds).filter(Boolean).length} job(s) paused`
+                      : 'All reminders active'
+                    }
+                  </span>
+                </div>
+              </div>
+            )}
+          </div>
+        );
+      })()}
 
       {/* Search Box */}
       <div className="relative">
