@@ -5,7 +5,7 @@ import {
   DollarSign, AlertTriangle, Clock, CheckCircle2,
   RefreshCw, Loader2, FileText, TrendingUp,
   Calendar, AlertCircle, ChevronDown, ChevronRight,
-  Search, X, Plus, Check, Send,
+  Search, X, Plus, Check, Send, PauseCircle, PlayCircle,
 } from 'lucide-react';
 
 // ============================================================
@@ -413,7 +413,7 @@ function InvoiceDetails({ drafts, released }: { drafts: DraftInvoiceInfo[]; rele
 // Contract Jobs Section
 // ============================================================
 
-function ContractJobCard({ job, onInvoiceCreated }: { job: ContractJobHealth; onInvoiceCreated?: () => void }) {
+function ContractJobCard({ job, onInvoiceCreated, arHeld, arToggling, onToggleArHold }: { job: ContractJobHealth; onInvoiceCreated?: () => void; arHeld?: boolean; arToggling?: boolean; onToggleArHold?: (jobId: string, jobName: string) => void }) {
   const [creatingBillable, setCreatingBillable] = useState(false);
   const [billableResult, setBillableResult] = useState<{ success: boolean; message: string; documentNumber?: string } | null>(null);
 
@@ -521,16 +521,45 @@ function ContractJobCard({ job, onInvoiceCreated }: { job: ContractJobHealth; on
         </div>
       )}
 
-      {job.pendingInvoices && job.pendingInvoices.length > 0 && job.pendingInvoices.map((inv) => (
-        <div key={inv.documentId} className="flex items-center gap-1.5 text-[11px] py-0.5" style={{ color: '#8a8078' }}>
-          <Send size={9} className="flex-shrink-0" />
-          <span className="truncate">
-            Invoice #{inv.documentNumber}{inv.documentSubject ? ` — ${inv.documentSubject}` : ''}
-            {inv.amount > 0 ? ` ($${inv.amount.toLocaleString()})` : ''}
-            {' '}— sent {inv.daysPending}d ago, awaiting payment
-          </span>
-        </div>
-      ))}
+      {job.pendingInvoices && job.pendingInvoices.length > 0 && (
+        <>
+          {job.pendingInvoices.map((inv) => (
+            <div key={inv.documentId} className="flex items-center gap-1.5 text-[11px] py-0.5" style={{ color: '#8a8078' }}>
+              <Send size={9} className="flex-shrink-0" />
+              <span className="truncate">
+                Invoice #{inv.documentNumber}{inv.documentSubject ? ` — ${inv.documentSubject}` : ''}
+                {inv.amount > 0 ? ` ($${inv.amount.toLocaleString()})` : ''}
+                {' '}— sent {inv.daysPending}d ago, awaiting payment
+              </span>
+            </div>
+          ))}
+          {/* AR Hold Toggle — shown when job has pending (unpaid) invoices */}
+          {onToggleArHold && (
+            <button
+              onClick={() => onToggleArHold(job.jobId, job.jobName)}
+              disabled={arToggling}
+              className="flex items-center gap-1 text-[10px] mt-0.5 py-0.5 px-1.5 rounded transition-colors"
+              style={{
+                background: arHeld ? 'rgba(239,68,68,0.08)' : 'rgba(34,197,94,0.06)',
+                color: arHeld ? '#f87171' : '#6a6058',
+                border: `1px solid ${arHeld ? 'rgba(239,68,68,0.15)' : 'rgba(205,162,116,0.1)'}`,
+                cursor: arToggling ? 'wait' : 'pointer',
+                opacity: arToggling ? 0.5 : 1,
+              }}
+              title={arHeld ? 'Resume automated AR reminders for this job' : 'Pause automated AR reminders for this job'}
+            >
+              {arToggling ? (
+                <Loader2 size={9} className="animate-spin" />
+              ) : arHeld ? (
+                <PlayCircle size={9} />
+              ) : (
+                <PauseCircle size={9} />
+              )}
+              {arHeld ? 'Resume AR Reminders' : 'Pause AR Reminders'}
+            </button>
+          )}
+        </>
+      )}
 
       {job.nextMilestone && (!job.approachingMilestones || !job.approachingMilestones.some(m => m.taskId === job.nextMilestone?.taskId)) && (
         <div className="text-[11px] py-0.5" style={{ color: '#8a8078' }}>
@@ -598,7 +627,7 @@ function ContractJobCard({ job, onInvoiceCreated }: { job: ContractJobHealth; on
 // Cost Plus Jobs Section
 // ============================================================
 
-function CostPlusJobCard({ job, onInvoiceCreated }: { job: CostPlusJobHealth; onInvoiceCreated?: () => void }) {
+function CostPlusJobCard({ job, onInvoiceCreated, arHeld, arToggling, onToggleArHold }: { job: CostPlusJobHealth; onInvoiceCreated?: () => void; arHeld?: boolean; arToggling?: boolean; onToggleArHold?: (jobId: string, jobName: string) => void }) {
   const [creating, setCreating] = useState(false);
   const [createResult, setCreateResult] = useState<{ success: boolean; message: string; documentNumber?: string } | null>(null);
 
@@ -701,6 +730,32 @@ function CostPlusJobCard({ job, onInvoiceCreated }: { job: CostPlusJobHealth; on
           {alert}
         </div>
       ))}
+
+      {/* AR Hold Toggle — shown when job has unpaid invoices */}
+      {unpaidTotal > 0 && onToggleArHold && (
+        <button
+          onClick={() => onToggleArHold(job.jobId, job.jobName)}
+          disabled={arToggling}
+          className="flex items-center gap-1 text-[10px] mt-0.5 py-0.5 px-1.5 rounded transition-colors"
+          style={{
+            background: arHeld ? 'rgba(239,68,68,0.08)' : 'rgba(34,197,94,0.06)',
+            color: arHeld ? '#f87171' : '#6a6058',
+            border: `1px solid ${arHeld ? 'rgba(239,68,68,0.15)' : 'rgba(205,162,116,0.1)'}`,
+            cursor: arToggling ? 'wait' : 'pointer',
+            opacity: arToggling ? 0.5 : 1,
+          }}
+          title={arHeld ? 'Resume automated AR reminders for this job' : 'Pause automated AR reminders for this job'}
+        >
+          {arToggling ? (
+            <Loader2 size={9} className="animate-spin" />
+          ) : arHeld ? (
+            <PlayCircle size={9} />
+          ) : (
+            <PauseCircle size={9} />
+          )}
+          {arHeld ? 'Resume AR Reminders' : 'Pause AR Reminders'}
+        </button>
+      )}
 
       {/* Create Draft Invoice Button — only for jobs with unbilled work */}
       {hasUnbilledWork && (
@@ -914,6 +969,30 @@ export default function InvoicingDashboard() {
   const [costPlusExpanded, setCostPlusExpanded] = useState(true);
   const [billableExpanded, setBillableExpanded] = useState(true);
 
+  // AR Hold state: jobId → isHeld
+  const [arHolds, setArHolds] = useState<Record<string, boolean>>({});
+  const [arToggling, setArToggling] = useState<string | null>(null);
+
+  async function toggleArHold(jobId: string, jobName: string) {
+    setArToggling(jobId);
+    try {
+      const currentlyHeld = arHolds[jobId] || false;
+      const action = currentlyHeld ? 'resume' : 'hold';
+      const res = await fetch('/api/dashboard/invoicing/ar-hold', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ jobId, action }),
+      });
+      if (!res.ok) throw new Error('Failed to toggle AR hold');
+      const data = await res.json();
+      setArHolds(prev => ({ ...prev, [jobId]: data.isHeld }));
+    } catch (err) {
+      console.error('AR hold toggle failed:', err);
+    } finally {
+      setArToggling(null);
+    }
+  }
+
   // Search filter helper
   function matchesSearch<T extends { jobName: string; jobNumber: string; clientName: string }>(job: T): boolean {
     if (!searchQuery.trim()) return true;
@@ -1096,7 +1175,7 @@ export default function InvoicingDashboard() {
             {contractExpanded && (
               <div className="grid gap-2 md:grid-cols-2 lg:grid-cols-3 ml-1">
                 {filtered.map((job) => (
-                  <ContractJobCard key={job.jobId} job={job} onInvoiceCreated={() => fetchReport(true)} />
+                  <ContractJobCard key={job.jobId} job={job} onInvoiceCreated={() => fetchReport(true)} arHeld={arHolds[job.jobId]} arToggling={arToggling === job.jobId} onToggleArHold={toggleArHold} />
                 ))}
               </div>
             )}
@@ -1119,7 +1198,7 @@ export default function InvoicingDashboard() {
             {costPlusExpanded && (
               <div className="grid gap-2 md:grid-cols-2 lg:grid-cols-3 ml-1">
                 {filtered.map((job) => (
-                  <CostPlusJobCard key={job.jobId} job={job} onInvoiceCreated={() => fetchReport(true)} />
+                  <CostPlusJobCard key={job.jobId} job={job} onInvoiceCreated={() => fetchReport(true)} arHeld={arHolds[job.jobId]} arToggling={arToggling === job.jobId} onToggleArHold={toggleArHold} />
                 ))}
               </div>
             )}
