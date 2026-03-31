@@ -6,7 +6,7 @@
 // ============================================================
 
 import { NextResponse } from 'next/server';
-import { pave } from '@/app/lib/jobtread';
+import { pave, getActiveJobs } from '@/app/lib/jobtread';
 
 export const runtime = 'nodejs';
 
@@ -19,17 +19,9 @@ interface ArStatRecord {
 
 export async function GET() {
   try {
-    // 1. Get active jobs
-    const jobsResp = await pave({
-      organization: {
-        jobs: {
-          $: { filter: { status: { eq: 'active' } }, size: 100 },
-          nodes: { id: {}, name: {} },
-        },
-      },
-    });
-
-    const jobs = (jobsResp as any)?.organization?.jobs?.nodes || [];
+    // 1. Get active jobs using the shared helper
+    const activeJobs = await getActiveJobs(100);
+    const jobs = activeJobs.map(j => ({ id: j.id, name: j.name }));
     if (jobs.length === 0) {
       return NextResponse.json({
         totalRemindersSent: 0,
