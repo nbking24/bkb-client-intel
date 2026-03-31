@@ -1870,6 +1870,53 @@ export default function DashboardOverview() {
               </div>
               {/* Scrollable content */}
               <div style={{ flex: 1, overflowY: 'auto', padding: '8px 12px' }}>
+                {panelTab === 'newTask' && (
+                  <div style={{ padding: '4px 0' }}>
+                    <div>
+                      <label style={{ fontSize: 9, color: '#6a6058', fontWeight: 600, display: 'block', marginBottom: 3 }}>TASK NAME</label>
+                      <input type="text" autoFocus placeholder="e.g. Order appliances" value={stNewTaskName} onChange={e => setStNewTaskName(e.target.value)}
+                        style={{ width: '100%', background: '#1a1a1a', border: '1px solid rgba(205,162,116,0.15)', borderRadius: 5, color: '#e0e0d8', fontSize: 12, padding: '7px 10px', outline: 'none', boxSizing: 'border-box' as const }} />
+                    </div>
+                    <div style={{ marginTop: 8 }}>
+                      <label style={{ fontSize: 9, color: '#6a6058', fontWeight: 600, display: 'block', marginBottom: 3 }}>JOB</label>
+                      <select value={stNewTaskJob} onChange={e => setStNewTaskJob(e.target.value)}
+                        style={{ width: '100%', background: '#1a1a1a', border: '1px solid rgba(205,162,116,0.15)', borderRadius: 5, color: stNewTaskJob ? '#CDA274' : '#5a5550', fontSize: 11, padding: '7px 8px', outline: 'none', cursor: 'pointer', boxSizing: 'border-box' as const }}>
+                        <option value="">Select job...</option>
+                        {overview?.data?.activeJobs?.map((j: any) => (<option key={j.id} value={j.id}>{j.number} - {j.name}</option>))}
+                      </select>
+                    </div>
+                    <div style={{ marginTop: 8 }}>
+                      <label style={{ fontSize: 9, color: '#6a6058', fontWeight: 600, display: 'block', marginBottom: 3 }}>PHASE</label>
+                      <select value={stNewTaskPhase} onChange={e => setStNewTaskPhase(e.target.value)}
+                        style={{ width: '100%', background: '#1a1a1a', border: '1px solid rgba(205,162,116,0.15)', borderRadius: 5, color: stNewTaskPhase ? '#CDA274' : '#5a5550', fontSize: 11, padding: '7px 8px', outline: 'none', cursor: 'pointer', boxSizing: 'border-box' as const }}>
+                        <option value="">Select phase...</option>
+                        {BKB_PHASES.map(p => (<option key={p} value={p}>{p}</option>))}
+                      </select>
+                    </div>
+                    <div style={{ marginTop: 8 }}>
+                      <label style={{ fontSize: 9, color: '#6a6058', fontWeight: 600, display: 'block', marginBottom: 3 }}>ASSIGN TO</label>
+                      <select value={stNewTaskAssignee} onChange={e => setStNewTaskAssignee(e.target.value)}
+                        style={{ width: '100%', background: '#1a1a1a', border: '1px solid rgba(205,162,116,0.15)', borderRadius: 5, color: stNewTaskAssignee ? '#CDA274' : '#5a5550', fontSize: 11, padding: '7px 8px', outline: 'none', cursor: 'pointer', boxSizing: 'border-box' as const }}>
+                        <option value="">Select assignee...</option>
+                        {TEAM_ASSIGNEES.map((a: any) => (<option key={a.id} value={a.id}>{a.label}</option>))}
+                      </select>
+                    </div>
+                    <div style={{ marginTop: 8 }}>
+                      <label style={{ fontSize: 9, color: '#6a6058', fontWeight: 600, display: 'block', marginBottom: 3 }}>DUE DATE</label>
+                      <input type="date" value={stNewTaskDate} onChange={e => setStNewTaskDate(e.target.value)}
+                        style={{ width: '100%', background: '#1a1a1a', border: '1px solid rgba(205,162,116,0.15)', borderRadius: 5, color: stNewTaskDate ? '#CDA274' : '#5a5550', fontSize: 11, padding: '7px 8px', outline: 'none', cursor: 'pointer', boxSizing: 'border-box' as const }} />
+                    </div>
+                    <button onClick={createStandaloneTask} disabled={!stNewTaskName.trim() || !stNewTaskJob || !stNewTaskPhase || creatingSt}
+                      style={{ marginTop: 12, width: '100%', padding: '10px', borderRadius: 6, border: 'none',
+                        background: (!stNewTaskName.trim() || !stNewTaskJob || !stNewTaskPhase) ? '#333' : '#CDA274',
+                        color: (!stNewTaskName.trim() || !stNewTaskJob || !stNewTaskPhase) ? '#666' : '#1a1a1a',
+                        fontWeight: 600, fontSize: 12,
+                        cursor: (!stNewTaskName.trim() || !stNewTaskJob || !stNewTaskPhase) ? 'default' : 'pointer',
+                        opacity: creatingSt ? 0.5 : 1 }}>
+                      {creatingSt ? 'Creating...' : 'Create Task'}
+                    </button>
+                  </div>
+                )}
                 {showWaitingOnForm && (
                   <div style={{ background: '#242424', border: '1px solid rgba(205,162,116,0.12)', borderRadius: 8, padding: 12, marginBottom: 10 }}>
                     <div style={{ fontSize: 11, fontWeight: 600, color: '#CDA274', marginBottom: 8 }}>New Waiting On Item</div>
