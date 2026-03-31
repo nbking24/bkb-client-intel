@@ -1,10 +1,10 @@
 // ============================================================
-// Waiting On — Create & manage ⏳ tracking tasks
+// Waiting On â Create & manage â³ tracking tasks
 //
-// POST → Create a new Waiting On task (⏳ prefix, Admin Tasks phase,
+// POST â Create a new Waiting On task (â³ prefix, Admin Tasks phase,
 //         multi-assignee, optional initial comment)
-// GET  → Fetch comments for a specific task (pass ?taskId=xxx)
-// PUT  → Post a new comment on a Waiting On task
+// GET  â Fetch comments for a specific task (pass ?taskId=xxx)
+// PUT  â Post a new comment on a Waiting On task
 // ============================================================
 
 import { NextRequest, NextResponse } from 'next/server';
@@ -19,7 +19,7 @@ import {
 export const runtime = 'nodejs';
 export const maxDuration = 30;
 
-// ── POST: Create a Waiting On task ────────────────────────────
+// ââ POST: Create a Waiting On task ââââââââââââââââââââââââââââ
 export async function POST(req: NextRequest) {
   try {
     const {
@@ -61,17 +61,18 @@ export async function POST(req: NextRequest) {
       phaseGroupId = created.id;
     }
 
-    // 2. Build formatted task name: ⏳ [Assignee]: [Task name]
+    // 2. Build formatted task name: â³ [Assignee]: [Task name]
     // The assignee label is passed from the frontend since it knows the team names
-    const formattedName = `⏳ ${taskName}`;
+    const formattedName = `â³ ${taskName}`;
 
     // 3. Default due date: 3 business days from now if not provided
     const dueDate = endDate || getBusinessDaysFromNow(3);
 
-    // 4. Create the task — assigned to both Terri and the person she's waiting on
-    const assignedMembershipIds = [terriMembershipId, assigneeMembershipId];
+    // 4. Create the task â assigned to both Terri and the person she's waiting on
     // De-dupe in case Terri assigns to herself
-    const uniqueIds = [...new Set(assignedMembershipIds)];
+    const uniqueIds = terriMembershipId === assigneeMembershipId
+      ? [terriMembershipId]
+      : [terriMembershipId, assigneeMembershipId];
 
     const result = await createPhaseTask({
       jobId,
@@ -93,7 +94,7 @@ export async function POST(req: NextRequest) {
         });
       } catch (commentErr: any) {
         console.warn('Could not add initial comment:', commentErr.message);
-        // Non-fatal — task was still created
+        // Non-fatal â task was still created
       }
     }
 
@@ -112,7 +113,7 @@ export async function POST(req: NextRequest) {
   }
 }
 
-// ── GET: Fetch comments for a task ────────────────────────────
+// ââ GET: Fetch comments for a task ââââââââââââââââââââââââââââ
 export async function GET(req: NextRequest) {
   try {
     const taskId = req.nextUrl.searchParams.get('taskId');
@@ -130,7 +131,7 @@ export async function GET(req: NextRequest) {
   }
 }
 
-// ── PUT: Post a comment on a task ─────────────────────────────
+// ââ PUT: Post a comment on a task âââââââââââââââââââââââââââââ
 export async function PUT(req: NextRequest) {
   try {
     const { taskId, message, authorName } = await req.json();
@@ -153,7 +154,7 @@ export async function PUT(req: NextRequest) {
   }
 }
 
-// ── Helpers ───────────────────────────────────────────────────
+// ââ Helpers âââââââââââââââââââââââââââââââââââââââââââââââââââ
 
 function flattenTasks(tasks: any[]): any[] {
   const result: any[] = [];
