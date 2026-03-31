@@ -1643,7 +1643,7 @@ export default function DashboardOverview() {
               style={{
                 flex: 0, display: 'flex', alignItems: 'center', gap: 5,
                 background: '#1e1e1e', border: '1px solid rgba(205,162,116,0.12)', borderRadius: 8,
-                padding: '7px 12px', cursor: 'pointer', whiteSpace: 'nowrap' as const,
+                padding: '7px 12px', cursor: 'pointer', whiteSpace: 'nowrap',
               }}
             >
               <Plus size={11} style={{ color: '#CDA274' }} />
@@ -1929,12 +1929,12 @@ export default function DashboardOverview() {
                       <div>
                         <label style={{ fontSize: 9, color: '#6a6058', fontWeight: 600, display: 'block', marginBottom: 3 }}>TASK NAME</label>
                         <input type="text" autoFocus placeholder="e.g. Submit permit application" value={stNewTaskName} onChange={e => setStNewTaskName(e.target.value)}
-                          style={{ width: '100%', background: '#242424', border: '1px solid rgba(205,162,116,0.15)', borderRadius: 5, color: '#e8e0d8', fontSize: 12, padding: '8px 10px', outline: 'none', boxSizing: 'border-box' as const }} />
+                          style={{ width: '100%', background: '#242424', border: '1px solid rgba(205,162,116,0.15)', borderRadius: 5, color: '#e8e0d8', fontSize: 12, padding: '8px 10px', outline: 'none', boxSizing: 'border-box' }} />
                       </div>
                       <div>
                         <label style={{ fontSize: 9, color: '#6a6058', fontWeight: 600, display: 'block', marginBottom: 3 }}>JOB</label>
                         <select value={stNewTaskJob} onChange={e => setStNewTaskJob(e.target.value)}
-                          style={{ width: '100%', background: '#242424', border: '1px solid rgba(205,162,116,0.15)', borderRadius: 5, color: stNewTaskJob ? '#CDA274' : '#5a5550', fontSize: 12, padding: '8px 10px', outline: 'none', cursor: 'pointer', boxSizing: 'border-box' as const }}>
+                          style={{ width: '100%', background: '#242424', border: '1px solid rgba(205,162,116,0.15)', borderRadius: 5, color: stNewTaskJob ? '#CDA274' : '#5a5550', fontSize: 12, padding: '8px 10px', outline: 'none', cursor: 'pointer', boxSizing: 'border-box' }}>
                           <option value="">Select job...</option>
                           {(overview?.data?.activeJobs || []).map((j: any) => (<option key={j.id} value={j.id}>#{j.number} {j.name}</option>))}
                         </select>
@@ -1942,7 +1942,7 @@ export default function DashboardOverview() {
                       <div>
                         <label style={{ fontSize: 9, color: '#6a6058', fontWeight: 600, display: 'block', marginBottom: 3 }}>CATEGORY (PHASE)</label>
                         <select value={stNewTaskPhase} onChange={e => setStNewTaskPhase(e.target.value)}
-                          style={{ width: '100%', background: '#242424', border: '1px solid rgba(205,162,116,0.15)', borderRadius: 5, color: stNewTaskPhase ? '#CDA274' : '#5a5550', fontSize: 12, padding: '8px 10px', outline: 'none', cursor: 'pointer', boxSizing: 'border-box' as const }}>
+                          style={{ width: '100%', background: '#242424', border: '1px solid rgba(205,162,116,0.15)', borderRadius: 5, color: stNewTaskPhase ? '#CDA274' : '#5a5550', fontSize: 12, padding: '8px 10px', outline: 'none', cursor: 'pointer', boxSizing: 'border-box' }}>
                           <option value="">Select category...</option>
                           {BKB_PHASES.map((p: string) => (<option key={p} value={p}>{p}</option>))}
                         </select>
@@ -1951,7 +1951,7 @@ export default function DashboardOverview() {
                         <div>
                           <label style={{ fontSize: 9, color: '#6a6058', fontWeight: 600, display: 'block', marginBottom: 3 }}>ASSIGN TO</label>
                           <select value={stNewTaskAssignee} onChange={e => setStNewTaskAssignee(e.target.value)}
-                            style={{ width: '100%', background: '#242424', border: '1px solid rgba(205,162,116,0.15)', borderRadius: 5, color: stNewTaskAssignee ? '#CDA274' : '#5a5550', fontSize: 11, padding: '8px', outline: 'none', cursor: 'pointer', boxSizing: 'border-box' as const }}>
+                            style={{ width: '100%', background: '#242424', border: '1px solid rgba(205,162,116,0.15)', borderRadius: 5, color: stNewTaskAssignee ? '#CDA274' : '#5a5550', fontSize: 11, padding: '8px', outline: 'none', cursor: 'pointer', boxSizing: 'border-box' }}>
                             <option value="">Optional...</option>
                             {TEAM_ASSIGNEES.map((a: any) => (<option key={a.id} value={a.id}>{a.label}</option>))}
                           </select>
@@ -1959,7 +1959,7 @@ export default function DashboardOverview() {
                         <div>
                           <label style={{ fontSize: 9, color: '#6a6058', fontWeight: 600, display: 'block', marginBottom: 3 }}>DUE DATE</label>
                           <input type="date" value={stNewTaskDate} onChange={e => setStNewTaskDate(e.target.value)}
-                            style={{ width: '100%', background: '#242424', border: '1px solid rgba(205,162,116,0.15)', borderRadius: 5, color: '#e8e0d8', fontSize: 11, padding: '8px', colorScheme: 'dark', outline: 'none', boxSizing: 'border-box' as const }} />
+                            style={{ width: '100%', background: '#242424', border: '1px solid rgba(205,162,116,0.15)', borderRadius: 5, color: '#e8e0d8', fontSize: 11, padding: '8px', colorScheme: 'dark', outline: 'none', boxSizing: 'border-box' }} />
                         </div>
                       </div>
                       <button onClick={createStandaloneTask} disabled={!stNewTaskName.trim() || !stNewTaskJob || !stNewTaskPhase || creatingSt}
@@ -1991,13 +1991,13 @@ export default function DashboardOverview() {
                           <div>
                             <label style={{ fontSize: 9, color: '#6a6058', fontWeight: 600, display: 'block', marginBottom: 3 }}>WHAT ARE YOU WAITING ON?</label>
                             <input type="text" autoFocus placeholder="e.g. Approval on tile selection" value={woTaskName} onChange={e => setWoTaskName(e.target.value)}
-                              style={{ width: '100%', background: '#1a1a1a', border: '1px solid rgba(205,162,116,0.15)', borderRadius: 5, color: '#e8e0d8', fontSize: 12, padding: '7px 10px', outline: 'none', boxSizing: 'border-box' as const }} />
+                              style={{ width: '100%', background: '#1a1a1a', border: '1px solid rgba(205,162,116,0.15)', borderRadius: 5, color: '#e8e0d8', fontSize: 12, padding: '7px 10px', outline: 'none', boxSizing: 'border-box' }} />
                           </div>
                           <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8 }}>
                             <div>
                               <label style={{ fontSize: 9, color: '#6a6058', fontWeight: 600, display: 'block', marginBottom: 3 }}>JOB</label>
                               <select value={woJobId} onChange={e => setWoJobId(e.target.value)}
-                                style={{ width: '100%', background: '#1a1a1a', border: '1px solid rgba(205,162,116,0.15)', borderRadius: 5, color: woJobId ? '#CDA274' : '#5a5550', fontSize: 11, padding: '7px 8px', outline: 'none', cursor: 'pointer', boxSizing: 'border-box' as const }}>
+                                style={{ width: '100%', background: '#1a1a1a', border: '1px solid rgba(205,162,116,0.15)', borderRadius: 5, color: woJobId ? '#CDA274' : '#5a5550', fontSize: 11, padding: '7px 8px', outline: 'none', cursor: 'pointer', boxSizing: 'border-box' }}>
                                 <option value="">Select job...</option>
                                 {(overview?.data?.activeJobs || []).map((j: any) => (<option key={j.id} value={j.id}>#{j.number} {j.name}</option>))}
                               </select>
@@ -2005,7 +2005,7 @@ export default function DashboardOverview() {
                             <div>
                               <label style={{ fontSize: 9, color: '#6a6058', fontWeight: 600, display: 'block', marginBottom: 3 }}>WHO?</label>
                               <select value={woAssignee} onChange={e => setWoAssignee(e.target.value)}
-                                style={{ width: '100%', background: '#1a1a1a', border: '1px solid rgba(205,162,116,0.15)', borderRadius: 5, color: woAssignee ? '#CDA274' : '#5a5550', fontSize: 11, padding: '7px 8px', outline: 'none', cursor: 'pointer', boxSizing: 'border-box' as const }}>
+                                style={{ width: '100%', background: '#1a1a1a', border: '1px solid rgba(205,162,116,0.15)', borderRadius: 5, color: woAssignee ? '#CDA274' : '#5a5550', fontSize: 11, padding: '7px 8px', outline: 'none', cursor: 'pointer', boxSizing: 'border-box' }}>
                                 <option value="">Select person...</option>
                                 {TEAM_ASSIGNEES.map((a: any) => (<option key={a.id} value={a.id}>{a.label}</option>))}
                               </select>
@@ -2015,13 +2015,13 @@ export default function DashboardOverview() {
                             <div>
                               <label style={{ fontSize: 9, color: '#6a6058', fontWeight: 600, display: 'block', marginBottom: 3 }}>FOLLOW UP BY</label>
                               <input type="date" value={woDate} onChange={e => setWoDate(e.target.value)}
-                                style={{ width: '100%', background: '#1a1a1a', border: '1px solid rgba(205,162,116,0.15)', borderRadius: 5, color: '#e8e0d8', fontSize: 11, padding: '7px 8px', colorScheme: 'dark', outline: 'none', boxSizing: 'border-box' as const }} />
+                                style={{ width: '100%', background: '#1a1a1a', border: '1px solid rgba(205,162,116,0.15)', borderRadius: 5, color: '#e8e0d8', fontSize: 11, padding: '7px 8px', colorScheme: 'dark', outline: 'none', boxSizing: 'border-box' }} />
                               <div style={{ fontSize: 8, color: '#5a5550', marginTop: 2 }}>Default: 3 business days</div>
                             </div>
                             <div>
                               <label style={{ fontSize: 9, color: '#6a6058', fontWeight: 600, display: 'block', marginBottom: 3 }}>NOTE (OPTIONAL)</label>
                               <input type="text" placeholder="Context..." value={woDescription} onChange={e => setWoDescription(e.target.value)}
-                                style={{ width: '100%', background: '#1a1a1a', border: '1px solid rgba(205,162,116,0.15)', borderRadius: 5, color: '#e8e0d8', fontSize: 11, padding: '7px 8px', outline: 'none', boxSizing: 'border-box' as const }} />
+                                style={{ width: '100%', background: '#1a1a1a', border: '1px solid rgba(205,162,116,0.15)', borderRadius: 5, color: '#e8e0d8', fontSize: 11, padding: '7px 8px', outline: 'none', boxSizing: 'border-box' }} />
                             </div>
                           </div>
                           <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end', marginTop: 2 }}>
@@ -2061,14 +2061,14 @@ export default function DashboardOverview() {
                               {isCompleting ? <Loader2 size={10} className="animate-spin" style={{ color: '#8a8078' }} /> : <Check size={10} style={{ color: ac }} />}
                             </button>
                             <button onClick={() => { if (isExpanded) { setExpandedWoTask(null); } else { setExpandedWoTask(task.id); fetchWoComments(task.id); } }}
-                              style={{ flex: 1, minWidth: 0, display: 'flex', alignItems: 'center', gap: 4, background: 'none', border: 'none', cursor: 'pointer', textAlign: 'left' as const, padding: 0 }}>
+                              style={{ flex: 1, minWidth: 0, display: 'flex', alignItems: 'center', gap: 4, background: 'none', border: 'none', cursor: 'pointer', textAlign: 'left', padding: 0 }}>
                               <div style={{ flex: 1, minWidth: 0 }}>
-                                <div style={{ fontSize: 12, color: '#e8e0d8', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' as const, fontWeight: 500 }}>{displayName}</div>
-                                <div style={{ fontSize: 10, color: '#5a5550', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' as const }}>{task.jobName?.replace(/^#\d+\s*/, '') || ''}</div>
+                                <div style={{ fontSize: 12, color: '#e8e0d8', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', fontWeight: 500 }}>{displayName}</div>
+                                <div style={{ fontSize: 10, color: '#5a5550', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{task.jobName?.replace(/^#\d+\s*/, '') || ''}</div>
                               </div>
                               <ChevronRight size={11} style={{ color: '#5a5550', transform: isExpanded ? 'rotate(90deg)' : 'none', transition: 'transform 0.15s', flexShrink: 0 }} />
                             </button>
-                            <div style={{ fontSize: 10, color: ac, fontWeight: 600, flexShrink: 0, minWidth: 40, textAlign: 'right' as const }}>
+                            <div style={{ fontSize: 10, color: ac, fontWeight: 600, flexShrink: 0, minWidth: 40, textAlign: 'right' }}>
                               {task.daysUntilDue !== null ? (task.daysUntilDue < 0 ? Math.abs(task.daysUntilDue) + 'd ago' : task.daysUntilDue === 0 ? 'Today' : task.daysUntilDue + 'd') : 'No date'}
                             </div>
                           </div>
