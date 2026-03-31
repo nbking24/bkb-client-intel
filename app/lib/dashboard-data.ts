@@ -439,7 +439,7 @@ async function fetchARandCOData(
 
   // --- Enrich invoices with AR-AUTO comment history ---
   // Get unique job IDs from invoices to minimize API calls
-  const invoiceJobIds = [...new Set(invoices.map(inv => inv.jobId))];
+  const invoiceJobIds = Array.from(new Set<string>(invoices.map(inv => inv.jobId)));
   const AR_AUTO_RE = /\[AR-AUTO\]/i;
   const AR_HOLD_RE = /\[AR-HOLD\]/i;
   const AR_RESUME_RE = /\[AR-RESUME\]/i;
