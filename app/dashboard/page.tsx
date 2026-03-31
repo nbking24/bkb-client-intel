@@ -1608,34 +1608,14 @@ export default function DashboardOverview() {
         </div>
       ))}
 
-          {/* QUICK ADD – two buttons */}
-          {(() => {
-            const woTasks = tasks.filter((t: any) => t.name.startsWith(String.fromCharCode(9203)));
-            const overdueCount = woTasks.filter((t: any) => t.daysUntilDue !== null && t.daysUntilDue < 0).length;
-            return (
-              <div style={{ display: "flex", gap: 6, marginBottom: 6 }}>
-                <button onClick={() => { setPanelTab('newTask'); setShowWaitingOnPanel(true); }}
-                  style={{ flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6,
-                    background: '#1e1e1e', border: '1px solid rgba(205,162,116,0.08)', borderRadius: 8,
-                    padding: '7px 10px', cursor: 'pointer' }}>
-                  <span style={{ fontSize: 13, color: '#CDA274' }}>+</span>
-                  <span style={{ fontSize: 9, fontWeight: 600, color: '#CDA274', letterSpacing: '0.04em' }}>NEW TASK</span>
-                </button>
-                <button onClick={() => { setPanelTab('waitingOn'); setShowWaitingOnPanel(true); }}
-                  style={{ flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6,
-                    background: '#1e1e1e', border: '1px solid rgba(205,162,116,0.08)', borderRadius: 8,
-                    padding: '7px 10px', cursor: 'pointer' }}>
-                  <Hourglass size={10} style={{ color: "#CDA274" }} />
-                  <span style={{ fontSize: 9, fontWeight: 600, color: '#CDA274', letterSpacing: '0.04em' }}>WAITING ON ({woTasks.length})</span>
-                  {overdueCount > 0 && (
-                    <span style={{ fontSize: 8, color: '#ef4444', background: 'rgba(239,68,68,0.1)', padding: '1px 5px', borderRadius: 3 }}>
-                      {overdueCount} overdue
-                    </span>
-                  )}
-                </button>
-              </div>
-            );
-          })()}
+              {/* QUICK ADD – single button */}
+              <button onClick={() => setShowWaitingOnPanel(true)}
+                style={{ width: '100%', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6,
+                  background: '#1e1e1e', border: '1px solid rgba(205,162,116,0.08)', borderRadius: 8,
+                  padding: '7px 10px', marginBottom: 6, cursor: 'pointer' }}>
+                <span style={{ fontSize: 13, color: '#CDA274' }}>+</span>
+                <span style={{ fontSize: 9, fontWeight: 600, color: '#CDA274', letterSpacing: '0.04em' }}>QUICK ADD</span>
+              </button>
       {/* ALL TASKS â grouped by job, collapsible, filtered to overdue + next 4 weeks */}
       {tasks.length > 0 && (() => {
         // Filter tasks: overdue or due within next 4 weeks (28 days)
