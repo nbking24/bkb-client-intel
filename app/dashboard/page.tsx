@@ -1194,15 +1194,27 @@ export default function DashboardOverview() {
           <span style={{ fontSize: 9, fontWeight: 600, color: '#CDA274', letterSpacing: '0.04em' }}>ASK AGENT</span>
         </button>
       </div>
-      {showAgentPanel && <InlineAskAgent pmJobs={overview?.data?.activeJobs || []} screen={'desktop'} hideToggle defaultOpen />
-      {/* QUICK ADD — Inline Panel */}
+      {showAgentPanel && <InlineAskAgent pmJobs={overview?.data?.activeJobs || []} screen={'desktop'} hideToggle defaultOpen />}
+              {/* QUICK ADD — Inline Panel */}
       {showWaitingOnPanel && (() => {
         const woTasks = tasks.filter(t => t.name.startsWith('⏳'));
         function agingColor(d: number | null): string { if (d === null) return '#6a6058'; if (d < -7) return '#ef4444'; if (d < -3) return '#f97316'; if (d < 0) return '#eab308'; return '#6a6058'; }
         function agingBg(d: number | null): string { if (d === null) return 'transparent'; if (d < -7) return 'rgba(239,68,68,0.08)'; if (d < -3) return 'rgba(249,115,22,0.08)'; if (d < 0) return 'rgba(234,179,8,0.06)'; return 'transparent'; }
         const sorted = [...woTasks].sort((a, b) => (a.daysUntilDue ?? 999) - (b.daysUntilDue ?? 999));
         return (
-          <div style={{ marginBottom: 6, borderRadius: 8, border: '1px solid rgba(205,162,116,0.12)', overflow: 'hidden', background: '#1a1a1a' }}>
+              <div style={{ marginBottom: 6, borderRadius: 8, border: '1px solid rgba(205,162,116,0.12)', overflow: 'hidden', background: '#1a1a1a' }}>
+
+
+
+
+
+
+
+
+
+
+
+
 
               <div style={{ display: 'flex', borderBottom: '1px solid rgba(205,162,116,0.08)', flexShrink: 0 }}>
                 <button onClick={() => setPanelTab('newTask')} style={{ flex: 1, padding: '10px', background: 'none', border: 'none', borderBottom: panelTab === 'newTask' ? '2px solid #CDA274' : '2px solid transparent', color: panelTab === 'newTask' ? '#CDA274' : '#6a6058', fontSize: 13, fontWeight: 600, cursor: 'pointer' }}>New Task</button>
@@ -1382,10 +1394,10 @@ export default function DashboardOverview() {
                   );
                 })}
               </div>
-          </div>
+
+              </div>
         );
       })()}
-}
 
       {/* KPI GRID */}
       <div style={{ display: 'grid', gridTemplateColumns: isMobile ? 'repeat(3, 1fr)' : 'repeat(5, 1fr)', gap: isTouch ? 6 : 4, marginBottom: isTouch ? 10 : 6 }}>
