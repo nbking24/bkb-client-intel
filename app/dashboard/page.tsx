@@ -660,6 +660,10 @@ function jtScheduleUrl(jobId: string): string {
 // ============================================================
 
 export default function DashboardOverview() {
+  // Helper: detect ⏳ prefix (handles both proper Unicode U+23F3 and garbled UTF-8 bytes \u00e2\u008f\u00b3)
+  const isWaitingOn = (name: string) => name.startsWith('⏳') || name.startsWith('\u00e2\u008f\u00b3');
+  const stripWoPrefix = (name: string) => name.replace(/^⏳\s*/, '').replace(/^\u00e2\u008f\u00b3\s*/, '');
+
   const auth = useAuth();
   const isMobile = false; // Desktop-only dashboard
   const isTouch = false;
@@ -1185,7 +1189,7 @@ export default function DashboardOverview() {
             padding: '7px 10px', cursor: 'pointer' }}>
           <span style={{ fontSize: 13, color: '#CDA274' }}>+</span>
           <span style={{ fontSize: 9, fontWeight: 600, color: '#CDA274', letterSpacing: '0.04em' }}>
-            {(() => { const wc = tasks.filter(t => t.name.startsWith('⏳')).length; return wc > 0 ? `QUICK ADD (${wc} waiting)` : 'QUICK ADD'; })()}
+            {(() => { const wc = tasks.filter(t => isWaitingOn(t.name)).length; return wc > 0 ? `QUICK ADD (${wc} waiting)` : 'QUICK ADD'; })()}
           </span>
         </button>
         <button onClick={() => { setShowAgentPanel(!showAgentPanel); setShowWaitingOnPanel(false); }}
@@ -1199,7 +1203,7 @@ export default function DashboardOverview() {
       {showAgentPanel && <InlineAskAgent pmJobs={overview?.data?.activeJobs || []} screen={'desktop'} hideToggle defaultOpen />}
               {/* QUICK ADD — Inline Panel */}
       {showWaitingOnPanel && (() => {
-        const woTasks = tasks.filter(t => t.name.startsWith('⏳'));
+        const woTasks = tasks.filter(t => isWaitingOn(t.name));
         function agingColor(d: number | null): string { if (d === null) return '#6a6058'; if (d < -7) return '#ef4444'; if (d < -3) return '#f97316'; if (d < 0) return '#eab308'; return '#6a6058'; }
         function agingBg(d: number | null): string { if (d === null) return 'transparent'; if (d < -7) return 'rgba(239,68,68,0.08)'; if (d < -3) return 'rgba(249,115,22,0.08)'; if (d < 0) return 'rgba(234,179,8,0.06)'; return 'transparent'; }
         const sorted = [...woTasks].sort((a, b) => (a.daysUntilDue ?? 999) - (b.daysUntilDue ?? 999));
@@ -1337,7 +1341,7 @@ export default function DashboardOverview() {
                   const isCompleting = completingWoId === task.id;
                   const ac = agingColor(task.daysUntilDue);
                   const ab = agingBg(task.daysUntilDue);
-                  const displayName = task.name.replace(/^⏳\s*/, '');
+                  const displayName = stripWoPrefix(task.name);
                   const comments = woComments[task.id];
                   const isLoadingComments = loadingWoComments === task.id;
                   return (
@@ -1505,7 +1509,7 @@ export default function DashboardOverview() {
 
       {/* WAITING ON — persistent strip */}
       {(() => {
-        const woItems = tasks.filter(t => t.name.startsWith('⏳'));
+        const woItems = tasks.filter(t => isWaitingOn(t.name));
         if (woItems.length === 0) return null;
         function agingDays(t: any): number | null {
           if (!t.endDate) return null;
@@ -1536,7 +1540,7 @@ export default function DashboardOverview() {
             </div>
             {top5.map((t, i) => {
               const d = agingDays(t);
-              const label = t.name.replace(/^⏳\s*/, '');
+              const label = stripWoPrefix(t.name);
               const jobName = t.jobName || '';
               return (
                 <div key={t.id || i} style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '4px 6px', borderRadius: 6, background: agingBg(d), marginBottom: 2 }}>
