@@ -1897,7 +1897,13 @@ export default function DashboardOverview() {
                     </button>
                   </div>
                 )}
-                {showWaitingOnForm && (
+                {panelTab === 'waitingOn' && !showWaitingOnForm && (
+              <button onClick={() => setShowWaitingOnForm(true)} style={{ width: '100%', padding: '8px 12px', marginBottom: 10, background: 'rgba(205,162,116,0.08)', border: '1px dashed rgba(205,162,116,0.3)', borderRadius: 8, cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6 }}>
+                <span style={{ fontSize: 14, color: '#CDA274' }}>+</span>
+                <span style={{ fontSize: 11, fontWeight: 600, color: '#CDA274', letterSpacing: '0.04em' }}>NEW WAITING ON</span>
+              </button>
+            )}
+            {showWaitingOnForm && (
                   <div style={{ background: '#242424', border: '1px solid rgba(205,162,116,0.12)', borderRadius: 8, padding: 12, marginBottom: 10 }}>
                     <div style={{ fontSize: 11, fontWeight: 600, color: '#CDA274', marginBottom: 8 }}>New Waiting On Item</div>
                     <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
