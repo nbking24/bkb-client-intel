@@ -1031,6 +1031,9 @@ export default function InvoicingDashboard() {
       const data = await res.json();
       setReport(data);
       setError('');
+
+      // Load AR hold state for jobs with pending invoices
+      loadArHoldsForPendingJobs(data);
     } catch (err: any) {
       setError(err.message || 'Failed to load invoicing data');
     } finally {
@@ -1057,6 +1060,42 @@ export default function InvoicingDashboard() {
     } catch {
       // non-critical — silently fail
     }
+  }
+
+  // After report loads, check AR hold status for jobs with pending invoices
+  async function loadArHoldsForPendingJobs(reportData: InvoicingReport) {
+    const jobIdsWithPending = new Set<string>();
+    for (const job of (reportData.contractJobs || [])) {
+      if (job.pendingInvoices && job.pendingInvoices.length > 0) {
+        jobIdsWithPending.add(job.jobId);
+      }
+    }
+    for (const job of (reportData.costPlusJobs || [])) {
+      const hasOpen = (job.releasedInvoices || []).some((inv) => inv.status === 'open');
+      if (hasOpen) jobIdsWithPending.add(job.jobId);
+    }
+
+    if (jobIdsWithPending.size === 0) return;
+
+    const holds: Record<string, boolean> = {};
+    const ids = Array.from(jobIdsWithPending);
+    // Check in parallel, small set (~10 jobs max)
+    const results = await Promise.allSettled(
+      ids.map(async (jobId) => {
+        const res = await fetch(`/api/dashboard/invoicing/ar-hold?jobId=${jobId}`);
+        if (res.ok) {
+          const data = await res.json();
+          return { jobId, isHeld: data.isHeld };
+        }
+        return { jobId, isHeld: false };
+      })
+    );
+    for (const r of results) {
+      if (r.status === 'fulfilled') {
+        holds[r.value.jobId] = r.value.isHeld;
+      }
+    }
+    setArHolds(prev => ({ ...prev, ...holds }));
   }
 
   useEffect(() => {
