@@ -1271,13 +1271,7 @@ export default function DashboardOverview() {
                     </button>
                   </div>
                 )}
-                {panelTab === 'waitingOn' && !showWaitingOnForm && (
-              <button onClick={() => setShowWaitingOnForm(true)} style={{ width: '100%', padding: '8px 12px', marginBottom: 10, background: 'rgba(205,162,116,0.08)', border: '1px dashed rgba(205,162,116,0.3)', borderRadius: 8, cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6 }}>
-                <span style={{ fontSize: 14, color: '#CDA274' }}>+</span>
-                <span style={{ fontSize: 11, fontWeight: 600, color: '#CDA274', letterSpacing: '0.04em' }}>NEW WAITING ON</span>
-              </button>
-            )}
-            {showWaitingOnForm && (
+                {panelTab === 'waitingOn' && (
                   <div style={{ background: '#242424', border: '1px solid rgba(205,162,116,0.12)', borderRadius: 8, padding: 12, marginBottom: 10 }}>
                     <div style={{ fontSize: 11, fontWeight: 600, color: '#CDA274', marginBottom: 8 }}>New Waiting On Item</div>
                     <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
@@ -1318,7 +1312,7 @@ export default function DashboardOverview() {
                         </div>
                       </div>
                       <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end', marginTop: 2 }}>
-                        <button onClick={() => setShowWaitingOnForm(false)}
+                        <button onClick={() => { setShowWaitingOnForm(false); setShowWaitingOnPanel(false); }}
                           style={{ fontSize: 11, color: '#6a6058', background: 'transparent', border: '1px solid rgba(205,162,116,0.1)', borderRadius: 5, padding: '5px 12px', cursor: 'pointer' }}>Cancel</button>
                         <button onClick={createWaitingOnTask} disabled={!woTaskName.trim() || !woJobId || !woAssignee || creatingWo}
                           style={{ fontSize: 11, fontWeight: 600, borderRadius: 5, padding: '5px 14px', border: 'none',
@@ -1331,11 +1325,11 @@ export default function DashboardOverview() {
                     </div>
                   </div>
                 )}
-                {sorted.length === 0 && !showWaitingOnForm && (
+                {sorted.length === 0 && panelTab !== 'waitingOn' && (
                   <div style={{ textAlign: 'center', padding: '30px 16px', color: '#5a5550' }}>
                     <Hourglass size={24} style={{ color: '#3a3a3a', marginBottom: 8 }} />
                     <div style={{ fontSize: 12, marginBottom: 4 }}>No open items</div>
-                    <div style={{ fontSize: 10 }}>Click "+ New" to start tracking</div>
+                    <div style={{ fontSize: 10 }}>Select the Waiting On tab to start tracking</div>
                   </div>
                 )}
                 {sorted.map((task: any) => {
