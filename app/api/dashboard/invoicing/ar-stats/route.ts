@@ -9,6 +9,7 @@ import { NextResponse } from 'next/server';
 import { pave } from '@/app/lib/jobtread';
 
 export const runtime = 'nodejs';
+export const maxDuration = 30; // Allow up to 30s for scanning all jobs
 
 interface ArStatRecord {
   jobId: string;
@@ -17,9 +18,16 @@ interface ArStatRecord {
   date: string;
 }
 
+interface JobScanResult {
+  jobId: string;
+  reminderCount: number;
+  isHeld: boolean;
+  reminders: ArStatRecord[];
+}
+
 export async function GET() {
   try {
-    // 1. Get active (non-closed) jobs — lightweight query with just id and name
+    // 1. Get active (non-closed) jobs — lightweight query
     const ORG_ID = process.env.JOBTREAD_ORG_ID || '22P5SRwhLaYe';
     const jobsResp = await pave({
       organization: {
@@ -33,16 +41,76 @@ export async function GET() {
     const jobs: Array<{ id: string; name: string }> = ((jobsResp as any)?.organization?.jobs?.nodes || []);
     if (jobs.length === 0) {
       return NextResponse.json({
-        totalRemindersSent: 0,
-        jobsWithReminders: 0,
-        jobsOnHold: 0,
-        activeJobs: 0,
-        totalJobsTracked: 0,
-        recentReminders: [],
+        totalRemindersSent: 0, jobsWithReminders: 0, jobsOnHold: 0,
+        activeJobs: 0, totalJobsTracked: 0, recentReminders: [], heldJobIds: [],
       });
     }
 
-    // 2. For each job, scan comments for AR tags — sequential to avoid 413
+    const AR_AUTO_RE = /\[AR-AUTO\]/i;
+    const AR_HOLD_RE = /\[AR-HOLD\]/i;
+    const AR_RESUME_RE = /\[AR-RESUME\]/i;
+    const TIER_RE = /\b(20-day|30-day|45-day|60-day)\b/i;
+
+    // 2. Scan comments in parallel batches of 6
+    const allResults: JobScanResult[] = [];
+    const BATCH_SIZE = 6;
+
+    for (let i = 0; i < jobs.length; i += BATCH_SIZE) {
+      const batch = jobs.slice(i, i + BATCH_SIZE);
+      const settled = await Promise.allSettled(
+        batch.map(async (job): Promise<JobScanResult> => {
+          const resp = await pave({
+            job: {
+              $: { id: job.id },
+              comments: {
+                $: { size: 50 },
+                nodes: { id: {}, message: {}, createdAt: {}, name: {} },
+              },
+            },
+          });
+          const comments = (resp as any)?.job?.comments?.nodes || [];
+
+          let reminderCount = 0;
+          let lastHoldDate = 0;
+          let lastResumeDate = 0;
+          const reminders: ArStatRecord[] = [];
+
+          for (const c of comments) {
+            const text = (c.message || '') + ' ' + (c.name || '');
+
+            if (AR_AUTO_RE.test(text)) {
+              reminderCount++;
+              const tierMatch = text.match(TIER_RE);
+              reminders.push({
+                jobId: job.id,
+                jobName: job.name,
+                tier: tierMatch ? tierMatch[1] : 'reminder',
+                date: c.createdAt,
+              });
+            }
+            if (AR_HOLD_RE.test(text)) {
+              const d = new Date(c.createdAt).getTime();
+              if (d > lastHoldDate) lastHoldDate = d;
+            }
+            if (AR_RESUME_RE.test(text)) {
+              const d = new Date(c.createdAt).getTime();
+              if (d > lastResumeDate) lastResumeDate = d;
+            }
+          }
+
+          const isHeld = lastHoldDate > 0 && lastHoldDate > lastResumeDate;
+          return { jobId: job.id, reminderCount, isHeld, reminders };
+        })
+      );
+
+      for (const r of settled) {
+        if (r.status === 'fulfilled') {
+          allResults.push(r.value);
+        }
+      }
+    }
+
+    // 3. Aggregate results
     let totalRemindersSent = 0;
     let jobsWithReminders = 0;
     let jobsOnHold = 0;
@@ -50,68 +118,16 @@ export async function GET() {
     const recentReminders: ArStatRecord[] = [];
     const heldJobIds: string[] = [];
 
-    const AR_AUTO_RE = /\[AR-AUTO\]/i;
-    const AR_HOLD_RE = /\[AR-HOLD\]/i;
-    const AR_RESUME_RE = /\[AR-RESUME\]/i;
-    const TIER_RE = /\b(20-day|30-day|45-day|60-day)\b/i;
-
-    for (const job of jobs) {
-      try {
-        const commentResp = await pave({
-          job: {
-            $: { id: job.id },
-            comments: {
-              $: { size: 50 },
-              nodes: { id: {}, message: {}, createdAt: {}, name: {} },
-            },
-          },
-        });
-
-        const comments = (commentResp as any)?.job?.comments?.nodes || [];
-
-        let jobReminderCount = 0;
-        let lastHoldDate = 0;
-        let lastResumeDate = 0;
-
-        for (const c of comments) {
-          const body = (c.message || '') + ' ' + (c.name || '');
-
-          if (AR_AUTO_RE.test(body)) {
-            jobReminderCount++;
-            totalRemindersSent++;
-
-            const tierMatch = body.match(TIER_RE);
-            recentReminders.push({
-              jobId: job.id,
-              jobName: job.name,
-              tier: tierMatch ? tierMatch[1] : 'reminder',
-              date: c.createdAt,
-            });
-          }
-
-          if (AR_HOLD_RE.test(body)) {
-            const d = new Date(c.createdAt).getTime();
-            if (d > lastHoldDate) lastHoldDate = d;
-          }
-          if (AR_RESUME_RE.test(body)) {
-            const d = new Date(c.createdAt).getTime();
-            if (d > lastResumeDate) lastResumeDate = d;
-          }
-        }
-
-        const isHeld = lastHoldDate > 0 && lastHoldDate > lastResumeDate;
-        if (isHeld) {
-          jobsOnHold++;
-          heldJobIds.push(job.id);
-        } else {
-          activeJobCount++;
-        }
-        if (jobReminderCount > 0) jobsWithReminders++;
-      } catch (err: any) {
-        // Skip this job but continue with others
-        console.error(`[AR-Stats] Error scanning job ${job.id}:`, err.message);
-        activeJobCount++; // Count as active if we can't determine
+    for (const r of allResults) {
+      totalRemindersSent += r.reminderCount;
+      if (r.reminderCount > 0) jobsWithReminders++;
+      if (r.isHeld) {
+        jobsOnHold++;
+        heldJobIds.push(r.jobId);
+      } else {
+        activeJobCount++;
       }
+      recentReminders.push(...r.reminders);
     }
 
     // Sort recent reminders by date descending, take top 10
