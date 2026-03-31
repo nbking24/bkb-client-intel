@@ -115,7 +115,7 @@ interface DashboardData {
     approvedCOCount: number;
   };
   tasks: Array<{
-    id: string; name: string; jobName: string; jobNumber: string;
+    id: string; name: string; jobId: string; jobName: string; jobNumber: string;
     endDate: string | null; progress: number; urgency: string; daysUntilDue: number | null;
   }>;
   recentEmails: Array<{
@@ -137,6 +137,24 @@ interface OverviewResponse {
   _cached: boolean;
   _cachedAt?: string;
   _analysisTimeMs?: number;
+}
+
+// ============================================================
+// Helpers
+// ============================================================
+
+const PALETTE = [
+  '#CDA274', '#3b82f6', '#22c55e', '#a855f7',
+  '#ec4899', '#f59e0b', '#14b8a6', '#ef4444',
+  '#6366f1', '#84cc16', '#f97316', '#06b6d4',
+];
+function jobColor(n: string): string {
+  let h = 0;
+  for (let i = 0; i < n.length; i++) h = h * 31 + n.charCodeAt(i);
+  return PALETTE[Math.abs(h) % PALETTE.length];
+}
+function jtScheduleUrl(jobId: string): string {
+  return `https://app.jobtread.com/jobs/${jobId}/schedule`;
 }
 
 // ============================================================
@@ -281,6 +299,43 @@ export default function DashboardOverview() {
   const normalTasks = tasks.filter(t => t.urgency === 'normal');
   const todayStr = new Date().toISOString().split('T')[0];
   const overdueTasks = tasks.filter(t => t.daysUntilDue !== null && t.daysUntilDue < 0);
+
+  // Two-week calendar grid
+  const weeks = useMemo(() => {
+    const now = new Date();
+    // Start from this Monday
+    const day = now.getDay();
+    const diff = day === 0 ? -6 : 1 - day; // Monday = 1
+    const monday = new Date(now);
+    monday.setDate(now.getDate() + diff);
+    monday.setHours(12, 0, 0, 0);
+    const dn = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
+    return [0, 1].map(w => ({
+      label: w === 0 ? 'This Week' : 'Next Week',
+      days: Array.from({ length: 7 }, (_, d) => {
+        const dt = new Date(monday);
+        dt.setDate(monday.getDate() + w * 7 + d);
+        return {
+          date: dt.toISOString().split('T')[0],
+          dayName: dn[d],
+          dayNum: dt.getDate(),
+          month: dt.toLocaleDateString('en-US', { month: 'short' }),
+          isWeekend: d >= 5,
+        };
+      }),
+    }));
+  }, [todayStr]);
+
+  const tasksByDate = useMemo(() => {
+    const m: Record<string, typeof tasks> = {};
+    for (const t of tasks) {
+      const d = t.endDate;
+      if (!d) continue;
+      if (!m[d]) m[d] = [];
+      m[d].push(t);
+    }
+    return m;
+  }, [tasks]);
 
   if (loading && !overview) return (
     <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '80px 0' }}>
@@ -675,6 +730,70 @@ export default function DashboardOverview() {
           </div>
         );
       })()}
+
+      {/* TWO-WEEK TASK CALENDAR */}
+      {weeks.map((week, wi) => (
+        <div key={wi} style={{ marginBottom: 6 }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 3 }}>
+            <Calendar size={11} style={{ color: '#CDA274' }} />
+            <span style={{ fontSize: 10, fontWeight: 700, letterSpacing: '0.08em', color: '#5a5550' }}>{week.label.toUpperCase()}</span>
+            <span style={{ fontSize: 10, color: '#3f3f3f' }}>{week.days[0].month} {week.days[0].dayNum} – {week.days[6].month} {week.days[6].dayNum}</span>
+          </div>
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(7, 1fr)', gap: 1, borderRadius: 8, overflow: 'hidden' }}>
+            {week.days.map(day => {
+              const isToday = day.date === todayStr;
+              const dayTasks = tasksByDate[day.date] || [];
+              const incomplete = dayTasks.filter(t => t.progress < 1);
+              const complete = dayTasks.filter(t => t.progress >= 1);
+
+              return (
+                <div key={day.date} style={{
+                  background: isToday ? 'rgba(205,162,116,0.1)' : '#1a1a1a',
+                  minHeight: 80, display: 'flex', flexDirection: 'column',
+                }}>
+                  <div style={{ display: 'flex', alignItems: 'baseline', justifyContent: 'space-between', padding: '3px 5px 2px' }}>
+                    <span style={{ fontSize: 9, fontWeight: 500, color: day.isWeekend ? '#3a3a3a' : '#6a6058' }}>{day.dayName}</span>
+                    <span style={{
+                      fontSize: 13, fontWeight: 700,
+                      color: isToday ? '#CDA274' : day.isWeekend ? '#3a3a3a' : '#7a7068',
+                      ...(isToday ? { background: 'rgba(205,162,116,0.25)', borderRadius: 4, padding: '0 4px' } : {}),
+                    }}>{day.dayNum}</span>
+                  </div>
+                  <div style={{ flex: 1, padding: '1px 2px 3px', display: 'flex', flexDirection: 'column', gap: 1, overflow: 'hidden' }}>
+                    {incomplete.map(task => {
+                      const c = jobColor(task.jobNumber);
+                      return (
+                        <a
+                          key={task.id}
+                          href={task.jobId ? jtScheduleUrl(task.jobId) : '#'}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          style={{
+                            padding: '2px 3px', borderRadius: 3, cursor: 'pointer',
+                            borderLeft: `3px solid ${c}`,
+                            background: `${c}18`,
+                            fontSize: 9, lineHeight: '12px', color: '#e8e0d8',
+                            display: 'block', textDecoration: 'none',
+                            overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
+                          }}
+                          title={`${task.name} — ${task.jobName}`}
+                        >
+                          {task.name}
+                        </a>
+                      );
+                    })}
+                    {complete.length > 0 && (
+                      <div style={{ fontSize: 8, color: '#3a3a3a', display: 'flex', alignItems: 'center', gap: 2 }}>
+                        <CheckCircle2 size={7} style={{ color: '#22c55e' }} /> {complete.length} done
+                      </div>
+                    )}
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        </div>
+      ))}
 
       {/* INSIGHTS ROW — Urgent Items + Action Items side by side */}
       {((analysis?.urgentItems?.length ?? 0) > 0 || (analysis?.actionItems?.length ?? 0) > 0) && (
