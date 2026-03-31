@@ -730,6 +730,7 @@ export default function DashboardOverview() {
     { id: '22P5sPMTN8mH', name: 'Jimmy', label: 'Jimmy' },
   ];
   const TERRI_MEMBERSHIP_ID = '22P5SpJkype2';
+  const BKB_PHASES = ['Admin Tasks', 'Conceptual Design', 'Design Development', 'Contract', 'Preconstruction', 'In Production', 'Inspections', 'Punch List', 'Project Completion'];
 
   async function createNewTask() {
     if (!newTaskForm || !newTaskName.trim() || !newTaskPhase) return;
@@ -994,6 +995,29 @@ export default function DashboardOverview() {
     } finally {
       setCalCompleting(false);
     }
+  }
+
+  async function createStandaloneTask() {
+    if (!stNewTaskName.trim() || !stNewTaskJob || !stNewTaskPhase) return;
+    setCreatingSt(true);
+    try {
+      const res = await fetch('/api/dashboard/create-task', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ jobId: stNewTaskJob, name: stNewTaskName.trim(), phase: stNewTaskPhase, date: stNewTaskDate || undefined }),
+      });
+      if (!res.ok) throw new Error(await res.text());
+      const data = await res.json();
+      if (overview && data.task) {
+        const mj = overview.data.activeJobs?.find((j: any) => j.id === stNewTaskJob);
+        setOverview({ ...overview, data: { ...overview.data, tasks: [...overview.data.tasks, { id: data.task.id, name: stNewTaskName.trim(), jobName: mj ? String(mj.number) + ' ' + mj.name : '', jobId: stNewTaskJob, dueDate: stNewTaskDate || null, daysUntilDue: stNewTaskDate ? Math.ceil((new Date(stNewTaskDate).getTime() - Date.now()) / 86400000) : null, status: 'open' }] } });
+      }
+      setStNewTaskName(''); setStNewTaskJob(''); setStNewTaskPhase(''); setStNewTaskDate(''); setStNewTaskAssignee('');
+      setPanelTab('waitingOn');
+    } catch (err: any) {
+      console.error('Create task failed:', err);
+      alert('Failed: ' + err.message);
+    } finally { setCreatingSt(false); }
   }
 
   async function saveCalDate() {
@@ -1584,32 +1608,34 @@ export default function DashboardOverview() {
         </div>
       ))}
 
-      {/* WAITING ON — compact bar, opens side panel */}
-      {(() => {
-        const woTasks = tasks.filter(t => t.name.startsWith('⏳'));
-        const overdueCount = woTasks.filter(t => t.daysUntilDue !== null && t.daysUntilDue < 0).length;
-        return (
-          <button
-            onClick={() => setShowWaitingOnPanel(true)}
-            style={{
-              width: '100%', display: 'flex', alignItems: 'center', justifyContent: 'space-between',
-              background: '#1e1e1e', border: '1px solid rgba(205,162,116,0.08)', borderRadius: 8,
-              padding: '7px 10px', marginBottom: 6, cursor: 'pointer',
-            }}
-          >
-            <div style={{ display: 'flex', alignItems: 'center', gap: 5 }}>
-              <Hourglass size={10} style={{ color: '#CDA274' }} />
-              <span style={{ fontSize: 9, fontWeight: 600, color: '#CDA274', letterSpacing: '0.04em' }}>WAITING ON ({woTasks.length})</span>
-              {overdueCount > 0 && (
-                <span style={{ fontSize: 8, color: '#ef4444', background: 'rgba(239,68,68,0.1)', padding: '1px 5px', borderRadius: 3 }}>
-                  {overdueCount} overdue
-                </span>
-              )}
-            </div>
-            <ChevronRight size={12} style={{ color: '#5a5550' }} />
-          </button>
-        );
-      })()}
+          {/* QUICK ADD – two buttons */}
+          {(() => {
+            const woTasks = tasks.filter((t: any) => t.name.startsWith(String.fromCharCode(9203)));
+            const overdueCount = woTasks.filter((t: any) => t.daysUntilDue !== null && t.daysUntilDue < 0).length;
+            return (
+              <div style={{ display: "flex", gap: 6, marginBottom: 6 }}>
+                <button onClick={() => { setPanelTab('newTask'); setShowWaitingOnPanel(true); }}
+                  style={{ flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6,
+                    background: '#1e1e1e', border: '1px solid rgba(205,162,116,0.08)', borderRadius: 8,
+                    padding: '7px 10px', cursor: 'pointer' }}>
+                  <span style={{ fontSize: 13, color: '#CDA274' }}>+</span>
+                  <span style={{ fontSize: 9, fontWeight: 600, color: '#CDA274', letterSpacing: '0.04em' }}>NEW TASK</span>
+                </button>
+                <button onClick={() => { setPanelTab('waitingOn'); setShowWaitingOnPanel(true); }}
+                  style={{ flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6,
+                    background: '#1e1e1e', border: '1px solid rgba(205,162,116,0.08)', borderRadius: 8,
+                    padding: '7px 10px', cursor: 'pointer' }}>
+                  <Hourglass size={10} style={{ color: "#CDA274" }} />
+                  <span style={{ fontSize: 9, fontWeight: 600, color: '#CDA274', letterSpacing: '0.04em' }}>WAITING ON ({woTasks.length})</span>
+                  {overdueCount > 0 && (
+                    <span style={{ fontSize: 8, color: '#ef4444', background: 'rgba(239,68,68,0.1)', padding: '1px 5px', borderRadius: 3 }}>
+                      {overdueCount} overdue
+                    </span>
+                  )}
+                </button>
+              </div>
+            );
+          })()}
       {/* ALL TASKS â grouped by job, collapsible, filtered to overdue + next 4 weeks */}
       {tasks.length > 0 && (() => {
         // Filter tasks: overdue or due within next 4 weeks (28 days)
