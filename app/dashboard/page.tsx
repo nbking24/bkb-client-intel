@@ -700,6 +700,15 @@ export default function DashboardOverview() {
 
   // Waiting On tracking
   const [showWaitingOnPanel, setShowWaitingOnPanel] = useState(false);
+  const [panelTab, setPanelTab] = useState<'waitingOn' | 'newTask'>('waitingOn');
+  const [stNewTaskName, setStNewTaskName] = useState('');
+  const [stNewTaskJob, setStNewTaskJob] = useState('');
+  const [stNewTaskPhase, setStNewTaskPhase] = useState('');
+  const [stNewTaskDate, setStNewTaskDate] = useState('');
+  const [stNewTaskAssignee, setStNewTaskAssignee] = useState('');
+  const [creatingSt, setCreatingSt] = useState(false);
+
+  const BKB_PHASES = ['Admin Tasks', 'Conceptual Design', 'Design Development', 'Contract', 'Preconstruction', 'In Production', 'Inspections', 'Punch List', 'Project Completion'];
   const [showWaitingOnForm, setShowWaitingOnForm] = useState(false);
   const [woTaskName, setWoTaskName] = useState('');
   const [woJobId, setWoJobId] = useState('');
@@ -914,6 +923,45 @@ export default function DashboardOverview() {
       console.error('Complete WO task failed:', err);
     } finally {
       setCompletingWoId(null);
+    }
+  }
+
+  async function createStandaloneTask() {
+    if (!stNewTaskName.trim() || !stNewTaskJob || !stNewTaskPhase) return;
+    setCreatingSt(true);
+    try {
+      const res = await fetch('/api/dashboard/create-task', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          jobId: stNewTaskJob,
+          name: stNewTaskName.trim(),
+          phase: stNewTaskPhase,
+          date: stNewTaskDate || undefined,
+        }),
+      });
+      if (!res.ok) throw new Error(await res.text());
+      const data = await res.json();
+      if (overview && data.task) {
+        const matchedJob = overview.data.activeJobs?.find((j: any) => j.id === stNewTaskJob);
+        const newTask = {
+          id: data.task.id,
+          name: stNewTaskName.trim(),
+          jobName: matchedJob ? '#' + matchedJob.number + ' ' + matchedJob.name : '',
+          jobId: stNewTaskJob,
+          dueDate: stNewTaskDate || null,
+          daysUntilDue: stNewTaskDate ? Math.ceil((new Date(stNewTaskDate).getTime() - Date.now()) / 86400000) : null,
+          status: 'open',
+        };
+        setOverview({ ...overview, data: { ...overview.data, tasks: [...overview.data.tasks, newTask] } });
+      }
+      setStNewTaskName(''); setStNewTaskJob(''); setStNewTaskPhase(''); setStNewTaskDate(''); setStNewTaskAssignee('');
+      setPanelTab('waitingOn');
+    } catch (err: any) {
+      console.error('Failed to create task:', err);
+      alert('Failed to create task: ' + err.message);
+    } finally {
+      setCreatingSt(false);
     }
   }
 
@@ -1577,30 +1625,40 @@ export default function DashboardOverview() {
         </div>
       ))}
 
-      {/* WAITING ON — compact bar, opens side panel */}
+      {/* QUICK ADD — two buttons: New Task + Waiting On */}
       {(() => {
-        const woTasks = tasks.filter(t => t.name.startsWith('⏳'));
+        const woTasks = tasks.filter(t => t.name.startsWith('\u23F3'));
         const overdueCount = woTasks.filter(t => t.daysUntilDue !== null && t.daysUntilDue < 0).length;
         return (
-          <button
-            onClick={() => setShowWaitingOnPanel(true)}
-            style={{
-              width: '100%', display: 'flex', alignItems: 'center', justifyContent: 'space-between',
-              background: '#1e1e1e', border: '1px solid rgba(205,162,116,0.08)', borderRadius: 8,
-              padding: '7px 10px', marginBottom: 6, cursor: 'pointer',
-            }}
-          >
-            <div style={{ display: 'flex', alignItems: 'center', gap: 5 }}>
+          <div style={{ display: 'flex', gap: 4, marginBottom: 6 }}>
+            <button
+              onClick={() => { setPanelTab('newTask'); setShowWaitingOnPanel(true); }}
+              style={{
+                flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 5,
+                background: '#1e1e1e', border: '1px solid rgba(205,162,116,0.08)', borderRadius: 8,
+                padding: '7px 10px', cursor: 'pointer',
+              }}
+            >
+              <Plus size={10} style={{ color: '#CDA274' }} />
+              <span style={{ fontSize: 9, fontWeight: 600, color: '#CDA274', letterSpacing: '0.04em' }}>NEW TASK</span>
+            </button>
+            <button
+              onClick={() => { setPanelTab('waitingOn'); setShowWaitingOnPanel(true); }}
+              style={{
+                flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 5,
+                background: '#1e1e1e', border: '1px solid rgba(205,162,116,0.08)', borderRadius: 8,
+                padding: '7px 10px', cursor: 'pointer', position: 'relative',
+              }}
+            >
               <Hourglass size={10} style={{ color: '#CDA274' }} />
               <span style={{ fontSize: 9, fontWeight: 600, color: '#CDA274', letterSpacing: '0.04em' }}>WAITING ON ({woTasks.length})</span>
               {overdueCount > 0 && (
-                <span style={{ fontSize: 8, color: '#ef4444', background: 'rgba(239,68,68,0.1)', padding: '1px 5px', borderRadius: 3 }}>
-                  {overdueCount} overdue
+                <span style={{ fontSize: 7, color: '#ef4444', background: 'rgba(239,68,68,0.1)', padding: '1px 4px', borderRadius: 3, marginLeft: 2 }}>
+                  {overdueCount}
                 </span>
               )}
-            </div>
-            <ChevronRight size={12} style={{ color: '#5a5550' }} />
-          </button>
+            </button>
+          </div>
         );
       })()}
       {/* ALL TASKS â grouped by job, collapsible, filtered to overdue + next 4 weeks */}
@@ -1810,9 +1868,9 @@ export default function DashboardOverview() {
         );
       })()}
 
-      {/* WAITING ON — Side Panel */}
+      {/* QUICK ADD — Tabbed Side Panel */}
       {showWaitingOnPanel && (() => {
-        const woTasks = tasks.filter(t => t.name.startsWith('⏳'));
+        const woTasks = tasks.filter(t => t.name.startsWith('\u23F3'));
         function agingColor(d: number | null): string { if (d === null) return '#6a6058'; if (d < -7) return '#ef4444'; if (d < -3) return '#f97316'; if (d < 0) return '#eab308'; return '#6a6058'; }
         function agingBg(d: number | null): string { if (d === null) return 'transparent'; if (d < -7) return 'rgba(239,68,68,0.08)'; if (d < -3) return 'rgba(249,115,22,0.08)'; if (d < 0) return 'rgba(234,179,8,0.06)'; return 'transparent'; }
         const sorted = [...woTasks].sort((a, b) => (a.daysUntilDue ?? 999) - (b.daysUntilDue ?? 999));
@@ -1825,27 +1883,94 @@ export default function DashboardOverview() {
               boxShadow: '-8px 0 30px rgba(0,0,0,0.5)', overflow: 'hidden',
             }}>
               {/* Header */}
-              <div style={{ padding: '14px 16px 10px', borderBottom: '1px solid rgba(205,162,116,0.08)', display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexShrink: 0 }}>
-                <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-                  <Hourglass size={14} style={{ color: '#CDA274' }} />
-                  <span style={{ fontSize: 14, fontWeight: 700, color: '#e8e0d8' }}>Waiting On</span>
-                  <span style={{ fontSize: 11, color: '#5a5550' }}>({woTasks.length})</span>
-                </div>
-                <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-                  <button
-                    onClick={() => { setShowWaitingOnForm(!showWaitingOnForm); if (!showWaitingOnForm) { setWoTaskName(''); setWoJobId(''); setWoDescription(''); setWoDate(''); setWoAssignee(''); } }}
-                    style={{ display: 'flex', alignItems: 'center', gap: 3, fontSize: 10, color: '#CDA274', background: 'rgba(205,162,116,0.1)', border: 'none', cursor: 'pointer', padding: '4px 10px', borderRadius: 5, fontWeight: 600 }}
-                  >
-                    <Plus size={11} /> New
+              <div style={{ padding: '14px 16px 0', borderBottom: '1px solid rgba(205,162,116,0.08)', flexShrink: 0 }}>
+                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 10 }}>
+                  <span style={{ fontSize: 14, fontWeight: 700, color: '#e8e0d8' }}>Quick Add</span>
+                  <button onClick={() => setShowWaitingOnPanel(false)} style={{ background: 'none', border: 'none', cursor: 'pointer', padding: 4 }}>
+                    <X size={16} style={{ color: '#5a5550' }} />
                   </button>
-                  <button onClick={() => setShowWaitingOnPanel(false)} style={{ background: 'none', border: 'none', cursor: 'pointer', padding: 2, lineHeight: 0 }}>
-                    <X size={16} style={{ color: '#6a6058' }} />
+                </div>
+                {/* Tab bar */}
+                <div style={{ display: 'flex', gap: 0 }}>
+                  <button onClick={() => setPanelTab('newTask')} style={{
+                    flex: 1, padding: '8px 0', fontSize: 11, fontWeight: 600, cursor: 'pointer',
+                    background: 'none', border: 'none', borderBottom: panelTab === 'newTask' ? '2px solid #CDA274' : '2px solid transparent',
+                    color: panelTab === 'newTask' ? '#CDA274' : '#5a5550',
+                  }}>
+                    <Plus size={11} style={{ display: 'inline', verticalAlign: 'middle', marginRight: 4 }} />New Task
+                  </button>
+                  <button onClick={() => setPanelTab('waitingOn')} style={{
+                    flex: 1, padding: '8px 0', fontSize: 11, fontWeight: 600, cursor: 'pointer',
+                    background: 'none', border: 'none', borderBottom: panelTab === 'waitingOn' ? '2px solid #CDA274' : '2px solid transparent',
+                    color: panelTab === 'waitingOn' ? '#CDA274' : '#5a5550',
+                  }}>
+                    <Hourglass size={11} style={{ display: 'inline', verticalAlign: 'middle', marginRight: 4 }} />Waiting On ({woTasks.length})
                   </button>
                 </div>
               </div>
-              {/* Scrollable content */}
-              <div style={{ flex: 1, overflowY: 'auto', padding: '8px 12px' }}>
-                {showWaitingOnForm && (
+              {/* Content area */}
+              <div style={{ flex: 1, overflowY: 'auto', padding: '12px 16px' }}>
+                {/* NEW TASK TAB */}
+                {panelTab === 'newTask' && (
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+                    <div>
+                      <label style={{ fontSize: 10, color: '#5a5550', fontWeight: 600, letterSpacing: '0.04em', display: 'block', marginBottom: 4 }}>TASK NAME</label>
+                      <input value={stNewTaskName} onChange={e => setStNewTaskName(e.target.value)} placeholder="What needs to be done?"
+                        style={{ width: '100%', padding: '8px 10px', fontSize: 12, background: '#242424', border: '1px solid rgba(205,162,116,0.1)', borderRadius: 6, color: '#e8e0d8', outline: 'none' }} />
+                    </div>
+                    <div>
+                      <label style={{ fontSize: 10, color: '#5a5550', fontWeight: 600, letterSpacing: '0.04em', display: 'block', marginBottom: 4 }}>JOB *</label>
+                      <select value={stNewTaskJob} onChange={e => setStNewTaskJob(e.target.value)}
+                        style={{ width: '100%', padding: '8px 10px', fontSize: 12, background: '#242424', border: '1px solid rgba(205,162,116,0.1)', borderRadius: 6, color: stNewTaskJob ? '#e8e0d8' : '#6a6058', outline: 'none' }}>
+                        <option value="">Select a job...</option>
+                        {overview?.data.activeJobs?.map((j: any) => (
+                          <option key={j.id} value={j.id}>#{j.number} {j.name}</option>
+                        ))}
+                      </select>
+                    </div>
+                    <div>
+                      <label style={{ fontSize: 10, color: '#5a5550', fontWeight: 600, letterSpacing: '0.04em', display: 'block', marginBottom: 4 }}>CATEGORY *</label>
+                      <select value={stNewTaskPhase} onChange={e => setStNewTaskPhase(e.target.value)}
+                        style={{ width: '100%', padding: '8px 10px', fontSize: 12, background: '#242424', border: '1px solid rgba(205,162,116,0.1)', borderRadius: 6, color: stNewTaskPhase ? '#e8e0d8' : '#6a6058', outline: 'none' }}>
+                        <option value="">Select category...</option>
+                        {BKB_PHASES.map(p => (<option key={p} value={p}>{p}</option>))}
+                      </select>
+                    </div>
+                    <div>
+                      <label style={{ fontSize: 10, color: '#5a5550', fontWeight: 600, letterSpacing: '0.04em', display: 'block', marginBottom: 4 }}>ASSIGN TO</label>
+                      <select value={stNewTaskAssignee} onChange={e => setStNewTaskAssignee(e.target.value)}
+                        style={{ width: '100%', padding: '8px 10px', fontSize: 12, background: '#242424', border: '1px solid rgba(205,162,116,0.1)', borderRadius: 6, color: stNewTaskAssignee ? '#e8e0d8' : '#6a6058', outline: 'none' }}>
+                        <option value="">Unassigned</option>
+                        {TEAM_ASSIGNEES.map(t => (<option key={t.id} value={t.id}>{t.label}</option>))}
+                      </select>
+                    </div>
+                    <div>
+                      <label style={{ fontSize: 10, color: '#5a5550', fontWeight: 600, letterSpacing: '0.04em', display: 'block', marginBottom: 4 }}>DUE DATE</label>
+                      <input type="date" value={stNewTaskDate} onChange={e => setStNewTaskDate(e.target.value)}
+                        style={{ width: '100%', padding: '8px 10px', fontSize: 12, background: '#242424', border: '1px solid rgba(205,162,116,0.1)', borderRadius: 6, color: '#e8e0d8', outline: 'none' }} />
+                    </div>
+                    <button onClick={createStandaloneTask} disabled={creatingSt || !stNewTaskName.trim() || !stNewTaskJob || !stNewTaskPhase}
+                      style={{
+                        width: '100%', padding: '10px', borderRadius: 6, border: 'none', cursor: 'pointer', fontSize: 12, fontWeight: 600, marginTop: 4,
+                        background: (stNewTaskName.trim() && stNewTaskJob && stNewTaskPhase) ? '#CDA274' : 'rgba(205,162,116,0.2)',
+                        color: (stNewTaskName.trim() && stNewTaskJob && stNewTaskPhase) ? '#1a1a1a' : '#6a6058',
+                        opacity: creatingSt ? 0.5 : 1,
+                      }}>
+                      {creatingSt ? 'Creating...' : 'Create Task'}
+                    </button>
+                  </div>
+                )}
+                {/* WAITING ON TAB */}
+                {panelTab === 'waitingOn' && (
+                  <div>
+                    <div style={{ display: 'flex', justifyContent: 'flex-end', marginBottom: 8 }}>
+                      <button
+                        onClick={() => { setShowWaitingOnForm(!showWaitingOnForm); if (!showWaitingOnForm) { setWoTaskName(''); setWoJobId(''); setWoDescription(''); setWoDate(''); setWoAssignee(''); } }}
+                        style={{ display: 'flex', alignItems: 'center', gap: 3, fontSize: 10, color: '#CDA274', background: 'rgba(205,162,116,0.1)', border: 'none', cursor: 'pointer', padding: '4px 10px', borderRadius: 5, fontWeight: 600 }}
+                      >
+                        <Plus size={11} /> New
+                      </button>
+                    </div>
                   <div style={{ background: '#242424', border: '1px solid rgba(205,162,116,0.12)', borderRadius: 8, padding: 12, marginBottom: 10 }}>
                     <div style={{ fontSize: 11, fontWeight: 600, color: '#CDA274', marginBottom: 8 }}>New Waiting On Item</div>
                     <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
@@ -2144,10 +2269,13 @@ export default function DashboardOverview() {
                 }}>
                 {creatingTask ? 'Creating...' : 'Create Task'}
               </button>
+                  </div>
+                )}
+              </div>
             </div>
           </div>
-        </div>
-      )}
+        );
+      })()}
 
     </div>
   );
