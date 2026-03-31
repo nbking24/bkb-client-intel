@@ -1010,7 +1010,7 @@ export default function DashboardOverview() {
       const data = await res.json();
       if (overview && data.task) {
         const mj = overview.data.activeJobs?.find((j: any) => j.id === stNewTaskJob);
-        setOverview({ ...overview, data: { ...overview.data, tasks: [...overview.data.tasks, { id: data.task.id, name: stNewTaskName.trim(), jobName: mj ? String(mj.number) + ' ' + mj.name : '', jobId: stNewTaskJob, dueDate: stNewTaskDate || null, daysUntilDue: stNewTaskDate ? Math.ceil((new Date(stNewTaskDate).getTime() - Date.now()) / 86400000) : null, status: 'open' }] } });
+        setOverview({ ...overview, data: { ...overview.data, tasks: [...overview.data.tasks, { id: data.task.id, name: stNewTaskName.trim(), jobName: mj ? String(mj.number) + ' ' + mj.name : '', jobId: stNewTaskJob, endDate: stNewTaskDate || null, status: 'open' } as any] } });
       }
       setStNewTaskName(''); setStNewTaskJob(''); setStNewTaskPhase(''); setStNewTaskDate(''); setStNewTaskAssignee('');
       setPanelTab('waitingOn');
