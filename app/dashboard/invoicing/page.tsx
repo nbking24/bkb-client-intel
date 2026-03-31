@@ -1199,101 +1199,7 @@ export default function InvoicingDashboard() {
         />
       </div>
 
-      {/* AR Automated Reminders — Status Banner */}
-      {arStats && (
-        <div
-          className="rounded-lg overflow-hidden mt-3 mb-1"
-          style={{ background: '#242424', border: '1px solid rgba(34,197,94,0.12)' }}
-        >
-          <div className="px-4 py-3">
-            <div className="flex items-center gap-2 mb-2">
-              <Send size={14} style={{ color: '#4ade80' }} />
-              <span className="text-sm font-semibold" style={{ color: '#4ade80' }}>
-                AR Automated Reminders
-              </span>
-              <span
-                className="text-[10px] px-1.5 py-0.5 rounded-full font-medium"
-                style={{ background: 'rgba(34,197,94,0.1)', color: '#4ade80' }}
-              >
-                Active
-              </span>
-            </div>
-            {/* Stats row */}
-            <div className="flex items-center gap-4 flex-wrap">
-              <div className="flex items-center gap-1.5">
-                <span className="text-xl font-bold" style={{ color: '#e8e0d8' }}>
-                  {arStats.totalRemindersSent}
-                </span>
-                <span className="text-[10px]" style={{ color: '#8a8078' }}>
-                  reminders sent
-                </span>
-              </div>
-              <div style={{ width: 1, height: 20, background: 'rgba(205,162,116,0.08)' }} />
-              <div className="flex items-center gap-1.5">
-                <span className="text-sm font-semibold" style={{ color: '#e8e0d8' }}>
-                  {arStats.jobsWithReminders}
-                </span>
-                <span className="text-[10px]" style={{ color: '#8a8078' }}>
-                  jobs contacted
-                </span>
-              </div>
-              <div style={{ width: 1, height: 20, background: 'rgba(205,162,116,0.08)' }} />
-              <div className="flex items-center gap-1.5">
-                <span className="text-sm font-semibold" style={{ color: '#4ade80' }}>
-                  {arStats.activeJobs}
-                </span>
-                <span className="text-[10px]" style={{ color: '#8a8078' }}>
-                  active
-                </span>
-              </div>
-              {arStats.jobsOnHold > 0 && (
-                <>
-                  <div style={{ width: 1, height: 20, background: 'rgba(205,162,116,0.08)' }} />
-                  <div className="flex items-center gap-1.5">
-                    <span className="text-sm font-semibold" style={{ color: '#f87171' }}>
-                      {arStats.jobsOnHold}
-                    </span>
-                    <span className="text-[10px]" style={{ color: '#8a8078' }}>
-                      paused
-                    </span>
-                  </div>
-                </>
-              )}
-            </div>
-            {/* Recent reminders timeline */}
-            {arStats.recentReminders.length > 0 && (
-              <div className="mt-3 pt-2" style={{ borderTop: '1px solid rgba(205,162,116,0.06)' }}>
-                <span className="text-[9px] font-medium" style={{ color: '#6a6058', letterSpacing: '0.04em' }}>
-                  RECENT REMINDERS
-                </span>
-                <div className="mt-1 space-y-1">
-                  {arStats.recentReminders.slice(0, 5).map((r, i) => (
-                    <div key={i} className="flex items-center gap-2 text-[11px]">
-                      <span className="w-[70px] flex-shrink-0" style={{ color: '#6a6058' }}>
-                        {new Date(r.date).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}
-                      </span>
-                      <span
-                        className="px-1.5 py-0.5 rounded text-[9px] font-medium flex-shrink-0"
-                        style={{
-                          background: r.tier === '60-day' ? 'rgba(239,68,68,0.1)' : r.tier === '45-day' ? 'rgba(249,115,22,0.1)' : r.tier === '30-day' ? 'rgba(234,179,8,0.1)' : 'rgba(34,197,94,0.1)',
-                          color: r.tier === '60-day' ? '#f87171' : r.tier === '45-day' ? '#fb923c' : r.tier === '30-day' ? '#eab308' : '#4ade80',
-                        }}
-                      >
-                        {r.tier}
-                      </span>
-                      <span className="truncate" style={{ color: '#e8e0d8' }}>
-                        {r.jobName.replace(/^#\d+\s*/, '')}
-                      </span>
-                    </div>
-                  ))}
-                </div>
-              </div>
-            )}
-          </div>
-        </div>
-      )}
-
-      {/* Open Invoices Awaiting Payment — Condensed Summary */}
+      {/* Open Invoices Awaiting Payment — with AR total & aging */}
       {(() => {
         // Aggregate all pending invoices from contract + cost-plus jobs
         const allPending: Array<{
@@ -1342,6 +1248,20 @@ export default function InvoicingDashboard() {
         allPending.sort((a, b) => b.daysPending - a.daysPending);
         const totalOwed = allPending.reduce((s, inv) => s + inv.amount, 0);
 
+        // Aging buckets
+        const aging = {
+          current: { count: 0, amount: 0 },  // 0-14 days
+          aging15: { count: 0, amount: 0 },   // 15-30 days
+          aging31: { count: 0, amount: 0 },   // 31-60 days
+          aging60: { count: 0, amount: 0 },   // 60+ days
+        };
+        for (const inv of allPending) {
+          if (inv.daysPending <= 14) { aging.current.count++; aging.current.amount += inv.amount; }
+          else if (inv.daysPending <= 30) { aging.aging15.count++; aging.aging15.amount += inv.amount; }
+          else if (inv.daysPending <= 60) { aging.aging31.count++; aging.aging31.amount += inv.amount; }
+          else { aging.aging60.count++; aging.aging60.amount += inv.amount; }
+        }
+
         if (allPending.length === 0) return null;
 
         return (
@@ -1357,13 +1277,13 @@ export default function InvoicingDashboard() {
               <div className="flex items-center gap-2">
                 <DollarSign size={16} style={{ color: '#eab308' }} />
                 <span className="text-sm font-semibold" style={{ color: '#eab308' }}>
-                  Open Invoices Awaiting Payment
+                  Accounts Receivable
                 </span>
                 <span
                   className="text-xs px-1.5 py-0.5 rounded-full font-medium"
                   style={{ background: 'rgba(234,179,8,0.15)', color: '#eab308' }}
                 >
-                  {allPending.length}
+                  {allPending.length} invoices
                 </span>
               </div>
               <div className="flex items-center gap-3">
@@ -1376,6 +1296,69 @@ export default function InvoicingDashboard() {
                 }
               </div>
             </button>
+
+            {/* Aging breakdown bar + AR reminders strip */}
+            <div className="px-4 pb-2 pt-1" style={{ borderTop: '1px solid rgba(205,162,116,0.06)' }}>
+              {/* Aging buckets */}
+              <div className="flex items-center gap-3 text-[10px]">
+                <div className="flex items-center gap-1">
+                  <span style={{ color: '#8a8078' }}>0-14d:</span>
+                  <span style={{ color: '#22c55e', fontWeight: 600 }}>{formatCurrency(aging.current.amount)}</span>
+                  <span style={{ color: '#5a5550' }}>({aging.current.count})</span>
+                </div>
+                <div className="flex items-center gap-1">
+                  <span style={{ color: '#8a8078' }}>15-30d:</span>
+                  <span style={{ color: '#eab308', fontWeight: 600 }}>{formatCurrency(aging.aging15.amount)}</span>
+                  <span style={{ color: '#5a5550' }}>({aging.aging15.count})</span>
+                </div>
+                <div className="flex items-center gap-1">
+                  <span style={{ color: '#8a8078' }}>31-60d:</span>
+                  <span style={{ color: '#f97316', fontWeight: 600 }}>{formatCurrency(aging.aging31.amount)}</span>
+                  <span style={{ color: '#5a5550' }}>({aging.aging31.count})</span>
+                </div>
+                <div className="flex items-center gap-1">
+                  <span style={{ color: '#8a8078' }}>60+d:</span>
+                  <span style={{ color: '#ef4444', fontWeight: 600 }}>{formatCurrency(aging.aging60.amount)}</span>
+                  <span style={{ color: '#5a5550' }}>({aging.aging60.count})</span>
+                </div>
+              </div>
+              {/* Aging bar visualization */}
+              {totalOwed > 0 && (
+                <div className="flex h-[4px] rounded-full overflow-hidden mt-1.5 mb-1" style={{ background: '#1a1a1a' }}>
+                  {aging.current.amount > 0 && (
+                    <div style={{ width: `${(aging.current.amount / totalOwed) * 100}%`, background: '#22c55e' }} />
+                  )}
+                  {aging.aging15.amount > 0 && (
+                    <div style={{ width: `${(aging.aging15.amount / totalOwed) * 100}%`, background: '#eab308' }} />
+                  )}
+                  {aging.aging31.amount > 0 && (
+                    <div style={{ width: `${(aging.aging31.amount / totalOwed) * 100}%`, background: '#f97316' }} />
+                  )}
+                  {aging.aging60.amount > 0 && (
+                    <div style={{ width: `${(aging.aging60.amount / totalOwed) * 100}%`, background: '#ef4444' }} />
+                  )}
+                </div>
+              )}
+              {/* AR Reminders — compact strip */}
+              {arStats && (
+                <div className="flex items-center gap-3 mt-1 text-[10px]">
+                  <div className="flex items-center gap-1">
+                    <Send size={9} style={{ color: '#4ade80' }} />
+                    <span style={{ color: '#4ade80', fontWeight: 500 }}>AR Reminders</span>
+                  </div>
+                  <span style={{ color: '#8a8078' }}>{arStats.totalRemindersSent} sent</span>
+                  <span style={{ color: '#8a8078' }}>{arStats.jobsWithReminders} jobs</span>
+                  {arStats.jobsOnHold > 0 && (
+                    <span style={{ color: '#f87171' }}>{arStats.jobsOnHold} paused</span>
+                  )}
+                  {arStats.recentReminders.length > 0 && (
+                    <span style={{ color: '#5a5550' }}>
+                      Last: {new Date(arStats.recentReminders[0].date).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}
+                    </span>
+                  )}
+                </div>
+              )}
+            </div>
 
             {/* Expanded invoice list */}
             {openInvoicesExpanded && (
