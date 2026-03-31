@@ -254,9 +254,9 @@ function InlineAskAgent({ pmJobs, screen }: { pmJobs: { id: string; name: string
     let messageForApi = userMsg;
     const contextParts: string[] = [];
     if (agentMode === 'change-order') {
-      contextParts.push('MODE: CHANGE ORDER SUBMISSION. The user is submitting a change order. Follow the CO submission flow â ask targeted questions, gather all details, then output a @@CO_PROPOSAL@@ for approval.');
+      contextParts.push('MODE: CHANGE ORDER SUBMISSION. The user is submitting a change order. Follow the CO submission flow Ã¢ÂÂ ask targeted questions, gather all details, then output a @@CO_PROPOSAL@@ for approval.');
     } else if (agentMode === 'specs') {
-      contextParts.push('MODE: SPECS ONLY. The user is asking about approved specifications. ONLY answer based on approved documents and specs for this job. Do NOT offer to create change orders, tasks, or modifications â just provide spec information from approved documents.');
+      contextParts.push('MODE: SPECS ONLY. The user is asking about approved specifications. ONLY answer based on approved documents and specs for this job. Do NOT offer to create change orders, tasks, or modifications Ã¢ÂÂ just provide spec information from approved documents.');
     }
     if (selectedJob) {
       contextParts.push(`The user has selected job "${selectedJob.name}" (#${selectedJob.number}, ID: ${selectedJob.id}). Use this as the target job for their question.`);
@@ -290,7 +290,7 @@ function InlineAskAgent({ pmJobs, screen }: { pmJobs: { id: string; name: string
       if (!response.ok) {
         let errorMsg = `HTTP ${response.status}`;
         try { const errData = await response.json(); errorMsg = errData.error || errorMsg; } catch {
-          try { const text = await response.text(); errorMsg = text.includes('FUNCTION_INVOCATION_TIMEOUT') ? 'Request timed out â try a more specific question.' : (text.substring(0, 200) || 'Request failed'); } catch { errorMsg = 'Request failed'; }
+          try { const text = await response.text(); errorMsg = text.includes('FUNCTION_INVOCATION_TIMEOUT') ? 'Request timed out Ã¢ÂÂ try a more specific question.' : (text.substring(0, 200) || 'Request failed'); } catch { errorMsg = 'Request failed'; }
         }
         throw new Error(errorMsg);
       }
@@ -337,7 +337,7 @@ function InlineAskAgent({ pmJobs, screen }: { pmJobs: { id: string; name: string
     if (taskData) {
       const mergedData = edits ? { ...taskData, ...edits } : taskData;
       if (edits?.phase && edits.phase !== taskData.phase) { delete (mergedData as any).phaseId; (mergedData as any).phaseChanged = true; }
-      confirmMsg += '\n\n[APPROVED TASK DATA â execute this now using create_phase_task tool]\n' + JSON.stringify(mergedData);
+      confirmMsg += '\n\n[APPROVED TASK DATA Ã¢ÂÂ execute this now using create_phase_task tool]\n' + JSON.stringify(mergedData);
     }
     await sendMessage(confirmMsg);
   };
@@ -346,7 +346,7 @@ function InlineAskAgent({ pmJobs, screen }: { pmJobs: { id: string; name: string
     setMessages(prev => [
       ...prev.map((m, i) => i === prev.length - 1 ? { ...m, needsConfirmation: false } : m),
       { role: 'user', content: 'No, cancel that.' },
-      { role: 'assistant', content: 'No problem â action cancelled.' },
+      { role: 'assistant', content: 'No problem Ã¢ÂÂ action cancelled.' },
     ]);
   };
 
@@ -377,7 +377,7 @@ function InlineAskAgent({ pmJobs, screen }: { pmJobs: { id: string; name: string
           <Bot size={isTouch ? 15 : 12} style={{ color: '#CDA274' }} />
         </div>
         <span style={{ flex: 1, fontSize: isTouch ? 14 : 12, fontWeight: 600, color: '#CDA274' }}>Ask Agent</span>
-        {!isMobile && <span style={{ fontSize: isTouch ? 11 : 9, color: '#5a5550' }}>Tasks Â· Specs Â· Change Orders</span>}
+        {!isMobile && <span style={{ fontSize: isTouch ? 11 : 9, color: '#5a5550' }}>Tasks ÃÂ· Specs ÃÂ· Change Orders</span>}
         {open ? <ChevronUp size={isTouch ? 16 : 12} style={{ color: '#5a5550' }} /> : <ChevronDown size={isTouch ? 16 : 12} style={{ color: '#5a5550' }} />}
       </button>
 
@@ -436,7 +436,7 @@ function InlineAskAgent({ pmJobs, screen }: { pmJobs: { id: string; name: string
               <div style={{ padding: isTouch ? '12px 0' : '8px 0', textAlign: 'center' }}>
                 <p style={{ fontSize: isTouch ? 13 : 10, color: '#5a5550', marginBottom: 4 }}>
                   {agentMode === 'general' && 'Ask about tasks, schedules, or anything on this job'}
-                  {agentMode === 'change-order' && 'Describe the change â I\'ll ask questions and build the CO'}
+                  {agentMode === 'change-order' && 'Describe the change Ã¢ÂÂ I\'ll ask questions and build the CO'}
                   {agentMode === 'specs' && 'Ask about approved specs for this job'}
                 </p>
                 {agentMode === 'change-order' && (
@@ -524,13 +524,13 @@ function InlineAskAgent({ pmJobs, screen }: { pmJobs: { id: string; name: string
                           </tfoot>
                         </table>
                         {co.createDocument && <div style={{ fontSize: 9, color: '#60a5fa', marginTop: 4 }}>+ Draft CO document will be created</div>}
-                        {co.followUp?.needed && <div style={{ fontSize: 9, color: '#f59e0b', marginTop: 2 }}>+ Follow-up task â {co.followUp.assignTo || 'Nathan'} by {co.followUp.dueDate || 'TBD'}</div>}
+                        {co.followUp?.needed && <div style={{ fontSize: 9, color: '#f59e0b', marginTop: 2 }}>+ Follow-up task Ã¢ÂÂ {co.followUp.assignTo || 'Nathan'} by {co.followUp.dueDate || 'TBD'}</div>}
                         {co.imageUrls && co.imageUrls.length > 0 && <div style={{ fontSize: 9, color: '#22c55e', marginTop: 2 }}>+ {co.imageUrls.length} photo(s) will be attached</div>}
                       </div>
                       <div style={{ display: 'flex', gap: isTouch ? 10 : 6 }}>
                         <button onClick={() => {
                           setMessages(prev => prev.map((m, mi) => mi === prev.length - 1 ? { ...m, needsConfirmation: false } : m));
-                          sendMessage('Yes, approve this change order. Create it now.\n\n[APPROVED CO DATA â execute create_change_order tool now]\n' + JSON.stringify(co));
+                          sendMessage('Yes, approve this change order. Create it now.\n\n[APPROVED CO DATA Ã¢ÂÂ execute create_change_order tool now]\n' + JSON.stringify(co));
                           setUploadedUrls([]);
                         }}
                           style={{ display: 'flex', alignItems: 'center', gap: 6, padding: isTouch ? '10px 18px' : '5px 12px', borderRadius: isTouch ? 8 : 5, fontSize: isTouch ? 14 : 11, fontWeight: 600, background: 'rgba(34,197,94,0.15)', color: '#22c55e', border: 'none', cursor: 'pointer' }}>
@@ -699,6 +699,7 @@ export default function DashboardOverview() {
   ];
 
   // Waiting On tracking
+  const [showWaitingOnPanel, setShowWaitingOnPanel] = useState(false);
   const [showWaitingOnForm, setShowWaitingOnForm] = useState(false);
   const [woTaskName, setWoTaskName] = useState('');
   const [woJobId, setWoJobId] = useState('');
@@ -777,7 +778,7 @@ export default function DashboardOverview() {
     }
   }
 
-  // ââ Waiting On functions ââââââââââââââââââââââââââââââ
+  // Ã¢ÂÂÃ¢ÂÂ Waiting On functions Ã¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂ
   async function createWaitingOnTask() {
     if (!woTaskName.trim() || !woJobId || !woAssignee) return;
     setCreatingWo(true);
@@ -1160,7 +1161,7 @@ export default function DashboardOverview() {
           </div>
         </div>
 
-        {/* KPI 2: Open Tasks â clickable */}
+        {/* KPI 2: Open Tasks Ã¢ÂÂ clickable */}
         <button
           onClick={() => setShowSection(showSection === 'tasks' ? false : 'tasks')}
           style={{ background: showSection === 'tasks' ? 'rgba(59,130,246,0.1)' : '#1e1e1e', borderRadius: 6, padding: '6px 7px', border: 'none', borderLeftWidth: 3, borderLeftStyle: 'solid', borderLeftColor: tasks.length > 0 ? '#3b82f6' : '#5a5550', cursor: 'pointer', textAlign: 'left' }}
@@ -1174,7 +1175,7 @@ export default function DashboardOverview() {
           </div>
         </button>
 
-        {/* KPI 3: Overdue â clickable */}
+        {/* KPI 3: Overdue Ã¢ÂÂ clickable */}
         <button
           onClick={() => setShowSection(showSection === 'overdue' ? false : 'overdue')}
           style={{ background: showSection === 'overdue' ? 'rgba(239,68,68,0.1)' : '#1e1e1e', borderRadius: 6, padding: '6px 7px', border: 'none', borderLeftWidth: 3, borderLeftStyle: 'solid', borderLeftColor: overdueTasks.length > 0 ? '#ef4444' : '#22c55e', cursor: 'pointer', textAlign: 'left' }}
@@ -1188,7 +1189,7 @@ export default function DashboardOverview() {
           </div>
         </button>
 
-        {/* KPI 4: Outstanding Invoices (AR) â clickable */}
+        {/* KPI 4: Outstanding Invoices (AR) Ã¢ÂÂ clickable */}
         {(() => {
           const invCount = stats?.outstandingInvoiceCount || 0;
           const invTotal = stats?.outstandingInvoiceTotal || 0;
@@ -1215,7 +1216,7 @@ export default function DashboardOverview() {
           );
         })()}
 
-        {/* KPI 5: Pending Change Orders â clickable */}
+        {/* KPI 5: Pending Change Orders Ã¢ÂÂ clickable */}
         {(() => {
           const pending = stats?.pendingCOCount || 0;
           const approved = stats?.approvedCOCount || 0;
@@ -1243,7 +1244,7 @@ export default function DashboardOverview() {
         })()}
       </div>
 
-      {/* AI BRIEFING â compact, matches field dashboard style */}
+      {/* AI BRIEFING Ã¢ÂÂ compact, matches field dashboard style */}
       {analysis?.summary && (
         <div style={{ background: 'rgba(205,162,116,0.06)', border: '1px solid rgba(205,162,116,0.12)', borderRadius: 8, padding: '8px 10px', marginBottom: isTouch ? 10 : 6 }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: 4, marginBottom: 4 }}>
@@ -1254,7 +1255,7 @@ export default function DashboardOverview() {
         </div>
       )}
 
-      {/* OUTSTANDING INVOICES â expandable from KPI card click */}
+      {/* OUTSTANDING INVOICES Ã¢ÂÂ expandable from KPI card click */}
       {showSection === 'invoices' && (
         <div style={{ background: '#1e1e1e', border: '1px solid rgba(245,158,11,0.15)', borderRadius: 8, padding: '8px 10px', marginBottom: isTouch ? 10 : 6, maxHeight: 340, overflowY: 'auto' }}>
           <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 6 }}>
@@ -1329,7 +1330,7 @@ export default function DashboardOverview() {
         </div>
       )}
 
-      {/* AR AUTOMATED REMINDERS â compact status bar */}
+      {/* AR AUTOMATED REMINDERS Ã¢ÂÂ compact status bar */}
       {arStats && arStats.totalRemindersSent > 0 && (
         <div style={{ background: '#1e1e1e', border: '1px solid rgba(34,197,94,0.12)', borderRadius: 8, padding: '6px 10px', marginBottom: isTouch ? 10 : 6 }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
@@ -1361,7 +1362,7 @@ export default function DashboardOverview() {
               <>
                 <div style={{ width: 1, height: 14, background: 'rgba(205,162,116,0.08)' }} />
                 <span style={{ fontSize: 9, color: '#6a6058' }}>
-                  Last: {new Date(arStats.recentReminders[0].date).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })} â {arStats.recentReminders[0].jobName.replace(/^#\d+\s*/, '').split(' ').slice(0, 3).join(' ')} ({arStats.recentReminders[0].tier})
+                  Last: {new Date(arStats.recentReminders[0].date).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })} Ã¢ÂÂ {arStats.recentReminders[0].jobName.replace(/^#\d+\s*/, '').split(' ').slice(0, 3).join(' ')} ({arStats.recentReminders[0].tier})
                 </span>
               </>
             )}
@@ -1369,7 +1370,7 @@ export default function DashboardOverview() {
         </div>
       )}
 
-      {/* PENDING CHANGE ORDERS â expandable from KPI card click */}
+      {/* PENDING CHANGE ORDERS Ã¢ÂÂ expandable from KPI card click */}
       {showSection === 'changeorders' && (
         <div style={{ background: '#1e1e1e', border: '1px solid rgba(245,158,11,0.15)', borderRadius: 8, padding: '8px 10px', marginBottom: isTouch ? 10 : 6, maxHeight: 340, overflowY: 'auto' }}>
           <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 6 }}>
@@ -1433,7 +1434,7 @@ export default function DashboardOverview() {
         </div>
       )}
 
-      {/* EXPANDED TASK LIST â shows when KPI card is clicked */}
+      {/* EXPANDED TASK LIST Ã¢ÂÂ shows when KPI card is clicked */}
       {showSection && ['overdue', 'tasks'].includes(showSection) && (() => {
         const sectionTasks = showSection === 'overdue' ? overdueTasks : tasks;
         const sectionLabel = showSection === 'overdue' ? 'Overdue Tasks' : 'All Open Tasks';
@@ -1517,7 +1518,7 @@ export default function DashboardOverview() {
           <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 3 }}>
             <Calendar size={11} style={{ color: '#CDA274' }} />
             <span style={{ fontSize: 10, fontWeight: 700, letterSpacing: '0.08em', color: '#5a5550' }}>{week.label.toUpperCase()}</span>
-            <span style={{ fontSize: 10, color: '#3f3f3f' }}>{week.days[0].month} {week.days[0].dayNum} â {week.days[6].month} {week.days[6].dayNum}</span>
+            <span style={{ fontSize: 10, color: '#3f3f3f' }}>{week.days[0].month} {week.days[0].dayNum} Ã¢ÂÂ {week.days[6].month} {week.days[6].dayNum}</span>
           </div>
           <div style={{ display: 'grid', gridTemplateColumns: 'repeat(7, 1fr)', gap: 1, borderRadius: 8, overflow: 'hidden' }}>
             {week.days.map(day => {
@@ -1557,7 +1558,7 @@ export default function DashboardOverview() {
                             fontSize: 9, lineHeight: '12px', color: '#e8e0d8',
                             overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
                           }}
-                          title={`${task.name} â ${task.jobName}`}
+                          title={`${task.name} Ã¢ÂÂ ${task.jobName}`}
                         >
                           {task.name}
                         </div>
@@ -1576,292 +1577,34 @@ export default function DashboardOverview() {
         </div>
       ))}
 
-      {/* ââ WAITING ON â â³ task tracker âââââââââââââââââââââââ */}
+      {/* WAITING ON — compact bar, opens side panel */}
       {(() => {
-        const woTasks = tasks.filter(t => t.name.startsWith('â³'));
-
-        // Aging color logic
-        function agingColor(daysUntilDue: number | null): string {
-          if (daysUntilDue === null) return '#6a6058';
-          if (daysUntilDue < -7) return '#ef4444'; // 7+ days overdue â red
-          if (daysUntilDue < -3) return '#f97316'; // 3-7 days overdue â orange
-          if (daysUntilDue < 0) return '#eab308';  // 0-3 days overdue â yellow
-          return '#6a6058'; // not yet due
-        }
-        function agingBg(daysUntilDue: number | null): string {
-          if (daysUntilDue === null) return 'transparent';
-          if (daysUntilDue < -7) return 'rgba(239,68,68,0.08)';
-          if (daysUntilDue < -3) return 'rgba(249,115,22,0.08)';
-          if (daysUntilDue < 0) return 'rgba(234,179,8,0.06)';
-          return 'transparent';
-        }
-        // Sort: most overdue first
-        const sorted = [...woTasks].sort((a, b) => {
-          const aDays = a.daysUntilDue ?? 999;
-          const bDays = b.daysUntilDue ?? 999;
-          return aDays - bDays;
-        });
-
+        const woTasks = tasks.filter(t => t.name.startsWith('\u23f3'));
+        const overdueCount = woTasks.filter(t => t.daysUntilDue !== null && t.daysUntilDue < 0).length;
         return (
-          <div style={{ background: '#1e1e1e', border: '1px solid rgba(205,162,116,0.08)', borderRadius: 8, padding: '8px 10px', marginBottom: 6 }}>
-            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 6 }}>
-              <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
-                <Hourglass size={10} style={{ color: '#CDA274' }} />
-                <span style={{ fontSize: 9, fontWeight: 600, color: '#CDA274', letterSpacing: '0.04em' }}>WAITING ON ({woTasks.length})</span>
-              </div>
-              <button
-                onClick={() => {
-                  setShowWaitingOnForm(!showWaitingOnForm);
-                  if (!showWaitingOnForm) {
-                    setWoTaskName('');
-                    setWoJobId('');
-                    setWoDescription('');
-                    setWoDate('');
-                    setWoAssignee('');
-                  }
-                }}
-                style={{ display: 'flex', alignItems: 'center', gap: 3, fontSize: 9, color: '#CDA274', background: 'rgba(205,162,116,0.08)', border: 'none', cursor: 'pointer', padding: '3px 8px', borderRadius: 4 }}
-              >
-                <Plus size={10} /> New
-              </button>
+          <button
+            onClick={() => setShowWaitingOnPanel(true)}
+            style={{
+              width: '100%', display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+              background: '#1e1e1e', border: '1px solid rgba(205,162,116,0.08)', borderRadius: 8,
+              padding: '7px 10px', marginBottom: 6, cursor: 'pointer',
+            }}
+          >
+            <div style={{ display: 'flex', alignItems: 'center', gap: 5 }}>
+              <Hourglass size={10} style={{ color: '#CDA274' }} />
+              <span style={{ fontSize: 9, fontWeight: 600, color: '#CDA274', letterSpacing: '0.04em' }}>WAITING ON ({woTasks.length})</span>
+              {overdueCount > 0 && (
+                <span style={{ fontSize: 8, color: '#ef4444', background: 'rgba(239,68,68,0.1)', padding: '1px 5px', borderRadius: 3 }}>
+                  {overdueCount} overdue
+                </span>
+              )}
             </div>
-
-            {/* Inline creation form */}
-            {showWaitingOnForm && (
-              <div style={{ background: '#242424', border: '1px solid rgba(205,162,116,0.12)', borderRadius: 6, padding: 10, marginBottom: 8 }}>
-                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 6, marginBottom: 6 }}>
-                  {/* Task name */}
-                  <div style={{ gridColumn: '1 / -1' }}>
-                    <label style={{ fontSize: 9, color: '#6a6058', fontWeight: 600, display: 'block', marginBottom: 2 }}>WHAT ARE YOU WAITING ON?</label>
-                    <input
-                      type="text"
-                      autoFocus
-                      placeholder="e.g. Approval on the tile selection"
-                      value={woTaskName}
-                      onChange={e => setWoTaskName(e.target.value)}
-                      style={{
-                        width: '100%', background: '#1a1a1a', border: '1px solid rgba(205,162,116,0.15)', borderRadius: 5,
-                        color: '#e8e0d8', fontSize: 11, padding: '6px 8px', outline: 'none', boxSizing: 'border-box',
-                      }}
-                    />
-                  </div>
-                  {/* Job selector */}
-                  <div>
-                    <label style={{ fontSize: 9, color: '#6a6058', fontWeight: 600, display: 'block', marginBottom: 2 }}>JOB</label>
-                    <select
-                      value={woJobId}
-                      onChange={e => setWoJobId(e.target.value)}
-                      style={{
-                        width: '100%', background: '#1a1a1a', border: '1px solid rgba(205,162,116,0.15)', borderRadius: 5,
-                        color: woJobId ? '#CDA274' : '#5a5550', fontSize: 11, padding: '6px 8px', outline: 'none', cursor: 'pointer', boxSizing: 'border-box',
-                      }}
-                    >
-                      <option value="">Select job...</option>
-                      {(overview?.data?.activeJobs || []).map(j => (
-                        <option key={j.id} value={j.id}>#{j.number} {j.name}</option>
-                      ))}
-                    </select>
-                  </div>
-                  {/* Assignee */}
-                  <div>
-                    <label style={{ fontSize: 9, color: '#6a6058', fontWeight: 600, display: 'block', marginBottom: 2 }}>WHO ARE YOU WAITING ON?</label>
-                    <select
-                      value={woAssignee}
-                      onChange={e => setWoAssignee(e.target.value)}
-                      style={{
-                        width: '100%', background: '#1a1a1a', border: '1px solid rgba(205,162,116,0.15)', borderRadius: 5,
-                        color: woAssignee ? '#CDA274' : '#5a5550', fontSize: 11, padding: '6px 8px', outline: 'none', cursor: 'pointer', boxSizing: 'border-box',
-                      }}
-                    >
-                      <option value="">Select person...</option>
-                      {TEAM_ASSIGNEES.map(a => (
-                        <option key={a.id} value={a.id}>{a.label}</option>
-                      ))}
-                    </select>
-                  </div>
-                  {/* Due date */}
-                  <div>
-                    <label style={{ fontSize: 9, color: '#6a6058', fontWeight: 600, display: 'block', marginBottom: 2 }}>FOLLOW UP BY</label>
-                    <input
-                      type="date"
-                      value={woDate}
-                      onChange={e => setWoDate(e.target.value)}
-                      style={{
-                        width: '100%', background: '#1a1a1a', border: '1px solid rgba(205,162,116,0.15)', borderRadius: 5,
-                        color: '#e8e0d8', fontSize: 11, padding: '6px 8px', colorScheme: 'dark', outline: 'none', boxSizing: 'border-box',
-                      }}
-                    />
-                    <div style={{ fontSize: 8, color: '#5a5550', marginTop: 1 }}>Default: 3 business days</div>
-                  </div>
-                  {/* Description */}
-                  <div>
-                    <label style={{ fontSize: 9, color: '#6a6058', fontWeight: 600, display: 'block', marginBottom: 2 }}>NOTE (OPTIONAL)</label>
-                    <input
-                      type="text"
-                      placeholder="Context or details..."
-                      value={woDescription}
-                      onChange={e => setWoDescription(e.target.value)}
-                      style={{
-                        width: '100%', background: '#1a1a1a', border: '1px solid rgba(205,162,116,0.15)', borderRadius: 5,
-                        color: '#e8e0d8', fontSize: 11, padding: '6px 8px', outline: 'none', boxSizing: 'border-box',
-                      }}
-                    />
-                  </div>
-                </div>
-                <div style={{ display: 'flex', gap: 6, justifyContent: 'flex-end' }}>
-                  <button
-                    onClick={() => setShowWaitingOnForm(false)}
-                    style={{ fontSize: 10, color: '#6a6058', background: 'transparent', border: '1px solid rgba(205,162,116,0.1)', borderRadius: 4, padding: '4px 10px', cursor: 'pointer' }}
-                  >
-                    Cancel
-                  </button>
-                  <button
-                    onClick={createWaitingOnTask}
-                    disabled={!woTaskName.trim() || !woJobId || !woAssignee || creatingWo}
-                    style={{
-                      fontSize: 10, fontWeight: 600, borderRadius: 4, padding: '4px 12px', border: 'none', cursor: (woTaskName.trim() && woJobId && woAssignee && !creatingWo) ? 'pointer' : 'default',
-                      background: (woTaskName.trim() && woJobId && woAssignee) ? '#CDA274' : 'rgba(205,162,116,0.2)',
-                      color: (woTaskName.trim() && woJobId && woAssignee) ? '#1a1a1a' : '#6a6058',
-                      opacity: creatingWo ? 0.5 : 1,
-                    }}
-                  >
-                    {creatingWo ? 'Creating...' : 'Create'}
-                  </button>
-                </div>
-              </div>
-            )}
-
-            {/* Waiting On items list */}
-            {sorted.length === 0 && !showWaitingOnForm && (
-              <div style={{ textAlign: 'center', padding: '8px 0', fontSize: 10, color: '#5a5550' }}>
-                No open items â click "+ New" to track something
-              </div>
-            )}
-            {sorted.map(task => {
-              const isExpanded = expandedWoTask === task.id;
-              const isCompleting = completingWoId === task.id;
-              const ac = agingColor(task.daysUntilDue);
-              const ab = agingBg(task.daysUntilDue);
-              // Parse task display: remove â³ prefix
-              const displayName = task.name.replace(/^â³\s*/, '');
-              const comments = woComments[task.id];
-              const isLoadingComments = loadingWoComments === task.id;
-
-              return (
-                <div key={task.id} style={{ marginBottom: 2, borderRadius: 5, background: ab, transition: 'background 0.2s' }}>
-                  <div style={{ display: 'flex', alignItems: 'center', gap: 5, padding: '5px 4px' }}>
-                    {/* Complete button */}
-                    <button
-                      onClick={() => completeWoTask(task.id)}
-                      disabled={isCompleting}
-                      title="Mark resolved"
-                      style={{ width: 18, height: 18, borderRadius: '50%', border: `1.5px solid ${ac}`, background: 'transparent', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0, opacity: isCompleting ? 0.4 : 1 }}
-                    >
-                      {isCompleting
-                        ? <Loader2 size={9} className="animate-spin" style={{ color: '#8a8078' }} />
-                        : <Check size={9} style={{ color: ac }} />
-                      }
-                    </button>
-                    {/* Task info â clickable to expand */}
-                    <button
-                      onClick={() => {
-                        if (isExpanded) {
-                          setExpandedWoTask(null);
-                        } else {
-                          setExpandedWoTask(task.id);
-                          fetchWoComments(task.id);
-                        }
-                      }}
-                      style={{ flex: 1, minWidth: 0, display: 'flex', alignItems: 'center', gap: 4, background: 'none', border: 'none', cursor: 'pointer', textAlign: 'left', padding: 0 }}
-                    >
-                      <div style={{ flex: 1, minWidth: 0 }}>
-                        <div style={{ fontSize: 11, color: '#e8e0d8', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', fontWeight: 500 }}>{displayName}</div>
-                        <div style={{ fontSize: 9, color: '#5a5550', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                          {task.jobName?.replace(/^#\d+\s*/, '') || ''}
-                        </div>
-                      </div>
-                      <ChevronRight size={10} style={{ color: '#5a5550', transform: isExpanded ? 'rotate(90deg)' : 'none', transition: 'transform 0.15s', flexShrink: 0 }} />
-                    </button>
-                    {/* Age badge */}
-                    <div style={{ fontSize: 9, color: ac, fontWeight: 600, flexShrink: 0, minWidth: 32, textAlign: 'right' }}>
-                      {task.daysUntilDue !== null
-                        ? (task.daysUntilDue < 0 ? `${Math.abs(task.daysUntilDue)}d ago` : task.daysUntilDue === 0 ? 'Today' : `${task.daysUntilDue}d`)
-                        : 'No date'}
-                    </div>
-                  </div>
-
-                  {/* Expanded comment thread */}
-                  {isExpanded && (
-                    <div style={{ padding: '0 4px 6px 28px' }}>
-                      {/* Comment input */}
-                      <div style={{ display: 'flex', gap: 4, marginBottom: 6 }}>
-                        <input
-                          type="text"
-                          placeholder="Add a note or follow-up..."
-                          value={woNewComment}
-                          onChange={e => setWoNewComment(e.target.value)}
-                          onKeyDown={e => { if (e.key === 'Enter' && woNewComment.trim()) postWoComment(task.id); }}
-                          style={{
-                            flex: 1, background: '#1a1a1a', border: '1px solid rgba(205,162,116,0.12)', borderRadius: 4,
-                            color: '#e8e0d8', fontSize: 10, padding: '4px 6px', outline: 'none',
-                          }}
-                        />
-                        <button
-                          onClick={() => postWoComment(task.id)}
-                          disabled={!woNewComment.trim() || postingWoComment}
-                          style={{
-                            background: woNewComment.trim() ? '#CDA274' : 'rgba(205,162,116,0.15)', border: 'none', borderRadius: 4,
-                            padding: '4px 8px', cursor: woNewComment.trim() ? 'pointer' : 'default', lineHeight: 0,
-                            opacity: postingWoComment ? 0.5 : 1,
-                          }}
-                        >
-                          <Send size={10} style={{ color: woNewComment.trim() ? '#1a1a1a' : '#5a5550' }} />
-                        </button>
-                      </div>
-
-                      {/* Comments list */}
-                      {isLoadingComments && (
-                        <div style={{ display: 'flex', alignItems: 'center', gap: 4, padding: '4px 0' }}>
-                          <Loader2 size={10} className="animate-spin" style={{ color: '#5a5550' }} />
-                          <span style={{ fontSize: 9, color: '#5a5550' }}>Loading comments...</span>
-                        </div>
-                      )}
-                      {comments && comments.length === 0 && !isLoadingComments && (
-                        <div style={{ fontSize: 9, color: '#3a3a3a', padding: '2px 0' }}>No comments yet</div>
-                      )}
-                      {comments && comments.slice(0, 5).map((c: any, i: number) => (
-                        <div key={c.id || i} style={{ padding: '3px 0', borderBottom: '1px solid rgba(205,162,116,0.04)' }}>
-                          <div style={{ display: 'flex', alignItems: 'center', gap: 4, marginBottom: 1 }}>
-                            <span style={{ fontSize: 9, fontWeight: 600, color: '#CDA274' }}>{c.name || 'Unknown'}</span>
-                            {c.createdAt && <span style={{ fontSize: 8, color: '#3a3a3a' }}>{timeAgo(c.createdAt)}</span>}
-                          </div>
-                          <div style={{ fontSize: 10, color: '#c8c0b8', lineHeight: '14px' }}>{c.message}</div>
-                        </div>
-                      ))}
-                      {comments && comments.length > 5 && (
-                        <div style={{ fontSize: 8, color: '#5a5550', padding: '2px 0' }}>+{comments.length - 5} more in JobTread</div>
-                      )}
-                      {/* Link to JT */}
-                      {task.jobId && (
-                        <a
-                          href={`https://app.jobtread.com/jobs/${task.jobId}/schedule`}
-                          target="_blank"
-                          rel="noopener noreferrer"
-                          style={{ display: 'inline-flex', alignItems: 'center', gap: 3, fontSize: 9, color: '#5a5550', marginTop: 3, textDecoration: 'none' }}
-                        >
-                          <ExternalLink size={8} /> View in JobTread
-                        </a>
-                      )}
-                    </div>
-                  )}
-                </div>
-              );
-            })}
-          </div>
+            <ChevronRight size={12} style={{ color: '#5a5550' }} />
+          </button>
         );
       })()}
 
-      {/* ALL TASKS â grouped by job, collapsible, filtered to overdue + next 4 weeks */}
+      {/* ALL TASKS Ã¢ÂÂ grouped by job, collapsible, filtered to overdue + next 4 weeks */}
       {tasks.length > 0 && (() => {
         // Filter tasks: overdue or due within next 4 weeks (28 days)
         const now = new Date();
@@ -2064,6 +1807,169 @@ export default function DashboardOverview() {
                 </div>
               );
             })}
+          </div>
+        );
+      })()}
+
+      {/* WAITING ON — Side Panel */}
+      {showWaitingOnPanel && (() => {
+        const woTasks = tasks.filter(t => t.name.startsWith('\u23f3'));
+        function agingColor(d) { if (d === null) return '#6a6058'; if (d < -7) return '#ef4444'; if (d < -3) return '#f97316'; if (d < 0) return '#eab308'; return '#6a6058'; }
+        function agingBg(d) { if (d === null) return 'transparent'; if (d < -7) return 'rgba(239,68,68,0.08)'; if (d < -3) return 'rgba(249,115,22,0.08)'; if (d < 0) return 'rgba(234,179,8,0.06)'; return 'transparent'; }
+        const sorted = [...woTasks].sort((a, b) => (a.daysUntilDue ?? 999) - (b.daysUntilDue ?? 999));
+        return (
+          <div style={{ position: 'fixed', top: 0, left: 0, right: 0, bottom: 0, zIndex: 1000, display: 'flex', justifyContent: 'flex-end' }} onClick={() => setShowWaitingOnPanel(false)}>
+            <div style={{ position: 'absolute', top: 0, left: 0, right: 0, bottom: 0, background: 'rgba(0,0,0,0.4)' }} />
+            <div onClick={e => e.stopPropagation()} style={{
+              position: 'relative', width: 380, maxWidth: '90vw', height: '100vh', background: '#1a1a1a',
+              borderLeft: '1px solid rgba(205,162,116,0.15)', display: 'flex', flexDirection: 'column',
+              boxShadow: '-8px 0 30px rgba(0,0,0,0.5)', overflow: 'hidden',
+            }}>
+              {/* Header */}
+              <div style={{ padding: '14px 16px 10px', borderBottom: '1px solid rgba(205,162,116,0.08)', display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexShrink: 0 }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                  <Hourglass size={14} style={{ color: '#CDA274' }} />
+                  <span style={{ fontSize: 14, fontWeight: 700, color: '#e8e0d8' }}>Waiting On</span>
+                  <span style={{ fontSize: 11, color: '#5a5550' }}>({woTasks.length})</span>
+                </div>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                  <button
+                    onClick={() => { setShowWaitingOnForm(!showWaitingOnForm); if (!showWaitingOnForm) { setWoTaskName(''); setWoJobId(''); setWoDescription(''); setWoDate(''); setWoAssignee(''); } }}
+                    style={{ display: 'flex', alignItems: 'center', gap: 3, fontSize: 10, color: '#CDA274', background: 'rgba(205,162,116,0.1)', border: 'none', cursor: 'pointer', padding: '4px 10px', borderRadius: 5, fontWeight: 600 }}
+                  >
+                    <Plus size={11} /> New
+                  </button>
+                  <button onClick={() => setShowWaitingOnPanel(false)} style={{ background: 'none', border: 'none', cursor: 'pointer', padding: 2, lineHeight: 0 }}>
+                    <X size={16} style={{ color: '#6a6058' }} />
+                  </button>
+                </div>
+              </div>
+
+              {/* Scrollable content */}
+              <div style={{ flex: 1, overflowY: 'auto', padding: '8px 12px' }}>
+                {/* Create form */}
+                {showWaitingOnForm && (
+                  <div style={{ background: '#242424', border: '1px solid rgba(205,162,116,0.12)', borderRadius: 8, padding: 12, marginBottom: 10 }}>
+                    <div style={{ fontSize: 11, fontWeight: 600, color: '#CDA274', marginBottom: 8 }}>New Waiting On Item</div>
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+                      <div>
+                        <label style={{ fontSize: 9, color: '#6a6058', fontWeight: 600, display: 'block', marginBottom: 3 }}>WHAT ARE YOU WAITING ON?</label>
+                        <input type="text" autoFocus placeholder="e.g. Approval on tile selection" value={woTaskName} onChange={e => setWoTaskName(e.target.value)}
+                          style={{ width: '100%', background: '#1a1a1a', border: '1px solid rgba(205,162,116,0.15)', borderRadius: 5, color: '#e8e0d8', fontSize: 12, padding: '7px 10px', outline: 'none', boxSizing: 'border-box' }} />
+                      </div>
+                      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8 }}>
+                        <div>
+                          <label style={{ fontSize: 9, color: '#6a6058', fontWeight: 600, display: 'block', marginBottom: 3 }}>JOB</label>
+                          <select value={woJobId} onChange={e => setWoJobId(e.target.value)}
+                            style={{ width: '100%', background: '#1a1a1a', border: '1px solid rgba(205,162,116,0.15)', borderRadius: 5, color: woJobId ? '#CDA274' : '#5a5550', fontSize: 11, padding: '7px 8px', outline: 'none', cursor: 'pointer', boxSizing: 'border-box' }}>
+                            <option value="">Select job...</option>
+                            {(overview?.data?.activeJobs || []).map(j => (<option key={j.id} value={j.id}>#{j.number} {j.name}</option>))}
+                          </select>
+                        </div>
+                        <div>
+                          <label style={{ fontSize: 9, color: '#6a6058', fontWeight: 600, display: 'block', marginBottom: 3 }}>WHO?</label>
+                          <select value={woAssignee} onChange={e => setWoAssignee(e.target.value)}
+                            style={{ width: '100%', background: '#1a1a1a', border: '1px solid rgba(205,162,116,0.15)', borderRadius: 5, color: woAssignee ? '#CDA274' : '#5a5550', fontSize: 11, padding: '7px 8px', outline: 'none', cursor: 'pointer', boxSizing: 'border-box' }}>
+                            <option value="">Select person...</option>
+                            {TEAM_ASSIGNEES.map(a => (<option key={a.id} value={a.id}>{a.label}</option>))}
+                          </select>
+                        </div>
+                      </div>
+                      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8 }}>
+                        <div>
+                          <label style={{ fontSize: 9, color: '#6a6058', fontWeight: 600, display: 'block', marginBottom: 3 }}>FOLLOW UP BY</label>
+                          <input type="date" value={woDate} onChange={e => setWoDate(e.target.value)}
+                            style={{ width: '100%', background: '#1a1a1a', border: '1px solid rgba(205,162,116,0.15)', borderRadius: 5, color: '#e8e0d8', fontSize: 11, padding: '7px 8px', colorScheme: 'dark', outline: 'none', boxSizing: 'border-box' }} />
+                          <div style={{ fontSize: 8, color: '#5a5550', marginTop: 2 }}>Default: 3 business days</div>
+                        </div>
+                        <div>
+                          <label style={{ fontSize: 9, color: '#6a6058', fontWeight: 600, display: 'block', marginBottom: 3 }}>NOTE (OPTIONAL)</label>
+                          <input type="text" placeholder="Context..." value={woDescription} onChange={e => setWoDescription(e.target.value)}
+                            style={{ width: '100%', background: '#1a1a1a', border: '1px solid rgba(205,162,116,0.15)', borderRadius: 5, color: '#e8e0d8', fontSize: 11, padding: '7px 8px', outline: 'none', boxSizing: 'border-box' }} />
+                        </div>
+                      </div>
+                      <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end', marginTop: 2 }}>
+                        <button onClick={() => setShowWaitingOnForm(false)}
+                          style={{ fontSize: 11, color: '#6a6058', background: 'transparent', border: '1px solid rgba(205,162,116,0.1)', borderRadius: 5, padding: '5px 12px', cursor: 'pointer' }}>Cancel</button>
+                        <button onClick={createWaitingOnTask} disabled={!woTaskName.trim() || !woJobId || !woAssignee || creatingWo}
+                          style={{ fontSize: 11, fontWeight: 600, borderRadius: 5, padding: '5px 14px', border: 'none',
+                            cursor: (woTaskName.trim() && woJobId && woAssignee && !creatingWo) ? 'pointer' : 'default',
+                            background: (woTaskName.trim() && woJobId && woAssignee) ? '#CDA274' : 'rgba(205,162,116,0.2)',
+                            color: (woTaskName.trim() && woJobId && woAssignee) ? '#1a1a1a' : '#6a6058', opacity: creatingWo ? 0.5 : 1 }}>
+                          {creatingWo ? 'Creating...' : 'Create'}
+                        </button>
+                      </div>
+                    </div>
+                  </div>
+                )}
+
+                {/* Items list */}
+                {sorted.length === 0 && !showWaitingOnForm && (
+                  <div style={{ textAlign: 'center', padding: '30px 16px', color: '#5a5550' }}>
+                    <Hourglass size={24} style={{ color: '#3a3a3a', marginBottom: 8 }} />
+                    <div style={{ fontSize: 12, marginBottom: 4 }}>No open items</div>
+                    <div style={{ fontSize: 10 }}>Click "+ New" to start tracking</div>
+                  </div>
+                )}
+                {sorted.map(task => {
+                  const isExpanded = expandedWoTask === task.id;
+                  const isCompleting = completingWoId === task.id;
+                  const ac = agingColor(task.daysUntilDue);
+                  const ab = agingBg(task.daysUntilDue);
+                  const displayName = task.name.replace(/^\u23f3\s*/, '');
+                  const comments = woComments[task.id];
+                  const isLoadingComments = loadingWoComments === task.id;
+                  return (
+                    <div key={task.id} style={{ marginBottom: 3, borderRadius: 6, background: ab, border: '1px solid rgba(205,162,116,0.04)' }}>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '7px 8px' }}>
+                        <button onClick={() => completeWoTask(task.id)} disabled={isCompleting} title="Mark resolved"
+                          style={{ width: 20, height: 20, borderRadius: '50%', border: '1.5px solid ' + ac, background: 'transparent', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0, opacity: isCompleting ? 0.4 : 1 }}>
+                          {isCompleting ? <Loader2 size={10} className="animate-spin" style={{ color: '#8a8078' }} /> : <Check size={10} style={{ color: ac }} />}
+                        </button>
+                        <button onClick={() => { if (isExpanded) { setExpandedWoTask(null); } else { setExpandedWoTask(task.id); fetchWoComments(task.id); } }}
+                          style={{ flex: 1, minWidth: 0, display: 'flex', alignItems: 'center', gap: 4, background: 'none', border: 'none', cursor: 'pointer', textAlign: 'left', padding: 0 }}>
+                          <div style={{ flex: 1, minWidth: 0 }}>
+                            <div style={{ fontSize: 12, color: '#e8e0d8', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', fontWeight: 500 }}>{displayName}</div>
+                            <div style={{ fontSize: 10, color: '#5a5550', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{task.jobName?.replace(/^#\d+\s*/, '') || ''}</div>
+                          </div>
+                          <ChevronRight size={11} style={{ color: '#5a5550', transform: isExpanded ? 'rotate(90deg)' : 'none', transition: 'transform 0.15s', flexShrink: 0 }} />
+                        </button>
+                        <div style={{ fontSize: 10, color: ac, fontWeight: 600, flexShrink: 0, minWidth: 40, textAlign: 'right' }}>
+                          {task.daysUntilDue !== null ? (task.daysUntilDue < 0 ? Math.abs(task.daysUntilDue) + 'd ago' : task.daysUntilDue === 0 ? 'Today' : task.daysUntilDue + 'd') : 'No date'}
+                        </div>
+                      </div>
+                      {isExpanded && (
+                        <div style={{ padding: '0 8px 8px 34px' }}>
+                          <div style={{ display: 'flex', gap: 4, marginBottom: 6 }}>
+                            <input type="text" placeholder="Add a note..." value={woNewComment} onChange={e => setWoNewComment(e.target.value)}
+                              onKeyDown={e => { if (e.key === 'Enter' && woNewComment.trim()) postWoComment(task.id); }}
+                              style={{ flex: 1, background: '#242424', border: '1px solid rgba(205,162,116,0.12)', borderRadius: 5, color: '#e8e0d8', fontSize: 11, padding: '5px 8px', outline: 'none' }} />
+                            <button onClick={() => postWoComment(task.id)} disabled={!woNewComment.trim() || postingWoComment}
+                              style={{ background: woNewComment.trim() ? '#CDA274' : 'rgba(205,162,116,0.15)', border: 'none', borderRadius: 5, padding: '5px 8px', cursor: woNewComment.trim() ? 'pointer' : 'default', lineHeight: 0, opacity: postingWoComment ? 0.5 : 1 }}>
+                              <Send size={11} style={{ color: woNewComment.trim() ? '#1a1a1a' : '#5a5550' }} />
+                            </button>
+                          </div>
+                          {isLoadingComments && (<div style={{ display: 'flex', alignItems: 'center', gap: 4, padding: '4px 0' }}><Loader2 size={10} className="animate-spin" style={{ color: '#5a5550' }} /><span style={{ fontSize: 10, color: '#5a5550' }}>Loading...</span></div>)}
+                          {comments && comments.length === 0 && !isLoadingComments && (<div style={{ fontSize: 10, color: '#3a3a3a', padding: '2px 0' }}>No comments yet</div>)}
+                          {comments && comments.slice(0, 8).map((cm, i) => (
+                            <div key={cm.id || i} style={{ padding: '4px 0', borderBottom: '1px solid rgba(205,162,116,0.04)' }}>
+                              <div style={{ display: 'flex', alignItems: 'center', gap: 4, marginBottom: 1 }}>
+                                <span style={{ fontSize: 10, fontWeight: 600, color: '#CDA274' }}>{cm.name || 'Unknown'}</span>
+                                {cm.createdAt && <span style={{ fontSize: 9, color: '#3a3a3a' }}>{timeAgo(cm.createdAt)}</span>}
+                              </div>
+                              <div style={{ fontSize: 11, color: '#c8c0b8', lineHeight: '15px' }}>{cm.message}</div>
+                            </div>
+                          ))}
+                          {comments && comments.length > 8 && (<div style={{ fontSize: 9, color: '#5a5550', padding: '3px 0' }}>+{comments.length - 8} more in JobTread</div>)}
+                          {task.jobId && (<a href={'https://app.jobtread.com/jobs/' + task.jobId + '/schedule'} target="_blank" rel="noopener noreferrer"
+                            style={{ display: 'inline-flex', alignItems: 'center', gap: 3, fontSize: 10, color: '#5a5550', marginTop: 4, textDecoration: 'none' }}><ExternalLink size={9} /> View in JobTread</a>)}
+                        </div>
+                      )}
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
           </div>
         );
       })()}
