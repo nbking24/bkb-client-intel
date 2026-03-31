@@ -1,20 +1,30 @@
 'use client';
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef, useCallback, useMemo } from 'react';
 import {
   AlertTriangle, Clock, CheckCircle2, Loader2,
   RefreshCw, Calendar, MessageSquare, Zap,
-  DollarSign, ClipboardList, ChevronRight,
+  DollarSign, ClipboardList,
   ChevronUp, ChevronDown, TrendingUp, TrendingDown, Minus,
   Target, Clock3, Activity, CalendarDays, Building2,
   FileCheck, FileWarning, FileClock, XCircle, Send,
-  X, ExternalLink, Check
+  X, ExternalLink, Check, Bot, User, CheckCircle,
+  Paperclip, ImageIcon, X as XIcon
 } from 'lucide-react';
 import { useAuth } from '@/app/hooks/useAuth';
-// Terri accesses dashboard on desktop only — no responsive hook needed
-import Link from 'next/link';
+import {
+  formatContent,
+  type ChatMessage,
+  type TaskConfirmData,
+  type COProposalData,
+} from '@/app/hooks/useAskAgent';
+
 
 function getToken() { return typeof window !== 'undefined' ? localStorage.getItem('bkb-token') || '' : ''; }
+function getAuthToken() {
+  const pin = typeof window !== 'undefined' ? (process.env.NEXT_PUBLIC_APP_PIN || '') : '';
+  return btoa(pin + ':');
+}
 
 function getGreeting() {
   const h = new Date().getHours();
@@ -138,6 +148,492 @@ interface OverviewResponse {
   _cached: boolean;
   _cachedAt?: string;
   _analysisTimeMs?: number;
+}
+
+// ============================================================
+// Inline Ask Agent Chat
+// ============================================================
+
+function RenderContent({ content }: { content: string }) {
+  const elements = formatContent(content);
+  return (
+    <>
+      {(elements as any[]).map((el: any) => {
+        if (el.type === 'code') {
+          return (
+            <pre key={el.key} style={{ background: '#1a1a1a', border: '1px solid rgba(205,162,116,0.1)', borderRadius: 6, padding: '6px 8px', fontSize: 11, color: '#c8c0b8', overflowX: 'auto', whiteSpace: 'pre-wrap', margin: '4px 0', fontFamily: 'ui-monospace, SFMono-Regular, monospace' }}>{el.content}</pre>
+          );
+        }
+        if (el.type === 'h2') return <div key={el.key} style={{ fontWeight: 700, color: '#CDA274', fontSize: 13, marginTop: 6, marginBottom: 2 }} dangerouslySetInnerHTML={{ __html: el.html }} />;
+        if (el.type === 'h3') return <div key={el.key} style={{ fontWeight: 600, color: '#e8e0d8', fontSize: 12, marginTop: 4, marginBottom: 1 }} dangerouslySetInnerHTML={{ __html: el.html }} />;
+        if (el.type === 'bullet') return <div key={el.key} style={{ marginLeft: 10 }} dangerouslySetInnerHTML={{ __html: '&bull; ' + el.html }} />;
+        if (el.type === 'numbered') return <div key={el.key} style={{ marginLeft: 10 }} dangerouslySetInnerHTML={{ __html: el.html }} />;
+        if (el.type === 'hr') return <hr key={el.key} style={{ border: 'none', borderTop: '1px solid rgba(205,162,116,0.1)', margin: '6px 0' }} />;
+        if (el.type === 'spacer') return <div key={el.key} style={{ height: 4 }} />;
+        return <div key={el.key} dangerouslySetInnerHTML={{ __html: el.html }} />;
+      })}
+    </>
+  );
+}
+
+function InlineAskAgent({ pmJobs, screen }: { pmJobs: { id: string; name: string; number: string }[]; screen: 'mobile' | 'tablet' | 'desktop' }) {
+  const isMobile = screen === 'mobile';
+  const isTouch = screen !== 'desktop';
+  const [open, setOpen] = useState(false);
+  const [query, setQuery] = useState('');
+  const [messages, setMessages] = useState<ChatMessage[]>([]);
+  const [loading, setLoading] = useState(false);
+  const [lastAgent, setLastAgent] = useState<string | null>(null);
+  const [selectedJobId, setSelectedJobId] = useState('');
+  const [agentMode, setAgentMode] = useState<'general' | 'change-order' | 'specs'>('general');
+  const [phaseEdit, setPhaseEdit] = useState<string | null>(null);
+  const [attachedImages, setAttachedImages] = useState<Array<{ file: File; preview: string }>>([]);
+  const [uploadedUrls, setUploadedUrls] = useState<string[]>([]);
+  const [uploading, setUploading] = useState(false);
+  const messagesEndRef = useRef<HTMLDivElement>(null);
+  const inputRef = useRef<HTMLTextAreaElement>(null);
+  const fileInputRef = useRef<HTMLInputElement>(null);
+
+  useEffect(() => {
+    messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
+  }, [messages, loading]);
+
+  useEffect(() => {
+    if (open) setTimeout(() => inputRef.current?.focus(), 100);
+  }, [open]);
+
+  const selectedJob = useMemo(() => pmJobs.find(j => j.id === selectedJobId) || null, [pmJobs, selectedJobId]);
+
+  const handleImageAttach = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const files = Array.from(e.target.files || []);
+    const newImages = files.slice(0, 10 - attachedImages.length).map(file => ({
+      file,
+      preview: URL.createObjectURL(file),
+    }));
+    setAttachedImages(prev => [...prev, ...newImages]);
+    if (fileInputRef.current) fileInputRef.current.value = '';
+  };
+
+  const removeImage = (idx: number) => {
+    setAttachedImages(prev => {
+      URL.revokeObjectURL(prev[idx].preview);
+      return prev.filter((_, i) => i !== idx);
+    });
+  };
+
+  const sendMessage = useCallback(async (userMsg: string) => {
+    if (!userMsg.trim() || loading) return;
+
+    let allImageUrls = [...uploadedUrls];
+    if (attachedImages.length > 0) {
+      setUploading(true);
+      try {
+        const formData = new FormData();
+        for (const img of attachedImages) formData.append('files', img.file);
+        const res = await fetch('/api/upload', {
+          method: 'POST',
+          headers: { 'Authorization': `Bearer ${getAuthToken()}` },
+          body: formData,
+        });
+        if (res.ok) {
+          const data = await res.json();
+          const newUrls = (data.uploaded || []).map((u: any) => u.url);
+          allImageUrls = [...allImageUrls, ...newUrls];
+          setUploadedUrls(allImageUrls);
+        }
+      } catch (err) {
+        console.error('Image upload error:', err);
+      } finally {
+        attachedImages.forEach(img => URL.revokeObjectURL(img.preview));
+        setAttachedImages([]);
+        setUploading(false);
+      }
+    }
+
+    let messageForApi = userMsg;
+    const contextParts: string[] = [];
+    if (agentMode === 'change-order') {
+      contextParts.push('MODE: CHANGE ORDER SUBMISSION. The user is submitting a change order. Follow the CO submission flow — ask targeted questions, gather all details, then output a @@CO_PROPOSAL@@ for approval.');
+    } else if (agentMode === 'specs') {
+      contextParts.push('MODE: SPECS ONLY. The user is asking about approved specifications. ONLY answer based on approved documents and specs for this job. Do NOT offer to create change orders, tasks, or modifications — just provide spec information from approved documents.');
+    }
+    if (selectedJob) {
+      contextParts.push(`The user has selected job "${selectedJob.name}" (#${selectedJob.number}, ID: ${selectedJob.id}). Use this as the target job for their question.`);
+    }
+    if (allImageUrls.length > 0) {
+      contextParts.push(`The user has uploaded ${allImageUrls.length} photo(s) for this change order. Image URLs: ${JSON.stringify(allImageUrls)}. Include these as imageUrls in any @@CO_PROPOSAL@@ you create.`);
+    }
+    if (contextParts.length > 0) {
+      messageForApi = `[Context: ${contextParts.join(' ')}]\n\n${userMsg}`;
+    }
+
+    setMessages(prev => [...prev, { role: 'user', content: userMsg }]);
+    setLoading(true);
+
+    try {
+      const allMessages = [
+        ...messages.map(m => ({ role: m.role, content: m.content })),
+        { role: 'user', content: messageForApi },
+      ];
+
+      const response = await fetch('/api/chat', {
+        method: 'POST',
+        headers: { 'Authorization': `Bearer ${getAuthToken()}`, 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          messages: allMessages,
+          lastAgent: lastAgent || undefined,
+          ...(selectedJob ? { jtJobId: selectedJob.id } : {}),
+        }),
+      });
+
+      if (!response.ok) {
+        let errorMsg = `HTTP ${response.status}`;
+        try { const errData = await response.json(); errorMsg = errData.error || errorMsg; } catch {
+          try { const text = await response.text(); errorMsg = text.includes('FUNCTION_INVOCATION_TIMEOUT') ? 'Request timed out — try a more specific question.' : (text.substring(0, 200) || 'Request failed'); } catch { errorMsg = 'Request failed'; }
+        }
+        throw new Error(errorMsg);
+      }
+
+      const data = await response.json();
+      setLastAgent(data.agent || null);
+      setMessages(prev => [
+        ...prev,
+        {
+          role: 'assistant',
+          content: data.reply || 'No response generated.',
+          agent: data.agent,
+          needsConfirmation: data.needsConfirmation || false,
+          taskConfirm: data.taskConfirm || undefined,
+          coProposal: data.coProposal || undefined,
+        },
+      ]);
+    } catch (err) {
+      const errMsg = 'Sorry, I ran into an error: ' + (err instanceof Error ? err.message : 'Unknown error');
+      setMessages(prev => [...prev, { role: 'assistant', content: errMsg }]);
+    } finally {
+      setLoading(false);
+    }
+  }, [loading, messages, lastAgent, selectedJob]);
+
+  const handleSubmit = (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!query.trim() || loading) return;
+    const msg = query.trim();
+    setQuery('');
+    sendMessage(msg);
+  };
+
+  const handleConfirm = async (edits?: Partial<TaskConfirmData>) => {
+    const lastMsg = messages[messages.length - 1];
+    const taskData = lastMsg?.taskConfirm;
+    setMessages(prev => prev.map((m, i) => i === prev.length - 1 ? { ...m, needsConfirmation: false } : m));
+    let confirmMsg = 'Yes, proceed.';
+    if (edits) {
+      const changes: string[] = [];
+      if (edits.phase) changes.push(`put the task under the "${edits.phase}" phase instead`);
+      if (changes.length > 0) confirmMsg = 'Yes, proceed but ' + changes.join(', and ') + '.';
+    }
+    if (taskData) {
+      const mergedData = edits ? { ...taskData, ...edits } : taskData;
+      if (edits?.phase && edits.phase !== taskData.phase) { delete (mergedData as any).phaseId; (mergedData as any).phaseChanged = true; }
+      confirmMsg += '\n\n[APPROVED TASK DATA — execute this now using create_phase_task tool]\n' + JSON.stringify(mergedData);
+    }
+    await sendMessage(confirmMsg);
+  };
+
+  const handleDecline = () => {
+    setMessages(prev => [
+      ...prev.map((m, i) => i === prev.length - 1 ? { ...m, needsConfirmation: false } : m),
+      { role: 'user', content: 'No, cancel that.' },
+      { role: 'assistant', content: 'No problem — action cancelled.' },
+    ]);
+  };
+
+  const lastMsgNeedsConfirm = messages.length > 0 && messages[messages.length - 1].role === 'assistant' && messages[messages.length - 1].needsConfirmation && !loading;
+
+  const handleModeChange = (mode: 'general' | 'change-order' | 'specs') => {
+    setAgentMode(mode);
+    setMessages([]);
+    setLastAgent(null);
+    setUploadedUrls([]);
+    attachedImages.forEach(img => URL.revokeObjectURL(img.preview));
+    setAttachedImages([]);
+    setQuery('');
+  };
+
+  return (
+    <div style={{ marginBottom: 6, borderRadius: 8, border: '1px solid rgba(205,162,116,0.12)', overflow: 'hidden', background: '#1a1a1a' }}>
+      {/* Toggle Bar */}
+      <button
+        onClick={() => setOpen(!open)}
+        style={{
+          width: '100%', display: 'flex', alignItems: 'center', gap: isTouch ? 8 : 6,
+          padding: isTouch ? '10px 12px' : '7px 10px', background: open ? 'rgba(205,162,116,0.08)' : 'transparent',
+          border: 'none', cursor: 'pointer', textAlign: 'left',
+        }}
+      >
+        <div style={{ width: isTouch ? 28 : 22, height: isTouch ? 28 : 22, borderRadius: 14, background: 'rgba(205,162,116,0.12)', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
+          <Bot size={isTouch ? 15 : 12} style={{ color: '#CDA274' }} />
+        </div>
+        <span style={{ flex: 1, fontSize: isTouch ? 14 : 12, fontWeight: 600, color: '#CDA274' }}>Ask Agent</span>
+        {!isMobile && <span style={{ fontSize: isTouch ? 11 : 9, color: '#5a5550' }}>Tasks · Specs · Change Orders</span>}
+        {open ? <ChevronUp size={isTouch ? 16 : 12} style={{ color: '#5a5550' }} /> : <ChevronDown size={isTouch ? 16 : 12} style={{ color: '#5a5550' }} />}
+      </button>
+
+      {/* Chat Body */}
+      {open && (
+        <div style={{ borderTop: '1px solid rgba(205,162,116,0.08)' }}>
+          {/* Mode Selector + Job Selector */}
+          <div style={{ padding: isTouch ? '8px 12px' : '6px 10px', borderBottom: '1px solid rgba(205,162,116,0.06)', display: 'flex', flexWrap: isMobile ? 'wrap' : 'nowrap', alignItems: 'center', gap: isTouch ? 8 : 6 }}>
+            <div style={{ display: 'flex', borderRadius: 8, overflow: 'hidden', border: '1px solid rgba(205,162,116,0.15)', flexShrink: 0, ...(isMobile ? { width: '100%' } : {}) }}>
+              {([
+                { key: 'general', label: 'Agent' },
+                { key: 'change-order', label: 'Change Order' },
+                { key: 'specs', label: 'Specs' },
+              ] as const).map((mode, idx) => (
+                <button
+                  key={mode.key}
+                  onClick={() => handleModeChange(mode.key)}
+                  style={{
+                    padding: isTouch ? '8px 14px' : '4px 10px',
+                    fontSize: isTouch ? 13 : 10,
+                    fontWeight: 600, border: 'none', cursor: 'pointer',
+                    ...(isMobile ? { flex: 1 } : {}),
+                    ...(idx > 0 ? { borderLeft: '1px solid rgba(205,162,116,0.15)' } : {}),
+                    background: agentMode === mode.key ? 'rgba(205,162,116,0.2)' : 'transparent',
+                    color: agentMode === mode.key ? '#CDA274' : '#5a5550',
+                    transition: 'background 0.15s, color 0.15s',
+                  }}
+                >
+                  {mode.label}
+                </button>
+              ))}
+            </div>
+            <select
+              value={selectedJobId}
+              onChange={e => setSelectedJobId(e.target.value)}
+              style={{
+                flex: 1, background: '#242424', border: '1px solid rgba(205,162,116,0.1)',
+                borderRadius: isTouch ? 8 : 4, color: selectedJobId ? '#CDA274' : '#5a5550',
+                fontSize: isTouch ? 13 : 10, padding: isTouch ? '8px 10px' : '3px 6px', outline: 'none', cursor: 'pointer',
+                ...(isMobile ? { width: '100%' } : {}),
+              }}
+            >
+              <option value="">All jobs (no filter)</option>
+              {pmJobs.map(j => (
+                <option key={j.id} value={j.id}>#{j.number} {j.name}</option>
+              ))}
+            </select>
+            {messages.length > 0 && (
+              <button onClick={() => { setMessages([]); setLastAgent(null); setUploadedUrls([]); }} style={{ fontSize: isTouch ? 12 : 9, color: '#5a5550', background: 'none', border: 'none', cursor: 'pointer', textDecoration: 'underline', padding: isTouch ? '6px 4px' : 0 }}>Clear</button>
+            )}
+          </div>
+
+          {/* Messages */}
+          <div style={{ maxHeight: isMobile ? 400 : isTouch ? 360 : 300, overflowY: 'auto', padding: isTouch ? '8px 12px' : '6px 10px' }}>
+            {messages.length === 0 && !loading && (
+              <div style={{ padding: isTouch ? '12px 0' : '8px 0', textAlign: 'center' }}>
+                <p style={{ fontSize: isTouch ? 13 : 10, color: '#5a5550', marginBottom: 4 }}>
+                  {agentMode === 'general' && 'Ask about tasks, schedules, or anything on this job'}
+                  {agentMode === 'change-order' && 'Describe the change — I\'ll ask questions and build the CO'}
+                  {agentMode === 'specs' && 'Ask about approved specs for this job'}
+                </p>
+                {agentMode === 'change-order' && (
+                  <p style={{ fontSize: isTouch ? 11 : 9, color: '#8a8078', marginTop: 4 }}>
+                    Use the <Paperclip size={isTouch ? 12 : 9} style={{ display: 'inline', verticalAlign: 'middle', color: '#CDA274' }} /> button to attach photos
+                  </p>
+                )}
+              </div>
+            )}
+
+            {messages.map((msg, i) => (
+              <div key={i} style={{ marginBottom: isTouch ? 10 : 6 }}>
+                <div style={{ display: 'flex', gap: isTouch ? 8 : 6, justifyContent: msg.role === 'user' ? 'flex-end' : 'flex-start' }}>
+                  {msg.role === 'assistant' && (
+                    <div style={{ width: isTouch ? 24 : 18, height: isTouch ? 24 : 18, borderRadius: 12, background: 'rgba(205,162,116,0.12)', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0, marginTop: 2 }}>
+                      <Bot size={isTouch ? 13 : 10} style={{ color: '#CDA274' }} />
+                    </div>
+                  )}
+                  <div style={{
+                    maxWidth: isMobile ? '90%' : '85%', padding: isTouch ? '8px 12px' : '5px 8px', borderRadius: isTouch ? 10 : 6, fontSize: isTouch ? 14 : 11, lineHeight: isTouch ? '20px' : '16px',
+                    ...(msg.role === 'user'
+                      ? { background: '#1B3A5C', color: '#e8e0d8' }
+                      : { background: '#242424', color: '#e8e0d8', border: '1px solid rgba(205,162,116,0.06)' }),
+                  }}>
+                    {msg.role === 'assistant' ? <RenderContent content={msg.content} /> : msg.content}
+                  </div>
+                  {msg.role === 'user' && (
+                    <div style={{ width: isTouch ? 24 : 18, height: isTouch ? 24 : 18, borderRadius: 12, background: 'rgba(27,58,92,0.3)', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0, marginTop: 2 }}>
+                      <User size={isTouch ? 13 : 10} style={{ color: '#e8e0d8' }} />
+                    </div>
+                  )}
+                </div>
+
+                {/* Task Confirmation buttons */}
+                {msg.needsConfirmation && msg.taskConfirm && i === messages.length - 1 && !loading && (
+                  <div style={{ marginLeft: isTouch ? 32 : 24, marginTop: isTouch ? 8 : 4, display: 'flex', gap: isTouch ? 10 : 6 }}>
+                    <button onClick={() => { handleConfirm(phaseEdit ? { phase: phaseEdit } : undefined); setPhaseEdit(null); }}
+                      style={{ display: 'flex', alignItems: 'center', gap: 6, padding: isTouch ? '10px 18px' : '4px 10px', borderRadius: isTouch ? 8 : 5, fontSize: isTouch ? 14 : 11, fontWeight: 600, background: 'rgba(34,197,94,0.15)', color: '#22c55e', border: 'none', cursor: 'pointer' }}>
+                      <CheckCircle size={isTouch ? 16 : 12} /> Approve
+                    </button>
+                    <button onClick={() => { handleDecline(); setPhaseEdit(null); }}
+                      style={{ display: 'flex', alignItems: 'center', gap: 6, padding: isTouch ? '10px 18px' : '4px 10px', borderRadius: isTouch ? 8 : 5, fontSize: isTouch ? 14 : 11, fontWeight: 600, background: 'rgba(239,68,68,0.1)', color: '#ef4444', border: 'none', cursor: 'pointer' }}>
+                      <XCircle size={isTouch ? 16 : 12} /> Cancel
+                    </button>
+                  </div>
+                )}
+
+                {/* CO Proposal approval UI */}
+                {msg.coProposal && i === messages.length - 1 && msg.needsConfirmation && !loading && (() => {
+                  const co = msg.coProposal!;
+                  const totalPrice = co.lineItems.reduce((s: number, li: any) => s + (li.unitPrice * li.quantity), 0);
+                  const totalCost = co.lineItems.reduce((s: number, li: any) => s + (li.unitCost * li.quantity), 0);
+                  return (
+                    <div style={{ marginLeft: 24, marginTop: 6 }}>
+                      <div style={{ background: '#1e293b', borderRadius: 8, padding: 10, marginBottom: 6, border: '1px solid rgba(59,130,246,0.2)' }}>
+                        <div style={{ fontSize: 12, fontWeight: 600, color: '#93c5fd', marginBottom: 6 }}>
+                          CO: {co.coName}
+                        </div>
+                        <table style={{ width: '100%', fontSize: 10, borderCollapse: 'collapse' }}>
+                          <thead>
+                            <tr style={{ color: '#64748b', borderBottom: '1px solid rgba(100,116,139,0.2)' }}>
+                              <th style={{ textAlign: 'left', padding: '2px 4px' }}>Item</th>
+                              <th style={{ textAlign: 'right', padding: '2px 4px' }}>Qty</th>
+                              <th style={{ textAlign: 'right', padding: '2px 4px' }}>Cost</th>
+                              <th style={{ textAlign: 'right', padding: '2px 4px' }}>Price</th>
+                            </tr>
+                          </thead>
+                          <tbody>
+                            {co.lineItems.map((li: any, liIdx: number) => (
+                              <tr key={liIdx} style={{ color: '#e2e8f0', borderBottom: '1px solid rgba(100,116,139,0.1)' }}>
+                                <td style={{ padding: '3px 4px' }}>{li.name}</td>
+                                <td style={{ textAlign: 'right', padding: '3px 4px', color: '#94a3b8' }}>{li.quantity}</td>
+                                <td style={{ textAlign: 'right', padding: '3px 4px', color: '#94a3b8' }}>${(li.unitCost * li.quantity).toFixed(0)}</td>
+                                <td style={{ textAlign: 'right', padding: '3px 4px', fontWeight: 500 }}>${(li.unitPrice * li.quantity).toFixed(0)}</td>
+                              </tr>
+                            ))}
+                          </tbody>
+                          <tfoot>
+                            <tr style={{ color: '#f1f5f9', fontWeight: 600, borderTop: '1px solid rgba(100,116,139,0.3)' }}>
+                              <td style={{ padding: '4px' }}>Total</td>
+                              <td></td>
+                              <td style={{ textAlign: 'right', padding: '4px', color: '#94a3b8' }}>${totalCost.toFixed(0)}</td>
+                              <td style={{ textAlign: 'right', padding: '4px' }}>${totalPrice.toFixed(0)}</td>
+                            </tr>
+                          </tfoot>
+                        </table>
+                        {co.createDocument && <div style={{ fontSize: 9, color: '#60a5fa', marginTop: 4 }}>+ Draft CO document will be created</div>}
+                        {co.followUp?.needed && <div style={{ fontSize: 9, color: '#f59e0b', marginTop: 2 }}>+ Follow-up task → {co.followUp.assignTo || 'Nathan'} by {co.followUp.dueDate || 'TBD'}</div>}
+                        {co.imageUrls && co.imageUrls.length > 0 && <div style={{ fontSize: 9, color: '#22c55e', marginTop: 2 }}>+ {co.imageUrls.length} photo(s) will be attached</div>}
+                      </div>
+                      <div style={{ display: 'flex', gap: isTouch ? 10 : 6 }}>
+                        <button onClick={() => {
+                          setMessages(prev => prev.map((m, mi) => mi === prev.length - 1 ? { ...m, needsConfirmation: false } : m));
+                          sendMessage('Yes, approve this change order. Create it now.\n\n[APPROVED CO DATA — execute create_change_order tool now]\n' + JSON.stringify(co));
+                          setUploadedUrls([]);
+                        }}
+                          style={{ display: 'flex', alignItems: 'center', gap: 6, padding: isTouch ? '10px 18px' : '5px 12px', borderRadius: isTouch ? 8 : 5, fontSize: isTouch ? 14 : 11, fontWeight: 600, background: 'rgba(34,197,94,0.15)', color: '#22c55e', border: 'none', cursor: 'pointer' }}>
+                          <CheckCircle size={isTouch ? 16 : 12} /> Approve CO
+                        </button>
+                        <button onClick={handleDecline}
+                          style={{ display: 'flex', alignItems: 'center', gap: 6, padding: isTouch ? '10px 18px' : '5px 12px', borderRadius: isTouch ? 8 : 5, fontSize: isTouch ? 14 : 11, fontWeight: 600, background: 'rgba(239,68,68,0.1)', color: '#ef4444', border: 'none', cursor: 'pointer' }}>
+                          <XCircle size={isTouch ? 16 : 12} /> Cancel
+                        </button>
+                      </div>
+                    </div>
+                  );
+                })()}
+              </div>
+            ))}
+
+            {loading && (
+              <div style={{ display: 'flex', gap: isTouch ? 8 : 6, alignItems: 'center', padding: isTouch ? '8px 0' : '4px 0' }}>
+                <div style={{ width: isTouch ? 24 : 18, height: isTouch ? 24 : 18, borderRadius: 12, background: 'rgba(205,162,116,0.12)', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
+                  <Bot size={isTouch ? 13 : 10} style={{ color: '#CDA274' }} />
+                </div>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 5, padding: isTouch ? '8px 12px' : '4px 8px', borderRadius: isTouch ? 10 : 6, background: '#242424', border: '1px solid rgba(205,162,116,0.06)' }}>
+                  <Loader2 size={isTouch ? 16 : 12} className="animate-spin" style={{ color: '#CDA274' }} />
+                  <span style={{ fontSize: isTouch ? 13 : 10, color: '#5a5550' }}>Searching your data...</span>
+                </div>
+              </div>
+            )}
+            <div ref={messagesEndRef} />
+          </div>
+
+          {/* Image Preview Strip */}
+          {attachedImages.length > 0 && (
+            <div style={{ display: 'flex', gap: isTouch ? 10 : 6, padding: isTouch ? '8px 12px' : '6px 10px', borderTop: '1px solid rgba(205,162,116,0.06)', overflowX: 'auto' }}>
+              {attachedImages.map((img, idx) => (
+                <div key={idx} style={{ position: 'relative', flexShrink: 0 }}>
+                  <img src={img.preview} alt={img.file.name}
+                    style={{ width: isTouch ? 64 : 48, height: isTouch ? 64 : 48, borderRadius: isTouch ? 8 : 6, objectFit: 'cover', border: '1px solid rgba(205,162,116,0.15)' }} />
+                  <button onClick={() => removeImage(idx)}
+                    style={{
+                      position: 'absolute', top: -4, right: -4, width: isTouch ? 22 : 16, height: isTouch ? 22 : 16, borderRadius: 11,
+                      background: '#ef4444', border: 'none', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center',
+                    }}>
+                    <XIcon size={isTouch ? 12 : 8} color="#fff" />
+                  </button>
+                </div>
+              ))}
+              {uploading && <div style={{ display: 'flex', alignItems: 'center', gap: 4, fontSize: isTouch ? 13 : 10, color: '#CDA274' }}><Loader2 size={isTouch ? 16 : 12} className="animate-spin" /> Uploading...</div>}
+            </div>
+          )}
+
+          {/* Uploaded URLs indicator */}
+          {uploadedUrls.length > 0 && attachedImages.length === 0 && (
+            <div style={{ padding: isTouch ? '6px 12px' : '4px 10px', borderTop: '1px solid rgba(205,162,116,0.06)', display: 'flex', alignItems: 'center', gap: 6 }}>
+              <ImageIcon size={isTouch ? 14 : 10} color="#22c55e" />
+              <span style={{ fontSize: isTouch ? 12 : 9, color: '#22c55e' }}>{uploadedUrls.length} photo(s) ready to attach to change order</span>
+              <button onClick={() => setUploadedUrls([])} style={{ fontSize: isTouch ? 12 : 9, color: '#5a5550', background: 'none', border: 'none', cursor: 'pointer', textDecoration: 'underline', marginLeft: 'auto', padding: isTouch ? '4px' : 0 }}>Clear</button>
+            </div>
+          )}
+
+          {/* Input */}
+          <form onSubmit={handleSubmit} style={{ display: 'flex', alignItems: 'center', gap: isTouch ? 8 : 4, padding: isTouch ? '8px 12px' : '6px 10px', borderTop: '1px solid rgba(205,162,116,0.06)' }}>
+            <input ref={fileInputRef} type="file" accept="image/*" multiple onChange={handleImageAttach} style={{ display: 'none' }} />
+            {agentMode === 'change-order' && (
+              <button type="button" onClick={() => fileInputRef.current?.click()} title="Attach photos"
+                style={{
+                  width: isTouch ? 40 : 28, height: isTouch ? 40 : 28, borderRadius: isTouch ? 10 : 6, border: 'none', cursor: 'pointer', flexShrink: 0,
+                  background: attachedImages.length > 0 ? 'rgba(205,162,116,0.15)' : 'transparent',
+                  display: 'flex', alignItems: 'center', justifyContent: 'center',
+                }}>
+                <Paperclip size={isTouch ? 18 : 13} style={{ color: attachedImages.length > 0 ? '#CDA274' : '#5a5550' }} />
+              </button>
+            )}
+            <textarea
+              ref={inputRef}
+              value={query}
+              onChange={e => { setQuery(e.target.value); e.target.style.height = 'auto'; e.target.style.height = Math.min(e.target.scrollHeight, isTouch ? 120 : 80) + 'px'; }}
+              onKeyDown={e => { if (e.key === 'Enter' && !e.shiftKey && !isTouch) { e.preventDefault(); if (query.trim() && !loading) handleSubmit(e as any); } }}
+              placeholder={agentMode === 'general'
+                ? (selectedJob ? `Ask about #${selectedJob.number} ${selectedJob.name}...` : 'Ask about tasks, schedules, or jobs...')
+                : agentMode === 'change-order'
+                ? (selectedJob ? `Describe the change for #${selectedJob.number}...` : 'Select a job, then describe the change...')
+                : (selectedJob ? `Ask about specs for #${selectedJob.number}...` : 'Select a job to look up specs...')}
+              rows={1}
+              disabled={loading || uploading}
+              style={{
+                flex: 1, background: '#242424', border: '1px solid rgba(205,162,116,0.1)',
+                borderRadius: isTouch ? 10 : 6, color: '#e8e0d8', fontSize: isTouch ? 16 : 11, padding: isTouch ? '10px 12px' : '6px 8px',
+                outline: 'none', resize: 'none', minHeight: isTouch ? 42 : 30, maxHeight: isTouch ? 120 : 80, overflowY: 'auto',
+                fontFamily: 'inherit',
+              }}
+            />
+            <button type="submit" disabled={!query.trim() || loading || uploading}
+              style={{
+                width: isTouch ? 40 : 28, height: isTouch ? 40 : 28, borderRadius: isTouch ? 10 : 6, border: 'none', cursor: query.trim() && !loading ? 'pointer' : 'default',
+                background: query.trim() && !loading ? 'rgba(205,162,116,0.15)' : 'transparent',
+                display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0,
+              }}>
+              <Send size={isTouch ? 18 : 13} style={{ color: query.trim() && !loading ? '#CDA274' : '#3a3a3a' }} />
+            </button>
+          </form>
+        </div>
+      )}
+    </div>
+  );
 }
 
 // ============================================================
@@ -416,6 +912,9 @@ export default function DashboardOverview() {
           <RefreshCw size={12} className={refreshing ? 'animate-spin' : ''} style={{ color: '#CDA274' }} />
         </button>
       </div>
+
+      {/* ASK AGENT */}
+      <InlineAskAgent pmJobs={overview?.data?.activeJobs || []} screen={'desktop'} />
 
       {/* KPI GRID */}
       <div style={{ display: 'grid', gridTemplateColumns: isMobile ? 'repeat(3, 1fr)' : 'repeat(5, 1fr)', gap: isTouch ? 6 : 4, marginBottom: isTouch ? 10 : 6 }}>
@@ -1071,33 +1570,6 @@ export default function DashboardOverview() {
         </div>
       )}
 
-      {/* QUICK NAVIGATION */}
-      <div style={{ display: 'grid', gridTemplateColumns: isMobile ? 'repeat(2, 1fr)' : 'repeat(4, 1fr)', gap: 4 }}>
-        {auth.permissions?.canViewBills && (
-          <Link href="/dashboard/invoicing" style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '8px 10px', borderRadius: 8, background: '#1e1e1e', border: '1px solid rgba(205,162,116,0.06)', textDecoration: 'none' }}>
-            <DollarSign size={12} style={{ color: '#CDA274' }} />
-            <span style={{ fontSize: 11, color: '#e8e0d8' }}>Invoicing</span>
-            <ChevronRight size={10} style={{ color: '#5a5550', marginLeft: 'auto' }} />
-          </Link>
-        )}
-        <Link href="/dashboard/precon" style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '8px 10px', borderRadius: 8, background: '#1e1e1e', border: '1px solid rgba(205,162,116,0.06)', textDecoration: 'none' }}>
-          <ClipboardList size={12} style={{ color: '#CDA274' }} />
-          <span style={{ fontSize: 11, color: '#e8e0d8' }}>Pre-Con</span>
-          <ChevronRight size={10} style={{ color: '#5a5550', marginLeft: 'auto' }} />
-        </Link>
-        <Link href="/dashboard/ask" style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '8px 10px', borderRadius: 8, background: '#1e1e1e', border: '1px solid rgba(205,162,116,0.06)', textDecoration: 'none' }}>
-          <MessageSquare size={12} style={{ color: '#CDA274' }} />
-          <span style={{ fontSize: 11, color: '#e8e0d8' }}>Ask Agent</span>
-          <ChevronRight size={10} style={{ color: '#5a5550', marginLeft: 'auto' }} />
-        </Link>
-        {auth.permissions?.canViewGrid && (
-          <Link href="/dashboard/spec-writer" style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '8px 10px', borderRadius: 8, background: '#1e1e1e', border: '1px solid rgba(205,162,116,0.06)', textDecoration: 'none' }}>
-            <ChevronRight size={12} style={{ color: '#CDA274' }} />
-            <span style={{ fontSize: 11, color: '#e8e0d8' }}>Spec Writer</span>
-            <ChevronRight size={10} style={{ color: '#5a5550', marginLeft: 'auto' }} />
-          </Link>
-        )}
-      </div>
     </div>
   );
 }
