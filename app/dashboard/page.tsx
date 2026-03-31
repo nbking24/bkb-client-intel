@@ -1907,87 +1907,94 @@ export default function DashboardOverview() {
         );
       })()}
 
-          {/* QUICK ADD – Tabbed Side Panel */}
-          {showWaitingOnPanel && (() => {
-            const woTasks = overview?.data?.waitingOnTasks || [];
-            const agingColor = (d: string) => { const days = Math.floor((Date.now() - new Date(d).getTime()) / 86400000); return days > 14 ? '#ef4444' : days > 7 ? '#f59e0b' : '#22c55e'; };
-            const agingBg = (d: string) => { const days = Math.floor((Date.now() - new Date(d).getTime()) / 86400000); return days > 14 ? 'rgba(239,68,68,0.1)' : days > 7 ? 'rgba(245,158,11,0.1)' : 'rgba(34,197,94,0.1)'; };
-            const sorted = [...woTasks].sort((a: any, b: any) => new Date(a.createdAt || 0).getTime() - new Date(b.createdAt || 0).getTime());
-            return (
-              <div style={{ position: 'fixed', top: 0, left: 0, right: 0, bottom: 0, zIndex: 9999, display: 'flex', justifyContent: 'flex-end' }}>
-                <div onClick={() => setShowWaitingOnPanel(false)} style={{ position: 'absolute', inset: 0, background: 'rgba(0,0,0,0.5)' }} />
-                <div style={{ position: 'relative', width: '400px', maxWidth: '90vw', height: '100%', background: '#1a1a1a', borderLeft: '1px solid #333', display: 'flex', flexDirection: 'column', zIndex: 1 }}>
-                  {/* Header */}
-                  <div style={{ padding: '16px', borderBottom: '1px solid #333', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-                    <span style={{ color: '#fff', fontSize: '16px', fontWeight: 700 }}>Quick Add</span>
-                    <button onClick={() => setShowWaitingOnPanel(false)} style={{ background: 'none', border: 'none', color: '#999', fontSize: '20px', cursor: 'pointer', padding: '0 4px' }}>&times;</button>
+      {/* WAITING ON — Side Panel */}
+      {showWaitingOnPanel && (() => {
+        const woTasks = tasks.filter(t => t.name.startsWith('⏳'));
+        function agingColor(d: number | null): string { if (d === null) return '#6a6058'; if (d < -7) return '#ef4444'; if (d < -3) return '#f97316'; if (d < 0) return '#eab308'; return '#6a6058'; }
+        function agingBg(d: number | null): string { if (d === null) return 'transparent'; if (d < -7) return 'rgba(239,68,68,0.08)'; if (d < -3) return 'rgba(249,115,22,0.08)'; if (d < 0) return 'rgba(234,179,8,0.06)'; return 'transparent'; }
+        const sorted = [...woTasks].sort((a, b) => (a.daysUntilDue ?? 999) - (b.daysUntilDue ?? 999));
+        return (
+          <div style={{ position: 'fixed', top: 0, left: 0, right: 0, bottom: 0, zIndex: 1000, display: 'flex', justifyContent: 'flex-end' }} onClick={() => setShowWaitingOnPanel(false)}>
+            <div style={{ position: 'absolute', top: 0, left: 0, right: 0, bottom: 0, background: 'rgba(0,0,0,0.4)' }} />
+            <div onClick={e => e.stopPropagation()} style={{
+              position: 'relative', width: 380, maxWidth: '90vw', height: '100vh', background: '#1a1a1a',
+              borderLeft: '1px solid rgba(205,162,116,0.15)', display: 'flex', flexDirection: 'column',
+              boxShadow: '-8px 0 30px rgba(0,0,0,0.5)', overflow: 'hidden',
+            }}>
+              {/* Header */}
+              <div style={{ padding: '14px 16px 10px', borderBottom: '1px solid rgba(205,162,116,0.08)', display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexShrink: 0 }}>
+                <span style={{ fontSize: 14, fontWeight: 700, color: '#e0e0d8' }}>Quick Add</span>
+                <button onClick={() => setShowWaitingOnPanel(false)} style={{ background: 'none', border: 'none', cursor: 'pointer', padding: 2, lineHeight: 0 }}>
+                  <X size={16} style={{ color: '#6a6058' }} />
+                </button>
+              </div>
+              <div style={{ display: 'flex', borderBottom: '1px solid rgba(205,162,116,0.08)', flexShrink: 0 }}>
+                <button onClick={() => setPanelTab('newTask')} style={{ flex: 1, padding: '10px', background: 'none', border: 'none', borderBottom: panelTab === 'newTask' ? '2px solid #CDA274' : '2px solid transparent', color: panelTab === 'newTask' ? '#CDA274' : '#6a6058', fontSize: 13, fontWeight: 600, cursor: 'pointer' }}>New Task</button>
+                <button onClick={() => setPanelTab('waitingOn')} style={{ flex: 1, padding: '10px', background: 'none', border: 'none', borderBottom: panelTab === 'waitingOn' ? '2px solid #CDA274' : '2px solid transparent', color: panelTab === 'waitingOn' ? '#CDA274' : '#6a6058', fontSize: 13, fontWeight: 600, cursor: 'pointer' }}>Waiting On ({woTasks.length})</button>
+              </div>
+              {/* Scrollable content */}
+              <div style={{ flex: 1, overflowY: 'auto', padding: '8px 12px' }}>
+                {panelTab === 'newTask' && (
+                  <div>
+                    <div style={{ marginBottom: 12 }}>
+                      <label style={{ color: '#999', fontSize: 11, fontWeight: 600, display: 'block', marginBottom: 4 }}>TASK NAME *</label>
+                      <input value={stNewTaskName} onChange={e => setStNewTaskName(e.target.value)} placeholder='Enter task name...' style={{ width: '100%', padding: '8px 10px', background: '#111', border: '1px solid #333', borderRadius: 6, color: '#fff', fontSize: 13, outline: 'none', boxSizing: 'border-box' }} />
+                    </div>
+                    <div style={{ marginBottom: 12 }}>
+                      <label style={{ color: '#999', fontSize: 11, fontWeight: 600, display: 'block', marginBottom: 4 }}>JOB *</label>
+                      <select value={stNewTaskJob} onChange={e => setStNewTaskJob(e.target.value)} style={{ width: '100%', padding: '8px 10px', background: '#111', border: '1px solid #333', borderRadius: 6, color: '#fff', fontSize: 13, outline: 'none', boxSizing: 'border-box' }}>
+                        <option value=''>Select job...</option>
+                        {(overview?.data?.activeJobs || []).map((j: any) => (
+                          <option key={j.id} value={j.id}>#{j.number} {j.name}</option>
+                        ))}
+                      </select>
+                    </div>
+                    <div style={{ marginBottom: 12 }}>
+                      <label style={{ color: '#999', fontSize: 11, fontWeight: 600, display: 'block', marginBottom: 4 }}>CATEGORY / PHASE *</label>
+                      <select value={stNewTaskPhase} onChange={e => setStNewTaskPhase(e.target.value)} style={{ width: '100%', padding: '8px 10px', background: '#111', border: '1px solid #333', borderRadius: 6, color: '#fff', fontSize: 13, outline: 'none', boxSizing: 'border-box' }}>
+                        <option value=''>Select phase...</option>
+                        {BKB_PHASES.map((p: string) => (
+                          <option key={p} value={p}>{p}</option>
+                        ))}
+                      </select>
+                    </div>
+                    <div style={{ marginBottom: 12 }}>
+                      <label style={{ color: '#999', fontSize: 11, fontWeight: 600, display: 'block', marginBottom: 4 }}>ASSIGN TO</label>
+                      <select value={stNewTaskAssignee} onChange={e => setStNewTaskAssignee(e.target.value)} style={{ width: '100%', padding: '8px 10px', background: '#111', border: '1px solid #333', borderRadius: 6, color: '#fff', fontSize: 13, outline: 'none', boxSizing: 'border-box' }}>
+                        <option value=''>Unassigned</option>
+                        {Object.entries(TEAM_ASSIGNEES).map(([name, id]) => (
+                          <option key={String(id)} value={String(id)}>{name.charAt(0).toUpperCase() + name.slice(1)}</option>
+                        ))}
+                      </select>
+                    </div>
+                    <div style={{ marginBottom: 16 }}>
+                      <label style={{ color: '#999', fontSize: 11, fontWeight: 600, display: 'block', marginBottom: 4 }}>DUE DATE</label>
+                      <input type='date' value={stNewTaskDate} onChange={e => setStNewTaskDate(e.target.value)} style={{ width: '100%', padding: '8px 10px', background: '#111', border: '1px solid #333', borderRadius: 6, color: '#fff', fontSize: 13, outline: 'none', boxSizing: 'border-box' }} />
+                    </div>
+                    <button
+                      onClick={() => createStandaloneTask()}
+                      disabled={creatingSt || !stNewTaskName.trim() || !stNewTaskJob || !stNewTaskPhase}
+                      style={{
+                        width: '100%',
+                        padding: 10,
+                        background: (!stNewTaskName.trim() || !stNewTaskJob || !stNewTaskPhase) ? '#333' : '#CDA274',
+                        color: (!stNewTaskName.trim() || !stNewTaskJob || !stNewTaskPhase) ? '#666' : '#000',
+                        border: 'none',
+                        borderRadius: 8,
+                        fontSize: 13,
+                        fontWeight: 700,
+                        cursor: (!stNewTaskName.trim() || !stNewTaskJob || !stNewTaskPhase) ? 'not-allowed' : 'pointer',
+                      }}
+                    >{creatingSt ? 'Creating...' : 'Create Task'}</button>
                   </div>
-                  {/* Tab bar */}
-                  <div style={{ display: 'flex', borderBottom: '1px solid #333' }}>
-                    <button onClick={() => setPanelTab('newTask')} style={{ flex: 1, padding: '10px', background: 'none', border: 'none', borderBottom: panelTab === 'newTask' ? '2px solid #CDA274' : '2px solid transparent', color: panelTab === 'newTask' ? '#CDA274' : '#999', fontSize: '13px', fontWeight: 600, cursor: 'pointer' }}>New Task</button>
-                    <button onClick={() => setPanelTab('waitingOn')} style={{ flex: 1, padding: '10px', background: 'none', border: 'none', borderBottom: panelTab === 'waitingOn' ? '2px solid #CDA274' : '2px solid transparent', color: panelTab === 'waitingOn' ? '#CDA274' : '#999', fontSize: '13px', fontWeight: 600, cursor: 'pointer' }}>Waiting On ({woTasks.length})</button>
-                  </div>
-                  {/* Tab content */}
-                  <div style={{ flex: 1, overflowY: 'auto', padding: '12px 16px' }}>
-                    {panelTab === 'newTask' && (
-                      <div>
-                        <div style={{ marginBottom: '12px' }}>
-                          <label style={{ color: '#999', fontSize: '11px', fontWeight: 600, display: 'block', marginBottom: '4px' }}>TASK NAME *</label>
-                          <input value={stNewTaskName} onChange={e => setStNewTaskName(e.target.value)} placeholder='Enter task name...' style={{ width: '100%', padding: '8px 10px', background: '#111', border: '1px solid #333', borderRadius: '6px', color: '#fff', fontSize: '13px', outline: 'none', boxSizing: 'border-box' }} />
-                        </div>
-                        <div style={{ marginBottom: '12px' }}>
-                          <label style={{ color: '#999', fontSize: '11px', fontWeight: 600, display: 'block', marginBottom: '4px' }}>JOB *</label>
-                          <select value={stNewTaskJob} onChange={e => setStNewTaskJob(e.target.value)} style={{ width: '100%', padding: '8px 10px', background: '#111', border: '1px solid #333', borderRadius: '6px', color: '#fff', fontSize: '13px', outline: 'none', boxSizing: 'border-box' }}>
-                            <option value=''>Select job...</option>
-                            {(overview?.data?.activeJobs || []).map((j: any) => (
-                              <option key={j.id} value={j.id}>#{j.number} {j.name}</option>
-                            ))}
-                          </select>
-                        </div>
-                        <div style={{ marginBottom: '12px' }}>
-                          <label style={{ color: '#999', fontSize: '11px', fontWeight: 600, display: 'block', marginBottom: '4px' }}>CATEGORY / PHASE *</label>
-                          <select value={stNewTaskPhase} onChange={e => setStNewTaskPhase(e.target.value)} style={{ width: '100%', padding: '8px 10px', background: '#111', border: '1px solid #333', borderRadius: '6px', color: '#fff', fontSize: '13px', outline: 'none', boxSizing: 'border-box' }}>
-                            <option value=''>Select phase...</option>
-                            {BKB_PHASES.map((p: string) => (
-                              <option key={p} value={p}>{p}</option>
-                            ))}
-                          </select>
-                        </div>
-                        <div style={{ marginBottom: '12px' }}>
-                          <label style={{ color: '#999', fontSize: '11px', fontWeight: 600, display: 'block', marginBottom: '4px' }}>ASSIGN TO</label>
-                          <select value={stNewTaskAssignee} onChange={e => setStNewTaskAssignee(e.target.value)} style={{ width: '100%', padding: '8px 10px', background: '#111', border: '1px solid #333', borderRadius: '6px', color: '#fff', fontSize: '13px', outline: 'none', boxSizing: 'border-box' }}>
-                            <option value=''>Unassigned</option>
-                            {Object.entries(TEAM_ASSIGNEES).map(([name, id]) => (
-                              <option key={id as string} value={id as string}>{name.charAt(0).toUpperCase() + name.slice(1)}</option>
-                            ))}
-                          </select>
-                        </div>
-                        <div style={{ marginBottom: '16px' }}>
-                          <label style={{ color: '#999', fontSize: '11px', fontWeight: 600, display: 'block', marginBottom: '4px' }}>DUE DATE</label>
-                          <input type='date' value={stNewTaskDate} onChange={e => setStNewTaskDate(e.target.value)} style={{ width: '100%', padding: '8px 10px', background: '#111', border: '1px solid #333', borderRadius: '6px', color: '#fff', fontSize: '13px', outline: 'none', boxSizing: 'border-box' }} />
-                        </div>
-                        <button
-                          onClick={() => createStandaloneTask()}
-                          disabled={creatingSt || !stNewTaskName.trim() || !stNewTaskJob || !stNewTaskPhase}
-                          style={{
-                            width: '100%',
-                            padding: '10px',
-                            background: (!stNewTaskName.trim() || !stNewTaskJob || !stNewTaskPhase) ? '#333' : '#CDA274',
-                            color: (!stNewTaskName.trim() || !stNewTaskJob || !stNewTaskPhase) ? '#666' : '#000',
-                            border: 'none',
-                            borderRadius: '8px',
-                            fontSize: '13px',
-                            fontWeight: 700,
-                            cursor: (!stNewTaskName.trim() || !stNewTaskJob || !stNewTaskPhase) ? 'not-allowed' : 'pointer',
-                          }}
-                        >{creatingSt ? 'Creating...' : 'Create Task'}</button>
-                      </div>
-                    )}
-                    {panelTab === 'waitingOn' && (
-                      <div>
-                        <div style={{ display: 'flex', justifyContent: 'flex-end', marginBottom: '8px' }}>
-                          <button onClick={() => setShowWaitingOnForm(true)} style={{ background: '#CDA274', color: '#000', border: 'none', borderRadius: '6px', padding: '6px 12px', fontSize: '12px', fontWeight: 600, cursor: 'pointer' }}>+ New</button>
-                        </div>
+                )}
+                {panelTab === 'waitingOn' && (
+                  <div>
+                    <div style={{ display: 'flex', justifyContent: 'flex-end', marginBottom: 8 }}>
+                      <button onClick={() => { setShowWaitingOnForm(!showWaitingOnForm); if (!showWaitingOnForm) { setWoTaskName(''); setWoDescription(''); setWoJobId(''); setWoDate(''); setWoAssignee(''); } }} style={{ display: 'flex', alignItems: 'center', gap: 3, fontSize: 10, color: '#CDA274', background: 'rgba(205,162,116,0.1)', border: 'none', cursor: 'pointer', padding: '4px 10px', borderRadius: 5, fontWeight: 600 }}>
+                        <Plus size={11} /> New
+                      </button>
+                    </div>
                 {showWaitingOnForm && (
                   <div style={{ background: '#242424', border: '1px solid rgba(205,162,116,0.12)', borderRadius: 8, padding: 12, marginBottom: 10 }}>
                     <div style={{ fontSize: 11, fontWeight: 600, color: '#CDA274', marginBottom: 8 }}>New Waiting On Item</div>
@@ -2288,13 +2295,11 @@ export default function DashboardOverview() {
                 {creatingTask ? 'Creating...' : 'Create Task'}
               </button>
             </div>
-                      </div>
-                    )}
                   </div>
-                </div>
-              </div>
-            );
-          })()}
+                )}
+          </div>
+        </div>
+      )}
 
     </div>
   );
