@@ -768,7 +768,7 @@ export default function DashboardOverview() {
           ...overview,
           data: {
             ...overview.data,
-            tasks: [...overview.data.tasks, newTask],
+            tasks: [...(overview.data.tasks || []), newTask],
             stats: { ...overview.data.stats, totalTasks: (overview.data.tasks || []).length + 1 },
           },
         });
@@ -830,7 +830,7 @@ export default function DashboardOverview() {
           ...overview,
           data: {
             ...overview.data,
-            tasks: [...overview.data.tasks, newTask],
+            tasks: [...(overview.data.tasks || []), newTask],
             stats: { ...overview.data.stats, totalTasks: (overview.data.tasks || []).length + 1 },
           },
         });
@@ -1010,7 +1010,7 @@ export default function DashboardOverview() {
       const data = await res.json();
       if (overview && data.task) {
         const mj = overview.data.activeJobs?.find((j: any) => j.id === stNewTaskJob);
-        setOverview({ ...overview, data: { ...overview.data, tasks: [...(overview.data.tasks || []), { id: data.task.id, name: stNewTaskName.trim(), jobName: mj ? String(mj.number) + ' ' + mj.name : '', jobId: stNewTaskJob, endDate: stNewTaskDate || null, status: 'open' } as any] } });
+        setOverview({ ...overview, data: { ...overview.data, tasks: [...(overview.data.tasks || []), { id: data.task.id, name: stNewTaskName.trim(), jobName: mj ? mj.name : '', jobId: stNewTaskJob, jobNumber: mj ? String(mj.number) : '', endDate: stNewTaskDate || null, startDate: stNewTaskDate || null, progress: 0, urgency: 'normal', assignee: '', daysUntilDue: stNewTaskDate ? Math.ceil((new Date(stNewTaskDate).getTime() - Date.now()) / 86400000) : null } as any] } });
       }
       setStNewTaskName(''); setStNewTaskJob(''); setStNewTaskPhase(''); setStNewTaskDate(''); setStNewTaskAssignee('');
       setPanelTab('waitingOn');
