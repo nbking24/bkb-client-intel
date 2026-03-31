@@ -20,8 +20,8 @@ interface ArStatRecord {
 export async function GET() {
   try {
     // 1. Get active jobs using the shared helper
-    const activeJobs = await getActiveJobs(100);
-    const jobs = activeJobs.map(j => ({ id: j.id, name: j.name }));
+    const allJobs = await getActiveJobs(100);
+    const jobs = allJobs.map(j => ({ id: j.id, name: j.name }));
     if (jobs.length === 0) {
       return NextResponse.json({
         totalRemindersSent: 0,
