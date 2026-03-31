@@ -10,7 +10,7 @@ import {
   FileCheck, FileWarning, FileClock, XCircle, Send,
   X, ExternalLink, Check, Bot, User, CheckCircle,
   Paperclip, ImageIcon, X as XIcon, Plus, Search,
-  Hourglass, UserCheck, ChevronRight
+  Hourglass, ChevronRight
 } from 'lucide-react';
 import { useAuth } from '@/app/hooks/useAuth';
 import {
@@ -254,9 +254,9 @@ function InlineAskAgent({ pmJobs, screen }: { pmJobs: { id: string; name: string
     let messageForApi = userMsg;
     const contextParts: string[] = [];
     if (agentMode === 'change-order') {
-      contextParts.push('MODE: CHANGE ORDER SUBMISSION. The user is submitting a change order. Follow the CO submission flow — ask targeted questions, gather all details, then output a @@CO_PROPOSAL@@ for approval.');
+      contextParts.push('MODE: CHANGE ORDER SUBMISSION. The user is submitting a change order. Follow the CO submission flow â ask targeted questions, gather all details, then output a @@CO_PROPOSAL@@ for approval.');
     } else if (agentMode === 'specs') {
-      contextParts.push('MODE: SPECS ONLY. The user is asking about approved specifications. ONLY answer based on approved documents and specs for this job. Do NOT offer to create change orders, tasks, or modifications — just provide spec information from approved documents.');
+      contextParts.push('MODE: SPECS ONLY. The user is asking about approved specifications. ONLY answer based on approved documents and specs for this job. Do NOT offer to create change orders, tasks, or modifications â just provide spec information from approved documents.');
     }
     if (selectedJob) {
       contextParts.push(`The user has selected job "${selectedJob.name}" (#${selectedJob.number}, ID: ${selectedJob.id}). Use this as the target job for their question.`);
@@ -290,7 +290,7 @@ function InlineAskAgent({ pmJobs, screen }: { pmJobs: { id: string; name: string
       if (!response.ok) {
         let errorMsg = `HTTP ${response.status}`;
         try { const errData = await response.json(); errorMsg = errData.error || errorMsg; } catch {
-          try { const text = await response.text(); errorMsg = text.includes('FUNCTION_INVOCATION_TIMEOUT') ? 'Request timed out — try a more specific question.' : (text.substring(0, 200) || 'Request failed'); } catch { errorMsg = 'Request failed'; }
+          try { const text = await response.text(); errorMsg = text.includes('FUNCTION_INVOCATION_TIMEOUT') ? 'Request timed out â try a more specific question.' : (text.substring(0, 200) || 'Request failed'); } catch { errorMsg = 'Request failed'; }
         }
         throw new Error(errorMsg);
       }
@@ -337,7 +337,7 @@ function InlineAskAgent({ pmJobs, screen }: { pmJobs: { id: string; name: string
     if (taskData) {
       const mergedData = edits ? { ...taskData, ...edits } : taskData;
       if (edits?.phase && edits.phase !== taskData.phase) { delete (mergedData as any).phaseId; (mergedData as any).phaseChanged = true; }
-      confirmMsg += '\n\n[APPROVED TASK DATA — execute this now using create_phase_task tool]\n' + JSON.stringify(mergedData);
+      confirmMsg += '\n\n[APPROVED TASK DATA â execute this now using create_phase_task tool]\n' + JSON.stringify(mergedData);
     }
     await sendMessage(confirmMsg);
   };
@@ -346,7 +346,7 @@ function InlineAskAgent({ pmJobs, screen }: { pmJobs: { id: string; name: string
     setMessages(prev => [
       ...prev.map((m, i) => i === prev.length - 1 ? { ...m, needsConfirmation: false } : m),
       { role: 'user', content: 'No, cancel that.' },
-      { role: 'assistant', content: 'No problem — action cancelled.' },
+      { role: 'assistant', content: 'No problem â action cancelled.' },
     ]);
   };
 
@@ -377,7 +377,7 @@ function InlineAskAgent({ pmJobs, screen }: { pmJobs: { id: string; name: string
           <Bot size={isTouch ? 15 : 12} style={{ color: '#CDA274' }} />
         </div>
         <span style={{ flex: 1, fontSize: isTouch ? 14 : 12, fontWeight: 600, color: '#CDA274' }}>Ask Agent</span>
-        {!isMobile && <span style={{ fontSize: isTouch ? 11 : 9, color: '#5a5550' }}>Tasks · Specs · Change Orders</span>}
+        {!isMobile && <span style={{ fontSize: isTouch ? 11 : 9, color: '#5a5550' }}>Tasks Â· Specs Â· Change Orders</span>}
         {open ? <ChevronUp size={isTouch ? 16 : 12} style={{ color: '#5a5550' }} /> : <ChevronDown size={isTouch ? 16 : 12} style={{ color: '#5a5550' }} />}
       </button>
 
@@ -436,7 +436,7 @@ function InlineAskAgent({ pmJobs, screen }: { pmJobs: { id: string; name: string
               <div style={{ padding: isTouch ? '12px 0' : '8px 0', textAlign: 'center' }}>
                 <p style={{ fontSize: isTouch ? 13 : 10, color: '#5a5550', marginBottom: 4 }}>
                   {agentMode === 'general' && 'Ask about tasks, schedules, or anything on this job'}
-                  {agentMode === 'change-order' && 'Describe the change — I\'ll ask questions and build the CO'}
+                  {agentMode === 'change-order' && 'Describe the change â I\'ll ask questions and build the CO'}
                   {agentMode === 'specs' && 'Ask about approved specs for this job'}
                 </p>
                 {agentMode === 'change-order' && (
@@ -524,13 +524,13 @@ function InlineAskAgent({ pmJobs, screen }: { pmJobs: { id: string; name: string
                           </tfoot>
                         </table>
                         {co.createDocument && <div style={{ fontSize: 9, color: '#60a5fa', marginTop: 4 }}>+ Draft CO document will be created</div>}
-                        {co.followUp?.needed && <div style={{ fontSize: 9, color: '#f59e0b', marginTop: 2 }}>+ Follow-up task → {co.followUp.assignTo || 'Nathan'} by {co.followUp.dueDate || 'TBD'}</div>}
+                        {co.followUp?.needed && <div style={{ fontSize: 9, color: '#f59e0b', marginTop: 2 }}>+ Follow-up task â {co.followUp.assignTo || 'Nathan'} by {co.followUp.dueDate || 'TBD'}</div>}
                         {co.imageUrls && co.imageUrls.length > 0 && <div style={{ fontSize: 9, color: '#22c55e', marginTop: 2 }}>+ {co.imageUrls.length} photo(s) will be attached</div>}
                       </div>
                       <div style={{ display: 'flex', gap: isTouch ? 10 : 6 }}>
                         <button onClick={() => {
                           setMessages(prev => prev.map((m, mi) => mi === prev.length - 1 ? { ...m, needsConfirmation: false } : m));
-                          sendMessage('Yes, approve this change order. Create it now.\n\n[APPROVED CO DATA — execute create_change_order tool now]\n' + JSON.stringify(co));
+                          sendMessage('Yes, approve this change order. Create it now.\n\n[APPROVED CO DATA â execute create_change_order tool now]\n' + JSON.stringify(co));
                           setUploadedUrls([]);
                         }}
                           style={{ display: 'flex', alignItems: 'center', gap: 6, padding: isTouch ? '10px 18px' : '5px 12px', borderRadius: isTouch ? 8 : 5, fontSize: isTouch ? 14 : 11, fontWeight: 600, background: 'rgba(34,197,94,0.15)', color: '#22c55e', border: 'none', cursor: 'pointer' }}>
@@ -777,7 +777,7 @@ export default function DashboardOverview() {
     }
   }
 
-  // ── Waiting On functions ──────────────────────────────
+  // ââ Waiting On functions ââââââââââââââââââââââââââââââ
   async function createWaitingOnTask() {
     if (!woTaskName.trim() || !woJobId || !woAssignee) return;
     setCreatingWo(true);
@@ -1160,7 +1160,7 @@ export default function DashboardOverview() {
           </div>
         </div>
 
-        {/* KPI 2: Open Tasks — clickable */}
+        {/* KPI 2: Open Tasks â clickable */}
         <button
           onClick={() => setShowSection(showSection === 'tasks' ? false : 'tasks')}
           style={{ background: showSection === 'tasks' ? 'rgba(59,130,246,0.1)' : '#1e1e1e', borderRadius: 6, padding: '6px 7px', border: 'none', borderLeftWidth: 3, borderLeftStyle: 'solid', borderLeftColor: tasks.length > 0 ? '#3b82f6' : '#5a5550', cursor: 'pointer', textAlign: 'left' }}
@@ -1174,7 +1174,7 @@ export default function DashboardOverview() {
           </div>
         </button>
 
-        {/* KPI 3: Overdue — clickable */}
+        {/* KPI 3: Overdue â clickable */}
         <button
           onClick={() => setShowSection(showSection === 'overdue' ? false : 'overdue')}
           style={{ background: showSection === 'overdue' ? 'rgba(239,68,68,0.1)' : '#1e1e1e', borderRadius: 6, padding: '6px 7px', border: 'none', borderLeftWidth: 3, borderLeftStyle: 'solid', borderLeftColor: overdueTasks.length > 0 ? '#ef4444' : '#22c55e', cursor: 'pointer', textAlign: 'left' }}
@@ -1188,7 +1188,7 @@ export default function DashboardOverview() {
           </div>
         </button>
 
-        {/* KPI 4: Outstanding Invoices (AR) — clickable */}
+        {/* KPI 4: Outstanding Invoices (AR) â clickable */}
         {(() => {
           const invCount = stats?.outstandingInvoiceCount || 0;
           const invTotal = stats?.outstandingInvoiceTotal || 0;
@@ -1215,7 +1215,7 @@ export default function DashboardOverview() {
           );
         })()}
 
-        {/* KPI 5: Pending Change Orders — clickable */}
+        {/* KPI 5: Pending Change Orders â clickable */}
         {(() => {
           const pending = stats?.pendingCOCount || 0;
           const approved = stats?.approvedCOCount || 0;
@@ -1243,7 +1243,7 @@ export default function DashboardOverview() {
         })()}
       </div>
 
-      {/* AI BRIEFING — compact, matches field dashboard style */}
+      {/* AI BRIEFING â compact, matches field dashboard style */}
       {analysis?.summary && (
         <div style={{ background: 'rgba(205,162,116,0.06)', border: '1px solid rgba(205,162,116,0.12)', borderRadius: 8, padding: '8px 10px', marginBottom: isTouch ? 10 : 6 }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: 4, marginBottom: 4 }}>
@@ -1254,7 +1254,7 @@ export default function DashboardOverview() {
         </div>
       )}
 
-      {/* OUTSTANDING INVOICES — expandable from KPI card click */}
+      {/* OUTSTANDING INVOICES â expandable from KPI card click */}
       {showSection === 'invoices' && (
         <div style={{ background: '#1e1e1e', border: '1px solid rgba(245,158,11,0.15)', borderRadius: 8, padding: '8px 10px', marginBottom: isTouch ? 10 : 6, maxHeight: 340, overflowY: 'auto' }}>
           <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 6 }}>
@@ -1329,7 +1329,7 @@ export default function DashboardOverview() {
         </div>
       )}
 
-      {/* AR AUTOMATED REMINDERS — compact status bar */}
+      {/* AR AUTOMATED REMINDERS â compact status bar */}
       {arStats && arStats.totalRemindersSent > 0 && (
         <div style={{ background: '#1e1e1e', border: '1px solid rgba(34,197,94,0.12)', borderRadius: 8, padding: '6px 10px', marginBottom: isTouch ? 10 : 6 }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
@@ -1361,7 +1361,7 @@ export default function DashboardOverview() {
               <>
                 <div style={{ width: 1, height: 14, background: 'rgba(205,162,116,0.08)' }} />
                 <span style={{ fontSize: 9, color: '#6a6058' }}>
-                  Last: {new Date(arStats.recentReminders[0].date).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })} — {arStats.recentReminders[0].jobName.replace(/^#\d+\s*/, '').split(' ').slice(0, 3).join(' ')} ({arStats.recentReminders[0].tier})
+                  Last: {new Date(arStats.recentReminders[0].date).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })} â {arStats.recentReminders[0].jobName.replace(/^#\d+\s*/, '').split(' ').slice(0, 3).join(' ')} ({arStats.recentReminders[0].tier})
                 </span>
               </>
             )}
@@ -1369,7 +1369,7 @@ export default function DashboardOverview() {
         </div>
       )}
 
-      {/* PENDING CHANGE ORDERS — expandable from KPI card click */}
+      {/* PENDING CHANGE ORDERS â expandable from KPI card click */}
       {showSection === 'changeorders' && (
         <div style={{ background: '#1e1e1e', border: '1px solid rgba(245,158,11,0.15)', borderRadius: 8, padding: '8px 10px', marginBottom: isTouch ? 10 : 6, maxHeight: 340, overflowY: 'auto' }}>
           <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 6 }}>
@@ -1433,7 +1433,7 @@ export default function DashboardOverview() {
         </div>
       )}
 
-      {/* EXPANDED TASK LIST — shows when KPI card is clicked */}
+      {/* EXPANDED TASK LIST â shows when KPI card is clicked */}
       {showSection && ['overdue', 'tasks'].includes(showSection) && (() => {
         const sectionTasks = showSection === 'overdue' ? overdueTasks : tasks;
         const sectionLabel = showSection === 'overdue' ? 'Overdue Tasks' : 'All Open Tasks';
@@ -1517,7 +1517,7 @@ export default function DashboardOverview() {
           <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 3 }}>
             <Calendar size={11} style={{ color: '#CDA274' }} />
             <span style={{ fontSize: 10, fontWeight: 700, letterSpacing: '0.08em', color: '#5a5550' }}>{week.label.toUpperCase()}</span>
-            <span style={{ fontSize: 10, color: '#3f3f3f' }}>{week.days[0].month} {week.days[0].dayNum} – {week.days[6].month} {week.days[6].dayNum}</span>
+            <span style={{ fontSize: 10, color: '#3f3f3f' }}>{week.days[0].month} {week.days[0].dayNum} â {week.days[6].month} {week.days[6].dayNum}</span>
           </div>
           <div style={{ display: 'grid', gridTemplateColumns: 'repeat(7, 1fr)', gap: 1, borderRadius: 8, overflow: 'hidden' }}>
             {week.days.map(day => {
@@ -1557,7 +1557,7 @@ export default function DashboardOverview() {
                             fontSize: 9, lineHeight: '12px', color: '#e8e0d8',
                             overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
                           }}
-                          title={`${task.name} — ${task.jobName}`}
+                          title={`${task.name} â ${task.jobName}`}
                         >
                           {task.name}
                         </div>
@@ -1576,16 +1576,16 @@ export default function DashboardOverview() {
         </div>
       ))}
 
-      {/* ── WAITING ON — ⏳ task tracker ─────────────────────── */}
+      {/* ââ WAITING ON â â³ task tracker âââââââââââââââââââââââ */}
       {(() => {
-        const woTasks = tasks.filter(t => t.name.startsWith('⏳'));
+        const woTasks = tasks.filter(t => t.name.startsWith('â³'));
 
         // Aging color logic
         function agingColor(daysUntilDue: number | null): string {
           if (daysUntilDue === null) return '#6a6058';
-          if (daysUntilDue < -7) return '#ef4444'; // 7+ days overdue → red
-          if (daysUntilDue < -3) return '#f97316'; // 3-7 days overdue → orange
-          if (daysUntilDue < 0) return '#eab308';  // 0-3 days overdue → yellow
+          if (daysUntilDue < -7) return '#ef4444'; // 7+ days overdue â red
+          if (daysUntilDue < -3) return '#f97316'; // 3-7 days overdue â orange
+          if (daysUntilDue < 0) return '#eab308';  // 0-3 days overdue â yellow
           return '#6a6058'; // not yet due
         }
         function agingBg(daysUntilDue: number | null): string {
@@ -1734,7 +1734,7 @@ export default function DashboardOverview() {
             {/* Waiting On items list */}
             {sorted.length === 0 && !showWaitingOnForm && (
               <div style={{ textAlign: 'center', padding: '8px 0', fontSize: 10, color: '#5a5550' }}>
-                No open items — click "+ New" to track something
+                No open items â click "+ New" to track something
               </div>
             )}
             {sorted.map(task => {
@@ -1742,8 +1742,8 @@ export default function DashboardOverview() {
               const isCompleting = completingWoId === task.id;
               const ac = agingColor(task.daysUntilDue);
               const ab = agingBg(task.daysUntilDue);
-              // Parse task display: remove ⏳ prefix
-              const displayName = task.name.replace(/^⏳\s*/, '');
+              // Parse task display: remove â³ prefix
+              const displayName = task.name.replace(/^â³\s*/, '');
               const comments = woComments[task.id];
               const isLoadingComments = loadingWoComments === task.id;
 
@@ -1762,7 +1762,7 @@ export default function DashboardOverview() {
                         : <Check size={9} style={{ color: ac }} />
                       }
                     </button>
-                    {/* Task info — clickable to expand */}
+                    {/* Task info â clickable to expand */}
                     <button
                       onClick={() => {
                         if (isExpanded) {
@@ -1861,7 +1861,7 @@ export default function DashboardOverview() {
         );
       })()}
 
-      {/* ALL TASKS — grouped by job, collapsible, filtered to overdue + next 4 weeks */}
+      {/* ALL TASKS â grouped by job, collapsible, filtered to overdue + next 4 weeks */}
       {tasks.length > 0 && (() => {
         // Filter tasks: overdue or due within next 4 weeks (28 days)
         const now = new Date();
