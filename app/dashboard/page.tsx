@@ -854,12 +854,10 @@ export default function DashboardOverview() {
           if (!jobGroups.has(key)) jobGroups.set(key, []);
           jobGroups.get(key)!.push(t);
         }
-        // Sort jobs by number of urgent/overdue tasks descending
-        const sortedJobs = Array.from(jobGroups.entries()).sort((a, b) => {
-          const aUrgent = a[1].filter(t => t.urgency === 'urgent').length;
-          const bUrgent = b[1].filter(t => t.urgency === 'urgent').length;
-          return bUrgent - aUrgent || b[1].length - a[1].length;
-        });
+        // Sort jobs A-Z by name
+        const sortedJobs = Array.from(jobGroups.entries()).sort((a, b) =>
+          a[0].replace(/^#\d+\s*/, '').localeCompare(b[0].replace(/^#\d+\s*/, ''))
+        );
         return (
           <div style={{ background: '#1e1e1e', border: '1px solid rgba(205,162,116,0.08)', borderRadius: 8, padding: '8px 10px', marginBottom: 6 }}>
             <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 6 }}>
