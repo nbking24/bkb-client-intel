@@ -974,6 +974,16 @@ export default function InvoicingDashboard() {
   const [arHolds, setArHolds] = useState<Record<string, boolean>>({});
   const [arToggling, setArToggling] = useState<string | null>(null);
 
+  // AR Stats for visual summary
+  const [arStats, setArStats] = useState<{
+    totalRemindersSent: number;
+    jobsWithReminders: number;
+    jobsOnHold: number;
+    activeJobs: number;
+    totalJobsTracked: number;
+    recentReminders: Array<{ jobId: string; jobName: string; tier: string; date: string; invoiceNumber?: string }>;
+  } | null>(null);
+
   async function toggleArHold(jobId: string, jobName: string) {
     setArToggling(jobId);
     try {
@@ -1028,8 +1038,21 @@ export default function InvoicingDashboard() {
     }
   }
 
+  async function fetchArStats() {
+    try {
+      const res = await fetch('/api/dashboard/invoicing/ar-stats');
+      if (res.ok) {
+        const data = await res.json();
+        setArStats(data);
+      }
+    } catch {
+      // non-critical — silently fail
+    }
+  }
+
   useEffect(() => {
     fetchReport();
+    fetchArStats();
   }, []);
 
   if (loading) {
@@ -1127,6 +1150,100 @@ export default function InvoicingDashboard() {
           color={HEALTH_COLORS[summary.overallHealth].text}
         />
       </div>
+
+      {/* AR Automated Reminders — Status Banner */}
+      {arStats && (
+        <div
+          className="rounded-lg overflow-hidden mt-3 mb-1"
+          style={{ background: '#242424', border: '1px solid rgba(34,197,94,0.12)' }}
+        >
+          <div className="px-4 py-3">
+            <div className="flex items-center gap-2 mb-2">
+              <Send size={14} style={{ color: '#4ade80' }} />
+              <span className="text-sm font-semibold" style={{ color: '#4ade80' }}>
+                AR Automated Reminders
+              </span>
+              <span
+                className="text-[10px] px-1.5 py-0.5 rounded-full font-medium"
+                style={{ background: 'rgba(34,197,94,0.1)', color: '#4ade80' }}
+              >
+                Active
+              </span>
+            </div>
+            {/* Stats row */}
+            <div className="flex items-center gap-4 flex-wrap">
+              <div className="flex items-center gap-1.5">
+                <span className="text-xl font-bold" style={{ color: '#e8e0d8' }}>
+                  {arStats.totalRemindersSent}
+                </span>
+                <span className="text-[10px]" style={{ color: '#8a8078' }}>
+                  reminders sent
+                </span>
+              </div>
+              <div style={{ width: 1, height: 20, background: 'rgba(205,162,116,0.08)' }} />
+              <div className="flex items-center gap-1.5">
+                <span className="text-sm font-semibold" style={{ color: '#e8e0d8' }}>
+                  {arStats.jobsWithReminders}
+                </span>
+                <span className="text-[10px]" style={{ color: '#8a8078' }}>
+                  jobs contacted
+                </span>
+              </div>
+              <div style={{ width: 1, height: 20, background: 'rgba(205,162,116,0.08)' }} />
+              <div className="flex items-center gap-1.5">
+                <span className="text-sm font-semibold" style={{ color: '#4ade80' }}>
+                  {arStats.activeJobs}
+                </span>
+                <span className="text-[10px]" style={{ color: '#8a8078' }}>
+                  active
+                </span>
+              </div>
+              {arStats.jobsOnHold > 0 && (
+                <>
+                  <div style={{ width: 1, height: 20, background: 'rgba(205,162,116,0.08)' }} />
+                  <div className="flex items-center gap-1.5">
+                    <span className="text-sm font-semibold" style={{ color: '#f87171' }}>
+                      {arStats.jobsOnHold}
+                    </span>
+                    <span className="text-[10px]" style={{ color: '#8a8078' }}>
+                      paused
+                    </span>
+                  </div>
+                </>
+              )}
+            </div>
+            {/* Recent reminders timeline */}
+            {arStats.recentReminders.length > 0 && (
+              <div className="mt-3 pt-2" style={{ borderTop: '1px solid rgba(205,162,116,0.06)' }}>
+                <span className="text-[9px] font-medium" style={{ color: '#6a6058', letterSpacing: '0.04em' }}>
+                  RECENT REMINDERS
+                </span>
+                <div className="mt-1 space-y-1">
+                  {arStats.recentReminders.slice(0, 5).map((r, i) => (
+                    <div key={i} className="flex items-center gap-2 text-[11px]">
+                      <span className="w-[70px] flex-shrink-0" style={{ color: '#6a6058' }}>
+                        {new Date(r.date).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}
+                      </span>
+                      <span
+                        className="px-1.5 py-0.5 rounded text-[9px] font-medium flex-shrink-0"
+                        style={{
+                          background: r.tier === '60-day' ? 'rgba(239,68,68,0.1)' : r.tier === '45-day' ? 'rgba(249,115,22,0.1)' : r.tier === '30-day' ? 'rgba(234,179,8,0.1)' : 'rgba(34,197,94,0.1)',
+                          color: r.tier === '60-day' ? '#f87171' : r.tier === '45-day' ? '#fb923c' : r.tier === '30-day' ? '#eab308' : '#4ade80',
+                        }}
+                      >
+                        {r.tier}
+                      </span>
+                      <span className="truncate" style={{ color: '#e8e0d8' }}>
+                        {r.jobName.replace(/^#\d+\s*/, '')}
+                      </span>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+          </div>
+        </div>
+      )}
 
       {/* Open Invoices Awaiting Payment — Condensed Summary */}
       {(() => {

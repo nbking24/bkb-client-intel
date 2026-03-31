@@ -7,7 +7,7 @@ import {
   DollarSign, ClipboardList, ChevronRight, Mail, MapPin,
   ChevronUp, ChevronDown, TrendingUp, TrendingDown, Minus,
   Target, Clock3, Activity, CalendarDays, Building2,
-  FileCheck, FileWarning, FileClock, XCircle
+  FileCheck, FileWarning, FileClock, XCircle, Send
 } from 'lucide-react';
 import { useAuth } from '@/app/hooks/useAuth';
 // Terri accesses dashboard on desktop only — no responsive hook needed
@@ -158,6 +158,15 @@ export default function DashboardOverview() {
   const [cleanupState, setCleanupState] = useState<'idle' | 'scanning' | 'preview' | 'cleaning' | 'done'>('idle');
   const [cleanupData, setCleanupData] = useState<{ toArchive: Array<{ id: string; from: string; subject: string; reason: string }>; toKeep: any[] } | null>(null);
 
+  // AR Stats
+  const [arStats, setArStats] = useState<{
+    totalRemindersSent: number;
+    jobsWithReminders: number;
+    jobsOnHold: number;
+    activeJobs: number;
+    recentReminders: Array<{ jobName: string; tier: string; date: string }>;
+  } | null>(null);
+
   async function scanInbox() {
     setCleanupState('scanning');
     try {
@@ -271,7 +280,10 @@ export default function DashboardOverview() {
   }
 
   useEffect(() => {
-    if (auth.userId) fetchOverview();
+    if (auth.userId) {
+      fetchOverview();
+      fetch('/api/dashboard/invoicing/ar-stats').then(r => r.ok ? r.json() : null).then(d => { if (d) setArStats(d); }).catch(() => {});
+    }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [auth.userId]);
 
@@ -590,6 +602,46 @@ export default function DashboardOverview() {
               );
             })
           )}
+        </div>
+      )}
+
+      {/* AR AUTOMATED REMINDERS — compact status bar */}
+      {arStats && arStats.totalRemindersSent > 0 && (
+        <div style={{ background: '#1e1e1e', border: '1px solid rgba(34,197,94,0.12)', borderRadius: 8, padding: '6px 10px', marginBottom: isTouch ? 10 : 6 }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
+              <Send size={10} style={{ color: '#4ade80' }} />
+              <span style={{ fontSize: 9, fontWeight: 600, color: '#4ade80', letterSpacing: '0.04em' }}>
+                AR REMINDERS
+              </span>
+            </div>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 3 }}>
+              <span style={{ fontSize: 14, fontWeight: 700, color: '#e8e0d8' }}>{arStats.totalRemindersSent}</span>
+              <span style={{ fontSize: 9, color: '#6a6058' }}>sent</span>
+            </div>
+            <div style={{ width: 1, height: 14, background: 'rgba(205,162,116,0.08)' }} />
+            <div style={{ display: 'flex', alignItems: 'center', gap: 3 }}>
+              <span style={{ fontSize: 11, fontWeight: 600, color: '#4ade80' }}>{arStats.activeJobs}</span>
+              <span style={{ fontSize: 9, color: '#6a6058' }}>active</span>
+            </div>
+            {arStats.jobsOnHold > 0 && (
+              <>
+                <div style={{ width: 1, height: 14, background: 'rgba(205,162,116,0.08)' }} />
+                <div style={{ display: 'flex', alignItems: 'center', gap: 3 }}>
+                  <span style={{ fontSize: 11, fontWeight: 600, color: '#f87171' }}>{arStats.jobsOnHold}</span>
+                  <span style={{ fontSize: 9, color: '#6a6058' }}>paused</span>
+                </div>
+              </>
+            )}
+            {arStats.recentReminders.length > 0 && (
+              <>
+                <div style={{ width: 1, height: 14, background: 'rgba(205,162,116,0.08)' }} />
+                <span style={{ fontSize: 9, color: '#6a6058' }}>
+                  Last: {new Date(arStats.recentReminders[0].date).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })} — {arStats.recentReminders[0].jobName.replace(/^#\d+\s*/, '').split(' ').slice(0, 3).join(' ')} ({arStats.recentReminders[0].tier})
+                </span>
+              </>
+            )}
+          </div>
         </div>
       )}
 
