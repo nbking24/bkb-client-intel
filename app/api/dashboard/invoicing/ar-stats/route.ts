@@ -42,11 +42,11 @@ export async function GET() {
       });
     }
 
-    // 2. For each job, get comments (scan for AR tags)
+    // 2. For each job, scan comments for AR tags — sequential to avoid 413
     let totalRemindersSent = 0;
     let jobsWithReminders = 0;
     let jobsOnHold = 0;
-    let activeJobs = 0;
+    let activeJobCount = 0;
     const recentReminders: ArStatRecord[] = [];
 
     const AR_AUTO_RE = /\[AR-AUTO\]/i;
@@ -54,68 +54,58 @@ export async function GET() {
     const AR_RESUME_RE = /\[AR-RESUME\]/i;
     const TIER_RE = /\b(20-day|30-day|45-day|60-day)\b/i;
 
-    // Process in batches of 8 to avoid overwhelming the API
-    const BATCH_SIZE = 4;
-    for (let i = 0; i < jobs.length; i += BATCH_SIZE) {
-      const batch = jobs.slice(i, i + BATCH_SIZE);
-      const results = await Promise.allSettled(
-        batch.map(async (job: any) => {
-          const commentResp = await pave({
-            job: {
-              $: { id: job.id },
-              comments: {
-                $: { size: 50 },
-                nodes: { id: {}, body: {}, createdAt: {} },
-              },
+    for (const job of jobs) {
+      try {
+        const commentResp = await pave({
+          job: {
+            $: { id: job.id },
+            comments: {
+              $: { size: 50 },
+              nodes: { id: {}, body: {}, createdAt: {}, name: {} },
             },
-          });
+          },
+        });
 
-          const comments = (commentResp as any)?.job?.comments?.nodes || [];
+        const comments = (commentResp as any)?.job?.comments?.nodes || [];
 
-          let jobReminderCount = 0;
-          let lastHoldDate = 0;
-          let lastResumeDate = 0;
+        let jobReminderCount = 0;
+        let lastHoldDate = 0;
+        let lastResumeDate = 0;
 
-          for (const c of comments) {
-            const body = (c.body || '');
+        for (const c of comments) {
+          const body = (c.body || '') + ' ' + (c.name || '');
 
-            if (AR_AUTO_RE.test(body)) {
-              jobReminderCount++;
-              totalRemindersSent++;
+          if (AR_AUTO_RE.test(body)) {
+            jobReminderCount++;
+            totalRemindersSent++;
 
-              const tierMatch = body.match(TIER_RE);
-              recentReminders.push({
-                jobId: job.id,
-                jobName: job.name,
-                tier: tierMatch ? tierMatch[1] : 'unknown',
-                date: c.createdAt,
-              });
-            }
-
-            if (AR_HOLD_RE.test(body)) {
-              const d = new Date(c.createdAt).getTime();
-              if (d > lastHoldDate) lastHoldDate = d;
-            }
-            if (AR_RESUME_RE.test(body)) {
-              const d = new Date(c.createdAt).getTime();
-              if (d > lastResumeDate) lastResumeDate = d;
-            }
+            const tierMatch = body.match(TIER_RE);
+            recentReminders.push({
+              jobId: job.id,
+              jobName: job.name,
+              tier: tierMatch ? tierMatch[1] : 'reminder',
+              date: c.createdAt,
+            });
           }
 
-          const isHeld = lastHoldDate > 0 && lastHoldDate > lastResumeDate;
-          if (isHeld) jobsOnHold++;
-          // Only count as "active" if the job has pending invoices with AR relevance
-          // For simplicity, count all non-held jobs
-          else activeJobs++;
-          if (jobReminderCount > 0) jobsWithReminders++;
-        })
-      );
-
-      // Log any failures but continue
-      for (const r of results) {
-        if (r.status === 'rejected') {
-          console.error('[AR-Stats] Job batch error:', r.reason);
+          if (AR_HOLD_RE.test(body)) {
+            const d = new Date(c.createdAt).getTime();
+            if (d > lastHoldDate) lastHoldDate = d;
+          }
+          if (AR_RESUME_RE.test(body)) {
+            const d = new Date(c.createdAt).getTime();
+            if (d > lastResumeDate) lastResumeDate = d;
+          }
         }
+
+        const isHeld = lastHoldDate > 0 && lastHoldDate > lastResumeDate;
+        if (isHeld) jobsOnHold++;
+        else activeJobCount++;
+        if (jobReminderCount > 0) jobsWithReminders++;
+      } catch (err: any) {
+        // Skip this job but continue with others
+        console.error(`[AR-Stats] Error scanning job ${job.id}:`, err.message);
+        activeJobCount++; // Count as active if we can't determine
       }
     }
 
@@ -126,7 +116,7 @@ export async function GET() {
       totalRemindersSent,
       jobsWithReminders,
       jobsOnHold,
-      activeJobs,
+      activeJobs: activeJobCount,
       totalJobsTracked: jobs.length,
       recentReminders: recentReminders.slice(0, 10),
     });
