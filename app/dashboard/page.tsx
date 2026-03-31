@@ -1625,81 +1625,32 @@ export default function DashboardOverview() {
         </div>
       ))}
 
-          {/* QUICK ADD – dual buttons: New Task + Waiting On */}
-          {(() => {
-            const woTasks = overview?.data?.waitingOnTasks || [];
-            const overdueCount = woTasks.filter((t: any) => {
-              if (!t.dueDate) return false;
-              const d = new Date(t.dueDate);
-              return d < new Date();
-            }).length;
-            return (
-              <div style={{ display: 'flex', gap: '6px', marginBottom: '10px' }}>
-                <button
-                  onClick={() => { setPanelTab('newTask'); setShowWaitingOnPanel(true); }}
-                  style={{
-                    flex: 1,
-                    display: 'flex',
-                    alignItems: 'center',
-                    justifyContent: 'center',
-                    gap: '6px',
-                    background: '#1e1e1e',
-                    border: '1px solid #333',
-                    borderRadius: '8px',
-                    color: '#CDA274',
-                    padding: '8px 12px',
-                    cursor: 'pointer',
-                    fontSize: '12px',
-                    fontWeight: 600,
-                    letterSpacing: '0.5px',
-                  }}
-                >
-                  <span style={{ fontSize: '14px' }}>+</span>
-                  NEW TASK
-                </button>
-                <button
-                  onClick={() => { setPanelTab('waitingOn'); setShowWaitingOnPanel(true); }}
-                  style={{
-                    flex: 1,
-                    display: 'flex',
-                    alignItems: 'center',
-                    justifyContent: 'center',
-                    gap: '6px',
-                    background: '#1e1e1e',
-                    border: '1px solid #333',
-                    borderRadius: '8px',
-                    color: '#CDA274',
-                    padding: '8px 12px',
-                    cursor: 'pointer',
-                    fontSize: '12px',
-                    fontWeight: 600,
-                    letterSpacing: '0.5px',
-                    position: 'relative',
-                  }}
-                >
-                  <span style={{ fontSize: '14px' }}>&#9203;</span>
-                  WAITING ON ({woTasks.length})
-                  {overdueCount > 0 && (
-                    <span style={{
-                      position: 'absolute',
-                      top: '-6px',
-                      right: '-6px',
-                      background: '#ef4444',
-                      color: '#fff',
-                      borderRadius: '50%',
-                      width: '18px',
-                      height: '18px',
-                      display: 'flex',
-                      alignItems: 'center',
-                      justifyContent: 'center',
-                      fontSize: '10px',
-                      fontWeight: 700,
-                    }}>{overdueCount}</span>
-                  )}
-                </button>
-              </div>
-            );
-          })()}
+      {/* WAITING ON — compact bar, opens side panel */}
+      {(() => {
+        const woTasks = tasks.filter(t => t.name.startsWith('⏳'));
+        const overdueCount = woTasks.filter(t => t.daysUntilDue !== null && t.daysUntilDue < 0).length;
+        return (
+          <button
+            onClick={() => setShowWaitingOnPanel(true)}
+            style={{
+              width: '100%', display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+              background: '#1e1e1e', border: '1px solid rgba(205,162,116,0.08)', borderRadius: 8,
+              padding: '7px 10px', marginBottom: 6, cursor: 'pointer',
+            }}
+          >
+            <div style={{ display: 'flex', alignItems: 'center', gap: 5 }}>
+              <Hourglass size={10} style={{ color: '#CDA274' }} />
+              <span style={{ fontSize: 9, fontWeight: 600, color: '#CDA274', letterSpacing: '0.04em' }}>WAITING ON ({woTasks.length})</span>
+              {overdueCount > 0 && (
+                <span style={{ fontSize: 8, color: '#ef4444', background: 'rgba(239,68,68,0.1)', padding: '1px 5px', borderRadius: 3 }}>
+                  {overdueCount} overdue
+                </span>
+              )}
+            </div>
+            <ChevronRight size={12} style={{ color: '#5a5550' }} />
+          </button>
+        );
+      })()}
       {/* ALL TASKS â grouped by job, collapsible, filtered to overdue + next 4 weeks */}
       {tasks.length > 0 && (() => {
         // Filter tasks: overdue or due within next 4 weeks (28 days)
