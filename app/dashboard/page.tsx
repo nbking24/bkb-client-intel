@@ -729,8 +729,6 @@ export default function DashboardOverview() {
     { id: '22P5icFXKZgA', name: 'Dave Steich', label: 'Dave' },
     { id: '22P5sPMTN8mH', name: 'Jimmy', label: 'Jimmy' },
   ];
-
-  const BKB_PHASES = ['Admin Tasks', 'Conceptual Design', 'Design Development', 'Contract', 'Preconstruction', 'In Production', 'Inspections', 'Punch List', 'Project Completion'];
   const TERRI_MEMBERSHIP_ID = '22P5SpJkype2';
 
   async function createNewTask() {
@@ -923,45 +921,6 @@ export default function DashboardOverview() {
       console.error('Complete WO task failed:', err);
     } finally {
       setCompletingWoId(null);
-    }
-  }
-
-  async function createStandaloneTask() {
-    if (!stNewTaskName.trim() || !stNewTaskJob || !stNewTaskPhase) return;
-    setCreatingSt(true);
-    try {
-      const res = await fetch('/api/dashboard/create-task', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          jobId: stNewTaskJob,
-          name: stNewTaskName.trim(),
-          phase: stNewTaskPhase,
-          date: stNewTaskDate || undefined,
-        }),
-      });
-      if (!res.ok) throw new Error(await res.text());
-      const data = await res.json();
-      if (overview && data.task) {
-        const matchedJob = overview.data.activeJobs?.find((j: any) => j.id === stNewTaskJob);
-        const newTask = {
-          id: data.task.id,
-          name: stNewTaskName.trim(),
-          jobName: matchedJob ? '#' + matchedJob.number + ' ' + matchedJob.name : '',
-          jobId: stNewTaskJob,
-          dueDate: stNewTaskDate || null,
-          daysUntilDue: stNewTaskDate ? Math.ceil((new Date(stNewTaskDate).getTime() - Date.now()) / 86400000) : null,
-          status: 'open',
-        };
-        setOverview({ ...overview, data: { ...overview.data, tasks: [...overview.data.tasks, newTask] } });
-      }
-      setStNewTaskName(''); setStNewTaskJob(''); setStNewTaskPhase(''); setStNewTaskDate(''); setStNewTaskAssignee('');
-      setPanelTab('waitingOn');
-    } catch (err: any) {
-      console.error('Failed to create task:', err);
-      alert('Failed to create task: ' + err.message);
-    } finally {
-      setCreatingSt(false);
     }
   }
 
@@ -1885,67 +1844,6 @@ export default function DashboardOverview() {
               </div>
               {/* Scrollable content */}
               <div style={{ flex: 1, overflowY: 'auto', padding: '8px 12px' }}>
-                {panelTab === 'newTask' && (
-                  <div>
-                    <div style={{ marginBottom: 12 }}>
-                      <label style={{ color: '#999', fontSize: 11, fontWeight: 600, display: 'block', marginBottom: 4 }}>TASK NAME *</label>
-                      <input value={stNewTaskName} onChange={e => setStNewTaskName(e.target.value)} placeholder='Enter task name...' style={{ width: '100%', padding: '8px 10px', background: '#111', border: '1px solid #333', borderRadius: 6, color: '#fff', fontSize: 13, outline: 'none', boxSizing: 'border-box' }} />
-                    </div>
-                    <div style={{ marginBottom: 12 }}>
-                      <label style={{ color: '#999', fontSize: 11, fontWeight: 600, display: 'block', marginBottom: 4 }}>JOB *</label>
-                      <select value={stNewTaskJob} onChange={e => setStNewTaskJob(e.target.value)} style={{ width: '100%', padding: '8px 10px', background: '#111', border: '1px solid #333', borderRadius: 6, color: '#fff', fontSize: 13, outline: 'none', boxSizing: 'border-box' }}>
-                        <option value=''>Select job...</option>
-                        {(overview?.data?.activeJobs || []).map((j: any) => (
-                          <option key={j.id} value={j.id}>#{j.number} {j.name}</option>
-                        ))}
-                      </select>
-                    </div>
-                    <div style={{ marginBottom: 12 }}>
-                      <label style={{ color: '#999', fontSize: 11, fontWeight: 600, display: 'block', marginBottom: 4 }}>CATEGORY / PHASE *</label>
-                      <select value={stNewTaskPhase} onChange={e => setStNewTaskPhase(e.target.value)} style={{ width: '100%', padding: '8px 10px', background: '#111', border: '1px solid #333', borderRadius: 6, color: '#fff', fontSize: 13, outline: 'none', boxSizing: 'border-box' }}>
-                        <option value=''>Select phase...</option>
-                        {BKB_PHASES.map((p: string) => (
-                          <option key={p} value={p}>{p}</option>
-                        ))}
-                      </select>
-                    </div>
-                    <div style={{ marginBottom: 12 }}>
-                      <label style={{ color: '#999', fontSize: 11, fontWeight: 600, display: 'block', marginBottom: 4 }}>ASSIGN TO</label>
-                      <select value={stNewTaskAssignee} onChange={e => setStNewTaskAssignee(e.target.value)} style={{ width: '100%', padding: '8px 10px', background: '#111', border: '1px solid #333', borderRadius: 6, color: '#fff', fontSize: 13, outline: 'none', boxSizing: 'border-box' }}>
-                        <option value=''>Unassigned</option>
-                        {Object.entries(TEAM_ASSIGNEES).map(([name, id]) => (
-                          <option key={String(id)} value={String(id)}>{name.charAt(0).toUpperCase() + name.slice(1)}</option>
-                        ))}
-                      </select>
-                    </div>
-                    <div style={{ marginBottom: 16 }}>
-                      <label style={{ color: '#999', fontSize: 11, fontWeight: 600, display: 'block', marginBottom: 4 }}>DUE DATE</label>
-                      <input type='date' value={stNewTaskDate} onChange={e => setStNewTaskDate(e.target.value)} style={{ width: '100%', padding: '8px 10px', background: '#111', border: '1px solid #333', borderRadius: 6, color: '#fff', fontSize: 13, outline: 'none', boxSizing: 'border-box' }} />
-                    </div>
-                    <button
-                      onClick={() => createStandaloneTask()}
-                      disabled={creatingSt || !stNewTaskName.trim() || !stNewTaskJob || !stNewTaskPhase}
-                      style={{
-                        width: '100%',
-                        padding: 10,
-                        background: (!stNewTaskName.trim() || !stNewTaskJob || !stNewTaskPhase) ? '#333' : '#CDA274',
-                        color: (!stNewTaskName.trim() || !stNewTaskJob || !stNewTaskPhase) ? '#666' : '#000',
-                        border: 'none',
-                        borderRadius: 8,
-                        fontSize: 13,
-                        fontWeight: 700,
-                        cursor: (!stNewTaskName.trim() || !stNewTaskJob || !stNewTaskPhase) ? 'not-allowed' : 'pointer',
-                      }}
-                    >{creatingSt ? 'Creating...' : 'Create Task'}</button>
-                  </div>
-                )}
-                {panelTab === 'waitingOn' && (
-                  <div>
-                    <div style={{ display: 'flex', justifyContent: 'flex-end', marginBottom: 8 }}>
-                      <button onClick={() => { setShowWaitingOnForm(!showWaitingOnForm); if (!showWaitingOnForm) { setWoTaskName(''); setWoDescription(''); setWoJobId(''); setWoDate(''); setWoAssignee(''); } }} style={{ display: 'flex', alignItems: 'center', gap: 3, fontSize: 10, color: '#CDA274', background: 'rgba(205,162,116,0.1)', border: 'none', cursor: 'pointer', padding: '4px 10px', borderRadius: 5, fontWeight: 600 }}>
-                        <Plus size={11} /> New
-                      </button>
-                    </div>
                 {showWaitingOnForm && (
                   <div style={{ background: '#242424', border: '1px solid rgba(205,162,116,0.12)', borderRadius: 8, padding: 12, marginBottom: 10 }}>
                     <div style={{ fontSize: 11, fontWeight: 600, color: '#CDA274', marginBottom: 8 }}>New Waiting On Item</div>
@@ -2246,8 +2144,6 @@ export default function DashboardOverview() {
                 {creatingTask ? 'Creating...' : 'Create Task'}
               </button>
             </div>
-                  </div>
-                )}
           </div>
         </div>
       )}
