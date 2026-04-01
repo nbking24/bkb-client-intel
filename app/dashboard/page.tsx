@@ -1887,7 +1887,6 @@ export default function DashboardOverview() {
         const overdueCount = overdueTasks.length;
         const mtsCount = tasks.filter(t => isMeetingToSchedule(t.name)).length;
         const woCount = tasks.filter(t => isWaitingOn(t.name)).length;
-        const invCount = stats?.outstandingInvoiceCount || 0;
         // Pick the single most actionable item
         let focusItem: { label: string; color: string } | null = null;
         if (overdueCount > 0) {
@@ -1902,7 +1901,6 @@ export default function DashboardOverview() {
         const bullets: Array<{ emoji: string; text: string; color: string }> = [];
         if (overdueCount > 0) bullets.push({ emoji: '🔴', text: `${overdueCount} overdue task${overdueCount !== 1 ? 's' : ''}`, color: '#ef4444' });
         if (todayDue.length > 0) bullets.push({ emoji: '📋', text: `${todayDue.length} task${todayDue.length !== 1 ? 's' : ''} due today`, color: '#f59e0b' });
-        if (invCount > 0) bullets.push({ emoji: '💰', text: `${invCount} outstanding invoice${invCount !== 1 ? 's' : ''}`, color: '#f59e0b' });
         if (mtsCount > 0) bullets.push({ emoji: '📅', text: `${mtsCount} meeting${mtsCount !== 1 ? 's' : ''} to schedule`, color: '#3b82f6' });
         if (woCount > 0) bullets.push({ emoji: '⏳', text: `${woCount} waiting-on item${woCount !== 1 ? 's' : ''}`, color: '#eab308' });
         if (bullets.length === 0 && !focusItem) return null;
