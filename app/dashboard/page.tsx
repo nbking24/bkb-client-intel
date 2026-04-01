@@ -2000,7 +2000,10 @@ export default function DashboardOverview() {
                       : <CheckCircle2 size={10} style={{ color: '#22c55e' }} />
                     }
                   </button>
-                  <div style={{ flex: 1, minWidth: 0 }}>
+                  <div
+                    onClick={() => { setSelectedCalTask(task); setCalEditingDate(task.endDate || ''); }}
+                    style={{ flex: 1, minWidth: 0, cursor: 'pointer' }}
+                  >
                     <p style={{ fontSize: 11, color: '#e8e0d8', margin: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{task.name}</p>
                     <p style={{ fontSize: 9, color: '#6a6058', margin: 0 }}>{task.jobName} #{task.jobNumber}</p>
                     {task.description && (
