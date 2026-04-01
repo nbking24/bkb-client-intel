@@ -27,6 +27,7 @@ export async function GET(req: NextRequest) {
     }
 
     // 1. Get job with account contacts in a single pave query
+    //    Using customFieldValues for email/phone (same pattern as jobtread.ts:3490)
     const data = await pave({
       job: {
         $: { id: jobId },
@@ -40,7 +41,9 @@ export async function GET(req: NextRequest) {
               nodes: {
                 id: {},
                 name: {},
-                contactMethods: { nodes: { type: {}, value: {} } },
+                customFieldValues: {
+                  nodes: { value: {}, customField: { name: {} } },
+                },
               },
             },
           },
@@ -58,24 +61,23 @@ export async function GET(req: NextRequest) {
 
     const jtContacts = job.location?.account?.contacts?.nodes || [];
 
-    // 2. For each JT contact, search GHL for a match
+    // 2. For each JT contact, extract email/phone from custom fields + search GHL
     const contacts = await Promise.all(
       jtContacts.map(async (jtContact: any) => {
         let ghlContactId: string | null = null;
         let email = '';
         let phone = '';
 
-        // Extract email and phone from contact methods
-        const methods = jtContact.contactMethods?.nodes || jtContact.contactMethod?.nodes || [];
-        for (const method of methods) {
-          const t = (method.type || '').toLowerCase();
-          if (t === 'email') email = method.value;
-          if (t === 'phone') phone = method.value;
+        // Extract email and phone from custom field values
+        for (const cfv of jtContact.customFieldValues?.nodes || []) {
+          const fieldName = (cfv.customField?.name || '').toLowerCase();
+          if (fieldName === 'email') email = cfv.value || '';
+          if (fieldName === 'phone') phone = cfv.value || '';
         }
 
-        // Try to find matching GHL contact by name or email
+        // Search GHL for matching contact (by email first, then name)
         try {
-          let ghlResults = [];
+          let ghlResults: any[] = [];
           if (email) {
             ghlResults = await searchContacts(email, 5);
           }
