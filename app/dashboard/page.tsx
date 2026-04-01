@@ -10,7 +10,7 @@ import {
   FileCheck, FileWarning, FileClock, XCircle, Send,
   X, ExternalLink, Check, Bot, User, CheckCircle,
   Paperclip, ImageIcon, X as XIcon, Plus, Search,
-  Hourglass, ChevronRight, Mail
+  Hourglass, ChevronRight, Mail, Receipt
 } from 'lucide-react';
 import { useAuth } from '@/app/hooks/useAuth';
 import {
@@ -1785,8 +1785,8 @@ export default function DashboardOverview() {
         );
       })()}
 
-      {/* KPI GRID — Terri-specific: Active Jobs, Unread Emails, Due Today, Overdue, Pending COs */}
-      <div style={{ display: 'grid', gridTemplateColumns: isMobile ? 'repeat(3, 1fr)' : 'repeat(5, 1fr)', gap: isTouch ? 6 : 4, marginBottom: isTouch ? 10 : 6 }}>
+      {/* KPI GRID — Terri-specific: Active Jobs, Unread Emails, Due Today, Overdue, Pending COs, Outstanding Invoices */}
+      <div style={{ display: 'grid', gridTemplateColumns: isMobile ? 'repeat(3, 1fr)' : 'repeat(6, 1fr)', gap: isTouch ? 6 : 4, marginBottom: isTouch ? 10 : 6 }}>
         {/* KPI 1: Active Jobs — clickable */}
         <button
           onClick={() => setShowSection(showSection === 'activejobs' ? false : 'activejobs')}
@@ -1873,6 +1873,33 @@ export default function DashboardOverview() {
               {(pending + approved) > 0 && (
                 <div style={{ fontSize: 8, color: '#6a6058', marginTop: 2 }}>
                   {approved} approved
+                </div>
+              )}
+            </button>
+          );
+        })()}
+
+        {/* KPI 6: Outstanding Invoices — clickable, shows unpaid invoices with AR follow-up history */}
+        {(() => {
+          const invoiceCount = outstandingInvoices.length;
+          const hasInvoices = invoiceCount > 0;
+          const invoicesWithReminders = outstandingInvoices.filter(inv => inv.arAutoSent && inv.arAutoSent.length > 0).length;
+          const isActive = showSection === 'invoices';
+          return (
+            <button
+              onClick={() => setShowSection(isActive ? false : 'invoices')}
+              style={{ background: isActive ? 'rgba(245,158,11,0.1)' : '#1e1e1e', borderRadius: 6, padding: '6px 7px', border: 'none', borderLeftWidth: 3, borderLeftStyle: 'solid', borderLeftColor: hasInvoices ? '#f59e0b' : '#22c55e', cursor: 'pointer', textAlign: 'left' }}
+            >
+              <div style={{ display: 'flex', alignItems: 'center', gap: 3, marginBottom: 3 }}>
+                <Receipt size={9} style={{ color: hasInvoices ? '#f59e0b' : '#22c55e' }} />
+                <span style={{ fontSize: 7, color: '#5a5550', fontWeight: 600, letterSpacing: '0.04em' }}>UNPAID INV</span>
+              </div>
+              <div style={{ fontSize: 18, fontWeight: 700, color: hasInvoices ? '#f59e0b' : '#22c55e', lineHeight: 1 }}>
+                {invoiceCount}
+              </div>
+              {hasInvoices && invoicesWithReminders > 0 && (
+                <div style={{ fontSize: 8, color: '#6a6058', marginTop: 2 }}>
+                  {invoicesWithReminders} followed up
                 </div>
               )}
             </button>
@@ -2325,12 +2352,12 @@ export default function DashboardOverview() {
         );
       })()}
 
-      {/* OUTSTANDING INVOICES â expandable from KPI card click */}
+      {/* OUTSTANDING INVOICES — expandable from KPI card click */}
       {showSection === 'invoices' && (
-        <div style={{ background: '#1e1e1e', border: '1px solid rgba(245,158,11,0.15)', borderRadius: 8, padding: '8px 10px', marginBottom: isTouch ? 10 : 6, maxHeight: 340, overflowY: 'auto' }}>
+        <div style={{ background: '#1e1e1e', border: '1px solid rgba(245,158,11,0.15)', borderRadius: 8, padding: '8px 10px', marginBottom: isTouch ? 10 : 6, maxHeight: 440, overflowY: 'auto' }}>
           <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 6 }}>
             <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
-              <DollarSign size={10} style={{ color: '#f59e0b' }} />
+              <Receipt size={10} style={{ color: '#f59e0b' }} />
               <span style={{ fontSize: 9, fontWeight: 600, color: '#f59e0b', letterSpacing: '0.04em' }}>
                 OUTSTANDING INVOICES ({outstandingInvoices.length})
               </span>
@@ -2349,10 +2376,10 @@ export default function DashboardOverview() {
               const isWarning = inv.daysPending > 14;
               const statusColor = isOverdue ? '#ef4444' : isWarning ? '#f59e0b' : '#6a6058';
               const hasArAuto = inv.arAutoSent && inv.arAutoSent.length > 0;
-              const lastArSent = hasArAuto ? inv.arAutoSent![0] : null;
+              const reminderCount = hasArAuto ? inv.arAutoSent!.length : 0;
               const isHeld = inv.arHold === true;
               return (
-                <div key={inv.id} style={{ padding: '5px 0', borderBottom: '1px solid rgba(205,162,116,0.04)' }}>
+                <div key={inv.id} style={{ padding: '6px 0', borderBottom: '1px solid rgba(205,162,116,0.06)' }}>
                   <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
                     <div style={{ width: 5, height: 5, borderRadius: 3, background: statusColor, flexShrink: 0 }} />
                     <div style={{ flex: 1, minWidth: 0 }}>
@@ -2372,27 +2399,42 @@ export default function DashboardOverview() {
                       </p>
                     </div>
                   </div>
-                  {/* AR Auto-Reminder Status */}
-                  {(hasArAuto || isHeld) && (
-                    <div style={{ marginLeft: 13, marginTop: 3, display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
+                  {/* AR Follow-Up Summary + Timeline */}
+                  <div style={{ marginLeft: 13, marginTop: 4 }}>
+                    {/* Follow-up count badge row */}
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
                       {isHeld && (
                         <span style={{ fontSize: 8, background: 'rgba(239,68,68,0.12)', color: '#f87171', padding: '1px 5px', borderRadius: 3, fontWeight: 500 }}>
                           AR-HOLD
                         </span>
                       )}
-                      {hasArAuto && (
-                        <span style={{ fontSize: 8, background: 'rgba(34,197,94,0.1)', color: '#4ade80', padding: '1px 5px', borderRadius: 3 }}
-                          title={`${inv.arAutoSent!.length} reminder(s) sent. Last: ${lastArSent!.tier} on ${new Date(lastArSent!.date).toLocaleDateString()}`}>
-                          Reminder sent {new Date(lastArSent!.date).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })} ({lastArSent!.tier})
+                      {hasArAuto ? (
+                        <span style={{ fontSize: 8, background: 'rgba(34,197,94,0.1)', color: '#4ade80', padding: '1px 5px', borderRadius: 3, fontWeight: 600 }}>
+                          {reminderCount} follow-up{reminderCount !== 1 ? 's' : ''} sent
                         </span>
-                      )}
-                      {hasArAuto && inv.arAutoSent!.length > 1 && (
-                        <span style={{ fontSize: 8, color: '#6a6058' }}>
-                          +{inv.arAutoSent!.length - 1} prior
+                      ) : !isHeld ? (
+                        <span style={{ fontSize: 8, color: '#5a5550', fontStyle: 'italic' }}>
+                          No follow-ups sent
                         </span>
-                      )}
+                      ) : null}
                     </div>
-                  )}
+                    {/* Full AR reminder timeline — always visible when reminders exist */}
+                    {hasArAuto && (
+                      <div style={{ marginTop: 4, paddingLeft: 2, borderLeft: '2px solid rgba(34,197,94,0.15)' }}>
+                        {inv.arAutoSent!.map((ar, idx) => (
+                          <div key={idx} style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '2px 0 2px 6px' }}>
+                            <Send size={7} style={{ color: '#4ade80', flexShrink: 0 }} />
+                            <span style={{ fontSize: 9, color: '#b0a898' }}>
+                              {new Date(ar.date).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}
+                            </span>
+                            <span style={{ fontSize: 8, background: 'rgba(205,162,116,0.08)', color: '#8a7e72', padding: '0px 4px', borderRadius: 2 }}>
+                              {ar.tier}
+                            </span>
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                  </div>
                 </div>
               );
             })
