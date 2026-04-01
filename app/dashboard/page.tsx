@@ -745,6 +745,13 @@ export default function DashboardOverview() {
   const [smSuccess, setSmSuccess] = useState('');
   const [smAvailability, setSmAvailability] = useState<any[]>([]);
   const [smLoadingAvail, setSmLoadingAvail] = useState(false);
+  const [smJobContacts, setSmJobContacts] = useState<any[]>([]);
+  const [smSelectedContacts, setSmSelectedContacts] = useState<Record<string, boolean>>({});
+  const [smLoadingContacts, setSmLoadingContacts] = useState(false);
+  const [smTradeSearch, setSmTradeSearch] = useState('');
+  const [smTradeResults, setSmTradeResults] = useState<any[]>([]);
+  const [smSearchingTrade, setSmSearchingTrade] = useState(false);
+  const [smAddedTrades, setSmAddedTrades] = useState<any[]>([]);
 
   // GHL meeting types mapping to calendar IDs
   const MEETING_TYPES = [
@@ -1074,6 +1081,54 @@ export default function DashboardOverview() {
     finally { setSmLoadingAvail(false); }
   }
 
+  async function fetchJobContacts(jobId: string) {
+    if (!jobId) { setSmJobContacts([]); setSmSelectedContacts({}); return; }
+    setSmLoadingContacts(true);
+    try {
+      const res = await fetch(`/api/dashboard/schedule-meeting/contacts?jobId=${jobId}`, { headers: { Authorization: `Bearer ${getToken()}` } });
+      if (res.ok) {
+        const data = await res.json();
+        const contacts = data.contacts || [];
+        setSmJobContacts(contacts);
+        // Auto-select all homeowner contacts that have GHL matches
+        const selected: Record<string, boolean> = {};
+        contacts.forEach((c: any) => { if (c.ghlContactId) selected[c.ghlContactId] = true; });
+        setSmSelectedContacts(selected);
+      }
+    } catch (err) { console.error('Fetch contacts failed:', err); }
+    finally { setSmLoadingContacts(false); }
+  }
+
+  async function searchTradePartner(query: string) {
+    if (!query.trim() || query.length < 2) { setSmTradeResults([]); return; }
+    setSmSearchingTrade(true);
+    try {
+      const res = await fetch(`/api/dashboard/schedule-meeting/search-contacts?q=${encodeURIComponent(query)}`, { headers: { Authorization: `Bearer ${getToken()}` } });
+      if (res.ok) {
+        const data = await res.json();
+        setSmTradeResults(data.contacts || []);
+      }
+    } catch (err) { console.error('Trade search failed:', err); }
+    finally { setSmSearchingTrade(false); }
+  }
+
+  function toggleContact(ghlContactId: string) {
+    setSmSelectedContacts(prev => ({ ...prev, [ghlContactId]: !prev[ghlContactId] }));
+  }
+
+  function addTradePartner(contact: any) {
+    if (smAddedTrades.some(t => t.id === contact.id)) return;
+    setSmAddedTrades(prev => [...prev, contact]);
+    setSmSelectedContacts(prev => ({ ...prev, [contact.id]: true }));
+    setSmTradeSearch('');
+    setSmTradeResults([]);
+  }
+
+  function removeTradePartner(contactId: string) {
+    setSmAddedTrades(prev => prev.filter(t => t.id !== contactId));
+    setSmSelectedContacts(prev => { const next = { ...prev }; delete next[contactId]; return next; });
+  }
+
   async function createScheduledMeeting() {
     if (!smCalendarId || !smJobId || !smTitle.trim() || !smDate || !smTime) return;
     setCreatingSm(true);
@@ -1085,11 +1140,25 @@ export default function DashboardOverview() {
       const startTime = startDt.toISOString();
       const endTime = endDt.toISOString();
 
+      // Build contacts array from selected homeowner contacts + trade partners
+      const selectedContactsList: { ghlContactId: string; name: string }[] = [];
+      smJobContacts.forEach((c: any) => {
+        if (c.ghlContactId && smSelectedContacts[c.ghlContactId]) {
+          selectedContactsList.push({ ghlContactId: c.ghlContactId, name: c.name });
+        }
+      });
+      smAddedTrades.forEach((t: any) => {
+        if (t.id && smSelectedContacts[t.id]) {
+          selectedContactsList.push({ ghlContactId: t.id, name: t.name });
+        }
+      });
+
       const res = await fetch('/api/dashboard/schedule-meeting', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${getToken()}` },
         body: JSON.stringify({
           calendarId: smCalendarId,
+          contacts: selectedContactsList.length > 0 ? selectedContactsList : undefined,
           jobId: smJobId,
           title: smTitle.trim(),
           startTime,
@@ -1101,9 +1170,11 @@ export default function DashboardOverview() {
       });
       if (!res.ok) { const t = await res.text(); throw new Error(t); }
       const data = await res.json();
-      setSmSuccess(`Meeting created${data.jtTaskId ? ' in GHL + JT' : ' in GHL'}`);
+      const apptCount = data.ghlAppointments?.length || 1;
+      setSmSuccess(`Meeting created — ${apptCount} reminder${apptCount > 1 ? 's' : ''} sent${data.jtTaskId ? ' + JT task' : ''}`);
       // Reset form
       setSmTitle(''); setSmDate(''); setSmTime('09:00'); setSmNotes(''); setSmAddress('');
+      setSmAddedTrades([]); setSmJobContacts([]); setSmSelectedContacts({});
       // Refresh dashboard data
       window.dispatchEvent(new Event('refreshDashboard'));
       setTimeout(() => setSmSuccess(''), 4000);
@@ -1449,7 +1520,7 @@ export default function DashboardOverview() {
                     <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8, marginTop: 8 }}>
                       <div>
                         <label style={{ fontSize: 9, color: '#6a6058', fontWeight: 600, display: 'block', marginBottom: 3 }}>JOB</label>
-                        <select value={smJobId} onChange={e => setSmJobId(e.target.value)}
+                        <select value={smJobId} onChange={e => { setSmJobId(e.target.value); fetchJobContacts(e.target.value); }}
                           style={{ width: '100%', background: '#1a1a1a', border: '1px solid rgba(205,162,116,0.15)', borderRadius: 5, color: smJobId ? '#CDA274' : '#5a5550', fontSize: 11, padding: '7px 8px', outline: 'none', cursor: 'pointer', boxSizing: 'border-box' as const }}>
                           <option value="">Select job...</option>
                           {(overview?.data?.activeJobs || []).map((j: any) => (<option key={j.id} value={j.id}>#{j.number} {j.name}</option>))}
@@ -1464,6 +1535,72 @@ export default function DashboardOverview() {
                         </select>
                       </div>
                     </div>
+                    {/* CONTACTS — who gets reminders */}
+                    {smJobId && (
+                      <div style={{ marginTop: 8, background: 'rgba(205,162,116,0.04)', borderRadius: 6, padding: '8px 10px', border: '1px solid rgba(205,162,116,0.08)' }}>
+                        <label style={{ fontSize: 9, color: '#6a6058', fontWeight: 600, display: 'block', marginBottom: 6 }}>WHO GETS REMINDERS?</label>
+                        {smLoadingContacts ? (
+                          <div style={{ fontSize: 11, color: '#5a5550', display: 'flex', alignItems: 'center', gap: 6, padding: '4px 0' }}><Loader2 size={12} className="animate-spin" /> Loading contacts...</div>
+                        ) : smJobContacts.length === 0 ? (
+                          <div style={{ fontSize: 10, color: '#5a5550', padding: '2px 0' }}>No contacts found for this job</div>
+                        ) : (
+                          <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+                            {smJobContacts.map((c: any) => (
+                              <label key={c.jtContactId} style={{ display: 'flex', alignItems: 'center', gap: 8, cursor: c.ghlContactId ? 'pointer' : 'default', opacity: c.ghlContactId ? 1 : 0.5 }}>
+                                <input type="checkbox" checked={!!smSelectedContacts[c.ghlContactId]} disabled={!c.ghlContactId}
+                                  onChange={() => c.ghlContactId && toggleContact(c.ghlContactId)}
+                                  style={{ accentColor: '#CDA274', width: 14, height: 14, cursor: c.ghlContactId ? 'pointer' : 'default' }} />
+                                <div style={{ flex: 1, minWidth: 0 }}>
+                                  <div style={{ fontSize: 11, color: '#e8e0d8', fontWeight: 500 }}>{c.name}</div>
+                                  <div style={{ fontSize: 9, color: '#5a5550', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' as const }}>
+                                    {c.email || c.phone || 'No contact info'}{!c.ghlContactId && ' — not found in Loop'}
+                                  </div>
+                                </div>
+                              </label>
+                            ))}
+                          </div>
+                        )}
+                        {/* Added trade partners */}
+                        {smAddedTrades.length > 0 && (
+                          <div style={{ marginTop: 6, paddingTop: 6, borderTop: '1px solid rgba(205,162,116,0.08)' }}>
+                            {smAddedTrades.map((t: any) => (
+                              <label key={t.id} style={{ display: 'flex', alignItems: 'center', gap: 8, cursor: 'pointer', marginBottom: 4 }}>
+                                <input type="checkbox" checked={!!smSelectedContacts[t.id]}
+                                  onChange={() => toggleContact(t.id)}
+                                  style={{ accentColor: '#CDA274', width: 14, height: 14, cursor: 'pointer' }} />
+                                <div style={{ flex: 1, minWidth: 0 }}>
+                                  <div style={{ fontSize: 11, color: '#e8e0d8', fontWeight: 500 }}>{t.name} <span style={{ fontSize: 9, color: '#CDA274' }}>trade</span></div>
+                                  <div style={{ fontSize: 9, color: '#5a5550' }}>{t.email || t.phone || ''}</div>
+                                </div>
+                                <button onClick={(e) => { e.preventDefault(); removeTradePartner(t.id); }} style={{ background: 'none', border: 'none', cursor: 'pointer', padding: 2, lineHeight: 0 }}>
+                                  <X size={11} style={{ color: '#5a5550' }} />
+                                </button>
+                              </label>
+                            ))}
+                          </div>
+                        )}
+                        {/* Trade partner search */}
+                        <div style={{ marginTop: 6, position: 'relative' }}>
+                          <div style={{ display: 'flex', gap: 4 }}>
+                            <input type="text" placeholder="+ Add trade partner (search name)..." value={smTradeSearch}
+                              onChange={e => { setSmTradeSearch(e.target.value); if (e.target.value.length >= 2) searchTradePartner(e.target.value); else setSmTradeResults([]); }}
+                              style={{ flex: 1, background: '#1a1a1a', border: '1px solid rgba(205,162,116,0.12)', borderRadius: 5, color: '#e8e0d8', fontSize: 10, padding: '5px 8px', outline: 'none', boxSizing: 'border-box' as const }} />
+                            {smSearchingTrade && <Loader2 size={11} className="animate-spin" style={{ color: '#5a5550', position: 'absolute', right: 8, top: 7 }} />}
+                          </div>
+                          {smTradeResults.length > 0 && (
+                            <div style={{ position: 'absolute', left: 0, right: 0, top: '100%', zIndex: 10, background: '#242424', border: '1px solid rgba(205,162,116,0.15)', borderRadius: 6, marginTop: 2, maxHeight: 120, overflowY: 'auto' }}>
+                              {smTradeResults.map((r: any) => (
+                                <button key={r.id} onClick={() => addTradePartner(r)}
+                                  style={{ width: '100%', display: 'flex', flexDirection: 'column', padding: '6px 10px', background: 'none', border: 'none', borderBottom: '1px solid rgba(205,162,116,0.06)', cursor: 'pointer', textAlign: 'left' as const }}>
+                                  <span style={{ fontSize: 11, color: '#e8e0d8' }}>{r.name}</span>
+                                  <span style={{ fontSize: 9, color: '#5a5550' }}>{r.email || r.phone || ''}</span>
+                                </button>
+                              ))}
+                            </div>
+                          )}
+                        </div>
+                      </div>
+                    )}
                     <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 80px', gap: 8, marginTop: 8 }}>
                       <div>
                         <label style={{ fontSize: 9, color: '#6a6058', fontWeight: 600, display: 'block', marginBottom: 3 }}>DATE</label>

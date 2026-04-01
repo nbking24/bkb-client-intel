@@ -59,6 +59,7 @@ export async function POST(req: NextRequest) {
     const {
       calendarId,
       contactId,
+      contacts,
       jobId,
       title,
       startTime,
@@ -75,17 +76,24 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    // 0. Resolve GHL contact if not provided
-    let resolvedContactId = contactId;
-    if (!resolvedContactId || resolvedContactId === 'none') {
+    // Determine if we're using new contacts array or old single contactId
+    let contactsToUse: Array<{ ghlContactId: string; name: string }> = [];
+
+    if (Array.isArray(contacts) && contacts.length > 0) {
+      // New format: array of contacts
+      contactsToUse = contacts.filter((c: any) => c.ghlContactId && c.ghlContactId !== 'none');
+    } else if (contactId && contactId !== 'none') {
+      // Old format: single contactId (backward compatibility)
+      contactsToUse = [{ ghlContactId: contactId, name: '' }];
+    } else {
+      // Fallback: try to auto-resolve from job
       try {
-        // Get job details to find client name
         const jobDetails = await getJob(jobId);
         const clientName = jobDetails?.clientName || jobDetails?.name || '';
         if (clientName) {
-          const contacts = await searchContacts(clientName, 5);
-          if (contacts.length > 0) {
-            resolvedContactId = contacts[0].id;
+          const searchResults = await searchContacts(clientName, 5);
+          if (searchResults.length > 0) {
+            contactsToUse = [{ ghlContactId: searchResults[0].id, name: searchResults[0].name }];
           }
         }
       } catch (e: any) {
@@ -93,44 +101,65 @@ export async function POST(req: NextRequest) {
       }
     }
 
-    if (!resolvedContactId || resolvedContactId === 'none') {
+    if (contactsToUse.length === 0) {
       return NextResponse.json(
-        { error: 'Could not find a GHL contact for this job. Create the contact in Loop first.' },
+        { error: 'No valid GHL contacts provided. Create the contact in Loop first.' },
         { status: 400 }
       );
     }
 
-    // 1. Create appointment in GHL
-    const ghlAppointment = await createAppointment({
-      calendarId,
-      contactId: resolvedContactId,
-      startTime,
-      endTime,
-      title,
-      notes,
-      address,
-      status: 'confirmed',
-    });
+    // 1. Create appointments in GHL for each contact
+    const ghlAppointments: Array<{ contactName: string; ghlEventId: string }> = [];
+    const errors: string[] = [];
 
-    const ghlEventId = ghlAppointment.id;
-    if (!ghlEventId) {
+    for (const contact of contactsToUse) {
+      try {
+        const ghlAppointment = await createAppointment({
+          calendarId,
+          contactId: contact.ghlContactId,
+          startTime,
+          endTime,
+          title,
+          notes,
+          address,
+          status: 'confirmed',
+        });
+
+        const ghlEventId = ghlAppointment.id;
+        if (!ghlEventId) {
+          errors.push(`GHL appointment for ${contact.name || contact.ghlContactId} failed: no ID returned`);
+        } else {
+          ghlAppointments.push({
+            contactName: contact.name || contact.ghlContactId,
+            ghlEventId,
+          });
+        }
+      } catch (err: any) {
+        errors.push(`GHL appointment for ${contact.name || contact.ghlContactId} failed: ${err.message}`);
+      }
+    }
+
+    if (ghlAppointments.length === 0) {
       return NextResponse.json(
-        { error: 'GHL appointment creation failed: no ID returned' },
+        { error: 'Failed to create any GHL appointments', errors },
         { status: 500 }
       );
     }
 
-    // 2. Create schedule task in JT
+    // 2. Create ONE schedule task in JT (only once for all contacts)
     let jtTaskId: string | null = null;
     try {
       const startDate = new Date(startTime).toISOString().split('T')[0];
       const endDate = new Date(endTime).toISOString().split('T')[0];
       const formattedTaskName = `${GHL_TASK_PREFIX}${title}`;
 
+      // Build contact list for description
+      const contactList = ghlAppointments.map((apt) => apt.contactName).join(', ');
+
       const description = [
         `Meeting: ${title}`,
-        `Contact ID: ${contactId}`,
-        `GHL Event ID: ${ghlEventId}`,
+        `Contacts: ${contactList}`,
+        `GHL Event IDs: ${ghlAppointments.map((apt) => apt.ghlEventId).join(', ')}`,
         notes ? `Notes: ${notes}` : '',
         address ? `Location: ${address}` : '',
         `(Synced from GoHighLevel)`,
@@ -173,14 +202,19 @@ export async function POST(req: NextRequest) {
       jtTaskId = jtTask.id;
     } catch (jtErr: any) {
       console.warn('Failed to create JT task:', jtErr.message);
-      // Continue anyway - GHL appointment was created successfully
+      errors.push(`JT task creation failed: ${jtErr.message}`);
+      // Continue anyway - GHL appointments were created successfully
     }
 
     return NextResponse.json({
       success: true,
-      ghlEventId,
+      ghlAppointments,
       jtTaskId,
-      message: jtTaskId ? 'Meeting created in GHL and JT' : 'Meeting created in GHL (JT task creation failed)',
+      errors: errors.length > 0 ? errors : undefined,
+      message:
+        errors.length === 0
+          ? 'Meeting created in GHL and JT'
+          : `Meeting created with ${ghlAppointments.length} GHL appointment(s), but with some errors`,
     });
   } catch (err: any) {
     console.error('Create meeting failed:', err);
