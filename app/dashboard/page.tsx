@@ -1880,6 +1880,177 @@ export default function DashboardOverview() {
         })()}
       </div>
 
+      {/* ACTIVE JOBS LIST — shows when Active Jobs KPI is clicked */}
+      {showSection === 'activejobs' && (() => {
+        const jobs = overview?.data?.activeJobs || [];
+        return (
+          <div style={{ background: '#1e1e1e', border: '1px solid rgba(205,162,116,0.08)', borderRadius: 8, padding: '6px 10px', marginBottom: 6, maxHeight: 300, overflowY: 'auto' }}>
+            <div style={{ fontSize: 9, fontWeight: 600, color: '#CDA274', marginBottom: 4, letterSpacing: '0.04em' }}>Active Jobs</div>
+            {jobs.length === 0 && (
+              <p style={{ color: '#5a5550', fontSize: 11, textAlign: 'center', padding: 8 }}>No active jobs</p>
+            )}
+            {jobs.map((job: any) => (
+              <a
+                key={job.id}
+                href={`https://app.jobtread.com/jobs/${job.id}`}
+                target="_blank"
+                rel="noopener noreferrer"
+                style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '5px 0', borderBottom: '1px solid rgba(205,162,116,0.04)', textDecoration: 'none', cursor: 'pointer' }}
+              >
+                <Building2 size={12} style={{ color: '#CDA274', flexShrink: 0 }} />
+                <div style={{ flex: 1, minWidth: 0 }}>
+                  <p style={{ fontSize: 11, color: '#e8e0d8', margin: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{job.name}</p>
+                  <p style={{ fontSize: 9, color: '#6a6058', margin: 0 }}>#{job.number}</p>
+                </div>
+                <ExternalLink size={10} style={{ color: '#5a5550', flexShrink: 0 }} />
+              </a>
+            ))}
+          </div>
+        );
+      })()}
+
+      {/* PENDING CHANGE ORDERS â expandable from KPI card click */}
+      {showSection === 'changeorders' && (
+        <div style={{ background: '#1e1e1e', border: '1px solid rgba(245,158,11,0.15)', borderRadius: 8, padding: '8px 10px', marginBottom: isTouch ? 10 : 6, maxHeight: 340, overflowY: 'auto' }}>
+          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 6 }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
+              <FileWarning size={10} style={{ color: '#f59e0b' }} />
+              <span style={{ fontSize: 9, fontWeight: 600, color: '#f59e0b', letterSpacing: '0.04em' }}>
+                CHANGE ORDERS ({changeOrders.length})
+              </span>
+            </div>
+            <div style={{ display: 'flex', gap: 8 }}>
+              <span style={{ fontSize: 9, color: '#f59e0b' }}>{changeOrders.filter(co => co.status === 'pending').length} pending</span>
+              <span style={{ fontSize: 9, color: '#22c55e' }}>{changeOrders.filter(co => co.status === 'approved').length} approved</span>
+            </div>
+          </div>
+          {changeOrders.length === 0 ? (
+            <p style={{ color: '#5a5550', fontSize: 11, textAlign: 'center', padding: 8 }}>No change orders</p>
+          ) : (() => {
+            const jobGroups = new Map<string, typeof changeOrders>();
+            for (const co of changeOrders) {
+              const key = co.jobName;
+              if (!jobGroups.has(key)) jobGroups.set(key, []);
+              jobGroups.get(key)!.push(co);
+            }
+            return Array.from(jobGroups.entries()).map(([jobName, cos]) => {
+              const pendingCount = cos.filter(c => c.status === 'pending').length;
+              const approvedCount = cos.filter(c => c.status === 'approved').length;
+              return (
+                <div key={jobName} style={{ marginBottom: 6 }}>
+                  <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '4px 0', borderBottom: '1px solid rgba(205,162,116,0.08)' }}>
+                    <p style={{ fontSize: 11, fontWeight: 600, color: '#e8e0d8', margin: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', flex: 1 }}>
+                      {jobName.replace(/^#\d+\s*/, '')}
+                    </p>
+                    <div style={{ display: 'flex', gap: 6, flexShrink: 0 }}>
+                      {pendingCount > 0 && (
+                        <span style={{ fontSize: 9, color: '#f59e0b', background: 'rgba(245,158,11,0.1)', padding: '1px 5px', borderRadius: 3 }}>
+                          {pendingCount} pending
+                        </span>
+                      )}
+                      {approvedCount > 0 && (
+                        <span style={{ fontSize: 9, color: '#22c55e', background: 'rgba(34,197,94,0.1)', padding: '1px 5px', borderRadius: 3 }}>
+                          {approvedCount} approved
+                        </span>
+                      )}
+                    </div>
+                  </div>
+                  {cos.map((co, i) => (
+                    <div key={i} style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '3px 0 3px 12px' }}>
+                      {co.status === 'approved'
+                        ? <FileCheck size={10} style={{ color: '#22c55e', flexShrink: 0 }} />
+                        : <FileWarning size={10} style={{ color: '#f59e0b', flexShrink: 0 }} />
+                      }
+                      <p style={{ fontSize: 10, color: co.status === 'approved' ? '#6a6058' : '#e8e0d8', margin: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                        {co.coName}
+                      </p>
+                    </div>
+                  ))}
+                </div>
+              );
+            });
+          })()}
+        </div>
+      )}
+
+      {/* EXPANDED TASK LIST â shows when KPI card is clicked */}
+      {showSection && ['overdue', 'tasks'].includes(showSection) && (() => {
+        const sectionTasks = showSection === 'overdue' ? overdueTasks : tasks;
+        const sectionLabel = showSection === 'overdue' ? 'Overdue Tasks' : 'All Open Tasks';
+        const sectionColor = showSection === 'overdue' ? '#ef4444' : '#3b82f6';
+
+        return (
+          <div style={{ background: '#1e1e1e', border: '1px solid rgba(205,162,116,0.08)', borderRadius: 8, padding: '6px 10px', marginBottom: 6, maxHeight: 300, overflowY: 'auto' }}>
+            <div style={{ fontSize: 9, fontWeight: 600, color: sectionColor, marginBottom: 4, letterSpacing: '0.04em' }}>{sectionLabel}</div>
+            {sectionTasks.length === 0 && (
+              <p style={{ color: '#5a5550', fontSize: 11, textAlign: 'center', padding: 8 }}>None</p>
+            )}
+            {sectionTasks.slice(0, 20).map(task => {
+              const isCompleting = completingTaskId === task.id;
+              const isEditingDate = editingDateTaskId === task.id;
+              return (
+                <div key={task.id} style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '5px 0', borderBottom: '1px solid rgba(205,162,116,0.04)', opacity: isCompleting ? 0.4 : 1 }}>
+                  <button
+                    onClick={() => completeTask(task.id)}
+                    disabled={isCompleting}
+                    style={{ width: isTouch ? 24 : 18, height: isTouch ? 24 : 18, borderRadius: '50%', border: '1px solid rgba(205,162,116,0.25)', background: 'transparent', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}
+                  >
+                    {isCompleting
+                      ? <Loader2 size={10} className="animate-spin" style={{ color: '#8a8078' }} />
+                      : <CheckCircle2 size={10} style={{ color: '#22c55e' }} />
+                    }
+                  </button>
+                  <div style={{ flex: 1, minWidth: 0 }}>
+                    <p style={{ fontSize: 11, color: '#e8e0d8', margin: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{task.name}</p>
+                    <p style={{ fontSize: 9, color: '#6a6058', margin: 0 }}>{task.jobName} #{task.jobNumber}</p>
+                  </div>
+                  {isEditingDate ? (
+                    <input
+                      type="date"
+                      autoFocus
+                      defaultValue={task.endDate || ''}
+                      onChange={(e) => setPendingDate(e.target.value)}
+                      onBlur={() => {
+                        if (pendingDate && pendingDate !== task.endDate) updateTaskDate(task.id, pendingDate);
+                        else { setEditingDateTaskId(null); setPendingDate(''); }
+                      }}
+                      onKeyDown={(e) => {
+                        if (e.key === 'Enter' && pendingDate) updateTaskDate(task.id, pendingDate);
+                        if (e.key === 'Escape') { setEditingDateTaskId(null); setPendingDate(''); }
+                      }}
+                      style={{ fontSize: 10, padding: '2px 4px', borderRadius: 4, background: '#2a2a2a', border: '1px solid rgba(205,162,116,0.3)', color: '#e8e0d8', width: 110, flexShrink: 0 }}
+                    />
+                  ) : (
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 4, flexShrink: 0 }}>
+                      {task.daysUntilDue !== null && task.daysUntilDue < 0 && (
+                        <button
+                          onClick={() => {
+                            const next = new Date();
+                            next.setDate(next.getDate() + 1);
+                            updateTaskDate(task.id, next.toISOString().split('T')[0]);
+                          }}
+                          style={{ fontSize: 9, color: '#eab308', background: 'rgba(234,179,8,0.1)', padding: '1px 4px', borderRadius: 3, border: '1px solid rgba(234,179,8,0.2)', cursor: 'pointer' }}
+                        >
+                          +1d
+                        </button>
+                      )}
+                      <button
+                        onClick={() => { setEditingDateTaskId(task.id); setPendingDate(task.endDate || ''); }}
+                        style={{ fontSize: 10, color: task.urgency === 'urgent' ? '#ef4444' : '#6a6058', background: 'transparent', border: 'none', cursor: 'pointer', padding: 0 }}
+                      >
+                        {task.daysUntilDue !== null
+                          ? (task.daysUntilDue < 0 ? `${Math.abs(task.daysUntilDue)}d overdue` : task.daysUntilDue === 0 ? 'Today' : `${task.daysUntilDue}d`)
+                          : 'No date'}
+                      </button>
+                    </div>
+                  )}
+                </div>
+              );
+            })}
+          </div>
+        );
+      })()}
+
       {/* TODAY'S FOCUS — data-driven action card replacing AI Briefing */}
       {(() => {
         const todayDue = tasks.filter(t => t.daysUntilDue !== null && t.daysUntilDue === 0);
@@ -2262,177 +2433,6 @@ export default function DashboardOverview() {
           </div>
         </div>
       )}
-
-      {/* PENDING CHANGE ORDERS â expandable from KPI card click */}
-      {showSection === 'changeorders' && (
-        <div style={{ background: '#1e1e1e', border: '1px solid rgba(245,158,11,0.15)', borderRadius: 8, padding: '8px 10px', marginBottom: isTouch ? 10 : 6, maxHeight: 340, overflowY: 'auto' }}>
-          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 6 }}>
-            <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
-              <FileWarning size={10} style={{ color: '#f59e0b' }} />
-              <span style={{ fontSize: 9, fontWeight: 600, color: '#f59e0b', letterSpacing: '0.04em' }}>
-                CHANGE ORDERS ({changeOrders.length})
-              </span>
-            </div>
-            <div style={{ display: 'flex', gap: 8 }}>
-              <span style={{ fontSize: 9, color: '#f59e0b' }}>{changeOrders.filter(co => co.status === 'pending').length} pending</span>
-              <span style={{ fontSize: 9, color: '#22c55e' }}>{changeOrders.filter(co => co.status === 'approved').length} approved</span>
-            </div>
-          </div>
-          {changeOrders.length === 0 ? (
-            <p style={{ color: '#5a5550', fontSize: 11, textAlign: 'center', padding: 8 }}>No change orders</p>
-          ) : (() => {
-            const jobGroups = new Map<string, typeof changeOrders>();
-            for (const co of changeOrders) {
-              const key = co.jobName;
-              if (!jobGroups.has(key)) jobGroups.set(key, []);
-              jobGroups.get(key)!.push(co);
-            }
-            return Array.from(jobGroups.entries()).map(([jobName, cos]) => {
-              const pendingCount = cos.filter(c => c.status === 'pending').length;
-              const approvedCount = cos.filter(c => c.status === 'approved').length;
-              return (
-                <div key={jobName} style={{ marginBottom: 6 }}>
-                  <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '4px 0', borderBottom: '1px solid rgba(205,162,116,0.08)' }}>
-                    <p style={{ fontSize: 11, fontWeight: 600, color: '#e8e0d8', margin: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', flex: 1 }}>
-                      {jobName.replace(/^#\d+\s*/, '')}
-                    </p>
-                    <div style={{ display: 'flex', gap: 6, flexShrink: 0 }}>
-                      {pendingCount > 0 && (
-                        <span style={{ fontSize: 9, color: '#f59e0b', background: 'rgba(245,158,11,0.1)', padding: '1px 5px', borderRadius: 3 }}>
-                          {pendingCount} pending
-                        </span>
-                      )}
-                      {approvedCount > 0 && (
-                        <span style={{ fontSize: 9, color: '#22c55e', background: 'rgba(34,197,94,0.1)', padding: '1px 5px', borderRadius: 3 }}>
-                          {approvedCount} approved
-                        </span>
-                      )}
-                    </div>
-                  </div>
-                  {cos.map((co, i) => (
-                    <div key={i} style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '3px 0 3px 12px' }}>
-                      {co.status === 'approved'
-                        ? <FileCheck size={10} style={{ color: '#22c55e', flexShrink: 0 }} />
-                        : <FileWarning size={10} style={{ color: '#f59e0b', flexShrink: 0 }} />
-                      }
-                      <p style={{ fontSize: 10, color: co.status === 'approved' ? '#6a6058' : '#e8e0d8', margin: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                        {co.coName}
-                      </p>
-                    </div>
-                  ))}
-                </div>
-              );
-            });
-          })()}
-        </div>
-      )}
-
-      {/* ACTIVE JOBS LIST — shows when Active Jobs KPI is clicked */}
-      {showSection === 'activejobs' && (() => {
-        const jobs = overview?.data?.activeJobs || [];
-        return (
-          <div style={{ background: '#1e1e1e', border: '1px solid rgba(205,162,116,0.08)', borderRadius: 8, padding: '6px 10px', marginBottom: 6, maxHeight: 300, overflowY: 'auto' }}>
-            <div style={{ fontSize: 9, fontWeight: 600, color: '#CDA274', marginBottom: 4, letterSpacing: '0.04em' }}>Active Jobs</div>
-            {jobs.length === 0 && (
-              <p style={{ color: '#5a5550', fontSize: 11, textAlign: 'center', padding: 8 }}>No active jobs</p>
-            )}
-            {jobs.map((job: any) => (
-              <a
-                key={job.id}
-                href={`https://app.jobtread.com/jobs/${job.id}`}
-                target="_blank"
-                rel="noopener noreferrer"
-                style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '5px 0', borderBottom: '1px solid rgba(205,162,116,0.04)', textDecoration: 'none', cursor: 'pointer' }}
-              >
-                <Building2 size={12} style={{ color: '#CDA274', flexShrink: 0 }} />
-                <div style={{ flex: 1, minWidth: 0 }}>
-                  <p style={{ fontSize: 11, color: '#e8e0d8', margin: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{job.name}</p>
-                  <p style={{ fontSize: 9, color: '#6a6058', margin: 0 }}>#{job.number}</p>
-                </div>
-                <ExternalLink size={10} style={{ color: '#5a5550', flexShrink: 0 }} />
-              </a>
-            ))}
-          </div>
-        );
-      })()}
-
-      {/* EXPANDED TASK LIST â shows when KPI card is clicked */}
-      {showSection && ['overdue', 'tasks'].includes(showSection) && (() => {
-        const sectionTasks = showSection === 'overdue' ? overdueTasks : tasks;
-        const sectionLabel = showSection === 'overdue' ? 'Overdue Tasks' : 'All Open Tasks';
-        const sectionColor = showSection === 'overdue' ? '#ef4444' : '#3b82f6';
-
-        return (
-          <div style={{ background: '#1e1e1e', border: '1px solid rgba(205,162,116,0.08)', borderRadius: 8, padding: '6px 10px', marginBottom: 6, maxHeight: 300, overflowY: 'auto' }}>
-            <div style={{ fontSize: 9, fontWeight: 600, color: sectionColor, marginBottom: 4, letterSpacing: '0.04em' }}>{sectionLabel}</div>
-            {sectionTasks.length === 0 && (
-              <p style={{ color: '#5a5550', fontSize: 11, textAlign: 'center', padding: 8 }}>None</p>
-            )}
-            {sectionTasks.slice(0, 20).map(task => {
-              const isCompleting = completingTaskId === task.id;
-              const isEditingDate = editingDateTaskId === task.id;
-              return (
-                <div key={task.id} style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '5px 0', borderBottom: '1px solid rgba(205,162,116,0.04)', opacity: isCompleting ? 0.4 : 1 }}>
-                  <button
-                    onClick={() => completeTask(task.id)}
-                    disabled={isCompleting}
-                    style={{ width: isTouch ? 24 : 18, height: isTouch ? 24 : 18, borderRadius: '50%', border: '1px solid rgba(205,162,116,0.25)', background: 'transparent', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}
-                  >
-                    {isCompleting
-                      ? <Loader2 size={10} className="animate-spin" style={{ color: '#8a8078' }} />
-                      : <CheckCircle2 size={10} style={{ color: '#22c55e' }} />
-                    }
-                  </button>
-                  <div style={{ flex: 1, minWidth: 0 }}>
-                    <p style={{ fontSize: 11, color: '#e8e0d8', margin: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{task.name}</p>
-                    <p style={{ fontSize: 9, color: '#6a6058', margin: 0 }}>{task.jobName} #{task.jobNumber}</p>
-                  </div>
-                  {isEditingDate ? (
-                    <input
-                      type="date"
-                      autoFocus
-                      defaultValue={task.endDate || ''}
-                      onChange={(e) => setPendingDate(e.target.value)}
-                      onBlur={() => {
-                        if (pendingDate && pendingDate !== task.endDate) updateTaskDate(task.id, pendingDate);
-                        else { setEditingDateTaskId(null); setPendingDate(''); }
-                      }}
-                      onKeyDown={(e) => {
-                        if (e.key === 'Enter' && pendingDate) updateTaskDate(task.id, pendingDate);
-                        if (e.key === 'Escape') { setEditingDateTaskId(null); setPendingDate(''); }
-                      }}
-                      style={{ fontSize: 10, padding: '2px 4px', borderRadius: 4, background: '#2a2a2a', border: '1px solid rgba(205,162,116,0.3)', color: '#e8e0d8', width: 110, flexShrink: 0 }}
-                    />
-                  ) : (
-                    <div style={{ display: 'flex', alignItems: 'center', gap: 4, flexShrink: 0 }}>
-                      {task.daysUntilDue !== null && task.daysUntilDue < 0 && (
-                        <button
-                          onClick={() => {
-                            const next = new Date();
-                            next.setDate(next.getDate() + 1);
-                            updateTaskDate(task.id, next.toISOString().split('T')[0]);
-                          }}
-                          style={{ fontSize: 9, color: '#eab308', background: 'rgba(234,179,8,0.1)', padding: '1px 4px', borderRadius: 3, border: '1px solid rgba(234,179,8,0.2)', cursor: 'pointer' }}
-                        >
-                          +1d
-                        </button>
-                      )}
-                      <button
-                        onClick={() => { setEditingDateTaskId(task.id); setPendingDate(task.endDate || ''); }}
-                        style={{ fontSize: 10, color: task.urgency === 'urgent' ? '#ef4444' : '#6a6058', background: 'transparent', border: 'none', cursor: 'pointer', padding: 0 }}
-                      >
-                        {task.daysUntilDue !== null
-                          ? (task.daysUntilDue < 0 ? `${Math.abs(task.daysUntilDue)}d overdue` : task.daysUntilDue === 0 ? 'Today' : `${task.daysUntilDue}d`)
-                          : 'No date'}
-                      </button>
-                    </div>
-                  )}
-                </div>
-              );
-            })}
-          </div>
-        );
-      })()}
 
       {/* TWO-WEEK TASK CALENDAR */}
       {weeks.map((week, wi) => (
