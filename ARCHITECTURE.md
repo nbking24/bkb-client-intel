@@ -1013,12 +1013,45 @@ The Overview Dashboard (`/dashboard`) is Terri's primary workspace — a desktop
 - Task appears immediately in the UI after creation (optimistic update)
 - **9 BKB Standard Phases**: Admin Tasks, Conceptual Design, Design Development, Contract, Preconstruction, In Production, Inspections, Punch List, Project Completion
 
+#### Quick Add Panel (Tabbed)
+- **Toggle button** at top of dashboard ("+ QUICK ADD") — opens an inline panel below the button row
+- **Two tabs**: "New Task" and "Waiting On" — tab selector bar with gold underline on active tab
+- **New Task tab**: Job selector dropdown, task name input, phase/category dropdown, due date, assignee — creates standard tasks
+- **Waiting On tab**: Form appears immediately on tab select (no intermediate button). Fields: task description, job selector, due date, assignee (team member Terri is waiting on), optional notes
+  - Creates a task with `⏳` prefix in JobTread under the "Admin Tasks" phase, assigned to both Terri and the person she's waiting on
+  - Cancel button closes entire panel (not just the form)
+- **Panel state**: `showWaitingOnPanel`, `panelTab` ('waitingOn' | 'newTask'), `showWaitingOnForm`
+
+#### Waiting On Ribbon (Persistent, Collapsible)
+- **Purpose**: Solves Terri's #1 frustration — "open items that fall through the cracks." Provides persistent visibility of items she's waiting on (e.g., "Asked Nathan about Kontz final invoice") so nothing gets forgotten.
+- **Position**: Below AI Briefing, above the 2-week calendar view
+- **Header**: Clickable button showing hourglass icon + "WAITING ON (N)" count — clicking collapses/expands the task list. Chevron indicator (up = expanded, down = collapsed).
+- **Detection**: Tasks with `⏳` prefix (handles both proper Unicode U+23F3 and garbled UTF-8 encoding `\u00e2\u008f\u00b3` via `isWaitingOn()` and `stripWoPrefix()` helper functions)
+- **Task rows** (up to 5 shown, "View all" link if >5 opens Quick Add panel):
+  - **Circle checkmark button** (left) — marks task complete via `PATCH /api/dashboard/waiting-on` (sets progress=1)
+  - **Task label** — displays task name with `⏳` prefix stripped
+  - **Job name** — shown in muted text
+  - **Date display / edit** (right) — shows aging label ("4d late", "today", "3d") with calendar icon. Clicking opens inline date picker with save/cancel. Updates via `PATCH /api/dashboard/waiting-on`.
+- **Aging colors** (based on days until/past due date):
+  - Green: future (0+ days remaining)
+  - Yellow: 0-3 days overdue
+  - Orange: 3-7 days overdue
+  - Red: 7+ days overdue
+  - Each row gets a tinted background matching its aging color
+- **Sorting**: Tasks sorted by due date urgency (most overdue first)
+- **Refresh**: After date edit or mark complete, dispatches `refreshDashboard` window event which triggers `fetchOverview(true)` to reload all dashboard data
+- **Hidden when empty**: If no `⏳` tasks exist, ribbon is not rendered
+
 ### API Endpoints
 | Endpoint | Method | Purpose |
 |---|---|---|
 | `/api/dashboard/overview` | GET | Dashboard overview data + AI analysis (cached in Supabase) |
 | `/api/dashboard/tasks` | PATCH | Mark task complete or update due date (`{ taskId, action, endDate? }`) |
 | `/api/dashboard/create-task` | POST | Create task under a phase (`{ jobId, taskName, phaseName, endDate? }`) — looks up phase by name, creates group if missing |
+| `/api/dashboard/waiting-on` | POST | Create a Waiting On task (`{ jobId, taskName, endDate, assigneeMembershipId, terriMembershipId, description? }`) — creates `⏳`-prefixed task under Admin Tasks phase, assigns both Terri and assignee, posts description as initial comment |
+| `/api/dashboard/waiting-on` | GET | Fetch comments for a Waiting On task (`?taskId=xxx`) |
+| `/api/dashboard/waiting-on` | PUT | Post a comment on a Waiting On task (`{ taskId, message, authorName? }`) |
+| `/api/dashboard/waiting-on` | PATCH | Update a Waiting On task (`{ taskId, endDate?, markComplete? }`) — updates due date and/or sets progress to 1.0 |
 | `/api/chat` | POST | Inline Ask Agent chat (routes to Know-it-All for non-field users) |
 
 ### Key Implementation Details
@@ -1027,20 +1060,45 @@ The Overview Dashboard (`/dashboard`) is Terri's primary workspace — a desktop
 - **Task-by-date mapping**: Also computed inline for the same hooks constraint reason
 - **Job color mapping**: Same 12-color PALETTE and `jobColor()` hash function as field dashboard
 - **Removed sections**: Do Now, Schedule, Email/Inbox, Action Items, Needs Attention, Tomorrow's Preview, Quick Navigation links — replaced with calendar + task list + Ask Agent
-- **Helper functions**: `getToken()` (localStorage auth), `getAuthToken()` (PIN-based for chat API), `getGreeting()` (time-of-day greeting), `timeAgo()` (relative timestamps), `recalcUrgency()` (recompute urgency after date change), `jtScheduleUrl()` (JobTread schedule deep link)
+- **UTF-8 encoding workaround**: The `⏳` emoji (U+23F3) gets garbled to `\u00e2\u008f\u00b3` (three Latin-1 bytes) when stored/retrieved through the Supabase cache + JobTread API pipeline. Helper functions `isWaitingOn(name)` and `stripWoPrefix(name)` check for both encodings. These are used in 5 locations across the dashboard.
+- **refreshDashboard event**: A custom window event dispatched by inline task actions (date edit, mark complete) to trigger a full data refresh without requiring prop drilling or state lifting
+- **Helper functions**: `getToken()` (localStorage auth), `getAuthToken()` (PIN-based for chat API), `getGreeting()` (time-of-day greeting), `timeAgo()` (relative timestamps), `recalcUrgency()` (recompute urgency after date change), `jtScheduleUrl()` (JobTread schedule deep link), `isWaitingOn()` (detect ⏳ prefix with dual encoding), `stripWoPrefix()` (remove ⏳ prefix with dual encoding)
 
 ### Files
 | File | Purpose |
 |---|---|
-| `app/dashboard/page.tsx` | Main overview dashboard (Terri) — all UI components including InlineAskAgent, RenderContent |
+| `app/dashboard/page.tsx` | Main overview dashboard (Terri) — all UI components including InlineAskAgent, RenderContent, Quick Add panel, Waiting On ribbon |
 | `app/api/dashboard/create-task/route.ts` | Create task under a phase for any job |
 | `app/api/dashboard/tasks/route.ts` | Task list + PATCH for complete/update |
+| `app/api/dashboard/waiting-on/route.ts` | Waiting On CRUD: create task (POST), fetch comments (GET), post comment (PUT), update date/complete (PATCH) |
 | `app/api/dashboard/overview/route.ts` | Dashboard overview data aggregation + AI analysis |
 | `app/lib/dashboard-data.ts` | Data aggregation (JT tasks with jobId, comments, Gmail, Calendar) |
 
 ---
 
 ## 18. Changelog
+
+### 2026-04-01 — Waiting On Ribbon: Collapsible + Inline Actions
+
+- **Made Waiting On ribbon collapsible** — clicking the "WAITING ON (N)" header toggles task list visibility. Chevron indicator shows expand/collapse state. Count always visible even when collapsed.
+- **Added inline mark-complete** — each ribbon task has a circle checkmark button that marks the task complete (progress=1) via `PATCH /api/dashboard/waiting-on`
+- **Added inline date editing** — clicking the date/aging label on a ribbon task opens an inline date picker. Save updates the due date via `PATCH /api/dashboard/waiting-on`. Cancel dismisses.
+- **Added PATCH endpoint** to `/api/dashboard/waiting-on` — handles both `endDate` updates and `markComplete` (progress=1). Uses existing `updateTask()` and `updateTaskProgress()` from JT lib.
+- **Removed waiting count from Quick Add button** — button now just shows "+ QUICK ADD" since the Waiting On ribbon handles count visibility
+- **Added `refreshDashboard` event listener** — inline actions (date edit, mark complete) dispatch a window event that triggers `fetchOverview(true)` to refresh all dashboard data
+- **Files changed**: `app/dashboard/page.tsx`, `app/api/dashboard/waiting-on/route.ts`
+- **Commits**: `3219888` (UX: show form immediately), `f988957` (fix garbled UTF-8 encoding), `953f316` (collapsible ribbon + inline actions)
+
+### 2026-03-31 — Waiting On Tracking Feature (Quick Add + Ribbon)
+
+- **Added Quick Add panel** with tabbed interface ("New Task" / "Waiting On") — toggle button at top of dashboard
+- **Added Waiting On tab** in Quick Add — form to create tracking tasks: what you're waiting on, which job, due date, who you're waiting on, optional description
+- **Created `POST /api/dashboard/waiting-on`** — creates task with `⏳` prefix under "Admin Tasks" phase, assigns both Terri and the assignee, posts description as initial comment
+- **Added persistent Waiting On ribbon** below AI Briefing — shows up to 5 `⏳`-prefixed tasks with aging colors (green/yellow/orange/red based on due date). "View all" link if >5 items.
+- **Fixed UTF-8 encoding bug** — `⏳` emoji (U+23F3) stored as garbled bytes `\u00e2\u008f\u00b3` through Supabase/JT pipeline. Added `isWaitingOn()` and `stripWoPrefix()` helpers that handle both encodings across 5 filter locations.
+- **UX: Removed extra click in Waiting On tab** — form now appears immediately when tab is selected (was requiring intermediate button click)
+- **Files changed**: `app/dashboard/page.tsx`, `app/api/dashboard/waiting-on/route.ts` (new)
+- **Key IDs**: Terri's user ID: `22P5SpJkzZSb`, membership ID: `22P5SpJkype2`
 
 ### 2026-03-31 — Overview Dashboard Redesign (Terri)
 - **Removed** from overview dashboard: Do Now block, Schedule block, Email/Inbox block, Action Items, Needs Attention, Tomorrow's Preview, Quick Navigation links at bottom
