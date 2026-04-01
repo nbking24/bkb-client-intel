@@ -1787,8 +1787,11 @@ export default function DashboardOverview() {
 
       {/* KPI GRID — Terri-specific: Active Jobs, Unread Emails, Due Today, Overdue, Pending COs */}
       <div style={{ display: 'grid', gridTemplateColumns: isMobile ? 'repeat(3, 1fr)' : 'repeat(5, 1fr)', gap: isTouch ? 6 : 4, marginBottom: isTouch ? 10 : 6 }}>
-        {/* KPI 1: Active Jobs */}
-        <div style={{ background: '#1e1e1e', borderRadius: 6, padding: '6px 7px', borderLeft: '3px solid #CDA274' }}>
+        {/* KPI 1: Active Jobs — clickable */}
+        <button
+          onClick={() => setShowSection(showSection === 'activejobs' ? false : 'activejobs')}
+          style={{ background: showSection === 'activejobs' ? 'rgba(205,162,116,0.1)' : '#1e1e1e', borderRadius: 6, padding: '6px 7px', border: 'none', borderLeftWidth: 3, borderLeftStyle: 'solid', borderLeftColor: '#CDA274', cursor: 'pointer', textAlign: 'left' }}
+        >
           <div style={{ display: 'flex', alignItems: 'center', gap: 3, marginBottom: 3 }}>
             <Building2 size={9} style={{ color: '#CDA274' }} />
             <span style={{ fontSize: 7, color: '#5a5550', fontWeight: 600, letterSpacing: '0.04em' }}>ACTIVE JOBS</span>
@@ -1796,7 +1799,7 @@ export default function DashboardOverview() {
           <div style={{ fontSize: 18, fontWeight: 700, color: '#CDA274', lineHeight: 1 }}>
             {stats?.activeJobCount || 0}
           </div>
-        </div>
+        </button>
 
         {/* KPI 2: Unread Emails — requires Terri Gmail auth (brett@brettkingbuilder.com) */}
         {(() => {
@@ -2323,6 +2326,35 @@ export default function DashboardOverview() {
           })()}
         </div>
       )}
+
+      {/* ACTIVE JOBS LIST — shows when Active Jobs KPI is clicked */}
+      {showSection === 'activejobs' && (() => {
+        const jobs = overview?.data?.activeJobs || [];
+        return (
+          <div style={{ background: '#1e1e1e', border: '1px solid rgba(205,162,116,0.08)', borderRadius: 8, padding: '6px 10px', marginBottom: 6, maxHeight: 300, overflowY: 'auto' }}>
+            <div style={{ fontSize: 9, fontWeight: 600, color: '#CDA274', marginBottom: 4, letterSpacing: '0.04em' }}>Active Jobs</div>
+            {jobs.length === 0 && (
+              <p style={{ color: '#5a5550', fontSize: 11, textAlign: 'center', padding: 8 }}>No active jobs</p>
+            )}
+            {jobs.map((job: any) => (
+              <a
+                key={job.id}
+                href={`https://app.jobtread.com/jobs/${job.id}`}
+                target="_blank"
+                rel="noopener noreferrer"
+                style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '5px 0', borderBottom: '1px solid rgba(205,162,116,0.04)', textDecoration: 'none', cursor: 'pointer' }}
+              >
+                <Building2 size={12} style={{ color: '#CDA274', flexShrink: 0 }} />
+                <div style={{ flex: 1, minWidth: 0 }}>
+                  <p style={{ fontSize: 11, color: '#e8e0d8', margin: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{job.name}</p>
+                  <p style={{ fontSize: 9, color: '#6a6058', margin: 0 }}>#{job.number}</p>
+                </div>
+                <ExternalLink size={10} style={{ color: '#5a5550', flexShrink: 0 }} />
+              </a>
+            ))}
+          </div>
+        );
+      })()}
 
       {/* EXPANDED TASK LIST â shows when KPI card is clicked */}
       {showSection && ['overdue', 'tasks'].includes(showSection) && (() => {
