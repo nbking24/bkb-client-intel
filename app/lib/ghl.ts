@@ -217,7 +217,7 @@ export async function createAppointment(params: {
     contactId: params.contactId,
     startTime: params.startTime,
     endTime: params.endTime,
-    status: params.status || 'confirmed',
+    appointmentStatus: params.status || 'confirmed',
   };
   if (params.title) body.title = params.title;
   if (params.notes) body.notes = params.notes;
