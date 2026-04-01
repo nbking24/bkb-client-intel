@@ -1,10 +1,11 @@
 // ============================================================
-// Waiting On â Create & manage â³ tracking tasks
+// Waiting On - Create & manage tracking tasks
 //
-// POST â Create a new Waiting On task (â³ prefix, Admin Tasks phase,
-//         multi-assignee, optional initial comment)
-// GET  â Fetch comments for a specific task (pass ?taskId=xxx)
-// PUT  â Post a new comment on a Waiting On task
+// POST  - Create a new Waiting On task (prefix, Admin Tasks phase,
+//          multi-assignee, optional initial comment)
+// GET   - Fetch comments for a specific task (pass ?taskId=xxx)
+// PUT   - Post a new comment on a Waiting On task
+// PATCH - Update a Waiting On task (date change or mark complete)
 // ============================================================
 
 import { NextRequest, NextResponse } from 'next/server';
@@ -14,12 +15,14 @@ import {
   createPhaseTask,
   createComment,
   getCommentsForTarget,
+  updateTask,
+  updateTaskProgress,
 } from '@/app/lib/jobtread';
 
 export const runtime = 'nodejs';
 export const maxDuration = 30;
 
-// ââ POST: Create a Waiting On task ââââââââââââââââââââââââââââ
+// -- POST: Create a Waiting On task --------------------------
 export async function POST(req: NextRequest) {
   try {
     const {
@@ -61,15 +64,13 @@ export async function POST(req: NextRequest) {
       phaseGroupId = created.id;
     }
 
-    // 2. Build formatted task name: â³ [Assignee]: [Task name]
-    // The assignee label is passed from the frontend since it knows the team names
-    const formattedName = `â³ ${taskName}`;
+    // 2. Build formatted task name
+    const formattedName = `\u23F3 ${taskName}`;
 
     // 3. Default due date: 3 business days from now if not provided
     const dueDate = endDate || getBusinessDaysFromNow(3);
 
-    // 4. Create the task â assigned to both Terri and the person she's waiting on
-    // De-dupe in case Terri assigns to herself
+    // 4. Create the task - assigned to both Terri and the person she's waiting on
     const uniqueIds = terriMembershipId === assigneeMembershipId
       ? [terriMembershipId]
       : [terriMembershipId, assigneeMembershipId];
@@ -94,7 +95,6 @@ export async function POST(req: NextRequest) {
         });
       } catch (commentErr: any) {
         console.warn('Could not add initial comment:', commentErr.message);
-        // Non-fatal â task was still created
       }
     }
 
@@ -113,7 +113,7 @@ export async function POST(req: NextRequest) {
   }
 }
 
-// ââ GET: Fetch comments for a task ââââââââââââââââââââââââââââ
+// -- GET: Fetch comments for a task --------------------------
 export async function GET(req: NextRequest) {
   try {
     const taskId = req.nextUrl.searchParams.get('taskId');
@@ -131,7 +131,7 @@ export async function GET(req: NextRequest) {
   }
 }
 
-// ââ PUT: Post a comment on a task âââââââââââââââââââââââââââââ
+// -- PUT: Post a comment on a task ---------------------------
 export async function PUT(req: NextRequest) {
   try {
     const { taskId, message, authorName } = await req.json();
@@ -154,7 +154,39 @@ export async function PUT(req: NextRequest) {
   }
 }
 
-// ââ Helpers âââââââââââââââââââââââââââââââââââââââââââââââââââ
+// -- PATCH: Update a Waiting On task (date or mark complete) --
+export async function PATCH(req: NextRequest) {
+  try {
+    const { taskId, endDate, markComplete } = await req.json();
+    if (!taskId) {
+      return NextResponse.json({ error: 'taskId is required' }, { status: 400 });
+    }
+
+    // Update end date if provided
+    if (endDate) {
+      await updateTask(taskId, { endDate });
+    }
+
+    // Mark task as complete (progress = 1)
+    if (markComplete) {
+      await updateTaskProgress(taskId, 1);
+    }
+
+    return NextResponse.json({
+      success: true,
+      taskId,
+      updated: { endDate: endDate || undefined, markComplete: markComplete || false },
+    });
+  } catch (err: any) {
+    console.error('Update waiting-on task failed:', err);
+    return NextResponse.json(
+      { error: err.message || 'Failed to update waiting-on task' },
+      { status: 500 }
+    );
+  }
+}
+
+// -- Helpers -------------------------------------------------
 
 function flattenTasks(tasks: any[]): any[] {
   const result: any[] = [];

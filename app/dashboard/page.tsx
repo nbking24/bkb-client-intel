@@ -725,6 +725,10 @@ export default function DashboardOverview() {
   const [woNewComment, setWoNewComment] = useState('');
   const [postingWoComment, setPostingWoComment] = useState(false);
   const [completingWoId, setCompletingWoId] = useState<string | null>(null);
+  const [woRibbonCollapsed, setWoRibbonCollapsed] = useState(false);
+  const [editingWoDateId, setEditingWoDateId] = useState<string | null>(null);
+  const [editingWoDateVal, setEditingWoDateVal] = useState('');
+  const [savingWoDate, setSavingWoDate] = useState(false);
 
   const TEAM_ASSIGNEES = [
     { id: '22P5SRwhLaYf', name: 'Nathan King', label: 'Nathan' },
@@ -1096,6 +1100,14 @@ export default function DashboardOverview() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [auth.userId]);
 
+  // Listen for refreshDashboard events (from inline task actions)
+  useEffect(() => {
+    const handler = () => fetchOverview(true);
+    window.addEventListener('refreshDashboard', handler);
+    return () => window.removeEventListener('refreshDashboard', handler);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
   if (!auth.isAuthenticated || !auth.userId) {
     return <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '80px 0' }}>
       <Loader2 size={20} className="animate-spin" style={{ color: '#CDA274' }} />
@@ -1189,7 +1201,7 @@ export default function DashboardOverview() {
             padding: '7px 10px', cursor: 'pointer' }}>
           <span style={{ fontSize: 13, color: '#CDA274' }}>+</span>
           <span style={{ fontSize: 9, fontWeight: 600, color: '#CDA274', letterSpacing: '0.04em' }}>
-            {(() => { const wc = tasks.filter(t => isWaitingOn(t.name)).length; return wc > 0 ? `QUICK ADD (${wc} waiting)` : 'QUICK ADD'; })()}
+            QUICK ADD
           </span>
         </button>
         <button onClick={() => { setShowAgentPanel(!showAgentPanel); setShowWaitingOnPanel(false); }}
@@ -1507,7 +1519,7 @@ export default function DashboardOverview() {
       )}
 
 
-      {/* WAITING ON — persistent strip */}
+      {/* WAITING ON — persistent collapsible strip */}
       {(() => {
         const woItems = tasks.filter(t => isWaitingOn(t.name));
         if (woItems.length === 0) return null;
@@ -1522,32 +1534,112 @@ export default function DashboardOverview() {
           if (da === null && db === null) return 0; if (da === null) return 1; if (db === null) return -1;
           return da - db;
         });
-        const top5 = sorted.slice(0, 5);
+
+        async function handleWoDateSave(taskId: string) {
+          if (!editingWoDateVal) return;
+          setSavingWoDate(true);
+          try {
+            const res = await fetch('/api/dashboard/waiting-on', {
+              method: 'PATCH',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ taskId, endDate: editingWoDateVal }),
+            });
+            if (res.ok) {
+              setEditingWoDateId(null);
+              setEditingWoDateVal('');
+              // Refresh data
+              window.dispatchEvent(new Event('refreshDashboard'));
+            }
+          } catch (e) { console.error('Date update failed', e); }
+          setSavingWoDate(false);
+        }
+
+        async function handleWoComplete(taskId: string) {
+          setCompletingWoId(taskId);
+          try {
+            const res = await fetch('/api/dashboard/waiting-on', {
+              method: 'PATCH',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ taskId, markComplete: true }),
+            });
+            if (res.ok) {
+              window.dispatchEvent(new Event('refreshDashboard'));
+            }
+          } catch (e) { console.error('Complete failed', e); }
+          setCompletingWoId(null);
+        }
+
         return (
           <div style={{ background: 'rgba(234,179,8,0.06)', border: '1px solid rgba(234,179,8,0.15)', borderRadius: 8, padding: '8px 10px', marginBottom: isTouch ? 10 : 6 }}>
-            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 6 }}>
+            {/* Header row — clickable to collapse/expand */}
+            <button
+              onClick={() => setWoRibbonCollapsed(!woRibbonCollapsed)}
+              style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', width: '100%', background: 'none', border: 'none', cursor: 'pointer', padding: 0, marginBottom: woRibbonCollapsed ? 0 : 6 }}
+            >
               <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
                 <Hourglass size={10} style={{ color: '#eab308' }} />
                 <span style={{ fontSize: 9, fontWeight: 600, color: '#eab308', letterSpacing: '0.04em' }}>
                   WAITING ON ({woItems.length})
                 </span>
               </div>
-              {woItems.length > 5 && (
-                <button onClick={() => { setShowWaitingOnPanel(true); }} style={{ background: 'none', border: 'none', cursor: 'pointer', fontSize: 9, color: '#CDA274', padding: 0 }}>
-                  View all <ChevronRight size={9} style={{ display: 'inline', verticalAlign: 'middle' }} />
-                </button>
-              )}
-            </div>
-            {top5.map((t, i) => {
+              <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                {woItems.length > 5 && !woRibbonCollapsed && (
+                  <span onClick={(e) => { e.stopPropagation(); setShowWaitingOnPanel(true); }} style={{ fontSize: 9, color: '#CDA274', cursor: 'pointer' }}>
+                    View all <ChevronRight size={9} style={{ display: 'inline', verticalAlign: 'middle' }} />
+                  </span>
+                )}
+                {woRibbonCollapsed ? <ChevronDown size={12} style={{ color: '#eab308' }} /> : <ChevronUp size={12} style={{ color: '#eab308' }} />}
+              </div>
+            </button>
+
+            {/* Collapsible task list */}
+            {!woRibbonCollapsed && sorted.slice(0, 5).map((t, i) => {
               const d = agingDays(t);
               const label = stripWoPrefix(t.name);
               const jobName = t.jobName || '';
+              const isEditingDate = editingWoDateId === t.id;
+              const isCompleting = completingWoId === t.id;
               return (
-                <div key={t.id || i} style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '4px 6px', borderRadius: 6, background: agingBg(d), marginBottom: 2 }}>
-                  <div style={{ width: 6, height: 6, borderRadius: '50%', background: agingColor(d), flexShrink: 0 }} />
+                <div key={t.id || i} style={{ display: 'flex', alignItems: 'center', gap: 4, padding: '4px 6px', borderRadius: 6, background: agingBg(d), marginBottom: 2 }}>
+                  {/* Complete button */}
+                  <button
+                    onClick={() => handleWoComplete(t.id)}
+                    disabled={isCompleting}
+                    title="Mark complete"
+                    style={{ background: 'none', border: '1px solid rgba(205,162,116,0.2)', borderRadius: '50%', width: 16, height: 16, display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer', flexShrink: 0, padding: 0, opacity: isCompleting ? 0.4 : 1 }}
+                  >
+                    {isCompleting ? <Loader2 size={8} style={{ color: '#CDA274' }} className="animate-spin" /> : <Check size={8} style={{ color: '#6a6058' }} />}
+                  </button>
+                  {/* Task label */}
                   <span style={{ fontSize: 11, color: '#e8e0d8', flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{label}</span>
+                  {/* Job name */}
                   {jobName && <span style={{ fontSize: 9, color: '#6a6058', flexShrink: 0 }}>{jobName}</span>}
-                  {d !== null && <span style={{ fontSize: 9, color: agingColor(d), flexShrink: 0 }}>{d < 0 ? `${Math.abs(d)}d late` : d === 0 ? 'today' : `${d}d`}</span>}
+                  {/* Date display / edit */}
+                  {isEditingDate ? (
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 2, flexShrink: 0 }} onClick={(e) => e.stopPropagation()}>
+                      <input
+                        type="date"
+                        value={editingWoDateVal}
+                        onChange={(e) => setEditingWoDateVal(e.target.value)}
+                        style={{ fontSize: 9, background: '#2a2a2a', border: '1px solid rgba(205,162,116,0.3)', borderRadius: 4, color: '#e8e0d8', padding: '1px 4px', width: 110 }}
+                      />
+                      <button onClick={() => handleWoDateSave(t.id)} disabled={savingWoDate} style={{ background: 'none', border: 'none', cursor: 'pointer', padding: 0 }}>
+                        <Check size={10} style={{ color: '#22c55e' }} />
+                      </button>
+                      <button onClick={() => { setEditingWoDateId(null); setEditingWoDateVal(''); }} style={{ background: 'none', border: 'none', cursor: 'pointer', padding: 0 }}>
+                        <X size={10} style={{ color: '#6a6058' }} />
+                      </button>
+                    </div>
+                  ) : (
+                    <button
+                      onClick={() => { setEditingWoDateId(t.id); setEditingWoDateVal(t.endDate?.split('T')[0] || ''); }}
+                      title="Edit due date"
+                      style={{ background: 'none', border: 'none', cursor: 'pointer', padding: 0, flexShrink: 0, display: 'flex', alignItems: 'center', gap: 2 }}
+                    >
+                      {d !== null && <span style={{ fontSize: 9, color: agingColor(d) }}>{d < 0 ? `${Math.abs(d)}d late` : d === 0 ? 'today' : `${d}d`}</span>}
+                      <Calendar size={9} style={{ color: '#6a6058' }} />
+                    </button>
+                  )}
                 </div>
               );
             })}
