@@ -14,7 +14,7 @@ export const maxDuration = 30;
 
 export async function POST(req: NextRequest) {
   try {
-    const { jobId, taskName, phaseName, endDate } = await req.json();
+    const { jobId, taskName, phaseName, endDate, description } = await req.json();
 
     if (!jobId || !taskName || !phaseName) {
       return NextResponse.json(
@@ -58,6 +58,7 @@ export async function POST(req: NextRequest) {
       parentGroupId: phaseGroupId,
       name: taskName,
       ...(endDate ? { endDate } : {}),
+      ...(description ? { description } : {}),
     });
 
     return NextResponse.json({

@@ -721,6 +721,7 @@ export default function DashboardOverview() {
   const [stNewTaskPhase, setStNewTaskPhase] = useState('');
   const [stNewTaskDate, setStNewTaskDate] = useState('');
   const [stNewTaskAssignee, setStNewTaskAssignee] = useState('');
+  const [stNewTaskNote, setStNewTaskNote] = useState('');
   const [creatingSt, setCreatingSt] = useState(false);
   const [showWaitingOnForm, setShowWaitingOnForm] = useState(false);
   const [woTaskName, setWoTaskName] = useState('');
@@ -1059,7 +1060,7 @@ export default function DashboardOverview() {
       const res = await fetch('/api/dashboard/create-task', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ jobId: stNewTaskJob, taskName: stNewTaskName.trim(), phaseName: stNewTaskPhase, endDate: stNewTaskDate || undefined }),
+        body: JSON.stringify({ jobId: stNewTaskJob, taskName: stNewTaskName.trim(), phaseName: stNewTaskPhase, endDate: stNewTaskDate || undefined, description: stNewTaskNote.trim() || undefined }),
       });
       if (!res.ok) throw new Error(await res.text());
       const data = await res.json();
@@ -1067,7 +1068,7 @@ export default function DashboardOverview() {
         const mj = overview.data.activeJobs?.find((j: any) => j.id === stNewTaskJob);
         setOverview({ ...overview, data: { ...overview.data, tasks: [...(overview.data.tasks || []), { id: data.task.id, name: stNewTaskName.trim(), jobName: mj ? mj.name : '', jobId: stNewTaskJob, jobNumber: mj ? String(mj.number) : '', endDate: stNewTaskDate || null, startDate: stNewTaskDate || null, progress: 0, urgency: 'normal', assignee: '', daysUntilDue: stNewTaskDate ? Math.ceil((new Date(stNewTaskDate).getTime() - Date.now()) / 86400000) : null } as any] } });
       }
-      setStNewTaskName(''); setStNewTaskJob(''); setStNewTaskPhase(''); setStNewTaskDate(''); setStNewTaskAssignee('');
+      setStNewTaskName(''); setStNewTaskJob(''); setStNewTaskPhase(''); setStNewTaskDate(''); setStNewTaskAssignee(''); setStNewTaskNote('');
       setPanelTab('waitingOn');
     } catch (err: any) {
       console.error('Create task failed:', err);
@@ -1442,6 +1443,11 @@ export default function DashboardOverview() {
                       <label style={{ fontSize: 9, color: '#6a6058', fontWeight: 600, display: 'block', marginBottom: 3 }}>DUE DATE</label>
                       <input type="date" value={stNewTaskDate} onChange={e => setStNewTaskDate(e.target.value)}
                         style={{ width: '100%', background: '#1a1a1a', border: '1px solid rgba(205,162,116,0.15)', borderRadius: 5, color: stNewTaskDate ? '#CDA274' : '#5a5550', fontSize: 11, padding: '7px 8px', outline: 'none', cursor: 'pointer', boxSizing: 'border-box' as const }} />
+                    </div>
+                    <div style={{ marginTop: 8 }}>
+                      <label style={{ fontSize: 9, color: '#6a6058', fontWeight: 600, display: 'block', marginBottom: 3 }}>NOTE (OPTIONAL)</label>
+                      <textarea placeholder="Add context or details..." value={stNewTaskNote} onChange={e => setStNewTaskNote(e.target.value)} rows={2}
+                        style={{ width: '100%', background: '#1a1a1a', border: '1px solid rgba(205,162,116,0.15)', borderRadius: 5, color: '#e8e0d8', fontSize: 11, padding: '7px 10px', outline: 'none', boxSizing: 'border-box' as const, resize: 'vertical' as const, fontFamily: 'inherit' }} />
                     </div>
                     <button onClick={createStandaloneTask} disabled={!stNewTaskName.trim() || !stNewTaskJob || !stNewTaskPhase || creatingSt}
                       style={{ marginTop: 12, width: '100%', padding: '10px', borderRadius: 6, border: 'none',
