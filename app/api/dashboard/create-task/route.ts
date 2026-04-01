@@ -70,8 +70,8 @@ export async function POST(req: NextRequest) {
           await pave({
             createFile: {
               $: {
-                targetType: 'task',
-                targetId: result.id,
+                targetType: 'job',
+                targetId: jobId,
                 url: file.url,
                 name: file.name || file.url.split('/').pop() || 'attachment',
               },
