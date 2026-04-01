@@ -755,14 +755,14 @@ export default function DashboardOverview() {
 
   // GHL meeting types mapping to calendar IDs
   const MEETING_TYPES = [
-    { id: 'XAmFYZHwTcxmDRUrJSgJ', label: 'Discovery Call', duration: 30, group: 'Initial Sales' },
-    { id: 'IZJviv1cDQzqDpJGYY9Y', label: 'Informational Phone Call', duration: 20, group: 'Initial Sales' },
+    { id: 'XAmFYzHwTcxmDRUrJSgJ', label: 'Discovery Call', duration: 30, group: 'Initial Sales' },
+    { id: 'lZJviv1cDQzqDpJGYY9Y', label: 'Informational Phone Call', duration: 20, group: 'Initial Sales' },
     { id: '0CTk7gHpzgsl9JT53t5y', label: '15 Min Phone Call', duration: 30, group: 'Nathan' },
-    { id: 'DeoYlZ8TjDVoW6bFraUN', label: 'On-Site Visit', duration: 60, group: 'Initial Sales' },
-    { id: '229P4MHlrdFP31JX7EWH', label: 'Design Review Call', duration: 15, group: 'Initial Sales' },
-    { id: 'dvSLpgmc2RHKl3enJGB', label: 'Virtual Meeting (60 min)', duration: 60, group: 'Nathan' },
-    { id: 'ikgo6jzJw3j8RRWG0G9', label: 'In-Person Meeting (60-90 min)', duration: 90, group: 'Nathan' },
-    { id: 'Agkb9zlkHOFVvsCgoX8o', label: 'Meeting with Evan', duration: 90, group: 'Evan' },
+    { id: 'DeoYiZ8TjDVoW6bFraUN', label: 'On-Site Visit', duration: 60, group: 'Initial Sales' },
+    { id: '229P4MHIrdFP31JX7EWH', label: 'Design Review Call', duration: 15, group: 'Initial Sales' },
+    { id: 'dvSLpgrnc2RHKI3enJGB', label: 'Virtual Meeting (60 min)', duration: 60, group: 'Nathan' },
+    { id: 'ikgo6jjzJw3j8RRWG0G9', label: 'In-Person Meeting (60-90 min)', duration: 90, group: 'Nathan' },
+    { id: 'Agkb9zIkHOFVvsCgoX8o', label: 'Meeting with Evan', duration: 90, group: 'Evan' },
   ];
 
   const TEAM_ASSIGNEES = [
@@ -1180,7 +1180,7 @@ export default function DashboardOverview() {
       setTimeout(() => setSmSuccess(''), 4000);
     } catch (err: any) {
       console.error('Create meeting failed:', err);
-      alert('Failed to create meeting: ' + err.message);
+      setSmSuccess('❌ ' + (err.message || 'Failed to create meeting'));
     } finally { setCreatingSm(false); }
   }
 
