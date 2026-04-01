@@ -663,6 +663,16 @@ export default function DashboardOverview() {
   // Helper: detect ⏳ prefix (handles both proper Unicode U+23F3 and garbled UTF-8 bytes \u00e2\u008f\u00b3)
   const isWaitingOn = (name: string) => name.startsWith('⏳') || name.startsWith('\u00e2\u008f\u00b3');
   const stripWoPrefix = (name: string) => name.replace(/^⏳\s*/, '').replace(/^\u00e2\u008f\u00b3\s*/, '');
+  // Helper: detect tasks that represent meetings needing to be scheduled
+  const isMeetingToSchedule = (name: string) => {
+    // Already scheduled via GHL (📅 prefix) — skip
+    if (name.startsWith('📅')) return false;
+    // Already a waiting-on item — skip
+    if (isWaitingOn(name)) return false;
+    const lower = name.toLowerCase();
+    const keywords = ['schedule', 'meeting', 'coordinate', 'call', 'walkthrough', 'walk-through', 'site visit', 'on-site', 'onsite', 'pre-con', 'precon', 'design review'];
+    return keywords.some(kw => lower.includes(kw));
+  };
 
   const auth = useAuth();
   const isMobile = false; // Desktop-only dashboard
@@ -729,6 +739,7 @@ export default function DashboardOverview() {
   const [editingWoDateId, setEditingWoDateId] = useState<string | null>(null);
   const [editingWoDateVal, setEditingWoDateVal] = useState('');
   const [savingWoDate, setSavingWoDate] = useState(false);
+  const [mtsCollapsed, setMtsCollapsed] = useState(false);
 
   // Schedule Meeting state
   const [smCalendars, setSmCalendars] = useState<any[]>([]);
@@ -1948,6 +1959,75 @@ export default function DashboardOverview() {
         );
       })()}
 
+      {/* MEETINGS TO SCHEDULE — backlog of unscheduled meeting tasks */}
+      {(() => {
+        const mtsItems = tasks.filter(t => isMeetingToSchedule(t.name));
+        if (mtsItems.length === 0) return null;
+        const sorted = [...mtsItems].sort((a, b) => {
+          if (!a.endDate && !b.endDate) return 0;
+          if (!a.endDate) return -1;
+          if (!b.endDate) return 1;
+          return a.endDate.localeCompare(b.endDate);
+        });
+        return (
+          <div style={{ background: 'rgba(96,165,250,0.06)', border: '1px solid rgba(96,165,250,0.15)', borderRadius: 8, padding: '8px 10px', marginBottom: isTouch ? 10 : 6 }}>
+            <button
+              onClick={() => setMtsCollapsed(!mtsCollapsed)}
+              style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', width: '100%', background: 'none', border: 'none', cursor: 'pointer', padding: 0, marginBottom: mtsCollapsed ? 0 : 6 }}
+            >
+              <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
+                <Calendar size={10} style={{ color: '#60a5fa' }} />
+                <span style={{ fontSize: 9, fontWeight: 600, color: '#60a5fa', letterSpacing: '0.04em' }}>
+                  MEETINGS TO SCHEDULE ({mtsItems.length})
+                </span>
+              </div>
+              {mtsCollapsed ? <ChevronDown size={12} style={{ color: '#60a5fa' }} /> : <ChevronUp size={12} style={{ color: '#60a5fa' }} />}
+            </button>
+            {!mtsCollapsed && sorted.slice(0, 8).map((t, i) => {
+              const jobLabel = t.jobName ? t.jobName.replace(/^#\d+\s*/, '') : '';
+              const hasDue = !!t.endDate;
+              const dueLabel = hasDue
+                ? (() => {
+                    const d = t.daysUntilDue;
+                    if (d === null) return '';
+                    if (d < 0) return `${Math.abs(d)}d overdue`;
+                    if (d === 0) return 'today';
+                    return `in ${d}d`;
+                  })()
+                : 'no date';
+              const dueColor = !hasDue ? '#5a5550' : (t.daysUntilDue !== null && t.daysUntilDue < 0) ? '#ef4444' : (t.daysUntilDue !== null && t.daysUntilDue <= 3) ? '#eab308' : '#6a6058';
+              return (
+                <div key={t.id || i} style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '4px 6px', borderRadius: 6, marginBottom: 2, background: (t.daysUntilDue !== null && t.daysUntilDue < 0) ? 'rgba(239,68,68,0.06)' : 'transparent' }}>
+                  <div style={{ flex: 1, minWidth: 0, overflow: 'hidden' }}>
+                    <span style={{ fontSize: 11, color: '#e8e0d8', display: 'block', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' as const }}>{t.name}</span>
+                    {jobLabel && <span style={{ fontSize: 9, color: '#5a5550' }}>{jobLabel}</span>}
+                  </div>
+                  <span style={{ fontSize: 9, color: dueColor, flexShrink: 0, whiteSpace: 'nowrap' as const }}>{dueLabel}</span>
+                  <button
+                    onClick={() => {
+                      setShowWaitingOnPanel(true);
+                      setPanelTab('scheduleMeeting');
+                      setSmJobId(t.jobId || '');
+                      setSmTitle(t.name);
+                      if (t.jobId) fetchJobContacts(t.jobId);
+                    }}
+                    title="Schedule this meeting"
+                    style={{ background: 'rgba(96,165,250,0.15)', border: '1px solid rgba(96,165,250,0.2)', borderRadius: 4, padding: '2px 8px', cursor: 'pointer', flexShrink: 0, display: 'flex', alignItems: 'center', gap: 3 }}
+                  >
+                    <Calendar size={9} style={{ color: '#60a5fa' }} />
+                    <span style={{ fontSize: 9, color: '#60a5fa', fontWeight: 600 }}>Schedule</span>
+                  </button>
+                </div>
+              );
+            })}
+            {sorted.length > 8 && !mtsCollapsed && (
+              <div style={{ textAlign: 'center', padding: '4px 0' }}>
+                <span style={{ fontSize: 9, color: '#5a5550' }}>+{sorted.length - 8} more</span>
+              </div>
+            )}
+          </div>
+        );
+      })()}
 
       {/* OUTSTANDING INVOICES â expandable from KPI card click */}
       {showSection === 'invoices' && (
