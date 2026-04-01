@@ -10,7 +10,7 @@ import {
   FileCheck, FileWarning, FileClock, XCircle, Send,
   X, ExternalLink, Check, Bot, User, CheckCircle,
   Paperclip, ImageIcon, X as XIcon, Plus, Search,
-  Hourglass, ChevronRight
+  Hourglass, ChevronRight, Mail
 } from 'lucide-react';
 import { useAuth } from '@/app/hooks/useAuth';
 import {
@@ -1785,7 +1785,7 @@ export default function DashboardOverview() {
         );
       })()}
 
-      {/* KPI GRID */}
+      {/* KPI GRID — Terri-specific: Active Jobs, Unread Emails, Due Today, Overdue, Pending COs */}
       <div style={{ display: 'grid', gridTemplateColumns: isMobile ? 'repeat(3, 1fr)' : 'repeat(5, 1fr)', gap: isTouch ? 6 : 4, marginBottom: isTouch ? 10 : 6 }}>
         {/* KPI 1: Active Jobs */}
         <div style={{ background: '#1e1e1e', borderRadius: 6, padding: '6px 7px', borderLeft: '3px solid #CDA274' }}>
@@ -1798,21 +1798,44 @@ export default function DashboardOverview() {
           </div>
         </div>
 
-        {/* KPI 2: Open Tasks â clickable */}
-        <button
-          onClick={() => setShowSection(showSection === 'tasks' ? false : 'tasks')}
-          style={{ background: showSection === 'tasks' ? 'rgba(59,130,246,0.1)' : '#1e1e1e', borderRadius: 6, padding: '6px 7px', border: 'none', borderLeftWidth: 3, borderLeftStyle: 'solid', borderLeftColor: tasks.length > 0 ? '#3b82f6' : '#5a5550', cursor: 'pointer', textAlign: 'left' }}
-        >
-          <div style={{ display: 'flex', alignItems: 'center', gap: 3, marginBottom: 3 }}>
-            <ClipboardList size={9} style={{ color: tasks.length > 0 ? '#3b82f6' : '#5a5550' }} />
-            <span style={{ fontSize: 7, color: '#5a5550', fontWeight: 600, letterSpacing: '0.04em' }}>OPEN TASKS</span>
-          </div>
-          <div style={{ fontSize: 18, fontWeight: 700, color: tasks.length > 0 ? '#3b82f6' : '#5a5550', lineHeight: 1 }}>
-            {tasks.length}
-          </div>
-        </button>
+        {/* KPI 2: Unread Emails — requires Terri Gmail auth (brett@brettkingbuilder.com) */}
+        {(() => {
+          const unread = stats?.unreadEmailCount || 0;
+          const hasUnread = unread > 0;
+          return (
+            <div style={{ background: '#1e1e1e', borderRadius: 6, padding: '6px 7px', borderLeft: `3px solid ${hasUnread ? '#8b5cf6' : '#5a5550'}` }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 3, marginBottom: 3 }}>
+                <Mail size={9} style={{ color: hasUnread ? '#8b5cf6' : '#5a5550' }} />
+                <span style={{ fontSize: 7, color: '#5a5550', fontWeight: 600, letterSpacing: '0.04em' }}>UNREAD EMAILS</span>
+              </div>
+              <div style={{ fontSize: 18, fontWeight: 700, color: hasUnread ? '#8b5cf6' : '#5a5550', lineHeight: 1 }}>
+                {unread}
+              </div>
+            </div>
+          );
+        })()}
 
-        {/* KPI 3: Overdue â clickable */}
+        {/* KPI 3: Due Today — clickable, shows tasks due today */}
+        {(() => {
+          const dueToday = tasks.filter(t => t.daysUntilDue !== null && t.daysUntilDue === 0).length;
+          const hasDue = dueToday > 0;
+          return (
+            <button
+              onClick={() => setShowSection(showSection === 'tasks' ? false : 'tasks')}
+              style={{ background: showSection === 'tasks' ? 'rgba(59,130,246,0.1)' : '#1e1e1e', borderRadius: 6, padding: '6px 7px', border: 'none', borderLeftWidth: 3, borderLeftStyle: 'solid', borderLeftColor: hasDue ? '#3b82f6' : '#5a5550', cursor: 'pointer', textAlign: 'left' }}
+            >
+              <div style={{ display: 'flex', alignItems: 'center', gap: 3, marginBottom: 3 }}>
+                <CalendarDays size={9} style={{ color: hasDue ? '#3b82f6' : '#5a5550' }} />
+                <span style={{ fontSize: 7, color: '#5a5550', fontWeight: 600, letterSpacing: '0.04em' }}>DUE TODAY</span>
+              </div>
+              <div style={{ fontSize: 18, fontWeight: 700, color: hasDue ? '#3b82f6' : '#5a5550', lineHeight: 1 }}>
+                {dueToday}
+              </div>
+            </button>
+          );
+        })()}
+
+        {/* KPI 4: Overdue — clickable */}
         <button
           onClick={() => setShowSection(showSection === 'overdue' ? false : 'overdue')}
           style={{ background: showSection === 'overdue' ? 'rgba(239,68,68,0.1)' : '#1e1e1e', borderRadius: 6, padding: '6px 7px', border: 'none', borderLeftWidth: 3, borderLeftStyle: 'solid', borderLeftColor: overdueTasks.length > 0 ? '#ef4444' : '#22c55e', cursor: 'pointer', textAlign: 'left' }}
@@ -1826,34 +1849,7 @@ export default function DashboardOverview() {
           </div>
         </button>
 
-        {/* KPI 4: Outstanding Invoices (AR) â clickable */}
-        {(() => {
-          const invCount = stats?.outstandingInvoiceCount || 0;
-          const invTotal = stats?.outstandingInvoiceTotal || 0;
-          const hasOutstanding = invCount > 0;
-          const isActive = showSection === 'invoices';
-          return (
-            <button
-              onClick={() => setShowSection(isActive ? false : 'invoices')}
-              style={{ background: isActive ? 'rgba(245,158,11,0.1)' : '#1e1e1e', borderRadius: 6, padding: '6px 7px', borderLeft: `3px solid ${hasOutstanding ? '#f59e0b' : '#22c55e'}`, border: 'none', borderLeftWidth: 3, borderLeftStyle: 'solid', borderLeftColor: hasOutstanding ? '#f59e0b' : '#22c55e', cursor: 'pointer', textAlign: 'left' }}
-            >
-              <div style={{ display: 'flex', alignItems: 'center', gap: 3, marginBottom: 3 }}>
-                <DollarSign size={9} style={{ color: hasOutstanding ? '#f59e0b' : '#22c55e' }} />
-                <span style={{ fontSize: 7, color: '#5a5550', fontWeight: 600, letterSpacing: '0.04em' }}>OUTSTANDING AR</span>
-              </div>
-              <div style={{ fontSize: 18, fontWeight: 700, color: hasOutstanding ? '#f59e0b' : '#22c55e', lineHeight: 1 }}>
-                {invCount}
-              </div>
-              {hasOutstanding && (
-                <div style={{ fontSize: 8, color: '#6a6058', marginTop: 2 }}>
-                  ${invTotal >= 1000 ? `${(invTotal / 1000).toFixed(1)}k` : invTotal.toFixed(0)}
-                </div>
-              )}
-            </button>
-          );
-        })()}
-
-        {/* KPI 5: Pending Change Orders â clickable */}
+        {/* KPI 5: Pending Change Orders — clickable */}
         {(() => {
           const pending = stats?.pendingCOCount || 0;
           const approved = stats?.approvedCOCount || 0;
