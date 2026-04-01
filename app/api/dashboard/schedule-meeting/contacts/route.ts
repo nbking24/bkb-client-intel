@@ -6,11 +6,13 @@
 // ============================================================
 
 import { NextRequest, NextResponse } from 'next/server';
-import { getJob, pave } from '@/app/lib/jobtread';
+import { pave } from '@/app/lib/jobtread';
 import { searchContacts } from '@/app/lib/ghl';
 
 export const runtime = 'nodejs';
 export const maxDuration = 30;
+
+const JT_ORG_ID = process.env.JOBTREAD_ORG_ID || '22P5SRwhLaYe';
 
 export async function GET(req: NextRequest) {
   try {
@@ -24,8 +26,29 @@ export async function GET(req: NextRequest) {
       );
     }
 
-    // 1. Get the job to find the account ID
-    const job = await getJob(jobId);
+    // 1. Get job with account contacts in a single pave query
+    const data = await pave({
+      job: {
+        $: { id: jobId },
+        id: {},
+        name: {},
+        location: {
+          account: {
+            id: {},
+            name: {},
+            contacts: {
+              nodes: {
+                id: {},
+                name: {},
+                contactMethods: { nodes: { type: {}, value: {} } },
+              },
+            },
+          },
+        },
+      },
+    });
+
+    const job = (data as any)?.job;
     if (!job) {
       return NextResponse.json(
         { error: 'Job not found' },
@@ -33,45 +56,9 @@ export async function GET(req: NextRequest) {
       );
     }
 
-    const accountId = job.location?.account?.id;
-    if (!accountId) {
-      return NextResponse.json(
-        { error: 'Job has no associated account' },
-        { status: 400 }
-      );
-    }
+    const jtContacts = job.location?.account?.contacts?.nodes || [];
 
-    // 2. Query JT for contacts on that account
-    // Try with contactMethods first; fall back to without if it fails
-    let jtContacts: any[] = [];
-    try {
-      const data = await pave({
-        contact: {
-          $: { filter: { accountId: { eq: accountId } }, first: 100 },
-          nodes: {
-            id: {},
-            name: {},
-            contactMethods: { nodes: { type: {}, value: {} } },
-          },
-        },
-      });
-      jtContacts = (data as any)?.contact?.nodes || [];
-    } catch (paveErr: any) {
-      // contactMethods might not be the right field name - try without it
-      console.warn('Pave with contactMethods failed, retrying without:', paveErr.message);
-      const data = await pave({
-        contact: {
-          $: { filter: { accountId: { eq: accountId } }, first: 100 },
-          nodes: {
-            id: {},
-            name: {},
-          },
-        },
-      });
-      jtContacts = (data as any)?.contact?.nodes || [];
-    }
-
-    // 3. For each JT contact, search GHL for a match
+    // 2. For each JT contact, search GHL for a match
     const contacts = await Promise.all(
       jtContacts.map(async (jtContact: any) => {
         let ghlContactId: string | null = null;
