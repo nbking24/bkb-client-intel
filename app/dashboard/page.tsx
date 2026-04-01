@@ -1274,6 +1274,7 @@ export default function DashboardOverview() {
   const tasks = overview?.data?.tasks || [];
   const outstandingInvoices = overview?.data?.outstandingInvoices || [];
   const changeOrders = overview?.data?.changeOrders || [];
+  const calendarEvents = overview?.data?.calendarEvents || [];
   const tc = overview?.data?.timeContext;
   const tomorrowBriefing = analysis?.tomorrowBriefing;
   const firstName = auth.user?.name?.split(' ')[0] || '';
@@ -2202,6 +2203,88 @@ export default function DashboardOverview() {
                 </div>
               );
             })}
+          </div>
+        );
+      })()}
+
+      {/* UPCOMING GOOGLE CALENDAR EVENTS */}
+      {calendarEvents.length > 0 && (() => {
+        // Group events: today, tomorrow, later this week
+        const now = new Date();
+        const todayDate = now.toISOString().split('T')[0];
+        const tmrDate = new Date(now.getTime() + 86400000).toISOString().split('T')[0];
+        const dayNames = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
+
+        const formatTime = (iso: string) => {
+          const d = new Date(iso);
+          const h = d.getHours();
+          const m = d.getMinutes();
+          const ampm = h >= 12 ? 'PM' : 'AM';
+          const hr = h % 12 || 12;
+          return m > 0 ? `${hr}:${String(m).padStart(2, '0')} ${ampm}` : `${hr} ${ampm}`;
+        };
+
+        const formatDay = (iso: string) => {
+          const d = new Date(iso.includes('T') ? iso : iso + 'T00:00:00');
+          const dateStr = d.toISOString().split('T')[0];
+          if (dateStr === todayDate) return 'Today';
+          if (dateStr === tmrDate) return 'Tomorrow';
+          return `${dayNames[d.getDay()]}, ${d.toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}`;
+        };
+
+        // Filter out all-day events and group by day
+        const timedEvents = calendarEvents.filter((e: any) => !e.allDay);
+        const grouped: Record<string, typeof timedEvents> = {};
+        timedEvents.forEach((e: any) => {
+          const d = new Date(e.start);
+          const key = d.toISOString().split('T')[0];
+          if (!grouped[key]) grouped[key] = [];
+          grouped[key].push(e);
+        });
+
+        const sortedDays = Object.keys(grouped).sort();
+
+        return (
+          <div style={{ marginBottom: 10, background: '#1a1a1a', borderRadius: 8, border: '1px solid rgba(205,162,116,0.08)', overflow: 'hidden' }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '8px 10px 6px', borderBottom: '1px solid rgba(205,162,116,0.06)' }}>
+              <CalendarDays size={12} style={{ color: '#CDA274' }} />
+              <span style={{ fontSize: 10, fontWeight: 700, letterSpacing: '0.08em', color: '#CDA274' }}>UPCOMING MEETINGS</span>
+              <span style={{ fontSize: 9, color: '#4a4540', marginLeft: 'auto' }}>{timedEvents.length} this week</span>
+            </div>
+            {sortedDays.length === 0 ? (
+              <div style={{ padding: '12px 10px', fontSize: 11, color: '#4a4540', textAlign: 'center' as const }}>No upcoming meetings</div>
+            ) : (
+              <div style={{ padding: '4px 0' }}>
+                {sortedDays.map(dayKey => (
+                  <div key={dayKey}>
+                    <div style={{ padding: '4px 10px 2px', fontSize: 9, fontWeight: 600, color: dayKey === todayDate ? '#CDA274' : '#5a5550', letterSpacing: '0.04em' }}>
+                      {formatDay(dayKey)}
+                    </div>
+                    {grouped[dayKey].map((evt: any) => {
+                      const isGHL = (evt.description || '').includes('brettkingbuilder.com');
+                      return (
+                        <div key={evt.id} style={{ display: 'flex', alignItems: 'flex-start', gap: 8, padding: '5px 10px', borderBottom: '1px solid rgba(205,162,116,0.03)' }}>
+                          <div style={{ fontSize: 10, color: dayKey === todayDate ? '#CDA274' : '#8a8078', fontWeight: 600, minWidth: 52, flexShrink: 0, paddingTop: 1 }}>
+                            {formatTime(evt.start)}
+                          </div>
+                          <div style={{ flex: 1, minWidth: 0 }}>
+                            <div style={{ fontSize: 11, color: '#e8e0d8', fontWeight: 500, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' as const }}>
+                              {isGHL && <span style={{ fontSize: 9, color: '#6a9955', marginRight: 4 }}>●</span>}
+                              {evt.summary}
+                            </div>
+                            {evt.location && (
+                              <div style={{ fontSize: 9, color: '#5a5550', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' as const, marginTop: 1 }}>
+                                {evt.location}
+                              </div>
+                            )}
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                ))}
+              </div>
+            )}
           </div>
         );
       })()}
