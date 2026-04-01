@@ -722,6 +722,7 @@ export default function DashboardOverview() {
   const [stNewTaskDate, setStNewTaskDate] = useState('');
   const [stNewTaskAssignee, setStNewTaskAssignee] = useState('');
   const [stNewTaskNote, setStNewTaskNote] = useState('');
+  const [stNewTaskFiles, setStNewTaskFiles] = useState<Array<{ file: File; uploading: boolean; url?: string; name: string; error?: string }>>([]);
   const [creatingSt, setCreatingSt] = useState(false);
   const [showWaitingOnForm, setShowWaitingOnForm] = useState(false);
   const [woTaskName, setWoTaskName] = useState('');
@@ -1053,14 +1054,48 @@ export default function DashboardOverview() {
     }
   }
 
+  async function handleStFileSelect(e: React.ChangeEvent<HTMLInputElement>) {
+    const files = Array.from(e.target.files || []);
+    if (files.length === 0) return;
+    // Add files to state and start uploading each
+    const newEntries = files.map(f => ({ file: f, uploading: true, name: f.name }));
+    setStNewTaskFiles(prev => [...prev, ...newEntries]);
+
+    for (const file of files) {
+      try {
+        const fd = new FormData();
+        fd.append('files', file);
+        const res = await fetch('/api/upload', {
+          method: 'POST',
+          headers: { Authorization: `Bearer ${getToken()}` },
+          body: fd,
+        });
+        if (!res.ok) throw new Error('Upload failed');
+        const data = await res.json();
+        const uploaded = data.uploaded?.[0];
+        if (uploaded) {
+          setStNewTaskFiles(prev => prev.map(f => f.name === file.name && f.uploading ? { ...f, uploading: false, url: uploaded.url } : f));
+        } else {
+          setStNewTaskFiles(prev => prev.map(f => f.name === file.name && f.uploading ? { ...f, uploading: false, error: 'Upload failed' } : f));
+        }
+      } catch (err: any) {
+        setStNewTaskFiles(prev => prev.map(f => f.name === file.name && f.uploading ? { ...f, uploading: false, error: err.message } : f));
+      }
+    }
+    // Reset the input
+    e.target.value = '';
+  }
+
   async function createStandaloneTask() {
     if (!stNewTaskName.trim() || !stNewTaskJob || !stNewTaskPhase) return;
     setCreatingSt(true);
     try {
+      // Collect successfully uploaded file URLs
+      const fileUrls = stNewTaskFiles.filter(f => f.url).map(f => ({ url: f.url!, name: f.name }));
       const res = await fetch('/api/dashboard/create-task', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ jobId: stNewTaskJob, taskName: stNewTaskName.trim(), phaseName: stNewTaskPhase, endDate: stNewTaskDate || undefined, description: stNewTaskNote.trim() || undefined }),
+        body: JSON.stringify({ jobId: stNewTaskJob, taskName: stNewTaskName.trim(), phaseName: stNewTaskPhase, endDate: stNewTaskDate || undefined, description: stNewTaskNote.trim() || undefined, fileUrls: fileUrls.length > 0 ? fileUrls : undefined }),
       });
       if (!res.ok) throw new Error(await res.text());
       const data = await res.json();
@@ -1068,7 +1103,7 @@ export default function DashboardOverview() {
         const mj = overview.data.activeJobs?.find((j: any) => j.id === stNewTaskJob);
         setOverview({ ...overview, data: { ...overview.data, tasks: [...(overview.data.tasks || []), { id: data.task.id, name: stNewTaskName.trim(), jobName: mj ? mj.name : '', jobId: stNewTaskJob, jobNumber: mj ? String(mj.number) : '', endDate: stNewTaskDate || null, startDate: stNewTaskDate || null, progress: 0, urgency: 'normal', assignee: '', daysUntilDue: stNewTaskDate ? Math.ceil((new Date(stNewTaskDate).getTime() - Date.now()) / 86400000) : null } as any] } });
       }
-      setStNewTaskName(''); setStNewTaskJob(''); setStNewTaskPhase(''); setStNewTaskDate(''); setStNewTaskAssignee(''); setStNewTaskNote('');
+      setStNewTaskName(''); setStNewTaskJob(''); setStNewTaskPhase(''); setStNewTaskDate(''); setStNewTaskAssignee(''); setStNewTaskNote(''); setStNewTaskFiles([]);
       setPanelTab('waitingOn');
     } catch (err: any) {
       console.error('Create task failed:', err);
@@ -1449,7 +1484,28 @@ export default function DashboardOverview() {
                       <textarea placeholder="Add context or details..." value={stNewTaskNote} onChange={e => setStNewTaskNote(e.target.value)} rows={2}
                         style={{ width: '100%', background: '#1a1a1a', border: '1px solid rgba(205,162,116,0.15)', borderRadius: 5, color: '#e8e0d8', fontSize: 11, padding: '7px 10px', outline: 'none', boxSizing: 'border-box' as const, resize: 'vertical' as const, fontFamily: 'inherit' }} />
                     </div>
-                    <button onClick={createStandaloneTask} disabled={!stNewTaskName.trim() || !stNewTaskJob || !stNewTaskPhase || creatingSt}
+                    <div style={{ marginTop: 8 }}>
+                      <label style={{ fontSize: 9, color: '#6a6058', fontWeight: 600, display: 'block', marginBottom: 3 }}>ATTACHMENTS (OPTIONAL)</label>
+                      <label style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '6px 10px', background: '#1a1a1a', border: '1px dashed rgba(205,162,116,0.2)', borderRadius: 5, cursor: 'pointer' }}>
+                        <Paperclip size={11} style={{ color: '#6a6058' }} />
+                        <span style={{ fontSize: 11, color: '#6a6058' }}>Add files (PDF, images, docs...)</span>
+                        <input type="file" multiple onChange={handleStFileSelect} accept=".pdf,.jpg,.jpeg,.png,.webp,.doc,.docx,.xls,.xlsx,.txt,.csv" style={{ display: 'none' }} />
+                      </label>
+                      {stNewTaskFiles.length > 0 && (
+                        <div style={{ marginTop: 4, display: 'flex', flexDirection: 'column', gap: 2 }}>
+                          {stNewTaskFiles.map((f, i) => (
+                            <div key={i} style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '3px 8px', background: 'rgba(205,162,116,0.04)', borderRadius: 4 }}>
+                              {f.uploading ? <Loader2 size={10} className="animate-spin" style={{ color: '#CDA274' }} /> : f.error ? <XCircle size={10} style={{ color: '#ef4444' }} /> : <CheckCircle size={10} style={{ color: '#22c55e' }} />}
+                              <span style={{ fontSize: 10, color: f.error ? '#ef4444' : '#e8e0d8', flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' as const }}>{f.name}</span>
+                              <button onClick={() => setStNewTaskFiles(prev => prev.filter((_, idx) => idx !== i))} style={{ background: 'none', border: 'none', cursor: 'pointer', padding: 0, lineHeight: 0 }}>
+                                <X size={10} style={{ color: '#5a5550' }} />
+                              </button>
+                            </div>
+                          ))}
+                        </div>
+                      )}
+                    </div>
+                    <button onClick={createStandaloneTask} disabled={!stNewTaskName.trim() || !stNewTaskJob || !stNewTaskPhase || creatingSt || stNewTaskFiles.some(f => f.uploading)}
                       style={{ marginTop: 12, width: '100%', padding: '10px', borderRadius: 6, border: 'none',
                         background: (!stNewTaskName.trim() || !stNewTaskJob || !stNewTaskPhase) ? '#333' : '#CDA274',
                         color: (!stNewTaskName.trim() || !stNewTaskJob || !stNewTaskPhase) ? '#666' : '#1a1a1a',

@@ -14,7 +14,13 @@ import { createServerClient } from '@/app/lib/supabase';
 const BUCKET = 'co-photos';
 const MAX_FILE_SIZE = 10 * 1024 * 1024; // 10MB per file
 const MAX_FILES = 10;
-const ALLOWED_TYPES = ['image/jpeg', 'image/png', 'image/webp', 'image/heic', 'image/heif'];
+const ALLOWED_TYPES = [
+  'image/jpeg', 'image/png', 'image/webp', 'image/heic', 'image/heif',
+  'application/pdf',
+  'application/msword', 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+  'application/vnd.ms-excel', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+  'text/plain', 'text/csv',
+];
 
 /**
  * Ensure the storage bucket exists (creates on first use).
@@ -50,7 +56,7 @@ export async function POST(req: NextRequest) {
 
     for (const file of files) {
       // Validate type
-      if (!ALLOWED_TYPES.includes(file.type) && !file.name.match(/\.(jpg|jpeg|png|webp|heic|heif)$/i)) {
+      if (!ALLOWED_TYPES.includes(file.type) && !file.name.match(/\.(jpg|jpeg|png|webp|heic|heif|pdf|doc|docx|xls|xlsx|txt|csv)$/i)) {
         errors.push({ name: file.name, error: 'Unsupported file type' });
         continue;
       }
@@ -70,7 +76,7 @@ export async function POST(req: NextRequest) {
       const { data, error } = await sb.storage
         .from(BUCKET)
         .upload(path, buffer, {
-          contentType: file.type || 'image/jpeg',
+          contentType: file.type || 'application/octet-stream',
           upsert: false,
         });
 

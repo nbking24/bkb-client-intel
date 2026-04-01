@@ -4,17 +4,18 @@
 // POST → Creates a task under the specified phase group.
 //        Looks up the phase by name in the job's schedule.
 //        If the phase doesn't exist, creates it.
+//        Optionally attaches files (public URLs) to the task.
 // ============================================================
 
 import { NextRequest, NextResponse } from 'next/server';
-import { getJobSchedule, createPhaseGroup, createPhaseTask } from '@/app/lib/jobtread';
+import { getJobSchedule, createPhaseGroup, createPhaseTask, pave } from '@/app/lib/jobtread';
 
 export const runtime = 'nodejs';
 export const maxDuration = 30;
 
 export async function POST(req: NextRequest) {
   try {
-    const { jobId, taskName, phaseName, endDate, description } = await req.json();
+    const { jobId, taskName, phaseName, endDate, description, fileUrls } = await req.json();
 
     if (!jobId || !taskName || !phaseName) {
       return NextResponse.json(
@@ -61,10 +62,35 @@ export async function POST(req: NextRequest) {
       ...(description ? { description } : {}),
     });
 
+    // 3. Attach files to the task if provided
+    const fileResults: string[] = [];
+    if (fileUrls && Array.isArray(fileUrls) && fileUrls.length > 0 && result.id) {
+      for (const file of fileUrls) {
+        try {
+          await pave({
+            createFile: {
+              $: {
+                targetType: 'task',
+                targetId: result.id,
+                url: file.url,
+                name: file.name || file.url.split('/').pop() || 'attachment',
+              },
+              createdFile: { id: {}, name: {} },
+            },
+          });
+          fileResults.push(file.name || 'file');
+        } catch (fileErr: any) {
+          console.error('File attach failed:', fileErr?.message);
+          fileResults.push(`✗ ${file.name || 'file'}: ${fileErr?.message}`);
+        }
+      }
+    }
+
     return NextResponse.json({
       success: true,
       task: result,
       phase: phaseName,
+      filesAttached: fileResults.length,
     });
   } catch (err: any) {
     console.error('Create task failed:', err);
