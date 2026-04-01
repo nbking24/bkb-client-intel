@@ -29,8 +29,10 @@ import {
 } from '@/app/lib/invoicing-health';
 import {
   getJobSchedule,
+  getActiveJobs,
   createPhaseGroup,
   createPhaseTask,
+  updateTask,
   type JTScheduleTask,
 } from '@/app/lib/jobtread';
 import { JT_MEMBERS } from '@/app/lib/constants';
@@ -61,6 +63,25 @@ const TERRI_MEMBERSHIP_ID = JT_MEMBERS.terri; // '22P5SpJkype2'
 // ============================================================
 // Helpers
 // ============================================================
+
+/** Get the closest Thursday (today if Thursday, otherwise next Thursday) in ET as YYYY-MM-DD */
+function getClosestThursday(): string {
+  const now = new Date();
+  // Get current day in ET
+  const etDateStr = new Intl.DateTimeFormat('en-CA', {
+    timeZone: 'America/New_York',
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+  }).format(now);
+  const etDayOfWeek = new Date(etDateStr + 'T12:00:00Z').getDay(); // 0=Sun, 4=Thu
+  const daysUntilThursday = (4 - etDayOfWeek + 7) % 7 || 7; // if already Thu, next Thu
+  // If today is Thu, use today (daysUntilThursday would be 7, override to 0)
+  const offset = etDayOfWeek === 4 ? 0 : daysUntilThursday;
+  const target = new Date(etDateStr + 'T12:00:00Z');
+  target.setDate(target.getDate() + offset);
+  return target.toISOString().slice(0, 10);
+}
 
 function flattenTasks(tasks: JTScheduleTask[]): JTScheduleTask[] {
   const result: JTScheduleTask[] = [];
@@ -200,21 +221,16 @@ async function ensureInvoiceTask(
       groupId = created.id;
     }
 
-    // 4. Create the task
+    // 4. Create the task — due date is always the closest Thursday
     const description = buildDescription(reasons);
-    const today = new Intl.DateTimeFormat('en-CA', {
-      timeZone: 'America/New_York',
-      year: 'numeric',
-      month: '2-digit',
-      day: '2-digit',
-    }).format(new Date());
+    const dueDate = getClosestThursday();
 
     const created = await createPhaseTask({
       jobId,
       parentGroupId: groupId,
       name: taskName,
       description,
-      endDate: today,
+      endDate: dueDate,
       assignedMembershipIds: [TERRI_MEMBERSHIP_ID],
     });
 
@@ -310,6 +326,72 @@ export async function GET(req: NextRequest) {
     console.error('[InvoiceAutoTasks] Failed:', err);
     return NextResponse.json(
       { error: 'Invoice auto-task scan failed', details: err.message },
+      { status: 500 },
+    );
+  }
+}
+
+// ============================================================
+// POST Handler — Reschedule existing "Invoice:" tasks to closest Thursday
+// ============================================================
+
+export async function POST() {
+  console.log('[InvoiceAutoTasks] POST — Rescheduling existing Invoice tasks to closest Thursday...');
+
+  try {
+    const thursday = getClosestThursday();
+    const jobs = await getActiveJobs();
+
+    const results: Array<{ jobName: string; taskId: string; taskName: string; action: string; error?: string }> = [];
+
+    // Scan each active job for "Invoice:" tasks
+    for (const job of jobs) {
+      try {
+        const schedule = await getJobSchedule(job.id);
+        if (!schedule) continue;
+
+        const allTasks = flattenTasks([...schedule.phases, ...schedule.orphanTasks]);
+        const invoiceTask = allTasks.find(
+          (t) =>
+            !t.isGroup &&
+            t.name?.startsWith(TASK_PREFIX) &&
+            (t.progress === null || t.progress === undefined || t.progress < 1)
+        );
+
+        if (!invoiceTask) continue;
+
+        await updateTask(invoiceTask.id, { startDate: thursday, endDate: thursday });
+        results.push({
+          jobName: job.name,
+          taskId: invoiceTask.id,
+          taskName: invoiceTask.name,
+          action: 'rescheduled',
+        });
+        console.log(`  ✓ ${invoiceTask.name} → ${thursday}`);
+      } catch (err: any) {
+        results.push({
+          jobName: job.name,
+          taskId: '',
+          taskName: '',
+          action: 'error',
+          error: err.message,
+        });
+      }
+    }
+
+    console.log(`[InvoiceAutoTasks] Rescheduled ${results.filter((r) => r.action === 'rescheduled').length} tasks to ${thursday}`);
+
+    return NextResponse.json({
+      success: true,
+      targetDate: thursday,
+      rescheduled: results.filter((r) => r.action === 'rescheduled').length,
+      errors: results.filter((r) => r.action === 'error').length,
+      results,
+    });
+  } catch (err: any) {
+    console.error('[InvoiceAutoTasks] Reschedule failed:', err);
+    return NextResponse.json(
+      { error: 'Reschedule failed', details: err.message },
       { status: 500 },
     );
   }
