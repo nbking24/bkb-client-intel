@@ -1899,7 +1899,16 @@ export default function DashboardOverview() {
         if (todayDue.length > 0) bullets.push({ emoji: '📋', text: `${todayDue.length} task${todayDue.length !== 1 ? 's' : ''} due today`, color: '#f59e0b' });
         if (mtsCount > 0) bullets.push({ emoji: '📅', text: `${mtsCount} meeting${mtsCount !== 1 ? 's' : ''} to schedule`, color: '#3b82f6' });
         if (woCount > 0) bullets.push({ emoji: '⏳', text: `${woCount} waiting-on item${woCount !== 1 ? 's' : ''}`, color: '#eab308' });
-        if (bullets.length === 0 && !focusItem) return null;
+        // Day-aware weekly rhythm nudge
+        const dayNudges: Record<number, string> = {
+          1: '📋 Payroll day — check that all hours are entered in JT',
+          2: '🔍 Job review day — check active jobs & client payments',
+          3: '💳 AP day — enter vendor invoices & process payments',
+          4: '🔍 Job review day — check active jobs & client payments',
+          5: '🏦 Bank review day — reconcile CC transactions & bank accounts',
+        };
+        const dayNudge = dayNudges[new Date().getDay()] || null;
+        if (bullets.length === 0 && !focusItem && !dayNudge) return null;
         return (
           <div style={{ background: 'rgba(205,162,116,0.06)', border: '1px solid rgba(205,162,116,0.12)', borderRadius: 8, padding: '8px 10px', marginBottom: isTouch ? 10 : 6 }}>
             <div style={{ display: 'flex', alignItems: 'center', gap: 4, marginBottom: 5 }}>
@@ -1911,13 +1920,20 @@ export default function DashboardOverview() {
                 → {focusItem.label}
               </div>
             )}
-            <div style={{ display: 'flex', flexWrap: 'wrap', gap: '4px 12px' }}>
-              {bullets.map((b, i) => (
-                <span key={i} style={{ fontSize: 11, color: '#e8e0d8', lineHeight: 1.5 }}>
-                  {b.emoji} <span style={{ color: b.color, fontWeight: 600 }}>{b.text}</span>
-                </span>
-              ))}
-            </div>
+            {bullets.length > 0 && (
+              <div style={{ display: 'flex', flexWrap: 'wrap', gap: '4px 12px' }}>
+                {bullets.map((b, i) => (
+                  <span key={i} style={{ fontSize: 11, color: '#e8e0d8', lineHeight: 1.5 }}>
+                    {b.emoji} <span style={{ color: b.color, fontWeight: 600 }}>{b.text}</span>
+                  </span>
+                ))}
+              </div>
+            )}
+            {dayNudge && (
+              <div style={{ fontSize: 11, color: '#8a8078', marginTop: bullets.length > 0 || focusItem ? 5 : 0, lineHeight: 1.4 }}>
+                {dayNudge}
+              </div>
+            )}
           </div>
         );
       })()}
