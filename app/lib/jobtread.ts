@@ -308,6 +308,7 @@ export async function getOpenTasksForMemberAcrossJobs(
           $: { id: taskId },
           id: {},
           name: {},
+          description: {},
           startDate: {},
           endDate: {},
           progress: {},

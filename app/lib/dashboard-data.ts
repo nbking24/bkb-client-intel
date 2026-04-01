@@ -27,6 +27,7 @@ import { getOpenItems, formatOpenItemsForContext, type ProjectEvent } from './pr
 export interface DashboardTask {
   id: string;
   name: string;
+  description?: string;
   jobId: string;
   jobName: string;
   jobNumber: string;
@@ -560,6 +561,7 @@ export async function buildUserDashboardData(userId: string): Promise<UserDashbo
     return {
       id: t.id,
       name: t.name,
+      description: t.description || undefined,
       jobId: t.jobId || t.job?.id || '',
       jobName: t.jobName || t.job?.name || '',
       jobNumber: t.jobNumber || t.job?.number || '',

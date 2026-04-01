@@ -127,7 +127,7 @@ interface DashboardData {
     approvedCOCount: number;
   };
   tasks: Array<{
-    id: string; name: string; jobId: string; jobName: string; jobNumber: string;
+    id: string; name: string; description?: string; jobId: string; jobName: string; jobNumber: string;
     endDate: string | null; progress: number; urgency: string; daysUntilDue: number | null;
   }>;
   recentEmails: Array<{
@@ -687,7 +687,7 @@ export default function DashboardOverview() {
   const [showSection, setShowSection] = useState<string | false>(false);
   const [collapsedJobs, setCollapsedJobs] = useState<Set<string>>(new Set());
   // Calendar task popup
-  const [selectedCalTask, setSelectedCalTask] = useState<{ id: string; name: string; jobId: string; jobName: string; jobNumber: string; endDate: string | null; progress: number } | null>(null);
+  const [selectedCalTask, setSelectedCalTask] = useState<{ id: string; name: string; description?: string; jobId: string; jobName: string; jobNumber: string; endDate: string | null; progress: number } | null>(null);
   const [calEditingDate, setCalEditingDate] = useState('');
   const [calSavingDate, setCalSavingDate] = useState(false);
   const [calCompleting, setCalCompleting] = useState(false);
@@ -2003,6 +2003,9 @@ export default function DashboardOverview() {
                   <div style={{ flex: 1, minWidth: 0 }}>
                     <p style={{ fontSize: 11, color: '#e8e0d8', margin: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{task.name}</p>
                     <p style={{ fontSize: 9, color: '#6a6058', margin: 0 }}>{task.jobName} #{task.jobNumber}</p>
+                    {task.description && (
+                      <p style={{ fontSize: 9, color: '#8a8078', margin: '2px 0 0 0', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{task.description}</p>
+                    )}
                   </div>
                   {isEditingDate ? (
                     <input
@@ -2732,6 +2735,13 @@ export default function DashboardOverview() {
                 <X size={14} style={{ color: '#6a6058' }} />
               </button>
             </div>
+
+            {/* Description */}
+            {selectedCalTask.description && (
+              <div style={{ marginBottom: 12, padding: '8px 10px', background: 'rgba(205,162,116,0.06)', borderRadius: 6, border: '1px solid rgba(205,162,116,0.08)' }}>
+                <div style={{ fontSize: 11, color: '#a89888', lineHeight: 1.5, whiteSpace: 'pre-wrap' }}>{selectedCalTask.description}</div>
+              </div>
+            )}
 
             {/* Date edit */}
             <div style={{ marginBottom: 12 }}>
