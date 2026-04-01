@@ -1997,7 +1997,15 @@ export default function DashboardOverview() {
                 : 'no date';
               const dueColor = !hasDue ? '#5a5550' : (t.daysUntilDue !== null && t.daysUntilDue < 0) ? '#ef4444' : (t.daysUntilDue !== null && t.daysUntilDue <= 3) ? '#eab308' : '#6a6058';
               return (
-                <div key={t.id || i} style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '4px 6px', borderRadius: 6, marginBottom: 2, background: (t.daysUntilDue !== null && t.daysUntilDue < 0) ? 'rgba(239,68,68,0.06)' : 'transparent' }}>
+                <div key={t.id || i} style={{ display: 'flex', alignItems: 'center', gap: 4, padding: '4px 6px', borderRadius: 6, marginBottom: 2, background: (t.daysUntilDue !== null && t.daysUntilDue < 0) ? 'rgba(239,68,68,0.06)' : 'transparent' }}>
+                  <button
+                    onClick={() => completeTask(t.id)}
+                    disabled={completingTaskId === t.id}
+                    title="Mark complete"
+                    style={{ background: 'none', border: '1px solid rgba(96,165,250,0.25)', borderRadius: '50%', width: 16, height: 16, display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer', flexShrink: 0, padding: 0, opacity: completingTaskId === t.id ? 0.4 : 1 }}
+                  >
+                    {completingTaskId === t.id ? <Loader2 size={8} style={{ color: '#60a5fa' }} className="animate-spin" /> : <Check size={8} style={{ color: '#6a6058' }} />}
+                  </button>
                   <div style={{ flex: 1, minWidth: 0, overflow: 'hidden' }}>
                     <span style={{ fontSize: 11, color: '#e8e0d8', display: 'block', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' as const }}>{t.name}</span>
                     {jobLabel && <span style={{ fontSize: 9, color: '#5a5550' }}>{jobLabel}</span>}
