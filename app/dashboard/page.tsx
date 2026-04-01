@@ -2659,8 +2659,14 @@ export default function DashboardOverview() {
                                 : <Check size={10} style={{ color: '#22c55e' }} />
                               }
                             </button>
-                            <div style={{ flex: 1, minWidth: 0 }}>
+                            <div
+                              onClick={() => { setSelectedCalTask(task); setCalEditingDate(task.endDate || ''); }}
+                              style={{ flex: 1, minWidth: 0, cursor: 'pointer' }}
+                            >
                               <p style={{ fontSize: 11, color: '#e8e0d8', margin: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{task.name}</p>
+                              {task.description && (
+                                <p style={{ fontSize: 9, color: '#8a8078', margin: '1px 0 0 0', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{task.description}</p>
+                              )}
                             </div>
                             {isEditingDate ? (
                               <input
