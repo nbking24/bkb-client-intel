@@ -42,18 +42,34 @@ export async function GET(req: NextRequest) {
     }
 
     // 2. Query JT for contacts on that account
-    const data = await pave({
-      contacts: {
-        $: { filter: { accountId: { eq: accountId } }, first: 100 },
-        nodes: {
-          id: {},
-          name: {},
-          contactMethods: { nodes: { type: {}, value: {} } },
+    // Try with contactMethods first; fall back to without if it fails
+    let jtContacts: any[] = [];
+    try {
+      const data = await pave({
+        contact: {
+          $: { filter: { accountId: { eq: accountId } }, first: 100 },
+          nodes: {
+            id: {},
+            name: {},
+            contactMethods: { nodes: { type: {}, value: {} } },
+          },
         },
-      },
-    });
-
-    const jtContacts = (data as any)?.contacts?.nodes || [];
+      });
+      jtContacts = (data as any)?.contact?.nodes || [];
+    } catch (paveErr: any) {
+      // contactMethods might not be the right field name - try without it
+      console.warn('Pave with contactMethods failed, retrying without:', paveErr.message);
+      const data = await pave({
+        contact: {
+          $: { filter: { accountId: { eq: accountId } }, first: 100 },
+          nodes: {
+            id: {},
+            name: {},
+          },
+        },
+      });
+      jtContacts = (data as any)?.contact?.nodes || [];
+    }
 
     // 3. For each JT contact, search GHL for a match
     const contacts = await Promise.all(
@@ -63,11 +79,11 @@ export async function GET(req: NextRequest) {
         let phone = '';
 
         // Extract email and phone from contact methods
-        if (jtContact.contactMethods?.nodes) {
-          for (const method of jtContact.contactMethods.nodes) {
-            if (method.type === 'EMAIL') email = method.value;
-            if (method.type === 'PHONE') phone = method.value;
-          }
+        const methods = jtContact.contactMethods?.nodes || jtContact.contactMethod?.nodes || [];
+        for (const method of methods) {
+          const t = (method.type || '').toLowerCase();
+          if (t === 'email') email = method.value;
+          if (t === 'phone') phone = method.value;
         }
 
         // Try to find matching GHL contact by name or email
