@@ -1881,16 +1881,52 @@ export default function DashboardOverview() {
         })()}
       </div>
 
-      {/* AI BRIEFING â compact, matches field dashboard style */}
-      {analysis?.summary && (
-        <div style={{ background: 'rgba(205,162,116,0.06)', border: '1px solid rgba(205,162,116,0.12)', borderRadius: 8, padding: '8px 10px', marginBottom: isTouch ? 10 : 6 }}>
-          <div style={{ display: 'flex', alignItems: 'center', gap: 4, marginBottom: 4 }}>
-            <Zap size={10} style={{ color: '#CDA274' }} />
-            <span style={{ fontSize: 9, fontWeight: 600, color: '#CDA274' }}>AI BRIEFING</span>
+      {/* TODAY'S FOCUS — data-driven action card replacing AI Briefing */}
+      {(() => {
+        const todayDue = tasks.filter(t => t.daysUntilDue !== null && t.daysUntilDue === 0);
+        const overdueCount = overdueTasks.length;
+        const mtsCount = tasks.filter(t => isMeetingToSchedule(t.name)).length;
+        const woCount = tasks.filter(t => isWaitingOn(t.name)).length;
+        const invCount = stats?.outstandingInvoiceCount || 0;
+        // Pick the single most actionable item
+        let focusItem: { label: string; color: string } | null = null;
+        if (overdueCount > 0) {
+          const worst = [...overdueTasks].sort((a, b) => (a.daysUntilDue ?? 0) - (b.daysUntilDue ?? 0))[0];
+          focusItem = { label: `${worst.name.replace(/^[^\w]*/, '').substring(0, 50)} — ${worst.jobName}`, color: '#ef4444' };
+        } else if (todayDue.length > 0) {
+          focusItem = { label: `${todayDue[0].name.replace(/^[^\w]*/, '').substring(0, 50)} — ${todayDue[0].jobName}`, color: '#f59e0b' };
+        } else if (mtsCount > 0) {
+          const mtsFirst = tasks.find(t => isMeetingToSchedule(t.name));
+          if (mtsFirst) focusItem = { label: `${mtsFirst.name.replace(/^[^\w]*/, '').substring(0, 50)} — ${mtsFirst.jobName}`, color: '#3b82f6' };
+        }
+        const bullets: Array<{ emoji: string; text: string; color: string }> = [];
+        if (overdueCount > 0) bullets.push({ emoji: '🔴', text: `${overdueCount} overdue task${overdueCount !== 1 ? 's' : ''}`, color: '#ef4444' });
+        if (todayDue.length > 0) bullets.push({ emoji: '📋', text: `${todayDue.length} task${todayDue.length !== 1 ? 's' : ''} due today`, color: '#f59e0b' });
+        if (invCount > 0) bullets.push({ emoji: '💰', text: `${invCount} outstanding invoice${invCount !== 1 ? 's' : ''}`, color: '#f59e0b' });
+        if (mtsCount > 0) bullets.push({ emoji: '📅', text: `${mtsCount} meeting${mtsCount !== 1 ? 's' : ''} to schedule`, color: '#3b82f6' });
+        if (woCount > 0) bullets.push({ emoji: '⏳', text: `${woCount} waiting-on item${woCount !== 1 ? 's' : ''}`, color: '#eab308' });
+        if (bullets.length === 0 && !focusItem) return null;
+        return (
+          <div style={{ background: 'rgba(205,162,116,0.06)', border: '1px solid rgba(205,162,116,0.12)', borderRadius: 8, padding: '8px 10px', marginBottom: isTouch ? 10 : 6 }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 4, marginBottom: 5 }}>
+              <Target size={10} style={{ color: '#CDA274' }} />
+              <span style={{ fontSize: 9, fontWeight: 600, color: '#CDA274', letterSpacing: '0.04em' }}>TODAY&apos;S FOCUS</span>
+            </div>
+            {focusItem && (
+              <div style={{ fontSize: 12, color: focusItem.color, fontWeight: 600, marginBottom: 5, lineHeight: 1.4 }}>
+                → {focusItem.label}
+              </div>
+            )}
+            <div style={{ display: 'flex', flexWrap: 'wrap', gap: '4px 12px' }}>
+              {bullets.map((b, i) => (
+                <span key={i} style={{ fontSize: 11, color: '#e8e0d8', lineHeight: 1.5 }}>
+                  {b.emoji} <span style={{ color: b.color, fontWeight: 600 }}>{b.text}</span>
+                </span>
+              ))}
+            </div>
           </div>
-          <p style={{ fontSize: 12, color: '#e8e0d8', lineHeight: 1.5, margin: 0 }}>{analysis.summary}</p>
-        </div>
-      )}
+        );
+      })()}
 
 
       {/* WAITING ON — persistent collapsible strip */}
