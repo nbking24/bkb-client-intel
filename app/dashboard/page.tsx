@@ -705,7 +705,7 @@ export default function DashboardOverview() {
   // Waiting On tracking
   const [showWaitingOnPanel, setShowWaitingOnPanel] = useState(false);
   const [showAgentPanel, setShowAgentPanel] = useState(false);
-  const [panelTab, setPanelTab] = useState<'waitingOn' | 'newTask'>('waitingOn');
+  const [panelTab, setPanelTab] = useState<'waitingOn' | 'newTask' | 'scheduleMeeting'>('waitingOn');
   const [stNewTaskName, setStNewTaskName] = useState('');
   const [stNewTaskJob, setStNewTaskJob] = useState('');
   const [stNewTaskPhase, setStNewTaskPhase] = useState('');
@@ -729,6 +729,34 @@ export default function DashboardOverview() {
   const [editingWoDateId, setEditingWoDateId] = useState<string | null>(null);
   const [editingWoDateVal, setEditingWoDateVal] = useState('');
   const [savingWoDate, setSavingWoDate] = useState(false);
+
+  // Schedule Meeting state
+  const [smCalendars, setSmCalendars] = useState<any[]>([]);
+  const [smCalendarId, setSmCalendarId] = useState('');
+  const [smJobId, setSmJobId] = useState('');
+  const [smTitle, setSmTitle] = useState('');
+  const [smDate, setSmDate] = useState('');
+  const [smTime, setSmTime] = useState('09:00');
+  const [smDuration, setSmDuration] = useState(60);
+  const [smNotes, setSmNotes] = useState('');
+  const [smAddress, setSmAddress] = useState('');
+  const [smAssignee, setSmAssignee] = useState('');
+  const [creatingSm, setCreatingSm] = useState(false);
+  const [smSuccess, setSmSuccess] = useState('');
+  const [smAvailability, setSmAvailability] = useState<any[]>([]);
+  const [smLoadingAvail, setSmLoadingAvail] = useState(false);
+
+  // GHL meeting types mapping to calendar IDs
+  const MEETING_TYPES = [
+    { id: 'XAmFYZHwTcxmDRUrJSgJ', label: 'Discovery Call', duration: 30, group: 'Initial Sales' },
+    { id: 'IZJviv1cDQzqDpJGYY9Y', label: 'Informational Phone Call', duration: 20, group: 'Initial Sales' },
+    { id: '0CTk7gHpzgsl9JT53t5y', label: '15 Min Phone Call', duration: 30, group: 'Nathan' },
+    { id: 'DeoYlZ8TjDVoW6bFraUN', label: 'On-Site Visit', duration: 60, group: 'Initial Sales' },
+    { id: '229P4MHlrdFP31JX7EWH', label: 'Design Review Call', duration: 15, group: 'Initial Sales' },
+    { id: 'dvSLpgmc2RHKl3enJGB', label: 'Virtual Meeting (60 min)', duration: 60, group: 'Nathan' },
+    { id: 'ikgo6jzJw3j8RRWG0G9', label: 'In-Person Meeting (60-90 min)', duration: 90, group: 'Nathan' },
+    { id: 'Agkb9zlkHOFVvsCgoX8o', label: 'Meeting with Evan', duration: 90, group: 'Evan' },
+  ];
 
   const TEAM_ASSIGNEES = [
     { id: '22P5SRwhLaYf', name: 'Nathan King', label: 'Nathan' },
@@ -1029,6 +1057,62 @@ export default function DashboardOverview() {
     } finally { setCreatingSt(false); }
   }
 
+  // Schedule Meeting functions
+  async function fetchAvailability(dateStr: string) {
+    if (!dateStr) return;
+    setSmLoadingAvail(true);
+    try {
+      const d = new Date(dateStr + 'T00:00:00');
+      const start = new Date(d); start.setHours(7, 0, 0, 0);
+      const end = new Date(d); end.setHours(20, 0, 0, 0);
+      const res = await fetch(`/api/dashboard/schedule-meeting/availability?date=${dateStr}`, { headers: { Authorization: `Bearer ${getToken()}` } });
+      if (res.ok) {
+        const data = await res.json();
+        setSmAvailability(data.events || []);
+      }
+    } catch (err) { console.error('Availability fetch failed:', err); }
+    finally { setSmLoadingAvail(false); }
+  }
+
+  async function createScheduledMeeting() {
+    if (!smCalendarId || !smJobId || !smTitle.trim() || !smDate || !smTime) return;
+    setCreatingSm(true);
+    setSmSuccess('');
+    try {
+      // Build start/end times
+      const startDt = new Date(`${smDate}T${smTime}:00`);
+      const endDt = new Date(startDt.getTime() + smDuration * 60000);
+      const startTime = startDt.toISOString();
+      const endTime = endDt.toISOString();
+
+      const res = await fetch('/api/dashboard/schedule-meeting', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${getToken()}` },
+        body: JSON.stringify({
+          calendarId: smCalendarId,
+          jobId: smJobId,
+          title: smTitle.trim(),
+          startTime,
+          endTime,
+          notes: smNotes || undefined,
+          address: smAddress || undefined,
+          assigneeId: smAssignee || undefined,
+        }),
+      });
+      if (!res.ok) { const t = await res.text(); throw new Error(t); }
+      const data = await res.json();
+      setSmSuccess(`Meeting created${data.jtTaskId ? ' in GHL + JT' : ' in GHL'}`);
+      // Reset form
+      setSmTitle(''); setSmDate(''); setSmTime('09:00'); setSmNotes(''); setSmAddress('');
+      // Refresh dashboard data
+      window.dispatchEvent(new Event('refreshDashboard'));
+      setTimeout(() => setSmSuccess(''), 4000);
+    } catch (err: any) {
+      console.error('Create meeting failed:', err);
+      alert('Failed to create meeting: ' + err.message);
+    } finally { setCreatingSm(false); }
+  }
+
   async function saveCalDate() {
     if (!selectedCalTask || !calEditingDate) return;
     setCalSavingDate(true);
@@ -1237,6 +1321,7 @@ export default function DashboardOverview() {
               <div style={{ display: 'flex', borderBottom: '1px solid rgba(205,162,116,0.08)', flexShrink: 0 }}>
                 <button onClick={() => setPanelTab('newTask')} style={{ flex: 1, padding: '10px', background: 'none', border: 'none', borderBottom: panelTab === 'newTask' ? '2px solid #CDA274' : '2px solid transparent', color: panelTab === 'newTask' ? '#CDA274' : '#6a6058', fontSize: 13, fontWeight: 600, cursor: 'pointer' }}>New Task</button>
                 <button onClick={() => setPanelTab('waitingOn')} style={{ flex: 1, padding: '10px', background: 'none', border: 'none', borderBottom: panelTab === 'waitingOn' ? '2px solid #CDA274' : '2px solid transparent', color: panelTab === 'waitingOn' ? '#CDA274' : '#6a6058', fontSize: 13, fontWeight: 600, cursor: 'pointer' }}>Waiting On ({woTasks.length})</button>
+                <button onClick={() => setPanelTab('scheduleMeeting')} style={{ flex: 1, padding: '10px', background: 'none', border: 'none', borderBottom: panelTab === 'scheduleMeeting' ? '2px solid #CDA274' : '2px solid transparent', color: panelTab === 'scheduleMeeting' ? '#CDA274' : '#6a6058', fontSize: 13, fontWeight: 600, cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 4 }}><Calendar size={11} />Meeting</button>
               </div>
               {/* Scrollable content */}
               <div style={{ maxHeight: '60vh', overflowY: 'auto', padding: '8px 12px' }}>
@@ -1341,7 +1426,86 @@ export default function DashboardOverview() {
                     </div>
                   </div>
                 )}
-                {sorted.length === 0 && panelTab !== 'waitingOn' && (
+                {panelTab === 'scheduleMeeting' && (
+                  <div style={{ padding: '4px 0' }}>
+                    {smSuccess && (
+                      <div style={{ background: 'rgba(34,197,94,0.1)', border: '1px solid rgba(34,197,94,0.3)', borderRadius: 6, padding: '8px 12px', marginBottom: 8, fontSize: 11, color: '#22c55e', display: 'flex', alignItems: 'center', gap: 6 }}>
+                        <CheckCircle size={13} /> {smSuccess}
+                      </div>
+                    )}
+                    <div>
+                      <label style={{ fontSize: 9, color: '#6a6058', fontWeight: 600, display: 'block', marginBottom: 3 }}>MEETING TYPE</label>
+                      <select value={smCalendarId} onChange={e => { setSmCalendarId(e.target.value); const mt = MEETING_TYPES.find(m => m.id === e.target.value); if (mt) setSmDuration(mt.duration); }}
+                        style={{ width: '100%', background: '#1a1a1a', border: '1px solid rgba(205,162,116,0.15)', borderRadius: 5, color: smCalendarId ? '#CDA274' : '#5a5550', fontSize: 11, padding: '7px 8px', outline: 'none', cursor: 'pointer', boxSizing: 'border-box' as const }}>
+                        <option value="">Select meeting type...</option>
+                        {MEETING_TYPES.map(mt => (<option key={mt.id} value={mt.id}>{mt.label} ({mt.duration} min)</option>))}
+                      </select>
+                    </div>
+                    <div style={{ marginTop: 8 }}>
+                      <label style={{ fontSize: 9, color: '#6a6058', fontWeight: 600, display: 'block', marginBottom: 3 }}>MEETING TITLE</label>
+                      <input type="text" autoFocus placeholder="e.g. Smith Kitchen - Design Review" value={smTitle} onChange={e => setSmTitle(e.target.value)}
+                        style={{ width: '100%', background: '#1a1a1a', border: '1px solid rgba(205,162,116,0.15)', borderRadius: 5, color: '#e0e0d8', fontSize: 12, padding: '7px 10px', outline: 'none', boxSizing: 'border-box' as const }} />
+                    </div>
+                    <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8, marginTop: 8 }}>
+                      <div>
+                        <label style={{ fontSize: 9, color: '#6a6058', fontWeight: 600, display: 'block', marginBottom: 3 }}>JOB</label>
+                        <select value={smJobId} onChange={e => setSmJobId(e.target.value)}
+                          style={{ width: '100%', background: '#1a1a1a', border: '1px solid rgba(205,162,116,0.15)', borderRadius: 5, color: smJobId ? '#CDA274' : '#5a5550', fontSize: 11, padding: '7px 8px', outline: 'none', cursor: 'pointer', boxSizing: 'border-box' as const }}>
+                          <option value="">Select job...</option>
+                          {(overview?.data?.activeJobs || []).map((j: any) => (<option key={j.id} value={j.id}>#{j.number} {j.name}</option>))}
+                        </select>
+                      </div>
+                      <div>
+                        <label style={{ fontSize: 9, color: '#6a6058', fontWeight: 600, display: 'block', marginBottom: 3 }}>BKB ATTENDEE</label>
+                        <select value={smAssignee} onChange={e => setSmAssignee(e.target.value)}
+                          style={{ width: '100%', background: '#1a1a1a', border: '1px solid rgba(205,162,116,0.15)', borderRadius: 5, color: smAssignee ? '#CDA274' : '#5a5550', fontSize: 11, padding: '7px 8px', outline: 'none', cursor: 'pointer', boxSizing: 'border-box' as const }}>
+                          <option value="">Select attendee...</option>
+                          {TEAM_ASSIGNEES.map((a: any) => (<option key={a.id} value={a.id}>{a.label}</option>))}
+                        </select>
+                      </div>
+                    </div>
+                    <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 80px', gap: 8, marginTop: 8 }}>
+                      <div>
+                        <label style={{ fontSize: 9, color: '#6a6058', fontWeight: 600, display: 'block', marginBottom: 3 }}>DATE</label>
+                        <input type="date" value={smDate} onChange={e => setSmDate(e.target.value)}
+                          style={{ width: '100%', background: '#1a1a1a', border: '1px solid rgba(205,162,116,0.15)', borderRadius: 5, color: smDate ? '#CDA274' : '#5a5550', fontSize: 11, padding: '7px 8px', outline: 'none', cursor: 'pointer', boxSizing: 'border-box' as const, colorScheme: 'dark' }} />
+                      </div>
+                      <div>
+                        <label style={{ fontSize: 9, color: '#6a6058', fontWeight: 600, display: 'block', marginBottom: 3 }}>TIME</label>
+                        <input type="time" value={smTime} onChange={e => setSmTime(e.target.value)}
+                          style={{ width: '100%', background: '#1a1a1a', border: '1px solid rgba(205,162,116,0.15)', borderRadius: 5, color: '#CDA274', fontSize: 11, padding: '7px 8px', outline: 'none', cursor: 'pointer', boxSizing: 'border-box' as const, colorScheme: 'dark' }} />
+                      </div>
+                      <div>
+                        <label style={{ fontSize: 9, color: '#6a6058', fontWeight: 600, display: 'block', marginBottom: 3 }}>MINS</label>
+                        <input type="number" value={smDuration} onChange={e => setSmDuration(Number(e.target.value))} min={15} max={180} step={15}
+                          style={{ width: '100%', background: '#1a1a1a', border: '1px solid rgba(205,162,116,0.15)', borderRadius: 5, color: '#CDA274', fontSize: 11, padding: '7px 8px', outline: 'none', boxSizing: 'border-box' as const }} />
+                      </div>
+                    </div>
+                    <div style={{ marginTop: 8 }}>
+                      <label style={{ fontSize: 9, color: '#6a6058', fontWeight: 600, display: 'block', marginBottom: 3 }}>LOCATION / ADDRESS (OPTIONAL)</label>
+                      <input type="text" placeholder="e.g. 123 Main St, Doylestown PA" value={smAddress} onChange={e => setSmAddress(e.target.value)}
+                        style={{ width: '100%', background: '#1a1a1a', border: '1px solid rgba(205,162,116,0.15)', borderRadius: 5, color: '#e8e0d8', fontSize: 11, padding: '7px 8px', outline: 'none', boxSizing: 'border-box' as const }} />
+                    </div>
+                    <div style={{ marginTop: 8 }}>
+                      <label style={{ fontSize: 9, color: '#6a6058', fontWeight: 600, display: 'block', marginBottom: 3 }}>NOTES (OPTIONAL)</label>
+                      <input type="text" placeholder="e.g. Bring sample tile selections" value={smNotes} onChange={e => setSmNotes(e.target.value)}
+                        style={{ width: '100%', background: '#1a1a1a', border: '1px solid rgba(205,162,116,0.15)', borderRadius: 5, color: '#e8e0d8', fontSize: 11, padding: '7px 8px', outline: 'none', boxSizing: 'border-box' as const }} />
+                    </div>
+                    <div style={{ marginTop: 8, padding: '6px 8px', background: 'rgba(205,162,116,0.04)', borderRadius: 6, fontSize: 10, color: '#6a6058', lineHeight: 1.5 }}>
+                      <span style={{ color: '#CDA274', fontWeight: 600 }}>How it works:</span> Creates the appointment in Loop (GHL) so auto-reminders fire, plus adds a schedule task in JobTread so the team sees it.
+                    </div>
+                    <button onClick={createScheduledMeeting} disabled={!smCalendarId || !smJobId || !smTitle.trim() || !smDate || !smTime || creatingSm}
+                      style={{ marginTop: 12, width: '100%', padding: '10px', borderRadius: 6, border: 'none',
+                        background: (!smCalendarId || !smJobId || !smTitle.trim() || !smDate || !smTime) ? '#333' : '#CDA274',
+                        color: (!smCalendarId || !smJobId || !smTitle.trim() || !smDate || !smTime) ? '#666' : '#1a1a1a',
+                        fontWeight: 600, fontSize: 12, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6,
+                        cursor: (!smCalendarId || !smJobId || !smTitle.trim() || !smDate || !smTime) ? 'default' : 'pointer',
+                        opacity: creatingSm ? 0.5 : 1 }}>
+                      {creatingSm ? <><Loader2 size={13} className="animate-spin" /> Creating...</> : <><Calendar size={13} /> Schedule Meeting</>}
+                    </button>
+                  </div>
+                )}
+                {sorted.length === 0 && panelTab !== 'waitingOn' && panelTab !== 'scheduleMeeting' && (
                   <div style={{ textAlign: 'center', padding: '30px 16px', color: '#5a5550' }}>
                     <Hourglass size={24} style={{ color: '#3a3a3a', marginBottom: 8 }} />
                     <div style={{ fontSize: 12, marginBottom: 4 }}>No open items</div>

@@ -229,6 +229,32 @@ export async function createAppointment(params: {
   });
 }
 
+/**
+ * Update an appointment in GHL.
+ */
+export async function updateAppointment(eventId: string, params: {
+  startTime?: string;
+  endTime?: string;
+  title?: string;
+  notes?: string;
+  address?: string;
+  status?: string;
+}) {
+  return ghlFetch(`/calendars/events/appointments/${eventId}`, {
+    method: 'PUT',
+    body: JSON.stringify(params),
+  });
+}
+
+/**
+ * Cancel/delete an appointment in GHL.
+ */
+export async function cancelAppointment(eventId: string) {
+  return ghlFetch(`/calendars/events/appointments/${eventId}`, {
+    method: 'DELETE',
+  });
+}
+
 // ============================================================
 // GHL → JOBTREAD MEETING SYNC
 // ============================================================
