@@ -233,10 +233,9 @@ const fieldStaff: AgentModule = {
       '- Use Lump Sum (qty=1) when exact quantities are unknown\n' +
       '- Cost code should match the trade (04=framing, 10=plumbing, 12=electrical, etc.)\n\n' +
       'GROUP HIERARCHY FOR CHANGE ORDERS:\n' +
-      'Always structure as: ➕/➖ Post Pricing Changes > Client Requested > [Change Order Name]\n' +
+      'Always structure as: ➕/➖ Post Pricing Changes > [Change Order Name]\n' +
       'The "➕/➖ Post Pricing Changes" group is the root for all COs in BKB budgets.\n' +
-      'Under it are organizational groups like "Client Requested", "✅ Approved", "Trade Walk", etc.\n' +
-      'New COs always go under "Client Requested". Nathan moves them to "✅ Approved" after approval.\n' +
+      'New COs go directly under the Post Pricing Changes root group.\n' +
       'The Change Order Name should clearly describe what changed.\n\n' +
       (ctx.jtJobId ? 'JobTread Job ID: ' + ctx.jtJobId + '\n' : '') +
       (ctx.contactName ? 'Client: ' + ctx.contactName + '\n' : '') +
@@ -795,32 +794,12 @@ const fieldStaff: AgentModule = {
             if (!postPricingRoot?.id) throw new Error('Failed to create Post Pricing Changes group');
           }
 
-          // Find or create "Client Requested" org group under Post Pricing
-          let clientRequestedGroup = allGroups.find((g: any) =>
-            g.parentCostGroup?.id === postPricingRoot.id &&
-            /client\s*requested/i.test(g.name || '')
-          );
-
-          if (!clientRequestedGroup) {
-            const createCRResult = await pave({
-              createCostGroup: {
-                $: {
-                  parentCostGroupId: postPricingRoot.id,
-                  name: 'Client Requested',
-                },
-                createdCostGroup: { id: {}, name: {} },
-              },
-            });
-            clientRequestedGroup = (createCRResult as any)?.createCostGroup?.createdCostGroup;
-            if (!clientRequestedGroup?.id) throw new Error('Failed to create Client Requested group');
-          }
-
-          // ── Step 3: Create the CO subgroup under Client Requested ──
+          // ── Step 3: Create the CO subgroup directly under Post Pricing root ──
           const coGroupDesc = groupDescription || `Change order: ${coName}\n\nTotal: $${totalPrice.toFixed(2)}\nLine items: ${lineItems.length}`;
           const createGroupResult = await pave({
             createCostGroup: {
               $: {
-                parentCostGroupId: clientRequestedGroup.id,
+                parentCostGroupId: postPricingRoot.id,
                 name: coName,
                 description: coGroupDesc,
               },
