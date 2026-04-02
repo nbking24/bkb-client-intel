@@ -946,8 +946,12 @@ The Field Hub is a mobile-optimized dashboard for field crew members (e.g., Evan
 - **Comment window**: 30 days (widened from 7 due to sparse activity)
 - **PAVE limitation**: `user` relation does NOT work on comment queries — removed from `commentFields` in `jobtread.ts`
 - JT membership IDs: nathan=`22P5SRwhLaYf`, evan=`22P5nJ7ncFj4`, terri=`22P5SpJkype2`
-- **PAVE cost item fields**: `approvedPrice` does NOT exist on cost groups OR cost items in PAVE. CO approval status must be determined via document status + cost group name matching, not via price fields.
-- **PAVE document cost groups**: Documents contain their own COPIES of cost groups with DIFFERENT IDs than budget groups. Matching must be done by name, not by ID.
+- **PAVE cost item fields**: `approvedPrice` does NOT exist on cost groups OR cost items in PAVE. Exhaustively tested 15+ field names — ALL return "does not exist".
+- **CO approval detection (document→budget linkage)**: Approval is determined by querying approved customerOrder documents and following `document.costItems.nodes.jobCostItem.costGroup` with a 5-level `parentCostGroup` chain back to the budget. This traces each document line item to its originating budget cost group, then walks up the parent chain to match against known CO groups under Post Pricing. This is 100% reliable — no name-matching needed.
+- **Multiple Post Pricing roots**: Some jobs have multiple "➕/➖ Post Pricing Changes" groups (from separate scopes/copies with different IDs but same-named COs). The code uses `.filter()` (not `.find()`) to collect COs from ALL PP roots and deduplicates by normalized name.
+- **✅ approval emoji prefix**: A daily scheduled task (`co-approval-tagger`, runs weekdays 7 AM) adds ✅ to approved CO group names in JobTread budgets for visual identification. The dashboard code strips this prefix for clean display and normalizes names (via `normalizeCOName()`) so `✅ Paint Colors` and `Paint Colors` are treated as the same CO for deduplication and matching.
+- **Org group detection**: Direct children of Post Pricing roots are classified as either org groups (organizational folders like "Client Requested", "Trade Walk", "✅ Approved", "🚫 OS Out of Scope") or CO groups. Org groups are identified by matching their name (after stripping emoji prefix) against known org names — NOT by emoji-prefix alone, since ✅ is also used as an approval marker on individual COs.
+- **Declining COs**: Moving a CO group out from under the Post Pricing root (e.g., into a separate "Declined Change Orders" group) removes it from tracking entirely. The detection only looks at groups under Post Pricing roots.
 ---
 
 ## 17. Overview Dashboard (Terri)
@@ -1078,6 +1082,22 @@ The Overview Dashboard (`/dashboard`) is Terri's primary workspace — a desktop
 
 ## 18. Changelog
 
+### 2026-04-02 — CO Detection Overhaul: Document→Budget Linkage + ✅ Approval Tagging
+
+- **Replaced name-matching with document→budget linkage** for CO approval detection:
+  - Previous approach matched CO group names against approved document cost group names — unreliable due to generic names causing false positives (e.g., "Project Management" matching Construction Contract)
+  - New approach: queries `document.costItems.nodes.jobCostItem.costGroup` with 5-level `parentCostGroup` chain, walks up to find which CO group each document line item belongs to. 100% reliable, no name-matching.
+  - Key PAVE API discovery: `jobCostItem` field on document cost items links back to the originating budget cost item and its cost group hierarchy
+- **Fixed multiple Post Pricing roots bug** — some jobs (e.g., Wooley Bath) have multiple "➕/➖ Post Pricing Changes" groups from separate scopes/copies. Changed `.find()` to `.filter()` to collect COs from ALL PP roots. Deduplicates by normalized name, maps all CO group IDs back to canonical entries via `coIdToCanonicalId`.
+- **✅ approval emoji tagging** — approved CO group names in JobTread budgets get prefixed with ✅ for visual identification:
+  - Tested via `jobtread_budget` MCP tool `groupUpdates` — renames group name to "✅ " + original
+  - Dashboard code strips ✅ prefix for clean display (`normalizeCOName()`)
+  - Org group detection updated: matches known org names (Client Requested, Trade Walk, etc.) not just emoji-prefix, since ✅ is now also an approval marker on individual COs
+- **Daily scheduled task** (`co-approval-tagger`): runs weekdays at 7 AM, scans all active jobs, finds approved Change Order documents, tags matching CO budget groups with ✅ prefix. Skips COs already tagged.
+- **Declining COs**: Moving a CO out from under the Post Pricing root removes it from tracking entirely — supports a "Declined Change Orders" organizational pattern.
+- **Files changed**: `app/api/field-dashboard/route.ts` (getCOTrackingForJob rewrite)
+- **Commits**: `a68c3bf` (document-linkage), `8b886be` (multi-PP-root fix), `5d35ada` (emoji handling)
+
 ### 2026-04-01 — Waiting On Ribbon: Collapsible + Inline Actions
 
 - **Made Waiting On ribbon collapsible** — clicking the "WAITING ON (N)" header toggles task list visibility. Chevron indicator shows expand/collapse state. Count always visible even when collapsed.
@@ -1122,13 +1142,13 @@ The Overview Dashboard (`/dashboard`) is Terri's primary workspace — a desktop
   - Collapsible card: shows total CO count with pending (amber) / approved (green) pill counts
   - Expanded: grouped by job with clickable rows showing individual CO names + status icons
   - Uses FileCheck (green) and FileWarning (amber) lucide icons
-- **CO Tracking API** added to `GET /api/field-dashboard` response as `changeOrders` array
-  - Parallel fetch per PM job: cost group query + document query (with cost group names from docs)
-  - Detects CO parent groups by name pattern (`/change\s*order|🔁|post\s*pricing/i`)
-  - Collects cost group names from all approved customerOrder documents
-  - Matches budget CO group names against approved doc cost group names for status
-  - Name-based deduplication handles phantom root groups (e.g., Zajick has 6 "Post Pricing Changes" roots)
-  - Structural groups filtered: Client Requested, Approved, Declined, Scope of Work
+- **CO Tracking API** added to `GET /api/field-dashboard` response via `getCOTrackingForJob()` function
+  - Phase 1: Parallel fetch of all cost groups (paginated, up to 100/page) + document list
+  - Phase 2: Identifies approved customerOrder documents
+  - Phase 3: Finds ALL "Post Pricing Changes" root groups (`.filter()`, not `.find()`) and collects CO groups from all roots. Deduplicates by normalized name (strips ✅ prefix). Org groups identified by known names, not emoji prefix.
+  - Phase 4: Document→budget linkage — for each approved CO doc, queries `document.costItems.nodes.jobCostItem.costGroup` with 5-level parent chain. Walks up chain to match against comprehensive set of all CO group IDs across all PP roots. Maps back to canonical CO entry via `coIdToCanonicalId`.
+  - Handles multiple PP roots (e.g., Wooley has 3 PP roots with same-named COs under different IDs)
+  - Strips ✅ prefix from CO names in API response for clean dashboard display
 - **CO Submission via Field-Staff Agent** — full change order workflow through inline Ask Agent:
   - 6-step guided process: job → describe change → targeted questions → photos → proposal → approval
   - Agent asks as many questions as needed: BKB labor hours, sub pricing, materials, follow-up needs, draft document, photos
