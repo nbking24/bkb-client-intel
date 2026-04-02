@@ -171,6 +171,18 @@ export const AGENT_RULES = {
 // Agent project health statuses
 export type ProjectHealthStatus = 'on_track' | 'at_risk' | 'stalled' | 'blocked' | 'complete';
 
+// ============================================================
+// Field KPI Targets — reasonable defaults for field superintendents
+// ============================================================
+
+export const FIELD_KPI_TARGETS = {
+  scheduleAdherence: 90,    // target 90% of tasks on-track
+  avgDaysOverdue: 7,        // target ≤7 days average overdue
+  staleTaskCount: 0,        // target zero stale tasks (30+ days, no progress)
+  completedPerWeek: 5,      // target 5 task completions per week
+  densityNext7: 8,          // healthy upcoming workload (next 7 days)
+} as const;
+
 // GHL config
 export const GHL_CONFIG = {
   locationId: 'H3fSXP5K9fMGf0eJIkXk',

@@ -2,7 +2,9 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { validateAuth } from '../lib/auth';
 import { getActiveJobs, getTasksForJob, getOpenTasksForMember, updateTaskProgress, updateTask, getCommentsForTarget, pave } from '@/app/lib/jobtread';
-import { TEAM_USERS } from '@/app/lib/constants';
+import { TEAM_USERS, FIELD_KPI_TARGETS } from '@/app/lib/constants';
+import { computeFieldKPIs } from '@/app/lib/field-kpis';
+import { createServerClient } from '@/app/lib/supabase';
 
 /**
  * GET /api/field-dashboard
@@ -391,100 +393,32 @@ export async function GET(req: NextRequest) {
       parts.push(`${myWeek1Tasks.length} task${myWeek1Tasks.length > 1 ? 's' : ''} assigned to you this upcoming week.`);
     }
 
-    // ── KPI CALCULATIONS ──
-    // We use all tasks from PM jobs (jobDataResults) which includes completed tasks
-    const thirtyDaysAgo = new Date(today.getTime() - 30 * 86400000).toISOString().split('T')[0];
-    const sevenDaysAgo = new Date(today.getTime() - 7 * 86400000).toISOString().split('T')[0];
+    // ── KPI CALCULATIONS (shared helper) ──
+    const kpis = computeFieldKPIs(jobDataResults, today);
 
-    let allOverdueDaysSum = 0;
-    let allOverdueCount = 0;
-    let staleTaskCount = 0; // overdue 30+ days with no progress
-    let totalTasksWithDueDate = 0;
-    let totalCompletedTasks = 0;
-    let completedOnOrBeforeDue = 0; // completed tasks whose due date >= today or progress=1
-    let completedThisWeek = 0;
-    let completedLastWeek = 0;
-    const fourteenDaysAgo = new Date(today.getTime() - 14 * 86400000).toISOString().split('T')[0];
-    // Track completed tasks in date windows using endDate (since PAVE has no completedAt)
-    // For "this week" / "last week" we look at completed tasks whose endDate falls in those windows
-
-    for (const { tasks } of jobDataResults) {
-      for (const task of tasks) {
-        if (task.isGroup) continue;
-        const isComplete = task.progress !== null && task.progress >= 1;
-        const endDate = task.endDate ? task.endDate.split('T')[0] : null;
-
-        // KPI 1: Schedule Adherence — of all tasks with due dates, what % are on-track?
-        // On-track = completed (regardless of when) OR not yet due
-        // Off-track = overdue and not complete
-        if (endDate) {
-          totalTasksWithDueDate++;
-          if (isComplete || endDate >= todayStr) {
-            completedOnOrBeforeDue++;
-          }
-        }
-
-        // KPI 4: Tasks completed with endDate in recent windows
-        if (isComplete && endDate) {
-          totalCompletedTasks++;
-          if (endDate >= sevenDaysAgo && endDate <= todayStr) completedThisWeek++;
-          if (endDate >= fourteenDaysAgo && endDate < sevenDaysAgo) completedLastWeek++;
-        }
-
-        // KPI 2 & 3: Average Days Overdue + Stale count (open tasks only)
-        if (!isComplete && endDate && endDate < todayStr) {
-          const daysOver = Math.floor((today.getTime() - new Date(endDate + 'T12:00:00').getTime()) / 86400000);
-          allOverdueDaysSum += daysOver;
-          allOverdueCount++;
-          if (daysOver >= 30 && (task.progress === null || task.progress === 0)) {
-            staleTaskCount++;
-          }
-        }
+    // ── KPI HISTORY (from bi-weekly snapshots in agent_cache) ──
+    let kpiHistory: any[] = [];
+    try {
+      const sb = createServerClient();
+      const sixMonthsAgo = new Date(today.getTime() - 180 * 86400000).toISOString().split('T')[0];
+      const { data: snapshots } = await sb
+        .from('agent_cache')
+        .select('key, data')
+        .like('key', `field-kpi:${userId}:%`)
+        .order('key', { ascending: true });
+      if (snapshots) {
+        kpiHistory = snapshots
+          .map((s: any) => {
+            const date = s.key.split(':')[2]; // field-kpi:userId:YYYY-MM-DD
+            return date >= sixMonthsAgo ? { date, ...s.data } : null;
+          })
+          .filter(Boolean);
       }
+    } catch (e) {
+      console.error('KPI history fetch error:', e);
     }
 
-    // KPI 1: Schedule Adherence Score (%) — tasks on-track / total with due dates
-    const scheduleAdherence = totalTasksWithDueDate > 0
-      ? Math.round((completedOnOrBeforeDue / totalTasksWithDueDate) * 100)
-      : null;
-
-    // KPI 2: Average Days Overdue
-    const avgDaysOverdue = allOverdueCount > 0
-      ? Math.round((allOverdueDaysSum / allOverdueCount) * 10) / 10
-      : 0;
-
-    // KPI 4: Tasks Completed This Week + trend vs last week
-    const completionTrend = completedThisWeek - completedLastWeek;
-
-    // KPI 5: Upcoming Task Density (next 7 vs next 30)
-    const sevenDaysOut = new Date(today.getTime() + 7 * 86400000).toISOString().split('T')[0];
-    const thirtyDaysOut = new Date(today.getTime() + 30 * 86400000).toISOString().split('T')[0];
-    let tasksNext7 = 0;
-    let tasksNext30 = 0;
-    for (const { tasks } of jobDataResults) {
-      for (const task of tasks) {
-        if (task.isGroup) continue;
-        const isComplete = task.progress !== null && task.progress >= 1;
-        if (isComplete) continue;
-        const ed = task.endDate ? task.endDate.split('T')[0] : null;
-        if (!ed || ed < todayStr) continue;
-        if (ed <= sevenDaysOut) tasksNext7++;
-        if (ed <= thirtyDaysOut) tasksNext30++;
-      }
-    }
-
-    const kpis = {
-      scheduleAdherence,        // % of tasks on-track (complete or not yet due)
-      totalCompletedLast30: totalCompletedTasks, // total completed tasks across PM jobs
-      avgDaysOverdue,           // average days overdue across all open overdue tasks
-      overdueTaskCount: allOverdueCount, // total overdue (all PM jobs)
-      staleTaskCount,           // 30+ days overdue, no progress
-      completedThisWeek,        // tasks with endDate in last 7 days that are complete
-      completedLastWeek,        // tasks with endDate 7-14 days ago that are complete
-      completionTrend,          // +/- vs last week
-      tasksNext7,               // upcoming density: next 7 days
-      tasksNext30,              // upcoming density: next 30 days
-    };
+    const kpiTargets = FIELD_KPI_TARGETS;
 
     // Recent communications section — limit to 3 most active jobs
     if (recentComments.length > 0) {
@@ -555,6 +489,8 @@ export async function GET(req: NextRequest) {
       kpis,
       changeOrders,
       weather,
+      kpiHistory,
+      kpiTargets,
     });
   } catch (err: any) {
     console.error('Field dashboard error:', err);

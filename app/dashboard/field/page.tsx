@@ -608,6 +608,22 @@ interface KPIs {
   tasksNext7: number;
   tasksNext30: number;
 }
+interface KPISnapshot {
+  date: string;
+  scheduleAdherence: number | null;
+  avgDaysOverdue: number;
+  staleTaskCount: number;
+  completedThisWeek: number;
+  tasksNext7: number;
+  tasksNext30: number;
+}
+interface KPITargets {
+  scheduleAdherence: number;
+  avgDaysOverdue: number;
+  staleTaskCount: number;
+  completedPerWeek: number;
+  densityNext7: number;
+}
 interface WeatherDay {
   date: string; high: number; low: number;
   precipChance: number; code: number;
@@ -629,8 +645,59 @@ interface Data {
   activeJobCount: number;
   pmJobs: PmJob[];
   kpis: KPIs;
+  kpiHistory: KPISnapshot[];
+  kpiTargets: KPITargets;
   changeOrders: ChangeOrder[];
   weather: WeatherDay[];
+}
+
+/* ── Mini Sparkline SVG ── */
+function Sparkline({ data, color, targetValue, invert }: { data: number[]; color: string; targetValue?: number; invert?: boolean }) {
+  if (!data || data.length < 2) return null;
+  const w = 60, h = 20, pad = 2;
+  const allVals = targetValue !== undefined ? [...data, targetValue] : data;
+  const min = Math.min(...allVals);
+  const max = Math.max(...allVals);
+  const range = max - min || 1;
+  const pts = data.map((v, i) => {
+    const x = pad + (i / (data.length - 1)) * (w - 2 * pad);
+    const y = pad + (1 - (v - min) / range) * (h - 2 * pad);
+    return `${x},${y}`;
+  });
+  const targetY = targetValue !== undefined
+    ? pad + (1 - (targetValue - min) / range) * (h - 2 * pad)
+    : null;
+  return (
+    <svg width={w} height={h} style={{ display: 'block' }}>
+      {targetY !== null && (
+        <line x1={pad} y1={targetY} x2={w - pad} y2={targetY} stroke="#5a5550" strokeWidth={0.5} strokeDasharray="2,2" />
+      )}
+      <polyline fill="none" stroke={color} strokeWidth={1.5} strokeLinecap="round" strokeLinejoin="round" points={pts.join(' ')} />
+      {/* Last point dot */}
+      {pts.length > 0 && (() => {
+        const last = pts[pts.length - 1].split(',');
+        return <circle cx={last[0]} cy={last[1]} r={2} fill={color} />;
+      })()}
+    </svg>
+  );
+}
+
+/* ── Target progress bar ── */
+function TargetBar({ current, target, invert }: { current: number; target: number; invert?: boolean }) {
+  // For "lower is better" metrics (invert=true), flip the calculation
+  let pct: number;
+  if (invert) {
+    // 0 overdue = 100%, target overdue = 50%, 2x target = 0%
+    pct = current <= 0 ? 100 : Math.max(0, Math.min(100, (1 - current / (target * 2)) * 100));
+  } else {
+    pct = target > 0 ? Math.min(100, (current / target) * 100) : 0;
+  }
+  const barColor = pct >= 90 ? '#22c55e' : pct >= 60 ? '#eab308' : '#ef4444';
+  return (
+    <div style={{ width: '100%', height: 3, background: '#2a2a2a', borderRadius: 2, marginTop: 3, overflow: 'hidden' }}>
+      <div style={{ width: `${pct}%`, height: '100%', background: barColor, borderRadius: 2, transition: 'width 0.3s' }} />
+    </div>
+  );
 }
 
 export default function FieldDashboardPage() {
@@ -806,9 +873,11 @@ export default function FieldDashboardPage() {
       {/* INLINE ASK AGENT */}
       <InlineAskAgent pmJobs={data.pmJobs || []} screen={screen} />
 
-      {/* KPI METRICS */}
+      {/* KPI METRICS with targets + sparklines */}
       {data.kpis && (() => {
         const k = data.kpis;
+        const t = data.kpiTargets || { scheduleAdherence: 90, avgDaysOverdue: 7, staleTaskCount: 0, completedPerWeek: 5, densityNext7: 8 };
+        const hist = data.kpiHistory || [];
         const adherenceColor = k.scheduleAdherence === null ? '#5a5550' : k.scheduleAdherence >= 75 ? '#22c55e' : k.scheduleAdherence >= 50 ? '#eab308' : '#ef4444';
         const avgOdColor = k.avgDaysOverdue <= 7 ? '#22c55e' : k.avgDaysOverdue <= 21 ? '#eab308' : '#ef4444';
         const staleColor = k.staleTaskCount === 0 ? '#22c55e' : k.staleTaskCount <= 3 ? '#eab308' : '#ef4444';
@@ -816,6 +885,40 @@ export default function FieldDashboardPage() {
         const trendColor = k.completionTrend > 0 ? '#22c55e' : k.completionTrend < 0 ? '#ef4444' : '#5a5550';
         const densityPct = k.tasksNext30 > 0 ? Math.round((k.tasksNext7 / k.tasksNext30) * 100) : 0;
         const densityColor = densityPct > 60 ? '#ef4444' : densityPct > 35 ? '#eab308' : '#22c55e';
+
+        // Extract sparkline data from history
+        const histAdherence = hist.map(h => h.scheduleAdherence ?? 0);
+        const histOverdue = hist.map(h => h.avgDaysOverdue ?? 0);
+        const histStale = hist.map(h => h.staleTaskCount ?? 0);
+        const histCompleted = hist.map(h => h.completedThisWeek ?? 0);
+        const histDensity = hist.map(h => h.tasksNext7 ?? 0);
+
+        // Append current values so sparkline includes "now"
+        const sparkAdherence = [...histAdherence, k.scheduleAdherence ?? 0];
+        const sparkOverdue = [...histOverdue, k.avgDaysOverdue];
+        const sparkStale = [...histStale, k.staleTaskCount];
+        const sparkCompleted = [...histCompleted, k.completedThisWeek];
+        const sparkDensity = [...histDensity, k.tasksNext7];
+
+        // Compute trend vs last snapshot for each KPI
+        const lastSnap = hist.length > 0 ? hist[hist.length - 1] : null;
+        const adherenceDelta = lastSnap && k.scheduleAdherence !== null && lastSnap.scheduleAdherence !== null
+          ? k.scheduleAdherence - lastSnap.scheduleAdherence : null;
+        const overdueDelta = lastSnap ? k.avgDaysOverdue - lastSnap.avgDaysOverdue : null;
+        const staleDelta = lastSnap ? k.staleTaskCount - lastSnap.staleTaskCount : null;
+        const densityDelta = lastSnap ? k.tasksNext7 - lastSnap.tasksNext7 : null;
+
+        const TrendBadge = ({ delta, invert }: { delta: number | null; invert?: boolean }) => {
+          if (delta === null || delta === 0) return null;
+          const isGood = invert ? delta < 0 : delta > 0;
+          const color = isGood ? '#22c55e' : '#ef4444';
+          const icon = delta > 0 ? <TrendingUp size={7} /> : <TrendingDown size={7} />;
+          return (
+            <span style={{ display: 'inline-flex', alignItems: 'center', gap: 1, fontSize: 7, color, marginLeft: 3 }}>
+              {icon}{invert ? (delta > 0 ? '+' : '') : (delta > 0 ? '+' : '')}{Math.abs(delta) % 1 === 0 ? Math.abs(delta) : Math.abs(delta).toFixed(1)}
+            </span>
+          );
+        };
 
         return (
           <div style={{ display: 'grid', gridTemplateColumns: isMobile ? 'repeat(3, 1fr)' : 'repeat(5, 1fr)', gap: isTouch ? 6 : 4, marginBottom: isTouch ? 10 : 6 }}>
@@ -825,12 +928,19 @@ export default function FieldDashboardPage() {
                 <Target size={9} style={{ color: adherenceColor }} />
                 <span style={{ fontSize: 7, color: '#5a5550', fontWeight: 600, letterSpacing: '0.04em' }}>ON-TRACK</span>
               </div>
-              <div style={{ fontSize: 18, fontWeight: 700, color: adherenceColor, lineHeight: 1 }}>
-                {k.scheduleAdherence !== null ? `${k.scheduleAdherence}%` : '—'}
+              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+                <div>
+                  <div style={{ fontSize: 18, fontWeight: 700, color: adherenceColor, lineHeight: 1 }}>
+                    {k.scheduleAdherence !== null ? `${k.scheduleAdherence}%` : '—'}
+                    <TrendBadge delta={adherenceDelta} />
+                  </div>
+                  <div style={{ fontSize: 7, color: '#4a4a4a', marginTop: 2 }}>
+                    goal {t.scheduleAdherence}%
+                  </div>
+                </div>
+                <Sparkline data={sparkAdherence} color={adherenceColor} targetValue={t.scheduleAdherence} />
               </div>
-              <div style={{ fontSize: 7, color: '#4a4a4a', marginTop: 2 }}>
-                {k.totalCompletedLast30} tasks complete
-              </div>
+              <TargetBar current={k.scheduleAdherence ?? 0} target={t.scheduleAdherence} />
             </div>
 
             {/* KPI 2: Avg Days Overdue */}
@@ -839,12 +949,19 @@ export default function FieldDashboardPage() {
                 <Clock3 size={9} style={{ color: avgOdColor }} />
                 <span style={{ fontSize: 7, color: '#5a5550', fontWeight: 600, letterSpacing: '0.04em' }}>AVG OVERDUE</span>
               </div>
-              <div style={{ fontSize: 18, fontWeight: 700, color: avgOdColor, lineHeight: 1 }}>
-                {k.avgDaysOverdue > 0 ? `${k.avgDaysOverdue}d` : '0'}
+              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+                <div>
+                  <div style={{ fontSize: 18, fontWeight: 700, color: avgOdColor, lineHeight: 1 }}>
+                    {k.avgDaysOverdue > 0 ? `${k.avgDaysOverdue}d` : '0'}
+                    <TrendBadge delta={overdueDelta} invert />
+                  </div>
+                  <div style={{ fontSize: 7, color: '#4a4a4a', marginTop: 2 }}>
+                    goal ≤{t.avgDaysOverdue}d
+                  </div>
+                </div>
+                <Sparkline data={sparkOverdue} color={avgOdColor} targetValue={t.avgDaysOverdue} invert />
               </div>
-              <div style={{ fontSize: 7, color: '#4a4a4a', marginTop: 2 }}>
-                across {k.overdueTaskCount} tasks
-              </div>
+              <TargetBar current={k.avgDaysOverdue} target={t.avgDaysOverdue} invert />
             </div>
 
             {/* KPI 3: Stale Tasks */}
@@ -853,12 +970,19 @@ export default function FieldDashboardPage() {
                 <AlertTriangle size={9} style={{ color: staleColor }} />
                 <span style={{ fontSize: 7, color: '#5a5550', fontWeight: 600, letterSpacing: '0.04em' }}>STALE</span>
               </div>
-              <div style={{ fontSize: 18, fontWeight: 700, color: staleColor, lineHeight: 1 }}>
-                {k.staleTaskCount}
+              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+                <div>
+                  <div style={{ fontSize: 18, fontWeight: 700, color: staleColor, lineHeight: 1 }}>
+                    {k.staleTaskCount}
+                    <TrendBadge delta={staleDelta} invert />
+                  </div>
+                  <div style={{ fontSize: 7, color: '#4a4a4a', marginTop: 2 }}>
+                    goal {t.staleTaskCount}
+                  </div>
+                </div>
+                <Sparkline data={sparkStale} color={staleColor} targetValue={t.staleTaskCount} invert />
               </div>
-              <div style={{ fontSize: 7, color: '#4a4a4a', marginTop: 2 }}>
-                30+ days, no progress
-              </div>
+              <TargetBar current={k.staleTaskCount} target={Math.max(t.staleTaskCount, 1)} invert />
             </div>
 
             {/* KPI 4: Completed This Week */}
@@ -867,12 +991,18 @@ export default function FieldDashboardPage() {
                 <Activity size={9} style={{ color: '#3b82f6' }} />
                 <span style={{ fontSize: 7, color: '#5a5550', fontWeight: 600, letterSpacing: '0.04em' }}>DONE / WK</span>
               </div>
-              <div style={{ fontSize: 18, fontWeight: 700, color: '#3b82f6', lineHeight: 1 }}>
-                {k.completedThisWeek}
+              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+                <div>
+                  <div style={{ fontSize: 18, fontWeight: 700, color: '#3b82f6', lineHeight: 1 }}>
+                    {k.completedThisWeek}
+                  </div>
+                  <div style={{ fontSize: 7, color: trendColor, marginTop: 2, display: 'flex', alignItems: 'center', gap: 2 }}>
+                    {trendIcon} {k.completionTrend > 0 ? '+' : ''}{k.completionTrend} vs last wk · goal {t.completedPerWeek}
+                  </div>
+                </div>
+                <Sparkline data={sparkCompleted} color="#3b82f6" targetValue={t.completedPerWeek} />
               </div>
-              <div style={{ fontSize: 7, color: trendColor, marginTop: 2, display: 'flex', alignItems: 'center', gap: 2 }}>
-                {trendIcon} {k.completionTrend > 0 ? '+' : ''}{k.completionTrend} vs last wk
-              </div>
+              <TargetBar current={k.completedThisWeek} target={t.completedPerWeek} />
             </div>
 
             {/* KPI 5: Upcoming Density */}
@@ -881,12 +1011,19 @@ export default function FieldDashboardPage() {
                 <CalendarDays size={9} style={{ color: densityColor }} />
                 <span style={{ fontSize: 7, color: '#5a5550', fontWeight: 600, letterSpacing: '0.04em' }}>DENSITY</span>
               </div>
-              <div style={{ fontSize: 18, fontWeight: 700, color: densityColor, lineHeight: 1 }}>
-                {k.tasksNext7}
+              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+                <div>
+                  <div style={{ fontSize: 18, fontWeight: 700, color: densityColor, lineHeight: 1 }}>
+                    {k.tasksNext7}
+                    <TrendBadge delta={densityDelta} />
+                  </div>
+                  <div style={{ fontSize: 7, color: '#4a4a4a', marginTop: 2 }}>
+                    of {k.tasksNext30} in 30d · goal {t.densityNext7}
+                  </div>
+                </div>
+                <Sparkline data={sparkDensity} color={densityColor} targetValue={t.densityNext7} />
               </div>
-              <div style={{ fontSize: 7, color: '#4a4a4a', marginTop: 2 }}>
-                of {k.tasksNext30} due in 30d
-              </div>
+              <TargetBar current={k.tasksNext7} target={t.densityNext7} />
             </div>
           </div>
         );

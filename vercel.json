@@ -50,6 +50,10 @@
                     {
                                     "path": "/api/cron/gmail-to-pml",
                                     "schedule": "30 * * * *"
+                    },
+                    {
+                                    "path": "/api/cron/field-kpi-snapshot",
+                                    "schedule": "30 6 1,15 * *"
                     }
         ]
 }
