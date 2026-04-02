@@ -19,7 +19,7 @@ async function getCOTrackingForJob(jobId: string): Promise<{
   budgetCOs: Array<{ id: string; name: string; isApproved: boolean }>;
 }> {
   try {
-    // --- Phase 1: Fetch cost groups + lightweight document list in parallel ---
+    // --- Phase 1: Fetch cost groups + approved documents in parallel ---
     const firstPageSize = 100;
     const [groupPage1, docData] = await Promise.all([
       pave({
@@ -68,37 +68,15 @@ async function getCOTrackingForJob(jobId: string): Promise<{
     const approvedCODocIds = allDocs
       .filter((d: any) => d.type === 'customerOrder' && d.status === 'approved')
       .map((d: any) => d.id as string);
-    const hasApprovedDocs = approvedCODocIds.length > 0;
 
-    // Fetch cost groups + items ONLY for approved CO docs (separately, to avoid 413)
-    const approvedCODocs: any[] = [];
-    if (hasApprovedDocs) {
-      const docDetails = await Promise.all(
-        approvedCODocIds.map((docId: string) =>
-          pave({
-            document: {
-              $: { id: docId },
-              id: {}, name: {},
-              costGroups: { nodes: { id: {}, name: {} } },
-              costItems: { $: { size: 100 }, nodes: { id: {}, name: {}, costGroup: { id: {} } } },
-            },
-          }).then((r: any) => r?.document).catch(() => null)
-        )
-      );
-      for (const d of docDetails) {
-        if (d) approvedCODocs.push(d);
-      }
-    }
-
-    // --- Phase 3: Find "Post Pricing Changes" root and its direct children (= COs) ---
+    // --- Phase 3: Find "Post Pricing Changes" root and its CO groups ---
     const postPricingRoot = allGroups.find((g: any) =>
       /post\s*pricing/i.test(g.name || '')
     );
     if (!postPricingRoot) return { budgetCOs: [] };
 
-    // Some projects use organizational/status groups as direct children of Post Pricing:
-    //   Client Requested, Trade Walk, ✅ Approved, 🚫 OS Out of Scope, 🟡 Pending, etc.
-    // Actual COs may be direct children OR children of these org groups.
+    // Org/status groups are direct children of Post Pricing that organize COs:
+    //   Client Requested, Trade Walk, ✅ Approved, 🚫 OS Out of Scope, etc.
     const ORG_GROUP_PATTERNS = [
       /^(✅|🚫|🟡|🔴|🟢|⬜)\s/,     // Emoji-prefixed status groups
       /^(client requested|trade walk|os out of scope|approved|declined|pending)$/i,
@@ -110,7 +88,6 @@ async function getCOTrackingForJob(jobId: string): Promise<{
       g.parentCostGroup?.id === postPricingRoot.id
     );
 
-    // Separate into org groups and real COs
     const orgGroupIds = new Set<string>();
     const coGroups: any[] = [];
     for (const g of directChildren) {
@@ -120,7 +97,6 @@ async function getCOTrackingForJob(jobId: string): Promise<{
         coGroups.push(g);
       }
     }
-    // Also include children of org groups as COs (one level deeper)
     if (orgGroupIds.size > 0) {
       for (const g of allGroups) {
         if (g.parentCostGroup?.id && orgGroupIds.has(g.parentCostGroup.id)) {
@@ -130,110 +106,61 @@ async function getCOTrackingForJob(jobId: string): Promise<{
     }
     if (coGroups.length === 0) return { budgetCOs: [] };
 
-    // Build descendant group names for each CO (budget-side)
-    const childrenOf = new Map<string, any[]>();
-    for (const g of allGroups) {
-      const pid = g.parentCostGroup?.id;
-      if (pid) {
-        if (!childrenOf.has(pid)) childrenOf.set(pid, []);
-        childrenOf.get(pid)!.push(g);
-      }
-    }
-
-    // For each CO, collect SHALLOW names (CO + first-level children only) for matching.
-    // Deep descendants often contain generic names (e.g. "Project Management", "Interior Painting")
-    // that cause false matches against the Construction Contract.
-    const coShallowNames = new Map<string, Set<string>>(); // coId → CO name + first-level children names
-    const coShallowGroupIds = new Map<string, Set<string>>(); // coId → CO ID + first-level children IDs
-    for (const co of coGroups) {
-      const names = new Set<string>([(co.name || '').trim().toLowerCase()]);
-      const ids = new Set<string>([co.id]);
-      // Only first-level children (not deeper descendants)
-      for (const child of (childrenOf.get(co.id) || [])) {
-        ids.add(child.id);
-        names.add((child.name || '').trim().toLowerCase());
-      }
-      coShallowNames.set(co.id, names);
-      coShallowGroupIds.set(co.id, ids);
-    }
-
-    // --- Phase 4: Match approved documents to CO groups ---
-    // Strategy A: Match document cost group names to budget CO group names
-    // Strategy B: Match document cost item names to budget cost item names
-    // JT doesn't expose budget↔document linkage via API, so we match by name.
+    // --- Phase 4: Determine approval via document→budget linkage ---
+    // For each approved customerOrder doc, query its cost items' jobCostItem.costGroup
+    // with a parent chain (up to 5 levels). Walk up to find which CO group under
+    // Post Pricing each item belongs to. This is 100% reliable — no name-matching needed.
     const approvedCOIds = new Set<string>();
-    let budgetItems: any[] | null = null; // lazy-loaded for Strategy B
+    const coGroupIdSet = new Set(coGroups.map((co: any) => co.id));
 
-    for (const doc of (hasApprovedDocs ? approvedCODocs : [])) {
-      const docGroups = doc.costGroups?.nodes || [];
-      const docItems = doc.costItems?.nodes || [];
-
-      // Strategy A: Check if any document cost group name matches a budget CO group name
-      // Uses SHALLOW names only (CO name + first-level children) to avoid false matches
-      // from generic deep-descendant names like "Project Management".
-      const docGroupNames = new Set(
-        docGroups.map((g: any) => (g.name || '').trim().toLowerCase())
-      );
-
-      for (const co of coGroups) {
-        if (approvedCOIds.has(co.id)) continue;
-        const budgetNames = coShallowNames.get(co.id)!;
-        for (const bn of budgetNames) {
-          if (docGroupNames.has(bn)) {
-            approvedCOIds.add(co.id);
-            break;
-          }
-        }
-      }
-
-      // Strategy B: For unmatched COs, check if document cost items match
-      // budget cost items (by name) that belong to a CO group
-      if (approvedCOIds.size < coGroups.length && docItems.length > 0) {
-        const docItemNames = new Set(
-          docItems.map((item: any) => (item.name || '').trim().toLowerCase())
-        );
-
-        // Lazy-fetch budget cost items (only once per getCOTrackingForJob call)
-        if (!budgetItems) {
-          budgetItems = [];
-          let biNextPage: any = null;
-          for (let p = 0; p < 10; p++) {
-            const biParams: Record<string, unknown> = { size: firstPageSize };
-            if (biNextPage) biParams.page = biNextPage;
-            const biData = await pave({
-              job: {
-                $: { id: jobId },
-                costItems: {
-                  $: biParams,
-                  nextPage: {},
-                  nodes: { id: {}, name: {}, costGroup: { id: {} } },
+    if (approvedCODocIds.length > 0) {
+      const docItemResults = await Promise.all(
+        approvedCODocIds.map((docId: string) =>
+          pave({
+            document: {
+              $: { id: docId },
+              costItems: {
+                $: { size: 100 },
+                nodes: {
+                  jobCostItem: {
+                    costGroup: {
+                      id: {}, name: {},
+                      parentCostGroup: {
+                        id: {}, name: {},
+                        parentCostGroup: {
+                          id: {}, name: {},
+                          parentCostGroup: {
+                            id: {}, name: {},
+                            parentCostGroup: { id: {}, name: {} },
+                          },
+                        },
+                      },
+                    },
+                  },
                 },
               },
-            });
-            const ci = (biData as any)?.job?.costItems;
-            budgetItems = budgetItems.concat(ci?.nodes || []);
-            biNextPage = ci?.nextPage || null;
-            if (!biNextPage || (ci?.nodes?.length || 0) < firstPageSize) break;
-          }
-        }
+            },
+          }).then((r: any) => r?.document?.costItems?.nodes || []).catch(() => [])
+        )
+      );
 
-        for (const co of coGroups) {
-          if (approvedCOIds.has(co.id)) continue;
-          // Use shallow group IDs (CO + first-level children) to limit matching scope
-          const groupIds = coShallowGroupIds.get(co.id)!;
-          for (const bi of budgetItems) {
-            const biGroupId = bi.costGroup?.id;
-            if (!biGroupId || !groupIds.has(biGroupId)) continue;
-            const biName = (bi.name || '').trim().toLowerCase();
-            if (docItemNames.has(biName)) {
-              approvedCOIds.add(co.id);
+      for (const items of docItemResults) {
+        for (const item of items) {
+          const cg = item?.jobCostItem?.costGroup;
+          if (!cg) continue;
+
+          // Walk up the parent chain to find which CO group this item belongs to
+          let curr = cg;
+          while (curr?.id) {
+            if (coGroupIdSet.has(curr.id)) {
+              approvedCOIds.add(curr.id);
               break;
             }
+            curr = curr.parentCostGroup;
           }
         }
+        if (approvedCOIds.size === coGroups.length) break;
       }
-
-      if (approvedCOIds.size === coGroups.length) break;
     }
 
     return {
