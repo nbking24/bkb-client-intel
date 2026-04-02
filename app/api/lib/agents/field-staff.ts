@@ -233,7 +233,10 @@ const fieldStaff: AgentModule = {
       '- Use Lump Sum (qty=1) when exact quantities are unknown\n' +
       '- Cost code should match the trade (04=framing, 10=plumbing, 12=electrical, etc.)\n\n' +
       'GROUP HIERARCHY FOR CHANGE ORDERS:\n' +
-      'Always structure as: Post Pricing Changes > Client Requested > [Change Order Name]\n' +
+      'Always structure as: ➕/➖ Post Pricing Changes > Client Requested > [Change Order Name]\n' +
+      'The "➕/➖ Post Pricing Changes" group is the root for all COs in BKB budgets.\n' +
+      'Under it are organizational groups like "Client Requested", "✅ Approved", "Trade Walk", etc.\n' +
+      'New COs always go under "Client Requested". Nathan moves them to "✅ Approved" after approval.\n' +
       'The Change Order Name should clearly describe what changed.\n\n' +
       (ctx.jtJobId ? 'JobTread Job ID: ' + ctx.jtJobId + '\n' : '') +
       (ctx.contactName ? 'Client: ' + ctx.contactName + '\n' : '') +
@@ -670,15 +673,46 @@ const fieldStaff: AgentModule = {
           ]);
 
           const groups = (groupData as any)?.job?.costGroups?.nodes || [];
-          const coParentIds = new Set(
-            groups
-              .filter((g: any) => /change\s*order|🔁|post\s*pricing/i.test(g.name || ''))
-              .map((g: any) => g.id)
+
+          // Find the Post Pricing root
+          const postPricingRoot = groups.find((g: any) =>
+            /post\s*pricing/i.test(g.name || '')
           );
 
-          const existingCOs = groups
-            .filter((g: any) => g.parentCostGroup?.id && coParentIds.has(g.parentCostGroup.id))
-            .map((g: any) => g.name);
+          // Org group detection (same as dashboard)
+          const ORG_PATTERNS = [
+            /^(✅|🚫|🟡|🔴|🟢|⬜)\s/,
+            /^(client requested|trade walk|os out of scope|approved|declined|pending)$/i,
+          ];
+          const isOrgGroup = (n: string) => ORG_PATTERNS.some(p => p.test(n.trim()));
+
+          let existingCOs: string[] = [];
+          let clientRequestedGroupId: string | null = null;
+
+          if (postPricingRoot) {
+            const directChildren = groups.filter((g: any) =>
+              g.parentCostGroup?.id === postPricingRoot.id
+            );
+            const orgGroupIds = new Set<string>();
+            for (const g of directChildren) {
+              if (isOrgGroup(g.name || '')) {
+                orgGroupIds.add(g.id);
+                if (/client\s*requested/i.test(g.name || '')) {
+                  clientRequestedGroupId = g.id;
+                }
+              } else {
+                existingCOs.push(g.name);
+              }
+            }
+            // COs nested under org groups
+            if (orgGroupIds.size > 0) {
+              for (const g of groups) {
+                if (g.parentCostGroup?.id && orgGroupIds.has(g.parentCostGroup.id)) {
+                  existingCOs.push(g.name);
+                }
+              }
+            }
+          }
 
           const coDocs = docs.filter((d: any) =>
             d.type === 'customerOrder' && /change\s*order|^co\b/i.test(d.name || '')
@@ -686,6 +720,8 @@ const fieldStaff: AgentModule = {
 
           return JSON.stringify({
             success: true,
+            postPricingGroupId: postPricingRoot?.id || null,
+            clientRequestedGroupId,
             existingCOs,
             coDocuments: coDocs.map((d: any) => ({ name: d.name, number: d.number, status: d.status })),
             nextCONumber: existingCOs.length + 1,
@@ -730,7 +766,7 @@ const fieldStaff: AgentModule = {
             if (id) unitMap.set(abbr, id);
           }
 
-          // ── Step 2: Find or create "🔁 Change Orders" parent group ──
+          // ── Step 2: Find or create Post Pricing > Client Requested hierarchy ──
           const groupData = await pave({
             job: {
               $: { id: jobId },
@@ -742,30 +778,50 @@ const fieldStaff: AgentModule = {
           });
           const allGroups = (groupData as any)?.job?.costGroups?.nodes || [];
 
-          // Find the CO parent group
-          let coParentGroup = allGroups.find((g: any) =>
-            /🔁\s*change\s*order|^change\s*order|post\s*pricing/i.test(g.name || '')
+          // Find the Post Pricing root group
+          let postPricingRoot = allGroups.find((g: any) =>
+            /post\s*pricing/i.test(g.name || '')
           );
 
-          if (!coParentGroup) {
-            // Create the parent group at job level
-            const createParentResult = await pave({
+          if (!postPricingRoot) {
+            // Create "➕/➖ Post Pricing Changes" at job level
+            const createRootResult = await pave({
               createCostGroup: {
-                $: { jobId, name: '🔁 Change Orders' },
+                $: { jobId, name: '➕/➖ Post Pricing Changes' },
                 createdCostGroup: { id: {}, name: {} },
               },
             });
-            coParentGroup = (createParentResult as any)?.createCostGroup?.createdCostGroup;
-            if (!coParentGroup?.id) throw new Error('Failed to create Change Orders parent group');
+            postPricingRoot = (createRootResult as any)?.createCostGroup?.createdCostGroup;
+            if (!postPricingRoot?.id) throw new Error('Failed to create Post Pricing Changes group');
           }
 
-          // ── Step 3: Create the CO subgroup ──
+          // Find or create "Client Requested" org group under Post Pricing
+          let clientRequestedGroup = allGroups.find((g: any) =>
+            g.parentCostGroup?.id === postPricingRoot.id &&
+            /client\s*requested/i.test(g.name || '')
+          );
+
+          if (!clientRequestedGroup) {
+            const createCRResult = await pave({
+              createCostGroup: {
+                $: {
+                  parentCostGroupId: postPricingRoot.id,
+                  name: 'Client Requested',
+                },
+                createdCostGroup: { id: {}, name: {} },
+              },
+            });
+            clientRequestedGroup = (createCRResult as any)?.createCostGroup?.createdCostGroup;
+            if (!clientRequestedGroup?.id) throw new Error('Failed to create Client Requested group');
+          }
+
+          // ── Step 3: Create the CO subgroup under Client Requested ──
           const coGroupDesc = groupDescription || `Change order: ${coName}\n\nTotal: $${totalPrice.toFixed(2)}\nLine items: ${lineItems.length}`;
           const createGroupResult = await pave({
             createCostGroup: {
               $: {
-                parentCostGroupId: coParentGroup.id,
-                name: `CO: ${coName}`,
+                parentCostGroupId: clientRequestedGroup.id,
+                name: coName,
                 description: coGroupDesc,
               },
               createdCostGroup: { id: {}, name: {} },
