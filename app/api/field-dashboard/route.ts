@@ -82,7 +82,10 @@ async function getCOTrackingForJob(jobId: string): Promise<{
     const postPricingRoot = allGroups.find((g: any) =>
       /post\s*pricing/i.test(g.name || '')
     );
-    if (!postPricingRoot) return { budgetCOs: [] };
+    if (!postPricingRoot) {
+      console.log(`[CO-TRACK] job=${jobId}: no Post Pricing root found among ${allGroups.length} groups. Names: ${allGroups.slice(0, 10).map((g: any) => g.name).join(', ')}`);
+      return { budgetCOs: [], _debug: `no postPricing root in ${allGroups.length} groups` };
+    }
 
     const coGroups = allGroups.filter((g: any) =>
       g.parentCostGroup?.id === postPricingRoot.id
@@ -206,7 +209,7 @@ async function getCOTrackingForJob(jobId: string): Promise<{
     };
   } catch (err: any) {
     console.error(`[CO-TRACK] ERROR for job ${jobId}:`, err?.message || err, err?.stack);
-    return { budgetCOs: [] };
+    return { budgetCOs: [], _error: err?.message || String(err) };
   }
 }
 
