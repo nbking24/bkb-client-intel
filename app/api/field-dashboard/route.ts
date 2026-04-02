@@ -69,11 +69,13 @@ async function getCOTrackingForJob(jobId: string): Promise<{
       .filter((d: any) => d.type === 'customerOrder' && d.status === 'approved')
       .map((d: any) => d.id as string);
 
-    // --- Phase 3: Find "Post Pricing Changes" root and its CO groups ---
-    const postPricingRoot = allGroups.find((g: any) =>
+    // --- Phase 3: Find ALL "Post Pricing Changes" roots and their CO groups ---
+    // Some jobs have multiple PP roots (from separate scopes/copies). We must
+    // collect COs from ALL of them so document-link matching works correctly.
+    const postPricingRoots = allGroups.filter((g: any) =>
       /post\s*pricing/i.test(g.name || '')
     );
-    if (!postPricingRoot) return { budgetCOs: [] };
+    if (postPricingRoots.length === 0) return { budgetCOs: [] };
 
     // Org/status groups are direct children of Post Pricing that organize COs:
     //   Client Requested, Trade Walk, ✅ Approved, 🚫 OS Out of Scope, etc.
@@ -84,34 +86,88 @@ async function getCOTrackingForJob(jobId: string): Promise<{
     const isOrgGroup = (name: string) =>
       ORG_GROUP_PATTERNS.some(p => p.test(name.trim()));
 
-    const directChildren = allGroups.filter((g: any) =>
-      g.parentCostGroup?.id === postPricingRoot.id
-    );
-
+    const ppRootIds = new Set(postPricingRoots.map((g: any) => g.id));
     const orgGroupIds = new Set<string>();
     const coGroups: any[] = [];
-    for (const g of directChildren) {
-      if (isOrgGroup(g.name || '')) {
-        orgGroupIds.add(g.id);
-      } else {
-        coGroups.push(g);
+    const seenCONames = new Set<string>(); // Dedupe same-named COs across PP roots
+
+    for (const ppRoot of postPricingRoots) {
+      const directChildren = allGroups.filter((g: any) =>
+        g.parentCostGroup?.id === ppRoot.id
+      );
+
+      for (const g of directChildren) {
+        if (isOrgGroup(g.name || '')) {
+          orgGroupIds.add(g.id);
+        } else if (!seenCONames.has(g.name)) {
+          seenCONames.add(g.name);
+          coGroups.push(g);
+        }
       }
     }
+    // Also check children of org groups across all PP roots
     if (orgGroupIds.size > 0) {
       for (const g of allGroups) {
-        if (g.parentCostGroup?.id && orgGroupIds.has(g.parentCostGroup.id)) {
+        if (g.parentCostGroup?.id && orgGroupIds.has(g.parentCostGroup.id) && !seenCONames.has(g.name)) {
+          seenCONames.add(g.name);
           coGroups.push(g);
         }
       }
     }
     if (coGroups.length === 0) return { budgetCOs: [] };
 
+    // Build a comprehensive set of ALL CO group IDs across ALL PP roots
+    // (same-named COs under different PP roots have different IDs, but we
+    // need to match against ALL of them for document-link approval)
+    const coNameToCanonicalId = new Map<string, string>();
+    for (const co of coGroups) {
+      coNameToCanonicalId.set(co.name, co.id);
+    }
+    // Collect ALL group IDs that represent CO groups (including duplicates across PP roots)
+    const allCOGroupIds = new Set<string>();
+    for (const ppRoot of postPricingRoots) {
+      const directChildren = allGroups.filter((g: any) =>
+        g.parentCostGroup?.id === ppRoot.id
+      );
+      for (const g of directChildren) {
+        if (!isOrgGroup(g.name || '') && coNameToCanonicalId.has(g.name)) {
+          allCOGroupIds.add(g.id);
+        }
+      }
+    }
+    if (orgGroupIds.size > 0) {
+      for (const g of allGroups) {
+        if (g.parentCostGroup?.id && orgGroupIds.has(g.parentCostGroup.id) && coNameToCanonicalId.has(g.name)) {
+          allCOGroupIds.add(g.id);
+        }
+      }
+    }
+    // Map any CO group ID (from any PP root) back to the canonical CO entry
+    const coIdToCanonicalId = new Map<string, string>();
+    for (const ppRoot of postPricingRoots) {
+      const directChildren = allGroups.filter((g: any) =>
+        g.parentCostGroup?.id === ppRoot.id
+      );
+      for (const g of directChildren) {
+        if (!isOrgGroup(g.name || '') && coNameToCanonicalId.has(g.name)) {
+          coIdToCanonicalId.set(g.id, coNameToCanonicalId.get(g.name)!);
+        }
+      }
+    }
+    if (orgGroupIds.size > 0) {
+      for (const g of allGroups) {
+        if (g.parentCostGroup?.id && orgGroupIds.has(g.parentCostGroup.id) && coNameToCanonicalId.has(g.name)) {
+          coIdToCanonicalId.set(g.id, coNameToCanonicalId.get(g.name)!);
+        }
+      }
+    }
+
     // --- Phase 4: Determine approval via document→budget linkage ---
     // For each approved customerOrder doc, query its cost items' jobCostItem.costGroup
     // with a parent chain (up to 5 levels). Walk up to find which CO group under
-    // Post Pricing each item belongs to. This is 100% reliable — no name-matching needed.
+    // Post Pricing each item belongs to. We match against ALL CO group IDs across
+    // ALL PP roots, then map back to the canonical CO entry for deduplication.
     const approvedCOIds = new Set<string>();
-    const coGroupIdSet = new Set(coGroups.map((co: any) => co.id));
 
     if (approvedCODocIds.length > 0) {
       const docItemResults = await Promise.all(
@@ -150,10 +206,12 @@ async function getCOTrackingForJob(jobId: string): Promise<{
           if (!cg) continue;
 
           // Walk up the parent chain to find which CO group this item belongs to
+          // Match against ALL CO group IDs (from any PP root), then map to canonical
           let curr = cg;
           while (curr?.id) {
-            if (coGroupIdSet.has(curr.id)) {
-              approvedCOIds.add(curr.id);
+            if (allCOGroupIds.has(curr.id)) {
+              const canonicalId = coIdToCanonicalId.get(curr.id) || curr.id;
+              approvedCOIds.add(canonicalId);
               break;
             }
             curr = curr.parentCostGroup;
