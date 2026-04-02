@@ -1288,40 +1288,83 @@ export default function FieldDashboardPage() {
         </div>
       ))}
 
-      {/* PM JOBS - condensed clickable list */}
-      {data.pmJobs && data.pmJobs.length > 0 && (
-        <div style={{ background: 'rgba(205,162,116,0.04)', border: '1px solid rgba(205,162,116,0.08)', borderRadius: 8, padding: '6px 10px', marginBottom: 6 }}>
-          <div style={{ display: 'flex', alignItems: 'center', gap: 5, marginBottom: 4 }}>
-            <Briefcase size={10} style={{ color: '#CDA274' }} />
-            <span style={{ fontSize: 9, fontWeight: 700, color: '#CDA274', letterSpacing: '0.06em' }}>MY JOBS</span>
-            <span style={{ fontSize: 9, color: '#4a4a4a' }}>({data.pmJobs.length})</span>
+      {/* PM JOBS - Kanban columns by Status */}
+      {data.pmJobs && data.pmJobs.length > 0 && (() => {
+        const STATUS_COLUMNS = [
+          { key: 'IN_DESIGN', label: 'In Design', color: '#818cf8' },
+          { key: 'READY', label: 'Ready', color: '#fbbf24' },
+          { key: 'IN_PRODUCTION', label: 'In Production', color: '#34d399' },
+          { key: 'FINAL_BILLING', label: 'Final Billing', color: '#f87171' },
+        ];
+        const grouped: Record<string, typeof data.pmJobs> = {};
+        const uncategorized: typeof data.pmJobs = [];
+        for (const col of STATUS_COLUMNS) grouped[col.key] = [];
+        for (const job of data.pmJobs) {
+          const cat = job.statusCategory;
+          if (cat && grouped[cat]) grouped[cat].push(job);
+          else uncategorized.push(job);
+        }
+        const activeCols = STATUS_COLUMNS.filter(c => grouped[c.key].length > 0);
+        return (
+          <div style={{ background: 'rgba(205,162,116,0.04)', border: '1px solid rgba(205,162,116,0.08)', borderRadius: 8, padding: '8px 10px', marginBottom: 6 }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 5, marginBottom: 8 }}>
+              <Briefcase size={10} style={{ color: '#CDA274' }} />
+              <span style={{ fontSize: 9, fontWeight: 700, color: '#CDA274', letterSpacing: '0.06em' }}>MY JOBS</span>
+              <span style={{ fontSize: 9, color: '#4a4a4a' }}>({data.pmJobs.length})</span>
+            </div>
+            <div style={{ display: 'grid', gridTemplateColumns: `repeat(${activeCols.length || 1}, 1fr)`, gap: 6 }}>
+              {activeCols.map(col => (
+                <div key={col.key} style={{ background: 'rgba(0,0,0,0.15)', borderRadius: 6, padding: '6px 6px 4px', minWidth: 0 }}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 4, marginBottom: 5, paddingLeft: 2 }}>
+                    <span style={{ width: 6, height: 6, borderRadius: 3, background: col.color, flexShrink: 0 }} />
+                    <span style={{ fontSize: 8, fontWeight: 700, color: col.color, letterSpacing: '0.06em', textTransform: 'uppercase' }}>{col.label}</span>
+                    <span style={{ fontSize: 8, color: '#4a4a4a' }}>({grouped[col.key].length})</span>
+                  </div>
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: 3 }}>
+                    {grouped[col.key].map(job => (
+                      <a
+                        key={job.id}
+                        href={jtScheduleUrl(job.id)}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        style={{
+                          display: 'flex', alignItems: 'center', gap: 5,
+                          padding: '5px 7px', borderRadius: 5,
+                          background: 'rgba(205,162,116,0.06)',
+                          border: '1px solid rgba(205,162,116,0.08)',
+                          textDecoration: 'none', fontSize: 10, color: '#c0b8a8',
+                          transition: 'background 0.15s',
+                        }}
+                        onMouseEnter={e => (e.currentTarget.style.background = 'rgba(205,162,116,0.15)')}
+                        onMouseLeave={e => (e.currentTarget.style.background = 'rgba(205,162,116,0.06)')}
+                      >
+                        <span style={{ width: 5, height: 5, borderRadius: 3, background: jobColor(job.number), flexShrink: 0 }} />
+                        <span style={{ flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{job.name.replace(/^#\d+\s*/, '')}</span>
+                        <ExternalLink size={7} style={{ color: '#5a5550', flexShrink: 0 }} />
+                      </a>
+                    ))}
+                  </div>
+                </div>
+              ))}
+            </div>
+            {uncategorized.length > 0 && (
+              <div style={{ display: 'flex', flexWrap: 'wrap', gap: 3, marginTop: 6 }}>
+                {uncategorized.map(job => (
+                  <a key={job.id} href={jtScheduleUrl(job.id)} target="_blank" rel="noopener noreferrer"
+                    style={{ display: 'inline-flex', alignItems: 'center', gap: 4, padding: '3px 7px', borderRadius: 5, background: 'rgba(205,162,116,0.06)', border: '1px solid rgba(205,162,116,0.1)', textDecoration: 'none', fontSize: 10, color: '#c0b8a8', transition: 'background 0.15s' }}
+                    onMouseEnter={e => (e.currentTarget.style.background = 'rgba(205,162,116,0.15)')}
+                    onMouseLeave={e => (e.currentTarget.style.background = 'rgba(205,162,116,0.06)')}
+                  >
+                    <span style={{ width: 5, height: 5, borderRadius: 3, background: jobColor(job.number), flexShrink: 0 }} />
+                    <span style={{ whiteSpace: 'nowrap' }}>{job.name.replace(/^#\d+\s*/, '')}</span>
+                    <ExternalLink size={8} style={{ color: '#5a5550', flexShrink: 0 }} />
+                  </a>
+                ))}
+              </div>
+            )}
           </div>
-          <div style={{ display: 'flex', flexWrap: 'wrap', gap: 3 }}>
-            {data.pmJobs.map(job => (
-              <a
-                key={job.id}
-                href={jtScheduleUrl(job.id)}
-                target="_blank"
-                rel="noopener noreferrer"
-                style={{
-                  display: 'inline-flex', alignItems: 'center', gap: 4,
-                  padding: '3px 7px', borderRadius: 5,
-                  background: 'rgba(205,162,116,0.06)',
-                  border: '1px solid rgba(205,162,116,0.1)',
-                  textDecoration: 'none', fontSize: 10, color: '#c0b8a8',
-                  transition: 'background 0.15s',
-                }}
-                onMouseEnter={e => (e.currentTarget.style.background = 'rgba(205,162,116,0.15)')}
-                onMouseLeave={e => (e.currentTarget.style.background = 'rgba(205,162,116,0.06)')}
-              >
-                <span style={{ width: 5, height: 5, borderRadius: 3, background: jobColor(job.number), flexShrink: 0 }} />
-                <span style={{ whiteSpace: 'nowrap' }}>{job.name.replace(/^#\d+\s*/, '')}</span>
-                <ExternalLink size={8} style={{ color: '#5a5550', flexShrink: 0 }} />
-              </a>
-            ))}
-          </div>
-        </div>
-      )}
+        );
+      })()}
 
       {/* TASK DETAIL POPUP */}
       {selectedTask && (

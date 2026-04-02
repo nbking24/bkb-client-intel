@@ -331,6 +331,8 @@ export async function GET(req: NextRequest) {
     // PM jobs list for quick navigation
     const pmJobs = myJobs.map((j: any) => ({
       id: j.id, name: j.name, number: j.number,
+      customStatus: j.customStatus || null,
+      statusCategory: j.statusCategory || null,
     })).sort((a: any, b: any) => a.name.localeCompare(b.name));
 
     // ── BRIEFING: schedule-focused + recent communications ──
