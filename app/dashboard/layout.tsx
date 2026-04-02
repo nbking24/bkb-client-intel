@@ -1,12 +1,12 @@
 // @ts-nocheck
 'use client';
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import Link from 'next/link';
 import { usePathname, useRouter } from 'next/navigation';
 import {
   LayoutDashboard, FolderKanban, Menu, X, ChevronRight,
-  DollarSign, Calculator, MessageSquare, ClipboardList,
+  DollarSign, Calculator, MessageSquare, ClipboardList, LogOut,
 } from 'lucide-react';
 import { useAuth } from '../hooks/useAuth';
 import AskAgentPanel from './components/AskAgentPanel';
@@ -29,6 +29,8 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
   const router = useRouter();
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [chatOpen, setChatOpen] = useState(false);
+  const [userMenuOpen, setUserMenuOpen] = useState(false);
+  const userMenuRef = useRef<HTMLDivElement>(null);
   const auth = useAuth();
   const isLoginPage = pathname === '/dashboard/login';
 
@@ -48,6 +50,23 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
       router.replace('/dashboard/field');
     }
   }, [auth.loading, auth.isAuthenticated, isFieldStaff, pathname, router]);
+
+  // Close user menu on click outside
+  useEffect(() => {
+    function handleClickOutside(e: MouseEvent) {
+      if (userMenuRef.current && !userMenuRef.current.contains(e.target as Node)) {
+        setUserMenuOpen(false);
+      }
+    }
+    if (userMenuOpen) document.addEventListener('mousedown', handleClickOutside);
+    return () => document.removeEventListener('mousedown', handleClickOutside);
+  }, [userMenuOpen]);
+
+  function handleLogout() {
+    localStorage.removeItem('bkb-token');
+    setUserMenuOpen(false);
+    router.push('/dashboard/login');
+  }
 
   // If on the login page, render children directly (no sidebar/nav shell)
   if (isLoginPage) {
@@ -106,12 +125,35 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
             <span className="hidden sm:inline font-medium">Ask Agent</span>
           </button>
 
-          {/* User avatar */}
-          <div
-            className="w-8 h-8 rounded-full flex items-center justify-center text-xs font-bold"
-            style={{ background: '#1B3A5C', color: '#C9A84C' }}
-          >
-            {auth.user?.initials || 'BK'}
+          {/* User avatar + logout menu */}
+          <div className="relative" ref={userMenuRef}>
+            <button
+              onClick={() => setUserMenuOpen(!userMenuOpen)}
+              className="w-8 h-8 rounded-full flex items-center justify-center text-xs font-bold cursor-pointer transition-all hover:ring-2"
+              style={{ background: '#1B3A5C', color: '#C9A84C', border: 'none', ringColor: '#CDA274' }}
+              title={auth.user?.name || 'User'}
+            >
+              {auth.user?.initials || 'BK'}
+            </button>
+            {userMenuOpen && (
+              <div
+                className="absolute right-0 top-10 rounded-lg shadow-xl overflow-hidden z-50"
+                style={{ background: '#242424', border: '1px solid rgba(205,162,116,0.15)', minWidth: 180 }}
+              >
+                <div className="px-4 py-3" style={{ borderBottom: '1px solid rgba(205,162,116,0.1)' }}>
+                  <div className="text-sm font-medium" style={{ color: '#e8e0d8' }}>{auth.user?.name || 'User'}</div>
+                  <div className="text-xs mt-0.5" style={{ color: '#6a6058' }}>{auth.role || 'team member'}</div>
+                </div>
+                <button
+                  onClick={handleLogout}
+                  className="w-full flex items-center gap-3 px-4 py-2.5 text-sm hover:bg-white/5 transition-colors"
+                  style={{ color: '#e8e0d8', border: 'none', background: 'transparent', cursor: 'pointer' }}
+                >
+                  <LogOut size={15} style={{ color: '#CDA274' }} />
+                  Switch User
+                </button>
+              </div>
+            )}
           </div>
         </div>
       </header>
