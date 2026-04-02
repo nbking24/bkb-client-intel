@@ -79,12 +79,18 @@ async function getCOTrackingForJob(jobId: string): Promise<{
 
     // Org/status groups are direct children of Post Pricing that organize COs:
     //   Client Requested, Trade Walk, ✅ Approved, 🚫 OS Out of Scope, etc.
-    const ORG_GROUP_PATTERNS = [
-      /^(✅|🚫|🟡|🔴|🟢|⬜)\s/,     // Emoji-prefixed status groups
-      /^(client requested|trade walk|os out of scope|approved|declined|pending)$/i,
-    ];
-    const isOrgGroup = (name: string) =>
-      ORG_GROUP_PATTERNS.some(p => p.test(name.trim()));
+    // NOTE: ✅ prefix is also used as an approval marker on individual CO names
+    // (e.g. "✅ Paint Colors"), so we match only KNOWN org group names.
+    const KNOWN_ORG_NAMES = /^(client requested|trade walk|os out of scope|approved|declined|pending|out of scope)$/i;
+    const isOrgGroup = (name: string) => {
+      const trimmed = name.trim();
+      // Strip leading emoji + space if present, then check against known org names
+      const stripped = trimmed.replace(/^[\p{Emoji_Presentation}\p{Extended_Pictographic}]+\s*/u, '');
+      return KNOWN_ORG_NAMES.test(stripped);
+    };
+
+    // Normalize CO name: strip ✅ approval prefix for deduplication/matching
+    const normalizeCOName = (name: string) => (name || '').replace(/^✅\s*/, '');
 
     const ppRootIds = new Set(postPricingRoots.map((g: any) => g.id));
     const orgGroupIds = new Set<string>();
@@ -97,10 +103,11 @@ async function getCOTrackingForJob(jobId: string): Promise<{
       );
 
       for (const g of directChildren) {
+        const norm = normalizeCOName(g.name);
         if (isOrgGroup(g.name || '')) {
           orgGroupIds.add(g.id);
-        } else if (!seenCONames.has(g.name)) {
-          seenCONames.add(g.name);
+        } else if (!seenCONames.has(norm)) {
+          seenCONames.add(norm);
           coGroups.push(g);
         }
       }
@@ -108,8 +115,9 @@ async function getCOTrackingForJob(jobId: string): Promise<{
     // Also check children of org groups across all PP roots
     if (orgGroupIds.size > 0) {
       for (const g of allGroups) {
-        if (g.parentCostGroup?.id && orgGroupIds.has(g.parentCostGroup.id) && !seenCONames.has(g.name)) {
-          seenCONames.add(g.name);
+        const norm = normalizeCOName(g.name);
+        if (g.parentCostGroup?.id && orgGroupIds.has(g.parentCostGroup.id) && !seenCONames.has(norm)) {
+          seenCONames.add(norm);
           coGroups.push(g);
         }
       }
@@ -121,7 +129,7 @@ async function getCOTrackingForJob(jobId: string): Promise<{
     // need to match against ALL of them for document-link approval)
     const coNameToCanonicalId = new Map<string, string>();
     for (const co of coGroups) {
-      coNameToCanonicalId.set(co.name, co.id);
+      coNameToCanonicalId.set(normalizeCOName(co.name), co.id);
     }
     // Collect ALL group IDs that represent CO groups (including duplicates across PP roots)
     const allCOGroupIds = new Set<string>();
@@ -130,14 +138,16 @@ async function getCOTrackingForJob(jobId: string): Promise<{
         g.parentCostGroup?.id === ppRoot.id
       );
       for (const g of directChildren) {
-        if (!isOrgGroup(g.name || '') && coNameToCanonicalId.has(g.name)) {
+        const norm = normalizeCOName(g.name);
+        if (!isOrgGroup(g.name || '') && coNameToCanonicalId.has(norm)) {
           allCOGroupIds.add(g.id);
         }
       }
     }
     if (orgGroupIds.size > 0) {
       for (const g of allGroups) {
-        if (g.parentCostGroup?.id && orgGroupIds.has(g.parentCostGroup.id) && coNameToCanonicalId.has(g.name)) {
+        const norm = normalizeCOName(g.name);
+        if (g.parentCostGroup?.id && orgGroupIds.has(g.parentCostGroup.id) && coNameToCanonicalId.has(norm)) {
           allCOGroupIds.add(g.id);
         }
       }
@@ -149,15 +159,17 @@ async function getCOTrackingForJob(jobId: string): Promise<{
         g.parentCostGroup?.id === ppRoot.id
       );
       for (const g of directChildren) {
-        if (!isOrgGroup(g.name || '') && coNameToCanonicalId.has(g.name)) {
-          coIdToCanonicalId.set(g.id, coNameToCanonicalId.get(g.name)!);
+        const norm = normalizeCOName(g.name);
+        if (!isOrgGroup(g.name || '') && coNameToCanonicalId.has(norm)) {
+          coIdToCanonicalId.set(g.id, coNameToCanonicalId.get(norm)!);
         }
       }
     }
     if (orgGroupIds.size > 0) {
       for (const g of allGroups) {
-        if (g.parentCostGroup?.id && orgGroupIds.has(g.parentCostGroup.id) && coNameToCanonicalId.has(g.name)) {
-          coIdToCanonicalId.set(g.id, coNameToCanonicalId.get(g.name)!);
+        const norm = normalizeCOName(g.name);
+        if (g.parentCostGroup?.id && orgGroupIds.has(g.parentCostGroup.id) && coNameToCanonicalId.has(norm)) {
+          coIdToCanonicalId.set(g.id, coNameToCanonicalId.get(norm)!);
         }
       }
     }
@@ -224,7 +236,7 @@ async function getCOTrackingForJob(jobId: string): Promise<{
     return {
       budgetCOs: coGroups.map((co: any) => ({
         id: co.id,
-        name: co.name,
+        name: (co.name || '').replace(/^✅\s*/, ''), // Strip approval emoji for clean display
         isApproved: approvedCOIds.has(co.id),
       })),
     };
