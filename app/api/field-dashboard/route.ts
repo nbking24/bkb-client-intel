@@ -555,6 +555,8 @@ export async function GET(req: NextRequest) {
       coTrackingRaw: coTrackingResults.map((r: any) => ({
         jobId: r.jobId, jobName: r.jobName,
         budgetCOs: r.budgetCOs,
+        _error: r._error || null,
+        _debug: r._debug || null,
       })),
     } : {};
 
