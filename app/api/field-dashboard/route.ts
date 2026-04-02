@@ -19,7 +19,7 @@ async function getCOTrackingForJob(jobId: string): Promise<{
   budgetCOs: Array<{ id: string; name: string; isApproved: boolean }>;
 }> {
   try {
-    // --- Phase 1: Fetch cost groups + documents (with cost groups) in parallel ---
+    // --- Phase 1: Fetch cost groups + lightweight document list in parallel ---
     const firstPageSize = 100;
     const [groupPage1, docData] = await Promise.all([
       pave({
@@ -37,14 +37,7 @@ async function getCOTrackingForJob(jobId: string): Promise<{
           $: { id: jobId },
           documents: {
             $: { size: 50 },
-            nodes: {
-              id: {}, type: {}, status: {},
-              costGroups: { nodes: { id: {}, name: {}, parentCostGroup: { id: {}, name: {} } } },
-              costItems: {
-                $: { size: 100 },
-                nodes: { id: {}, name: {}, costCode: { number: {} }, costGroup: { id: {}, name: {} } },
-              },
-            },
+            nodes: { id: {}, type: {}, status: {} },
           },
         },
       }),
@@ -72,11 +65,30 @@ async function getCOTrackingForJob(jobId: string): Promise<{
 
     // --- Phase 2: Identify approved customerOrder documents ---
     const allDocs = (docData as any)?.job?.documents?.nodes || [];
-    const approvedCODocs = allDocs.filter((d: any) =>
-      d.type === 'customerOrder' && d.status === 'approved'
-    );
-    // If no approved CO docs, all COs are pending — but we still need to find them
-    const hasApprovedDocs = approvedCODocs.length > 0;
+    const approvedCODocIds = allDocs
+      .filter((d: any) => d.type === 'customerOrder' && d.status === 'approved')
+      .map((d: any) => d.id as string);
+    const hasApprovedDocs = approvedCODocIds.length > 0;
+
+    // Fetch cost groups + items ONLY for approved CO docs (separately, to avoid 413)
+    const approvedCODocs: any[] = [];
+    if (hasApprovedDocs) {
+      const docDetails = await Promise.all(
+        approvedCODocIds.map((docId: string) =>
+          pave({
+            document: {
+              $: { id: docId },
+              id: {}, name: {},
+              costGroups: { nodes: { id: {}, name: {} } },
+              costItems: { $: { size: 100 }, nodes: { id: {}, name: {}, costGroup: { id: {} } } },
+            },
+          }).then((r: any) => r?.document).catch(() => null)
+        )
+      );
+      for (const d of docDetails) {
+        if (d) approvedCODocs.push(d);
+      }
+    }
 
     // --- Phase 3: Find "Post Pricing Changes" root and its direct children (= COs) ---
     const postPricingRoot = allGroups.find((g: any) =>
