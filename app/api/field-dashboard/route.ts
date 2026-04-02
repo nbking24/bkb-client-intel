@@ -19,76 +19,112 @@ async function getCOTrackingForJob(jobId: string): Promise<{
   budgetCOs: Array<{ id: string; name: string; isApproved: boolean }>;
 }> {
   try {
-    // Fetch approved CO document names — we only need the cost group names from approved docs
-    // to determine which budget COs have been approved
-    const rawDocs = await pave({
-      job: {
-        $: { id: jobId },
-        documents: {
-          $: { size: 50 },
-          nodes: {
-            id: {},
-            name: {},
-            status: {},
-            type: {},
-            costGroups: { nodes: { name: {} } },
-          },
-        },
-      },
-    });
-    const allDocs = (rawDocs as any)?.job?.documents?.nodes || [];
-    // Collect all cost group names from approved CO documents
-    const approvedCOGroupNames = new Set<string>();
-    for (const doc of allDocs) {
-      if (doc.type === 'customerOrder' && doc.status === 'approved') {
-        for (const g of (doc.costGroups?.nodes || [])) {
-          if (g.name) approvedCOGroupNames.add(g.name.trim().toLowerCase());
-        }
-      }
-    }
+    // --- Step 1: Fetch cost groups, documents, and cost items in parallel ---
+    // Cost groups: paginated (up to 1000). We need the hierarchy to find the
+    // "Post Pricing Changes" root and its direct children (= the COs).
+    // Documents: just IDs/type/status to know which are approved customerOrders.
+    // Cost items: just costGroup.id + document.id to link items → groups → docs.
 
-    // Fetch cost groups with cursor-based pagination (PAVE max size is 100)
-    // Large jobs like Zajick have 500+ groups — use up to 10 pages (1000 groups max)
-    let allGroups: any[] = [];
-    let nextPage: string | null = null;
-
-    for (let i = 0; i < 10; i++) {
-      const pageParams: Record<string, unknown> = { size: 100 };
-      if (nextPage) pageParams.page = nextPage;
-
-      const groupData = await pave({
+    // Start first page of groups + docs + first page of items in parallel
+    const firstPageSize = 100;
+    const [groupPage1, docData, itemPage1] = await Promise.all([
+      pave({
         job: {
           $: { id: jobId },
           costGroups: {
-            $: pageParams,
+            $: { size: firstPageSize },
             nextPage: {},
-            nodes: {
-              id: {},
-              name: {},
-              parentCostGroup: { id: {}, name: {} },
-            },
+            nodes: { id: {}, name: {}, parentCostGroup: { id: {} } },
+          },
+        },
+      }),
+      pave({
+        job: {
+          $: { id: jobId },
+          documents: {
+            $: { size: 50 },
+            nodes: { id: {}, type: {}, status: {} },
+          },
+        },
+      }),
+      pave({
+        job: {
+          $: { id: jobId },
+          costItems: {
+            $: { size: firstPageSize },
+            nextPage: {},
+            nodes: { id: {}, costGroup: { id: {} }, document: { id: {} } },
+          },
+        },
+      }),
+    ]);
+
+    // Paginate remaining cost groups
+    let allGroups: any[] = (groupPage1 as any)?.job?.costGroups?.nodes || [];
+    let nextGroupPage = (groupPage1 as any)?.job?.costGroups?.nextPage || null;
+    for (let i = 1; i < 10 && nextGroupPage; i++) {
+      const gd = await pave({
+        job: {
+          $: { id: jobId },
+          costGroups: {
+            $: { size: firstPageSize, page: nextGroupPage },
+            nextPage: {},
+            nodes: { id: {}, name: {}, parentCostGroup: { id: {} } },
           },
         },
       });
-      const costGroups = (groupData as any)?.job?.costGroups;
-      const nodes = costGroups?.nodes || [];
-      allGroups = allGroups.concat(nodes);
-      nextPage = costGroups?.nextPage || null;
-      if (!nextPage || nodes.length < 100) break;
+      const cg = (gd as any)?.job?.costGroups;
+      allGroups = allGroups.concat(cg?.nodes || []);
+      nextGroupPage = cg?.nextPage || null;
+      if ((cg?.nodes?.length || 0) < firstPageSize) break;
     }
 
-    const groups = allGroups;
+    // Paginate remaining cost items
+    let allItems: any[] = (itemPage1 as any)?.job?.costItems?.nodes || [];
+    let nextItemPage = (itemPage1 as any)?.job?.costItems?.nextPage || null;
+    for (let i = 1; i < 10 && nextItemPage; i++) {
+      const id = await pave({
+        job: {
+          $: { id: jobId },
+          costItems: {
+            $: { size: firstPageSize, page: nextItemPage },
+            nextPage: {},
+            nodes: { id: {}, costGroup: { id: {} }, document: { id: {} } },
+          },
+        },
+      });
+      const ci = (id as any)?.job?.costItems;
+      allItems = allItems.concat(ci?.nodes || []);
+      nextItemPage = ci?.nextPage || null;
+      if ((ci?.nodes?.length || 0) < firstPageSize) break;
+    }
 
-    // Find the "Change Orders" parent group(s) — top-level CO containers
-    const coRootIds = new Set(
-      groups
-        .filter((g: any) => /change\s*order|🔁|post\s*pricing/i.test(g.name || ''))
-        .map((g: any) => g.id)
+    // --- Step 2: Identify approved customerOrder document IDs ---
+    const allDocs = (docData as any)?.job?.documents?.nodes || [];
+    const approvedCODocIds = new Set<string>(
+      allDocs
+        .filter((d: any) => d.type === 'customerOrder' && d.status === 'approved')
+        .map((d: any) => d.id)
     );
 
-    // Build parent→children map for recursive traversal
+    // --- Step 3: Find the "Post Pricing Changes" root group ---
+    const postPricingRoot = allGroups.find((g: any) =>
+      /post\s*pricing/i.test(g.name || '')
+    );
+    if (!postPricingRoot) return { budgetCOs: [] };
+
+    // --- Step 4: Direct children of root = CO groups ---
+    const coGroups = allGroups.filter((g: any) =>
+      g.parentCostGroup?.id === postPricingRoot.id
+    );
+    if (coGroups.length === 0) return { budgetCOs: [] };
+
+    // --- Step 5: Build descendant group sets for each CO ---
+    // Each CO may contain sub-groups (e.g. selection options). We need all
+    // descendant group IDs so we can check if any cost item in that tree
+    // is linked to an approved document.
     const childrenOf = new Map<string, any[]>();
-    for (const g of groups) {
+    for (const g of allGroups) {
       const pid = g.parentCostGroup?.id;
       if (pid) {
         if (!childrenOf.has(pid)) childrenOf.set(pid, []);
@@ -96,42 +132,49 @@ async function getCOTrackingForJob(jobId: string): Promise<{
       }
     }
 
-    // Recursively find CO groups — direct children of structural groups like "Client Requested"
-    const budgetCOs: Array<{ id: string; name: string; isApproved: boolean }> = [];
-    const visited = new Set<string>();
-    const seenNames = new Set<string>(); // Deduplicate COs by name (phantom root groups create dupes)
-
-    function findCOGroups(parentId: string, depth: number) {
-      const children = childrenOf.get(parentId) || [];
-      for (const child of children) {
-        if (visited.has(child.id)) continue;
-        visited.add(child.id);
-
-        // Skip known structural groups — recurse into them but don't count them as COs
-        const isStructural = /^(client|owner|bkb)\s+requested$|^[🟢✅]\s*approved$|^🔴\s*declined$|^scope\s*of\s*work$/i.test(child.name?.trim() || '');
-
-        if (isStructural) {
-          findCOGroups(child.id, depth + 1);
-        } else if (depth <= 3) {
-          const normName = (child.name || '').trim().toLowerCase();
-          if (!seenNames.has(normName)) {
-            seenNames.add(normName);
-            // A CO is approved if any approved document contains a cost group with this CO's name
-            budgetCOs.push({
-              id: child.id,
-              name: child.name,
-              isApproved: approvedCOGroupNames.has(normName),
-            });
+    const coDescendants = new Map<string, Set<string>>();
+    for (const co of coGroups) {
+      const desc = new Set<string>([co.id]);
+      const queue = [co.id];
+      while (queue.length) {
+        const curr = queue.shift()!;
+        for (const child of (childrenOf.get(curr) || [])) {
+          if (!desc.has(child.id)) {
+            desc.add(child.id);
+            queue.push(child.id);
           }
         }
       }
+      coDescendants.set(co.id, desc);
     }
 
-    for (const rootId of coRootIds) {
-      findCOGroups(rootId, 0);
+    // --- Step 6: Determine which COs have items on approved documents ---
+    // A CO is "approved" if ANY cost item within its group tree has a
+    // document.id that references an approved customerOrder. This mirrors
+    // the "Approved Price" column in the JobTread UI.
+    const approvedCOIds = new Set<string>();
+    for (const item of allItems) {
+      const docId = item.document?.id;
+      if (!docId || !approvedCODocIds.has(docId)) continue;
+      const groupId = item.costGroup?.id;
+      if (!groupId) continue;
+      for (const [coId, descendants] of coDescendants) {
+        if (descendants.has(groupId)) {
+          approvedCOIds.add(coId);
+          break;
+        }
+      }
+      // Early exit if all COs are already marked approved
+      if (approvedCOIds.size === coGroups.length) break;
     }
 
-    return { budgetCOs };
+    return {
+      budgetCOs: coGroups.map((co: any) => ({
+        id: co.id,
+        name: co.name,
+        isApproved: approvedCOIds.has(co.id),
+      })),
+    };
   } catch (err: any) {
     console.error(`[CO-TRACK] ERROR for job ${jobId}:`, err?.message || err);
     return { budgetCOs: [] };
