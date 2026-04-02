@@ -196,6 +196,7 @@ async function getCOTrackingForJob(jobId: string): Promise<{
       if (approvedCOIds.size === coGroups.length) break;
     }
 
+    console.log(`[CO-TRACK] job=${jobId}: groups=${allGroups.length}, postPricing=${postPricingRoot?.name}, coGroups=${coGroups.length}, approvedDocs=${approvedCODocs.length}, approvedCOIds=${[...approvedCOIds]}`);
     return {
       budgetCOs: coGroups.map((co: any) => ({
         id: co.id,
@@ -204,7 +205,7 @@ async function getCOTrackingForJob(jobId: string): Promise<{
       })),
     };
   } catch (err: any) {
-    console.error(`[CO-TRACK] ERROR for job ${jobId}:`, err?.message || err);
+    console.error(`[CO-TRACK] ERROR for job ${jobId}:`, err?.message || err, err?.stack);
     return { budgetCOs: [] };
   }
 }
@@ -545,6 +546,15 @@ export async function GET(req: NextRequest) {
       return a.status === 'pending' ? -1 : 1;
     });
 
+    // Debug CO tracking when ?debug=co is passed
+    const debugCO = req.nextUrl.searchParams.get('debug') === 'co';
+    const debugData = debugCO ? {
+      coTrackingRaw: coTrackingResults.map((r: any) => ({
+        jobId: r.jobId, jobName: r.jobName,
+        budgetCOs: r.budgetCOs,
+      })),
+    } : {};
+
     return NextResponse.json({
       userName: user.name,
       briefing: parts.join(' '),
@@ -562,6 +572,7 @@ export async function GET(req: NextRequest) {
       weather,
       kpiHistory,
       kpiTargets,
+      ...debugData,
     });
   } catch (err: any) {
     console.error('Field dashboard error:', err);
