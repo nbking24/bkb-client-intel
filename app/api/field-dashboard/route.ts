@@ -94,14 +94,40 @@ async function getCOTrackingForJob(jobId: string): Promise<{
     const postPricingRoot = allGroups.find((g: any) =>
       /post\s*pricing/i.test(g.name || '')
     );
-    if (!postPricingRoot) {
-      console.log(`[CO-TRACK] job=${jobId}: no Post Pricing root found among ${allGroups.length} groups. Names: ${allGroups.slice(0, 10).map((g: any) => g.name).join(', ')}`);
-      return { budgetCOs: [], _debug: `no postPricing root in ${allGroups.length} groups` };
-    }
+    if (!postPricingRoot) return { budgetCOs: [] };
 
-    const coGroups = allGroups.filter((g: any) =>
+    // Some projects use organizational/status groups as direct children of Post Pricing:
+    //   Client Requested, Trade Walk, ✅ Approved, 🚫 OS Out of Scope, 🟡 Pending, etc.
+    // Actual COs may be direct children OR children of these org groups.
+    const ORG_GROUP_PATTERNS = [
+      /^(✅|🚫|🟡|🔴|🟢|⬜)\s/,     // Emoji-prefixed status groups
+      /^(client requested|trade walk|os out of scope|approved|declined|pending)$/i,
+    ];
+    const isOrgGroup = (name: string) =>
+      ORG_GROUP_PATTERNS.some(p => p.test(name.trim()));
+
+    const directChildren = allGroups.filter((g: any) =>
       g.parentCostGroup?.id === postPricingRoot.id
     );
+
+    // Separate into org groups and real COs
+    const orgGroupIds = new Set<string>();
+    const coGroups: any[] = [];
+    for (const g of directChildren) {
+      if (isOrgGroup(g.name || '')) {
+        orgGroupIds.add(g.id);
+      } else {
+        coGroups.push(g);
+      }
+    }
+    // Also include children of org groups as COs (one level deeper)
+    if (orgGroupIds.size > 0) {
+      for (const g of allGroups) {
+        if (g.parentCostGroup?.id && orgGroupIds.has(g.parentCostGroup.id)) {
+          coGroups.push(g);
+        }
+      }
+    }
     if (coGroups.length === 0) return { budgetCOs: [] };
 
     // Build descendant group names for each CO (budget-side)
@@ -211,7 +237,6 @@ async function getCOTrackingForJob(jobId: string): Promise<{
       if (approvedCOIds.size === coGroups.length) break;
     }
 
-    console.log(`[CO-TRACK] job=${jobId}: groups=${allGroups.length}, postPricing=${postPricingRoot?.name}, coGroups=${coGroups.length}, approvedDocs=${approvedCODocs.length}, approvedCOIds=${[...approvedCOIds]}`);
     return {
       budgetCOs: coGroups.map((co: any) => ({
         id: co.id,
@@ -220,8 +245,8 @@ async function getCOTrackingForJob(jobId: string): Promise<{
       })),
     };
   } catch (err: any) {
-    console.error(`[CO-TRACK] ERROR for job ${jobId}:`, err?.message || err, err?.stack);
-    return { budgetCOs: [], _error: err?.message || String(err) };
+    console.error(`[CO-TRACK] ERROR for job ${jobId}:`, err?.message || err);
+    return { budgetCOs: [] };
   }
 }
 
@@ -292,7 +317,7 @@ export async function GET(req: NextRequest) {
       // Scan PM's jobs for COs — limited to user's jobs to stay within Vercel timeout
       Promise.all(
         myJobs.map(async (job: any) => {
-          const tracking = await getCOTrackingForJob(job.id).catch((e) => ({ budgetCOs: [], _error: e?.message || String(e) }));
+          const tracking = await getCOTrackingForJob(job.id).catch(() => ({ budgetCOs: [] }));
           return { jobId: job.id, jobName: job.name, jobNumber: job.number, ...tracking };
         })
       ),
@@ -564,12 +589,12 @@ export async function GET(req: NextRequest) {
     // Debug CO tracking when ?debug=co is passed
     const debugCO = req.nextUrl.searchParams.get('debug') === 'co';
     const debugData = debugCO ? {
-      coTrackingRaw: coTrackingResults.map((r: any) => ({
-        jobId: r.jobId, jobName: r.jobName,
-        budgetCOs: r.budgetCOs,
-        _error: r._error || null,
-        _debug: r._debug || null,
-      })),
+      coTrackingRaw: coTrackingResults
+        .filter((r: any) => r.budgetCOs.length > 0)
+        .map((r: any) => ({
+          jobId: r.jobId, jobName: r.jobName,
+          budgetCOs: r.budgetCOs,
+        })),
     } : {};
 
     return NextResponse.json({
