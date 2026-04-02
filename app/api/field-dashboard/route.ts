@@ -280,7 +280,7 @@ export async function GET(req: NextRequest) {
       // Scan PM's jobs for COs — limited to user's jobs to stay within Vercel timeout
       Promise.all(
         myJobs.map(async (job: any) => {
-          const tracking = await getCOTrackingForJob(job.id).catch(() => ({ budgetCOs: [] }));
+          const tracking = await getCOTrackingForJob(job.id).catch((e) => ({ budgetCOs: [], _error: e?.message || String(e) }));
           return { jobId: job.id, jobName: job.name, jobNumber: job.number, ...tracking };
         })
       ),
