@@ -140,25 +140,21 @@ async function getCOTrackingForJob(jobId: string): Promise<{
       }
     }
 
-    // For each CO, collect all descendant group names (normalized) + cost item names
-    const coDescendantNames = new Map<string, Set<string>>(); // coId → set of normalized group names
-    const coDescendantGroupIds = new Map<string, Set<string>>(); // coId → set of group IDs
+    // For each CO, collect SHALLOW names (CO + first-level children only) for matching.
+    // Deep descendants often contain generic names (e.g. "Project Management", "Interior Painting")
+    // that cause false matches against the Construction Contract.
+    const coShallowNames = new Map<string, Set<string>>(); // coId → CO name + first-level children names
+    const coShallowGroupIds = new Map<string, Set<string>>(); // coId → CO ID + first-level children IDs
     for (const co of coGroups) {
       const names = new Set<string>([(co.name || '').trim().toLowerCase()]);
       const ids = new Set<string>([co.id]);
-      const queue = [co.id];
-      while (queue.length) {
-        const curr = queue.shift()!;
-        for (const child of (childrenOf.get(curr) || [])) {
-          if (!ids.has(child.id)) {
-            ids.add(child.id);
-            names.add((child.name || '').trim().toLowerCase());
-            queue.push(child.id);
-          }
-        }
+      // Only first-level children (not deeper descendants)
+      for (const child of (childrenOf.get(co.id) || [])) {
+        ids.add(child.id);
+        names.add((child.name || '').trim().toLowerCase());
       }
-      coDescendantNames.set(co.id, names);
-      coDescendantGroupIds.set(co.id, ids);
+      coShallowNames.set(co.id, names);
+      coShallowGroupIds.set(co.id, ids);
     }
 
     // --- Phase 4: Match approved documents to CO groups ---
@@ -173,13 +169,15 @@ async function getCOTrackingForJob(jobId: string): Promise<{
       const docItems = doc.costItems?.nodes || [];
 
       // Strategy A: Check if any document cost group name matches a budget CO group name
+      // Uses SHALLOW names only (CO name + first-level children) to avoid false matches
+      // from generic deep-descendant names like "Project Management".
       const docGroupNames = new Set(
         docGroups.map((g: any) => (g.name || '').trim().toLowerCase())
       );
 
       for (const co of coGroups) {
         if (approvedCOIds.has(co.id)) continue;
-        const budgetNames = coDescendantNames.get(co.id)!;
+        const budgetNames = coShallowNames.get(co.id)!;
         for (const bn of budgetNames) {
           if (docGroupNames.has(bn)) {
             approvedCOIds.add(co.id);
@@ -221,7 +219,8 @@ async function getCOTrackingForJob(jobId: string): Promise<{
 
         for (const co of coGroups) {
           if (approvedCOIds.has(co.id)) continue;
-          const groupIds = coDescendantGroupIds.get(co.id)!;
+          // Use shallow group IDs (CO + first-level children) to limit matching scope
+          const groupIds = coShallowGroupIds.get(co.id)!;
           for (const bi of budgetItems) {
             const biGroupId = bi.costGroup?.id;
             if (!biGroupId || !groupIds.has(biGroupId)) continue;
