@@ -873,259 +873,6 @@ export default function FieldDashboardPage() {
       {/* INLINE ASK AGENT */}
       <InlineAskAgent pmJobs={data.pmJobs || []} screen={screen} />
 
-      {/* KPI METRICS with targets + sparklines */}
-      {data.kpis && (() => {
-        const k = data.kpis;
-        const t = data.kpiTargets || { scheduleAdherence: 90, avgDaysOverdue: 7, staleTaskCount: 0, completedPerWeek: 5, densityNext7: 8 };
-        const hist = data.kpiHistory || [];
-        const adherenceColor = k.scheduleAdherence === null ? '#5a5550' : k.scheduleAdherence >= 75 ? '#22c55e' : k.scheduleAdherence >= 50 ? '#eab308' : '#ef4444';
-        const avgOdColor = k.avgDaysOverdue <= 7 ? '#22c55e' : k.avgDaysOverdue <= 21 ? '#eab308' : '#ef4444';
-        const staleColor = k.staleTaskCount === 0 ? '#22c55e' : k.staleTaskCount <= 3 ? '#eab308' : '#ef4444';
-        const trendIcon = k.completionTrend > 0 ? <TrendingUp size={9} /> : k.completionTrend < 0 ? <TrendingDown size={9} /> : <Minus size={9} />;
-        const trendColor = k.completionTrend > 0 ? '#22c55e' : k.completionTrend < 0 ? '#ef4444' : '#5a5550';
-        const densityPct = k.tasksNext30 > 0 ? Math.round((k.tasksNext7 / k.tasksNext30) * 100) : 0;
-        const densityColor = densityPct > 60 ? '#ef4444' : densityPct > 35 ? '#eab308' : '#22c55e';
-
-        // Extract sparkline data from history
-        const histAdherence = hist.map(h => h.scheduleAdherence ?? 0);
-        const histOverdue = hist.map(h => h.avgDaysOverdue ?? 0);
-        const histStale = hist.map(h => h.staleTaskCount ?? 0);
-        const histCompleted = hist.map(h => h.completedThisWeek ?? 0);
-        const histDensity = hist.map(h => h.tasksNext7 ?? 0);
-
-        // Append current values so sparkline includes "now"
-        const sparkAdherence = [...histAdherence, k.scheduleAdherence ?? 0];
-        const sparkOverdue = [...histOverdue, k.avgDaysOverdue];
-        const sparkStale = [...histStale, k.staleTaskCount];
-        const sparkCompleted = [...histCompleted, k.completedThisWeek];
-        const sparkDensity = [...histDensity, k.tasksNext7];
-
-        // Compute trend vs last snapshot for each KPI
-        const lastSnap = hist.length > 0 ? hist[hist.length - 1] : null;
-        const adherenceDelta = lastSnap && k.scheduleAdherence !== null && lastSnap.scheduleAdherence !== null
-          ? k.scheduleAdherence - lastSnap.scheduleAdherence : null;
-        const overdueDelta = lastSnap ? k.avgDaysOverdue - lastSnap.avgDaysOverdue : null;
-        const staleDelta = lastSnap ? k.staleTaskCount - lastSnap.staleTaskCount : null;
-        const densityDelta = lastSnap ? k.tasksNext7 - lastSnap.tasksNext7 : null;
-
-        const TrendBadge = ({ delta, invert }: { delta: number | null; invert?: boolean }) => {
-          if (delta === null || delta === 0) return null;
-          const isGood = invert ? delta < 0 : delta > 0;
-          const color = isGood ? '#22c55e' : '#ef4444';
-          const icon = delta > 0 ? <TrendingUp size={7} /> : <TrendingDown size={7} />;
-          return (
-            <span style={{ display: 'inline-flex', alignItems: 'center', gap: 1, fontSize: 7, color, marginLeft: 3 }}>
-              {icon}{invert ? (delta > 0 ? '+' : '') : (delta > 0 ? '+' : '')}{Math.abs(delta) % 1 === 0 ? Math.abs(delta) : Math.abs(delta).toFixed(1)}
-            </span>
-          );
-        };
-
-        return (
-          <div style={{ display: 'grid', gridTemplateColumns: isMobile ? 'repeat(3, 1fr)' : 'repeat(5, 1fr)', gap: isTouch ? 6 : 4, marginBottom: isTouch ? 10 : 6 }}>
-            {/* KPI 1: Schedule Adherence */}
-            <div style={{ background: '#1e1e1e', borderRadius: 6, padding: '6px 7px', borderLeft: `3px solid ${adherenceColor}` }}>
-              <div style={{ display: 'flex', alignItems: 'center', gap: 3, marginBottom: 3 }}>
-                <Target size={9} style={{ color: adherenceColor }} />
-                <span style={{ fontSize: 7, color: '#5a5550', fontWeight: 600, letterSpacing: '0.04em' }}>ON-TRACK</span>
-              </div>
-              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-                <div>
-                  <div style={{ fontSize: 18, fontWeight: 700, color: adherenceColor, lineHeight: 1 }}>
-                    {k.scheduleAdherence !== null ? `${k.scheduleAdherence}%` : '—'}
-                    <TrendBadge delta={adherenceDelta} />
-                  </div>
-                  <div style={{ fontSize: 7, color: '#4a4a4a', marginTop: 2 }}>
-                    goal {t.scheduleAdherence}%
-                  </div>
-                </div>
-                <Sparkline data={sparkAdherence} color={adherenceColor} targetValue={t.scheduleAdherence} />
-              </div>
-              <TargetBar current={k.scheduleAdherence ?? 0} target={t.scheduleAdherence} />
-            </div>
-
-            {/* KPI 2: Avg Days Overdue */}
-            <div style={{ background: '#1e1e1e', borderRadius: 6, padding: '6px 7px', borderLeft: `3px solid ${avgOdColor}` }}>
-              <div style={{ display: 'flex', alignItems: 'center', gap: 3, marginBottom: 3 }}>
-                <Clock3 size={9} style={{ color: avgOdColor }} />
-                <span style={{ fontSize: 7, color: '#5a5550', fontWeight: 600, letterSpacing: '0.04em' }}>AVG OVERDUE</span>
-              </div>
-              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-                <div>
-                  <div style={{ fontSize: 18, fontWeight: 700, color: avgOdColor, lineHeight: 1 }}>
-                    {k.avgDaysOverdue > 0 ? `${k.avgDaysOverdue}d` : '0'}
-                    <TrendBadge delta={overdueDelta} invert />
-                  </div>
-                  <div style={{ fontSize: 7, color: '#4a4a4a', marginTop: 2 }}>
-                    goal ≤{t.avgDaysOverdue}d
-                  </div>
-                </div>
-                <Sparkline data={sparkOverdue} color={avgOdColor} targetValue={t.avgDaysOverdue} invert />
-              </div>
-              <TargetBar current={k.avgDaysOverdue} target={t.avgDaysOverdue} invert />
-            </div>
-
-            {/* KPI 3: Stale Tasks */}
-            <div style={{ background: '#1e1e1e', borderRadius: 6, padding: '6px 7px', borderLeft: `3px solid ${staleColor}` }}>
-              <div style={{ display: 'flex', alignItems: 'center', gap: 3, marginBottom: 3 }}>
-                <AlertTriangle size={9} style={{ color: staleColor }} />
-                <span style={{ fontSize: 7, color: '#5a5550', fontWeight: 600, letterSpacing: '0.04em' }}>STALE</span>
-              </div>
-              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-                <div>
-                  <div style={{ fontSize: 18, fontWeight: 700, color: staleColor, lineHeight: 1 }}>
-                    {k.staleTaskCount}
-                    <TrendBadge delta={staleDelta} invert />
-                  </div>
-                  <div style={{ fontSize: 7, color: '#4a4a4a', marginTop: 2 }}>
-                    goal {t.staleTaskCount}
-                  </div>
-                </div>
-                <Sparkline data={sparkStale} color={staleColor} targetValue={t.staleTaskCount} invert />
-              </div>
-              <TargetBar current={k.staleTaskCount} target={Math.max(t.staleTaskCount, 1)} invert />
-            </div>
-
-            {/* KPI 4: Completed This Week */}
-            <div style={{ background: '#1e1e1e', borderRadius: 6, padding: '6px 7px', borderLeft: `3px solid #3b82f6` }}>
-              <div style={{ display: 'flex', alignItems: 'center', gap: 3, marginBottom: 3 }}>
-                <Activity size={9} style={{ color: '#3b82f6' }} />
-                <span style={{ fontSize: 7, color: '#5a5550', fontWeight: 600, letterSpacing: '0.04em' }}>DONE / WK</span>
-              </div>
-              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-                <div>
-                  <div style={{ fontSize: 18, fontWeight: 700, color: '#3b82f6', lineHeight: 1 }}>
-                    {k.completedThisWeek}
-                  </div>
-                  <div style={{ fontSize: 7, color: trendColor, marginTop: 2, display: 'flex', alignItems: 'center', gap: 2 }}>
-                    {trendIcon} {k.completionTrend > 0 ? '+' : ''}{k.completionTrend} vs last wk · goal {t.completedPerWeek}
-                  </div>
-                </div>
-                <Sparkline data={sparkCompleted} color="#3b82f6" targetValue={t.completedPerWeek} />
-              </div>
-              <TargetBar current={k.completedThisWeek} target={t.completedPerWeek} />
-            </div>
-
-            {/* KPI 5: Upcoming Density */}
-            <div style={{ background: '#1e1e1e', borderRadius: 6, padding: '6px 7px', borderLeft: `3px solid ${densityColor}` }}>
-              <div style={{ display: 'flex', alignItems: 'center', gap: 3, marginBottom: 3 }}>
-                <CalendarDays size={9} style={{ color: densityColor }} />
-                <span style={{ fontSize: 7, color: '#5a5550', fontWeight: 600, letterSpacing: '0.04em' }}>DENSITY</span>
-              </div>
-              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-                <div>
-                  <div style={{ fontSize: 18, fontWeight: 700, color: densityColor, lineHeight: 1 }}>
-                    {k.tasksNext7}
-                    <TrendBadge delta={densityDelta} />
-                  </div>
-                  <div style={{ fontSize: 7, color: '#4a4a4a', marginTop: 2 }}>
-                    of {k.tasksNext30} in 30d · goal {t.densityNext7}
-                  </div>
-                </div>
-                <Sparkline data={sparkDensity} color={densityColor} targetValue={t.densityNext7} />
-              </div>
-              <TargetBar current={k.tasksNext7} target={t.densityNext7} />
-            </div>
-          </div>
-        );
-      })()}
-
-      {/* CHANGE ORDER TRACKER — compact collapsible, grouped by job */}
-      {data.changeOrders && data.changeOrders.length > 0 && (() => {
-        const pendingCOs = data.changeOrders.filter(co => co.status === 'pending');
-        const approvedCOs = data.changeOrders.filter(co => co.status === 'approved');
-        const pendingCount = pendingCOs.length;
-        const totalCount = data.changeOrders.length;
-
-        // Group ALL COs by job for expanded view
-        const byJob = new Map<string, { jobName: string; jobNumber: string; cos: ChangeOrder[] }>();
-        for (const co of data.changeOrders) {
-          if (!byJob.has(co.jobId)) byJob.set(co.jobId, { jobName: co.jobName, jobNumber: co.jobNumber, cos: [] });
-          byJob.get(co.jobId)!.cos.push(co);
-        }
-
-        return (
-          <>
-            <button
-              onClick={() => { setShowTasks(showTasks === 'changeOrders' ? false : 'changeOrders'); setExpandedCOStatus(null); }}
-              style={{
-                width: '100%', display: 'flex', alignItems: 'center', gap: 8,
-                padding: '7px 10px', borderRadius: 8, border: 'none', cursor: 'pointer',
-                background: pendingCount > 0 ? 'rgba(245,158,11,0.07)' : '#1e1e1e',
-                borderWidth: 1, borderStyle: 'solid',
-                borderColor: pendingCount > 0 ? 'rgba(245,158,11,0.18)' : 'rgba(205,162,116,0.06)',
-                textAlign: 'left', marginBottom: 6,
-              }}
-            >
-              <FileClock size={12} style={{ color: pendingCount > 0 ? '#f59e0b' : '#CDA274', flexShrink: 0 }} />
-              <div style={{ flex: 1, minWidth: 0, display: 'flex', alignItems: 'center', gap: 6 }}>
-                <span style={{ fontSize: 16, fontWeight: 700, color: pendingCount > 0 ? '#f59e0b' : '#22c55e', lineHeight: 1 }}>{totalCount}</span>
-                <span style={{ fontSize: 8, color: '#6a6058', whiteSpace: 'nowrap' }}>Change Orders</span>
-                <div style={{ display: 'flex', gap: 3, marginLeft: 4 }}>
-                  {pendingCount > 0 && <span style={{ fontSize: 7, color: '#f59e0b', background: 'rgba(245,158,11,0.12)', padding: '1px 4px', borderRadius: 3, fontWeight: 600 }}>{pendingCount} pending</span>}
-                  {approvedCOs.length > 0 && <span style={{ fontSize: 7, color: '#22c55e', background: 'rgba(34,197,94,0.12)', padding: '1px 4px', borderRadius: 3, fontWeight: 600 }}>{approvedCOs.length} approved</span>}
-                </div>
-              </div>
-              {showTasks === 'changeOrders' ? <ChevronUp size={11} style={{ color: '#6a6058' }} /> : <ChevronDown size={11} style={{ color: '#6a6058' }} />}
-            </button>
-            {showTasks === 'changeOrders' && (
-              <div style={{ background: '#1e1e1e', border: '1px solid rgba(205,162,116,0.08)', borderRadius: 8, padding: '6px 10px', marginBottom: 6, maxHeight: 260, overflowY: 'auto' }}>
-                {Array.from(byJob.entries()).map(([jobId, { jobName, jobNumber, cos }]) => {
-                  const jobPending = cos.filter(co => co.status === 'pending');
-                  const jobApproved = cos.filter(co => co.status === 'approved');
-                  const isJobExpanded = expandedCOStatus === jobId;
-
-                  return (
-                    <div key={jobId} style={{ padding: '4px 0', borderBottom: '1px solid rgba(205,162,116,0.06)' }}>
-                      <button
-                        onClick={() => setExpandedCOStatus(isJobExpanded ? null : jobId)}
-                        style={{
-                          width: '100%', display: 'flex', alignItems: 'center', gap: 6, marginBottom: 2,
-                          background: 'transparent', border: 'none', cursor: 'pointer', padding: 0, textAlign: 'left',
-                        }}
-                      >
-                        <span style={{ width: 5, height: 5, borderRadius: 3, background: jobColor(jobNumber), flexShrink: 0 }} />
-                        <span style={{ fontSize: 11, color: '#e8e0d8', fontWeight: 500, flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                          {jobName.replace(/^#\d+\s*/, '')}
-                        </span>
-                        <div style={{ display: 'flex', gap: 3, flexShrink: 0 }}>
-                          {jobPending.length > 0 && (
-                            <span style={{ fontSize: 9, fontWeight: 600, color: '#f59e0b', background: 'rgba(245,158,11,0.12)', padding: '2px 6px', borderRadius: 4 }}>
-                              {jobPending.length} pending
-                            </span>
-                          )}
-                          {jobApproved.length > 0 && (
-                            <span style={{ fontSize: 9, fontWeight: 600, color: '#22c55e', background: 'rgba(34,197,94,0.12)', padding: '2px 6px', borderRadius: 4 }}>
-                              {jobApproved.length} approved
-                            </span>
-                          )}
-                        </div>
-                        {isJobExpanded ? <ChevronUp size={9} style={{ color: '#6a6058' }} /> : <ChevronDown size={9} style={{ color: '#6a6058' }} />}
-                      </button>
-                      {isJobExpanded && (
-                        <div style={{ marginLeft: 11, padding: '2px 0 4px' }}>
-                          {cos.map((co, i) => (
-                            <div key={i} style={{ display: 'flex', alignItems: 'center', gap: 4, padding: '2px 0', fontSize: 10, color: '#c0b8a8' }}>
-                              {co.status === 'approved'
-                                ? <FileCheck size={9} style={{ color: '#22c55e', flexShrink: 0 }} />
-                                : <FileWarning size={9} style={{ color: '#f59e0b', flexShrink: 0 }} />
-                              }
-                              <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{co.coName}</span>
-                              <span style={{ fontSize: 8, color: co.status === 'approved' ? '#22c55e' : '#f59e0b', marginLeft: 'auto', flexShrink: 0 }}>
-                                {co.status}
-                              </span>
-                            </div>
-                          ))}
-                        </div>
-                      )}
-                    </div>
-                  );
-                })}
-              </div>
-            )}
-          </>
-        );
-      })()}
-
       {/* THREE TASK CARDS: Job Overdue | My Overdue | Open Tasks */}
       <div style={{ display: 'flex', gap: 4, marginBottom: 6 }}>
         {/* Job Overdue */}
@@ -1424,6 +1171,259 @@ export default function FieldDashboardPage() {
           </div>
         </div>
       ))}
+
+      {/* KPI METRICS with targets + sparklines */}
+      {data.kpis && (() => {
+        const k = data.kpis;
+        const t = data.kpiTargets || { scheduleAdherence: 90, avgDaysOverdue: 7, staleTaskCount: 0, completedPerWeek: 5, densityNext7: 8 };
+        const hist = data.kpiHistory || [];
+        const adherenceColor = k.scheduleAdherence === null ? '#5a5550' : k.scheduleAdherence >= 75 ? '#22c55e' : k.scheduleAdherence >= 50 ? '#eab308' : '#ef4444';
+        const avgOdColor = k.avgDaysOverdue <= 7 ? '#22c55e' : k.avgDaysOverdue <= 21 ? '#eab308' : '#ef4444';
+        const staleColor = k.staleTaskCount === 0 ? '#22c55e' : k.staleTaskCount <= 3 ? '#eab308' : '#ef4444';
+        const trendIcon = k.completionTrend > 0 ? <TrendingUp size={9} /> : k.completionTrend < 0 ? <TrendingDown size={9} /> : <Minus size={9} />;
+        const trendColor = k.completionTrend > 0 ? '#22c55e' : k.completionTrend < 0 ? '#ef4444' : '#5a5550';
+        const densityPct = k.tasksNext30 > 0 ? Math.round((k.tasksNext7 / k.tasksNext30) * 100) : 0;
+        const densityColor = densityPct > 60 ? '#ef4444' : densityPct > 35 ? '#eab308' : '#22c55e';
+
+        // Extract sparkline data from history
+        const histAdherence = hist.map(h => h.scheduleAdherence ?? 0);
+        const histOverdue = hist.map(h => h.avgDaysOverdue ?? 0);
+        const histStale = hist.map(h => h.staleTaskCount ?? 0);
+        const histCompleted = hist.map(h => h.completedThisWeek ?? 0);
+        const histDensity = hist.map(h => h.tasksNext7 ?? 0);
+
+        // Append current values so sparkline includes "now"
+        const sparkAdherence = [...histAdherence, k.scheduleAdherence ?? 0];
+        const sparkOverdue = [...histOverdue, k.avgDaysOverdue];
+        const sparkStale = [...histStale, k.staleTaskCount];
+        const sparkCompleted = [...histCompleted, k.completedThisWeek];
+        const sparkDensity = [...histDensity, k.tasksNext7];
+
+        // Compute trend vs last snapshot for each KPI
+        const lastSnap = hist.length > 0 ? hist[hist.length - 1] : null;
+        const adherenceDelta = lastSnap && k.scheduleAdherence !== null && lastSnap.scheduleAdherence !== null
+          ? k.scheduleAdherence - lastSnap.scheduleAdherence : null;
+        const overdueDelta = lastSnap ? k.avgDaysOverdue - lastSnap.avgDaysOverdue : null;
+        const staleDelta = lastSnap ? k.staleTaskCount - lastSnap.staleTaskCount : null;
+        const densityDelta = lastSnap ? k.tasksNext7 - lastSnap.tasksNext7 : null;
+
+        const TrendBadge = ({ delta, invert }: { delta: number | null; invert?: boolean }) => {
+          if (delta === null || delta === 0) return null;
+          const isGood = invert ? delta < 0 : delta > 0;
+          const color = isGood ? '#22c55e' : '#ef4444';
+          const icon = delta > 0 ? <TrendingUp size={7} /> : <TrendingDown size={7} />;
+          return (
+            <span style={{ display: 'inline-flex', alignItems: 'center', gap: 1, fontSize: 7, color, marginLeft: 3 }}>
+              {icon}{invert ? (delta > 0 ? '+' : '') : (delta > 0 ? '+' : '')}{Math.abs(delta) % 1 === 0 ? Math.abs(delta) : Math.abs(delta).toFixed(1)}
+            </span>
+          );
+        };
+
+        return (
+          <div style={{ display: 'grid', gridTemplateColumns: isMobile ? 'repeat(3, 1fr)' : 'repeat(5, 1fr)', gap: isTouch ? 6 : 4, marginBottom: isTouch ? 10 : 6 }}>
+            {/* KPI 1: Schedule Adherence */}
+            <div style={{ background: '#1e1e1e', borderRadius: 6, padding: '6px 7px', borderLeft: `3px solid ${adherenceColor}` }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 3, marginBottom: 3 }}>
+                <Target size={9} style={{ color: adherenceColor }} />
+                <span style={{ fontSize: 7, color: '#5a5550', fontWeight: 600, letterSpacing: '0.04em' }}>ON-TRACK</span>
+              </div>
+              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+                <div>
+                  <div style={{ fontSize: 18, fontWeight: 700, color: adherenceColor, lineHeight: 1 }}>
+                    {k.scheduleAdherence !== null ? `${k.scheduleAdherence}%` : '—'}
+                    <TrendBadge delta={adherenceDelta} />
+                  </div>
+                  <div style={{ fontSize: 7, color: '#4a4a4a', marginTop: 2 }}>
+                    goal {t.scheduleAdherence}%
+                  </div>
+                </div>
+                <Sparkline data={sparkAdherence} color={adherenceColor} targetValue={t.scheduleAdherence} />
+              </div>
+              <TargetBar current={k.scheduleAdherence ?? 0} target={t.scheduleAdherence} />
+            </div>
+
+            {/* KPI 2: Avg Days Overdue */}
+            <div style={{ background: '#1e1e1e', borderRadius: 6, padding: '6px 7px', borderLeft: `3px solid ${avgOdColor}` }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 3, marginBottom: 3 }}>
+                <Clock3 size={9} style={{ color: avgOdColor }} />
+                <span style={{ fontSize: 7, color: '#5a5550', fontWeight: 600, letterSpacing: '0.04em' }}>AVG OVERDUE</span>
+              </div>
+              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+                <div>
+                  <div style={{ fontSize: 18, fontWeight: 700, color: avgOdColor, lineHeight: 1 }}>
+                    {k.avgDaysOverdue > 0 ? `${k.avgDaysOverdue}d` : '0'}
+                    <TrendBadge delta={overdueDelta} invert />
+                  </div>
+                  <div style={{ fontSize: 7, color: '#4a4a4a', marginTop: 2 }}>
+                    goal ≤{t.avgDaysOverdue}d
+                  </div>
+                </div>
+                <Sparkline data={sparkOverdue} color={avgOdColor} targetValue={t.avgDaysOverdue} invert />
+              </div>
+              <TargetBar current={k.avgDaysOverdue} target={t.avgDaysOverdue} invert />
+            </div>
+
+            {/* KPI 3: Stale Tasks */}
+            <div style={{ background: '#1e1e1e', borderRadius: 6, padding: '6px 7px', borderLeft: `3px solid ${staleColor}` }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 3, marginBottom: 3 }}>
+                <AlertTriangle size={9} style={{ color: staleColor }} />
+                <span style={{ fontSize: 7, color: '#5a5550', fontWeight: 600, letterSpacing: '0.04em' }}>STALE</span>
+              </div>
+              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+                <div>
+                  <div style={{ fontSize: 18, fontWeight: 700, color: staleColor, lineHeight: 1 }}>
+                    {k.staleTaskCount}
+                    <TrendBadge delta={staleDelta} invert />
+                  </div>
+                  <div style={{ fontSize: 7, color: '#4a4a4a', marginTop: 2 }}>
+                    goal {t.staleTaskCount}
+                  </div>
+                </div>
+                <Sparkline data={sparkStale} color={staleColor} targetValue={t.staleTaskCount} invert />
+              </div>
+              <TargetBar current={k.staleTaskCount} target={Math.max(t.staleTaskCount, 1)} invert />
+            </div>
+
+            {/* KPI 4: Completed This Week */}
+            <div style={{ background: '#1e1e1e', borderRadius: 6, padding: '6px 7px', borderLeft: `3px solid #3b82f6` }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 3, marginBottom: 3 }}>
+                <Activity size={9} style={{ color: '#3b82f6' }} />
+                <span style={{ fontSize: 7, color: '#5a5550', fontWeight: 600, letterSpacing: '0.04em' }}>DONE / WK</span>
+              </div>
+              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+                <div>
+                  <div style={{ fontSize: 18, fontWeight: 700, color: '#3b82f6', lineHeight: 1 }}>
+                    {k.completedThisWeek}
+                  </div>
+                  <div style={{ fontSize: 7, color: trendColor, marginTop: 2, display: 'flex', alignItems: 'center', gap: 2 }}>
+                    {trendIcon} {k.completionTrend > 0 ? '+' : ''}{k.completionTrend} vs last wk · goal {t.completedPerWeek}
+                  </div>
+                </div>
+                <Sparkline data={sparkCompleted} color="#3b82f6" targetValue={t.completedPerWeek} />
+              </div>
+              <TargetBar current={k.completedThisWeek} target={t.completedPerWeek} />
+            </div>
+
+            {/* KPI 5: Upcoming Density */}
+            <div style={{ background: '#1e1e1e', borderRadius: 6, padding: '6px 7px', borderLeft: `3px solid ${densityColor}` }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 3, marginBottom: 3 }}>
+                <CalendarDays size={9} style={{ color: densityColor }} />
+                <span style={{ fontSize: 7, color: '#5a5550', fontWeight: 600, letterSpacing: '0.04em' }}>DENSITY</span>
+              </div>
+              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+                <div>
+                  <div style={{ fontSize: 18, fontWeight: 700, color: densityColor, lineHeight: 1 }}>
+                    {k.tasksNext7}
+                    <TrendBadge delta={densityDelta} />
+                  </div>
+                  <div style={{ fontSize: 7, color: '#4a4a4a', marginTop: 2 }}>
+                    of {k.tasksNext30} in 30d · goal {t.densityNext7}
+                  </div>
+                </div>
+                <Sparkline data={sparkDensity} color={densityColor} targetValue={t.densityNext7} />
+              </div>
+              <TargetBar current={k.tasksNext7} target={t.densityNext7} />
+            </div>
+          </div>
+        );
+      })()}
+
+      {/* CHANGE ORDER TRACKER — compact collapsible, grouped by job */}
+      {data.changeOrders && data.changeOrders.length > 0 && (() => {
+        const pendingCOs = data.changeOrders.filter(co => co.status === 'pending');
+        const approvedCOs = data.changeOrders.filter(co => co.status === 'approved');
+        const pendingCount = pendingCOs.length;
+        const totalCount = data.changeOrders.length;
+
+        // Group ALL COs by job for expanded view
+        const byJob = new Map<string, { jobName: string; jobNumber: string; cos: ChangeOrder[] }>();
+        for (const co of data.changeOrders) {
+          if (!byJob.has(co.jobId)) byJob.set(co.jobId, { jobName: co.jobName, jobNumber: co.jobNumber, cos: [] });
+          byJob.get(co.jobId)!.cos.push(co);
+        }
+
+        return (
+          <>
+            <button
+              onClick={() => { setShowTasks(showTasks === 'changeOrders' ? false : 'changeOrders'); setExpandedCOStatus(null); }}
+              style={{
+                width: '100%', display: 'flex', alignItems: 'center', gap: 8,
+                padding: '7px 10px', borderRadius: 8, border: 'none', cursor: 'pointer',
+                background: pendingCount > 0 ? 'rgba(245,158,11,0.07)' : '#1e1e1e',
+                borderWidth: 1, borderStyle: 'solid',
+                borderColor: pendingCount > 0 ? 'rgba(245,158,11,0.18)' : 'rgba(205,162,116,0.06)',
+                textAlign: 'left', marginBottom: 6,
+              }}
+            >
+              <FileClock size={12} style={{ color: pendingCount > 0 ? '#f59e0b' : '#CDA274', flexShrink: 0 }} />
+              <div style={{ flex: 1, minWidth: 0, display: 'flex', alignItems: 'center', gap: 6 }}>
+                <span style={{ fontSize: 16, fontWeight: 700, color: pendingCount > 0 ? '#f59e0b' : '#22c55e', lineHeight: 1 }}>{totalCount}</span>
+                <span style={{ fontSize: 8, color: '#6a6058', whiteSpace: 'nowrap' }}>Change Orders</span>
+                <div style={{ display: 'flex', gap: 3, marginLeft: 4 }}>
+                  {pendingCount > 0 && <span style={{ fontSize: 7, color: '#f59e0b', background: 'rgba(245,158,11,0.12)', padding: '1px 4px', borderRadius: 3, fontWeight: 600 }}>{pendingCount} pending</span>}
+                  {approvedCOs.length > 0 && <span style={{ fontSize: 7, color: '#22c55e', background: 'rgba(34,197,94,0.12)', padding: '1px 4px', borderRadius: 3, fontWeight: 600 }}>{approvedCOs.length} approved</span>}
+                </div>
+              </div>
+              {showTasks === 'changeOrders' ? <ChevronUp size={11} style={{ color: '#6a6058' }} /> : <ChevronDown size={11} style={{ color: '#6a6058' }} />}
+            </button>
+            {showTasks === 'changeOrders' && (
+              <div style={{ background: '#1e1e1e', border: '1px solid rgba(205,162,116,0.08)', borderRadius: 8, padding: '6px 10px', marginBottom: 6, maxHeight: 260, overflowY: 'auto' }}>
+                {Array.from(byJob.entries()).map(([jobId, { jobName, jobNumber, cos }]) => {
+                  const jobPending = cos.filter(co => co.status === 'pending');
+                  const jobApproved = cos.filter(co => co.status === 'approved');
+                  const isJobExpanded = expandedCOStatus === jobId;
+
+                  return (
+                    <div key={jobId} style={{ padding: '4px 0', borderBottom: '1px solid rgba(205,162,116,0.06)' }}>
+                      <button
+                        onClick={() => setExpandedCOStatus(isJobExpanded ? null : jobId)}
+                        style={{
+                          width: '100%', display: 'flex', alignItems: 'center', gap: 6, marginBottom: 2,
+                          background: 'transparent', border: 'none', cursor: 'pointer', padding: 0, textAlign: 'left',
+                        }}
+                      >
+                        <span style={{ width: 5, height: 5, borderRadius: 3, background: jobColor(jobNumber), flexShrink: 0 }} />
+                        <span style={{ fontSize: 11, color: '#e8e0d8', fontWeight: 500, flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                          {jobName.replace(/^#\d+\s*/, '')}
+                        </span>
+                        <div style={{ display: 'flex', gap: 3, flexShrink: 0 }}>
+                          {jobPending.length > 0 && (
+                            <span style={{ fontSize: 9, fontWeight: 600, color: '#f59e0b', background: 'rgba(245,158,11,0.12)', padding: '2px 6px', borderRadius: 4 }}>
+                              {jobPending.length} pending
+                            </span>
+                          )}
+                          {jobApproved.length > 0 && (
+                            <span style={{ fontSize: 9, fontWeight: 600, color: '#22c55e', background: 'rgba(34,197,94,0.12)', padding: '2px 6px', borderRadius: 4 }}>
+                              {jobApproved.length} approved
+                            </span>
+                          )}
+                        </div>
+                        {isJobExpanded ? <ChevronUp size={9} style={{ color: '#6a6058' }} /> : <ChevronDown size={9} style={{ color: '#6a6058' }} />}
+                      </button>
+                      {isJobExpanded && (
+                        <div style={{ marginLeft: 11, padding: '2px 0 4px' }}>
+                          {cos.map((co, i) => (
+                            <div key={i} style={{ display: 'flex', alignItems: 'center', gap: 4, padding: '2px 0', fontSize: 10, color: '#c0b8a8' }}>
+                              {co.status === 'approved'
+                                ? <FileCheck size={9} style={{ color: '#22c55e', flexShrink: 0 }} />
+                                : <FileWarning size={9} style={{ color: '#f59e0b', flexShrink: 0 }} />
+                              }
+                              <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{co.coName}</span>
+                              <span style={{ fontSize: 8, color: co.status === 'approved' ? '#22c55e' : '#f59e0b', marginLeft: 'auto', flexShrink: 0 }}>
+                                {co.status}
+                              </span>
+                            </div>
+                          ))}
+                        </div>
+                      )}
+                    </div>
+                  );
+                })}
+              </div>
+            )}
+          </>
+        );
+      })()}
 
       {/* PM JOBS - Kanban columns by Status */}
       {data.pmJobs && data.pmJobs.length > 0 && (() => {
