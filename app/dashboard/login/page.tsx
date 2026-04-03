@@ -8,7 +8,6 @@ const LOGIN_USERS = [
   { id: 'terri',       name: 'Terri King',       role: 'Office Manager',   initials: 'TK' },
   { id: 'evan',        name: 'Evan Harrington',  role: 'Lead Carpenter',   initials: 'EH' },
   { id: 'josh',        name: 'Josh King',        role: 'Project Manager',  initials: 'JK' },
-  { id: 'dave_steich', name: 'Dave Steich',      role: 'Carpenter',        initials: 'DS' },
 ];
 
 type Step = 'select-user' | 'enter-pin' | 'create-pin' | 'confirm-pin';

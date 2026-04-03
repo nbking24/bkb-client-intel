@@ -783,7 +783,6 @@ export default function DashboardOverview() {
     { id: '22P6GTaPEbkh', name: 'Brett King', label: 'Brett' },
     { id: '22P5nJ7ncFj4', name: 'Evan Harrington', label: 'Evan' },
     { id: '22P6GTEnhCre', name: 'Josh King', label: 'Josh' },
-    { id: '22P5icFXKZgA', name: 'Dave Steich', label: 'Dave' },
     { id: '22P732t6SgNk', name: 'Kim King', label: 'Kim' },
   ];
   const TERRI_MEMBERSHIP_ID = '22P5SpJkype2';

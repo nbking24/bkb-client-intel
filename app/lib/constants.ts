@@ -149,7 +149,6 @@ export const TEAM_USERS: Record<string, TeamUser> = {
   terri:       { name: 'Terri King',       initials: 'TK', role: 'admin',     membershipId: JT_MEMBERS.terri },
   evan:        { name: 'Evan Harrington',  initials: 'EH', role: 'field_sup', membershipId: JT_MEMBERS.evan },
   josh:        { name: 'Josh King',        initials: 'JK', role: 'field_sup', membershipId: JT_MEMBERS.josh },
-  dave_steich: { name: 'Dave Steich',      initials: 'DS', role: 'field',     membershipId: JT_MEMBERS.dave_steich },
 };
 
 // ============================================================

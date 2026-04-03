@@ -344,7 +344,6 @@ TEAM MEMBERS:
 - Evan (Sales/Estimating) - handles estimates and some client meetings
 - Terri (Admin) - administrative tasks
 - Josh (Field Superintendent) - field operations
-- Dave Steich (Field) - field work
 - Jimmy (Field) - field work
 
 When analyzing projects, you must respond with VALID JSON only. No markdown, no code fences. Just the raw JSON object.`;

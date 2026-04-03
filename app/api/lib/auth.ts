@@ -10,10 +10,9 @@ const USER_ROLES: Record<string, string> = {
   terri: 'admin',
   evan: 'field_sup',
   josh: 'field_sup',
-  dave_steich: 'field',
 };
 
-const VALID_USER_IDS = ['nathan', 'terri', 'evan', 'josh', 'dave_steich'];
+const VALID_USER_IDS = ['nathan', 'terri', 'evan', 'josh'];
 
 // Roles that are restricted to the field-staff agent only
 const FIELD_ROLES = new Set(['field_sup', 'field']);
