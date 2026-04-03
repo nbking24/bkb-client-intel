@@ -96,37 +96,17 @@ export async function POST(request: NextRequest) {
   const log: string[] = [];
 
   try {
-    // ── Step 1: Check for existing account, create if not found ──
-    log.push(`Checking for existing account: ${fullName}`);
-    let accountId: string | null = null;
-
-    // Search for existing customer account by name
-    const searchData = await pave({
-      accounts: {
-        $: { organizationId: JT_ORG, type: 'customer', search: fullName },
-        nodes: { id: {}, name: {} },
+    // ── Step 1: Create customer account ──
+    log.push(`Creating account: ${fullName}`);
+    const acctData = await pave({
+      createAccount: {
+        $: { name: fullName, type: 'customer', organizationId: JT_ORG },
+        createdAccount: { id: {}, name: {} },
       },
     });
-    const existingAccounts = searchData?.accounts?.nodes || [];
-    const exactMatch = existingAccounts.find(
-      (a: any) => a.name?.toLowerCase() === fullName.toLowerCase()
-    );
-
-    if (exactMatch) {
-      accountId = exactMatch.id;
-      log.push(`  → Found existing account: ${accountId} ("${exactMatch.name}")`);
-    } else {
-      log.push(`Creating new account: ${fullName}`);
-      const acctData = await pave({
-        createAccount: {
-          $: { name: fullName, type: 'customer', organizationId: JT_ORG },
-          createdAccount: { id: {}, name: {} },
-        },
-      });
-      accountId = acctData?.createAccount?.createdAccount?.id;
-      if (!accountId) throw new Error('createAccount did not return an ID');
-      log.push(`  → Account created: ${accountId}`);
-    }
+    const accountId = acctData?.createAccount?.createdAccount?.id;
+    if (!accountId) throw new Error('createAccount did not return an ID');
+    log.push(`  → Account created: ${accountId}`);
 
     // ── Step 2: Create contact on the account ──
     // Email/phone are stored as custom fields in JobTread, not native fields.
