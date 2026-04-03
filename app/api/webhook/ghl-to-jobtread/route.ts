@@ -71,19 +71,18 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: 'Invalid JSON body' }, { status: 400 });
   }
 
-  const {
-    firstName = '',
-    lastName = '',
-    email = '',
-    phone = '',
-    address = '',
-    city = '',
-    state = '',
-    zip = '',
-    opportunityName = '',
-    ghlContactId = '',
-    ghlOpportunityId = '',
-  } = body;
+  // Accept both camelCase (spec) and snake_case (GHL webhook default)
+  const firstName = body.firstName || body.first_name || '';
+  const lastName = body.lastName || body.last_name || '';
+  const email = body.email || '';
+  const phone = body.phone || '';
+  const address = body.address || '';
+  const city = body.city || '';
+  const state = body.state || '';
+  const zip = body.zip || body.zip_code || '';
+  const opportunityName = body.opportunityName || body.opportunity_name || '';
+  const ghlContactId = body.ghlContactId || body.contact_id || '';
+  const ghlOpportunityId = body.ghlOpportunityId || body.opportunity_id || '';
 
   const fullName = `${firstName} ${lastName}`.trim();
   if (!fullName) {
