@@ -36,6 +36,10 @@ const JT_KEY = process.env.JOBTREAD_API_KEY || '';
 const JT_ORG = process.env.JOBTREAD_ORG_ID || '22P5SRwhLaYe';
 const WEBHOOK_SECRET = process.env.GHL_WEBHOOK_SECRET || '';
 
+// Custom field IDs for contact email/phone (stored as custom fields in JT)
+const CF_EMAIL = '22P5SRxXsV55';
+const CF_PHONE = '22P5SRxmTkuH';
+
 // ── PAVE helper ──
 async function pave(query: Record<string, unknown>) {
   const res = await fetch(JT_URL, {
@@ -92,23 +96,50 @@ export async function POST(request: NextRequest) {
   const log: string[] = [];
 
   try {
-    // ── Step 1: Create customer account ──
-    log.push(`Creating account: ${fullName}`);
-    const acctData = await pave({
-      createAccount: {
-        $: { name: fullName, type: 'customer', organizationId: JT_ORG },
-        createdAccount: { id: {}, name: {} },
+    // ── Step 1: Check for existing account, create if not found ──
+    log.push(`Checking for existing account: ${fullName}`);
+    let accountId: string | null = null;
+
+    // Search for existing customer account by name
+    const searchData = await pave({
+      accounts: {
+        $: { organizationId: JT_ORG, type: 'customer', search: fullName },
+        nodes: { id: {}, name: {} },
       },
     });
-    const accountId = acctData?.createAccount?.createdAccount?.id;
-    if (!accountId) throw new Error('createAccount did not return an ID');
-    log.push(`  → Account created: ${accountId}`);
+    const existingAccounts = searchData?.accounts?.nodes || [];
+    const exactMatch = existingAccounts.find(
+      (a: any) => a.name?.toLowerCase() === fullName.toLowerCase()
+    );
+
+    if (exactMatch) {
+      accountId = exactMatch.id;
+      log.push(`  → Found existing account: ${accountId} ("${exactMatch.name}")`);
+    } else {
+      log.push(`Creating new account: ${fullName}`);
+      const acctData = await pave({
+        createAccount: {
+          $: { name: fullName, type: 'customer', organizationId: JT_ORG },
+          createdAccount: { id: {}, name: {} },
+        },
+      });
+      accountId = acctData?.createAccount?.createdAccount?.id;
+      if (!accountId) throw new Error('createAccount did not return an ID');
+      log.push(`  → Account created: ${accountId}`);
+    }
 
     // ── Step 2: Create contact on the account ──
+    // Email/phone are stored as custom fields in JobTread, not native fields.
     log.push(`Creating contact: ${fullName}`);
     const contactParams: Record<string, unknown> = { name: fullName, accountId };
-    if (email) contactParams.email = email;
-    if (phone) contactParams.phone = phone;
+
+    // Build custom field values for email and phone
+    const customFieldValues: Record<string, string> = {};
+    if (email) customFieldValues[CF_EMAIL] = email;
+    if (phone) customFieldValues[CF_PHONE] = phone;
+    if (Object.keys(customFieldValues).length > 0) {
+      contactParams.customFieldValues = customFieldValues;
+    }
 
     const contactData = await pave({
       createContact: {
@@ -118,7 +149,7 @@ export async function POST(request: NextRequest) {
     });
     const contactId = contactData?.createContact?.createdContact?.id;
     if (!contactId) throw new Error('createContact did not return an ID');
-    log.push(`  → Contact created: ${contactId}`);
+    log.push(`  → Contact created: ${contactId}${email ? ` (${email})` : ''}`);
 
     // ── Step 3: Create location on the account ──
     const locationName = fullAddress || 'TBD';
