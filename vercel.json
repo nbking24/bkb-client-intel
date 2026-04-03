@@ -24,6 +24,9 @@
                     },
                     "app/api/cron/schedule-compliance/route.ts": {
                                     "maxDuration": 300
+                    },
+                    "app/api/webhook/ghl-to-jobtread/route.ts": {
+                                    "maxDuration": 30
                     }
         },
         "crons": [
