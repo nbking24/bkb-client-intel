@@ -1,10 +1,10 @@
 // @ts-nocheck
 'use client';
 
-import { useState, useRef } from 'react';
+import { useState, useRef, useEffect } from 'react';
 import {
   UserPlus, Check, Phone, Mail, MapPin, Home, FileText,
-  Calendar, Clock, Loader2, CheckCircle2, AlertCircle, ChevronDown,
+  Calendar, Clock, Loader2, CheckCircle2, AlertCircle, ChevronDown, ChevronRight,
   TrendingUp, Target, PhoneCall, BarChart3, Users,
 } from 'lucide-react';
 
@@ -133,6 +133,8 @@ export default function LeadsPage() {
   const [submitted, setSubmitted] = useState(false);
   const [error, setError] = useState('');
   const [result, setResult] = useState<any>(null);
+  const [formExpanded, setFormExpanded] = useState(false);
+  const formContentRef = useRef<HTMLDivElement>(null);
   const firstNameRef = useRef<HTMLInputElement>(null);
 
   const update = (field: keyof FormData, value: string) => {
@@ -196,7 +198,8 @@ export default function LeadsPage() {
     setSubmitted(false);
     setResult(null);
     setError('');
-    setTimeout(() => firstNameRef.current?.focus(), 100);
+    setFormExpanded(true);
+    setTimeout(() => firstNameRef.current?.focus(), 200);
   };
 
   /* ── Pipeline stage placeholder data ── */
@@ -246,16 +249,20 @@ export default function LeadsPage() {
             className="rounded-xl overflow-hidden"
             style={{ background: '#1a1a1a', border: '1px solid rgba(205,162,116,0.12)' }}
           >
-            {/* Form header */}
-            <div
-              className="flex items-center gap-2 px-5 py-3"
-              style={{ background: '#242424', borderBottom: '1px solid rgba(205,162,116,0.08)' }}
+            {/* Form header — clickable toggle */}
+            <button
+              onClick={() => {
+                setFormExpanded((prev) => !prev);
+                if (!formExpanded) setTimeout(() => firstNameRef.current?.focus(), 200);
+              }}
+              className="w-full flex items-center gap-2 px-5 py-3 cursor-pointer"
+              style={{ background: '#242424', borderBottom: formExpanded ? '1px solid rgba(205,162,116,0.08)' : 'none' }}
             >
               <UserPlus size={16} style={{ color: '#CDA274' }} />
               <span className="text-sm font-semibold" style={{ color: '#e8e0d8' }}>New Lead</span>
               {/* Progress dots */}
-              {!submitted && (
-                <div className="flex gap-1.5 ml-auto">
+              {!submitted && formExpanded && (
+                <div className="flex gap-1.5 ml-auto mr-2">
                   {[section1Complete, section2Complete, section3Complete].map((done, i) => (
                     <div
                       key={i}
@@ -265,9 +272,26 @@ export default function LeadsPage() {
                   ))}
                 </div>
               )}
-            </div>
+              {!formExpanded && (
+                <span className="text-xs ml-auto mr-2" style={{ color: '#6a6058' }}>Click to expand</span>
+              )}
+              <div
+                className="transition-transform duration-200"
+                style={{ transform: formExpanded ? 'rotate(90deg)' : 'rotate(0deg)' }}
+              >
+                <ChevronRight size={16} style={{ color: '#8a8078' }} />
+              </div>
+            </button>
 
-            {/* Form content */}
+            {/* Form content — collapsible */}
+            <div
+              ref={formContentRef}
+              className="overflow-hidden transition-all duration-300 ease-in-out"
+              style={{
+                maxHeight: formExpanded ? '2000px' : '0px',
+                opacity: formExpanded ? 1 : 0,
+              }}
+            >
             <div className="px-5 py-5 space-y-5">
               {submitted && result ? (
                 /* ── Success ── */
@@ -499,6 +523,7 @@ export default function LeadsPage() {
                 </>
               )}
             </div>
+            </div>{/* end collapsible wrapper */}
           </div>
         </div>
 
