@@ -8,8 +8,9 @@
  *   1. Creates a customer account in JT (name = contact full name)
  *   2. Creates a contact on that account (with email + phone)
  *   3. Creates a location on that account (using the contact's address)
- *   4. Creates a job linked to that location
+ *   4. Creates a job linked to that location (name capped at 30 chars)
  *   5. Sets the account's primary contact and primary location
+ *   6. Writes the JT job ID back to the GHL opportunity custom field
  *
  * Expects POST JSON body (from GHL Custom Webhook dynamic values):
  * {
@@ -35,6 +36,12 @@ const JT_URL = 'https://api.jobtread.com/pave';
 const JT_KEY = process.env.JOBTREAD_API_KEY || '';
 const JT_ORG = process.env.JOBTREAD_ORG_ID || '22P5SRwhLaYe';
 const WEBHOOK_SECRET = process.env.GHL_WEBHOOK_SECRET || '';
+
+// GHL API config (for writing JT job ID back to opportunity)
+const GHL_API_KEY = process.env.GHL_API_KEY || '';
+const GHL_API_URL = 'https://services.leadconnectorhq.com';
+const GHL_LOCATION_ID = 'H3fSXP5K9fMGf0eJIkXk';
+const GHL_CF_JT_JOB_ID = 'GjwWvbGyh7CQfGmFir5p'; // "JT Job ID" custom field on opportunities
 
 // Custom field IDs for contact email/phone (stored as custom fields in JT)
 const CF_EMAIL = '22P5SRxXsV55';
@@ -90,7 +97,9 @@ export async function POST(request: NextRequest) {
   }
 
   const fullAddress = [address, city, state, zip].filter(Boolean).join(', ');
-  const jobName = opportunityName || `${fullName} Renovation`;
+  // JobTread caps job names at 30 characters
+  const rawJobName = opportunityName || `${fullName} Renovation`;
+  const jobName = rawJobName.length > 30 ? rawJobName.slice(0, 30).trim() : rawJobName;
 
   const log: string[] = [];
 
@@ -171,6 +180,40 @@ export async function POST(request: NextRequest) {
       log.push('  → Primary contact and location set');
     } catch (e: any) {
       log.push(`  ⚠ Could not set primary contact/location: ${e.message}`);
+    }
+
+    // ── Step 6: Write JT job ID back to GHL opportunity ──
+    if (ghlOpportunityId && GHL_API_KEY) {
+      try {
+        const ghlRes = await fetch(
+          `${GHL_API_URL}/opportunities/${ghlOpportunityId}`,
+          {
+            method: 'PUT',
+            headers: {
+              Authorization: `Bearer ${GHL_API_KEY}`,
+              'Content-Type': 'application/json',
+              Version: '2021-07-28',
+            },
+            body: JSON.stringify({
+              locationId: GHL_LOCATION_ID,
+              customFields: [
+                { id: GHL_CF_JT_JOB_ID, value: job.id },
+              ],
+            }),
+          }
+        );
+        if (ghlRes.ok) {
+          log.push(`  → JT Job ID written back to GHL opportunity`);
+        } else {
+          const errText = await ghlRes.text();
+          log.push(`  ⚠ GHL write-back failed (${ghlRes.status}): ${errText.slice(0, 200)}`);
+        }
+      } catch (e: any) {
+        log.push(`  ⚠ GHL write-back error: ${e.message}`);
+      }
+    } else {
+      if (!ghlOpportunityId) log.push('  ⚠ No GHL opportunity ID — skipping write-back');
+      if (!GHL_API_KEY) log.push('  ⚠ No GHL API key configured — skipping write-back');
     }
 
     // ── Done ──
