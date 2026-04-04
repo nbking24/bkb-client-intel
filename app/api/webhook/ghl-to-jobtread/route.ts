@@ -63,19 +63,39 @@ async function pave(query: Record<string, unknown>) {
 
 // ── Main handler ──
 export async function POST(request: NextRequest) {
+  // Top-level debug: log raw request info
+  const contentType = request.headers.get('content-type') || 'none';
+  console.log('[WEBHOOK] Incoming request — Content-Type:', contentType);
+
   // --- Auth check ---
   if (WEBHOOK_SECRET) {
     const secret = request.headers.get('x-webhook-secret') || '';
     if (secret !== WEBHOOK_SECRET) {
+      console.log('[WEBHOOK] Auth FAILED — secret mismatch');
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
     }
+    console.log('[WEBHOOK] Auth OK');
+  } else {
+    console.log('[WEBHOOK] No webhook secret configured — skipping auth');
   }
 
+  // Read the raw body text first so we can log it
+  let rawBody: string;
   let body: any;
   try {
-    body = await request.json();
+    rawBody = await request.text();
+    console.log('[WEBHOOK] Raw body:', rawBody.slice(0, 1000));
+  } catch (e: any) {
+    console.log('[WEBHOOK] Failed to read body text:', e.message);
+    return NextResponse.json({ error: 'Failed to read body' }, { status: 400 });
+  }
+
+  try {
+    body = JSON.parse(rawBody);
+    console.log('[WEBHOOK] Parsed body keys:', Object.keys(body).join(', '));
   } catch {
-    return NextResponse.json({ error: 'Invalid JSON body' }, { status: 400 });
+    console.log('[WEBHOOK] Invalid JSON — could not parse body');
+    return NextResponse.json({ error: 'Invalid JSON body', rawBodyPreview: rawBody.slice(0, 500) }, { status: 400 });
   }
 
   // Accept both camelCase (spec) and snake_case (GHL webhook default)
@@ -92,7 +112,9 @@ export async function POST(request: NextRequest) {
   const ghlOpportunityId = body.ghlOpportunityId || body.opportunity_id || '';
 
   const fullName = `${firstName} ${lastName}`.trim();
+  console.log('[WEBHOOK] Extracted — name:', fullName, '| email:', email, '| phone:', phone, '| opp:', opportunityName, '| ghlOppId:', ghlOpportunityId);
   if (!fullName) {
+    console.log('[WEBHOOK] FAIL — no name extracted from body');
     return NextResponse.json({ error: 'firstName or lastName is required' }, { status: 400 });
   }
 
@@ -229,6 +251,7 @@ export async function POST(request: NextRequest) {
       log,
     });
   } catch (err: any) {
+    console.error('[WEBHOOK] ERROR in JT creation chain:', err.message, err.stack?.slice(0, 300));
     log.push(`ERROR: ${err.message}`);
     return NextResponse.json(
       { success: false, error: err.message, log },
