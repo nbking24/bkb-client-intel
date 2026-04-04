@@ -195,7 +195,6 @@ export async function POST(request: NextRequest) {
               Version: '2021-07-28',
             },
             body: JSON.stringify({
-              locationId: GHL_LOCATION_ID,
               customFields: [
                 { id: GHL_CF_JT_JOB_ID, value: job.id },
               ],
