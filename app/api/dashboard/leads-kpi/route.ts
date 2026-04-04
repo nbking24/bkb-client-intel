@@ -21,17 +21,10 @@ const STAGES: Record<string, string> = {
   'b85ba5c6-8ee6-419f-9ff7-a08a9106e58e': 'On Hold',
 };
 
-// Front-of-pipeline stages (leads actively being worked)
 const LEAD_STAGES = [
-  'New Inquiry',
-  'Initial Call Scheduled',
-  'Discovery Scheduled',
-  'No Show',
-  'Nurture',
-  'Estimating',
+  'New Inquiry', 'Initial Call Scheduled', 'Discovery Scheduled',
+  'No Show', 'Nurture', 'Estimating',
 ];
-
-// "Secured" = moved past estimating into active project work
 const SECURED_STAGES = ['In Design', 'Ready', 'In Production', 'Final Billing', 'Completed'];
 
 const DISCOVERY_CAL = 'XAmFYzHwTcxmDRUrJSgJ';
@@ -51,30 +44,80 @@ async function ghlGet(path: string) {
   return res.json();
 }
 
+/**
+ * Fetch ALL opportunities with pagination (GHL caps at 100 per page).
+ */
+async function fetchAllOpportunities(): Promise<any[]> {
+  const allOpps: any[] = [];
+  let startAfterId = '';
+  let page = 0;
+  const MAX_PAGES = 10; // safety cap: 10 pages × 100 = 1000 opps max
+
+  while (page < MAX_PAGES) {
+    let url = `/opportunities/search?location_id=${GHL_LOC()}&status=all&limit=100`;
+    if (startAfterId) url += `&startAfterId=${startAfterId}`;
+
+    const data = await ghlGet(url);
+    const opps = data.opportunities || [];
+    allOpps.push(...opps);
+
+    // GHL returns a meta.nextPageUrl or we check if we got a full page
+    if (opps.length < 100) break; // last page
+    startAfterId = opps[opps.length - 1]?.id || '';
+    if (!startAfterId) break;
+    page++;
+  }
+
+  return allOpps;
+}
+
 export async function GET() {
   try {
     const now = new Date();
-    const thirtyDaysAgo = new Date(now.getTime() - 30 * 24 * 60 * 60 * 1000);
-    const ninetyDaysAgo = new Date(now.getTime() - 90 * 24 * 60 * 60 * 1000);
+
+    // Date boundaries for 12-month rolling windows
+    const twelveMonthsAgo = new Date(now.getFullYear(), now.getMonth() - 12, now.getDate());
+    const twentyFourMonthsAgo = new Date(now.getFullYear(), now.getMonth() - 24, now.getDate());
     const sevenDaysAgo = new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000);
+    const thirtyDaysAgo = new Date(now.getTime() - 30 * 24 * 60 * 60 * 1000);
 
-    // Fetch all opportunities (all statuses)
-    const oppData = await ghlGet(
-      `/opportunities/search?location_id=${GHL_LOC()}&status=all&limit=100`
-    );
-    const opps = oppData.opportunities || [];
+    // Fetch ALL opportunities (paginated)
+    const opps = await fetchAllOpportunities();
 
-    // Fetch calendar events (last 90 days)
-    const startMs = ninetyDaysAgo.getTime();
-    const endMs = now.getTime();
+    // Fetch calendar events (last 12 months + prior 12 months)
+    const calStart = twentyFourMonthsAgo.getTime();
+    const calEnd = now.getTime();
     const [discoveryData, onsiteData] = await Promise.all([
-      ghlGet(`/calendars/events?locationId=${GHL_LOC()}&calendarId=${DISCOVERY_CAL}&startTime=${startMs}&endTime=${endMs}`),
-      ghlGet(`/calendars/events?locationId=${GHL_LOC()}&calendarId=${ONSITE_CAL}&startTime=${startMs}&endTime=${endMs}`),
+      ghlGet(`/calendars/events?locationId=${GHL_LOC()}&calendarId=${DISCOVERY_CAL}&startTime=${calStart}&endTime=${calEnd}`),
+      ghlGet(`/calendars/events?locationId=${GHL_LOC()}&calendarId=${ONSITE_CAL}&startTime=${calStart}&endTime=${calEnd}`),
     ]);
-    const discoveryEvents = discoveryData.events || [];
-    const onsiteEvents = onsiteData.events || [];
+    const allDiscoveryEvents = discoveryData.events || [];
+    const allOnsiteEvents = onsiteData.events || [];
 
-    // ── Pipeline breakdown (open only) ──
+    // ── Partition events and opps into current 12mo vs prior 12mo ──
+    const isInPeriod = (dateStr: string, start: Date, end: Date) => {
+      const d = new Date(dateStr);
+      return d >= start && d <= end;
+    };
+
+    // Current 12-month window
+    const currentOpps = opps.filter((o: any) => isInPeriod(o.createdAt, twelveMonthsAgo, now));
+    const priorOpps = opps.filter((o: any) => isInPeriod(o.createdAt, twentyFourMonthsAgo, twelveMonthsAgo));
+
+    const currentDiscovery = allDiscoveryEvents.filter((e: any) =>
+      isInPeriod(e.startTime || e.createdAt, twelveMonthsAgo, now)
+    );
+    const priorDiscovery = allDiscoveryEvents.filter((e: any) =>
+      isInPeriod(e.startTime || e.createdAt, twentyFourMonthsAgo, twelveMonthsAgo)
+    );
+    const currentOnsite = allOnsiteEvents.filter((e: any) =>
+      isInPeriod(e.startTime || e.createdAt, twelveMonthsAgo, now)
+    );
+    const priorOnsite = allOnsiteEvents.filter((e: any) =>
+      isInPeriod(e.startTime || e.createdAt, twentyFourMonthsAgo, twelveMonthsAgo)
+    );
+
+    // ── Pipeline breakdown (open only — all time) ──
     const openOpps = opps.filter((o: any) => o.status === 'open');
     const pipelineBreakdown: { stage: string; count: number; stageId: string }[] = [];
     for (const [stageId, stageName] of Object.entries(STAGES)) {
@@ -84,59 +127,59 @@ export async function GET() {
       }
     }
 
-    // ── KPI calculations ──
+    // ── Helper to count secured from an opp set ──
+    const countSecured = (oppSet: any[]) =>
+      oppSet.filter((o: any) => SECURED_STAGES.includes(STAGES[o.pipelineStageId] || '')).length;
 
-    // Total active leads (front-of-pipeline open opps)
-    const activeLeads = openOpps.filter((o: any) => {
-      const name = STAGES[o.pipelineStageId] || '';
-      return LEAD_STAGES.includes(name);
-    }).length;
+    // ── 12-Month Rolling KPIs ──
+    const totalLeads12m = currentOpps.length;
+    const totalLeadsPrior = priorOpps.length;
 
-    // New leads this week
-    const newLeadsThisWeek = opps.filter((o: any) => {
-      const created = new Date(o.createdAt);
-      return created >= sevenDaysAgo;
-    }).length;
+    const securedClients12m = countSecured(currentOpps);
+    const securedClientsPrior = countSecured(priorOpps);
 
-    // New leads this month
-    const newLeadsThisMonth = opps.filter((o: any) => {
-      const created = new Date(o.createdAt);
-      return created >= thirtyDaysAgo;
-    }).length;
+    const onsiteVisits12m = currentOnsite.length;
+    const onsiteVisitsPrior = priorOnsite.length;
 
-    // Secured clients (In Design or beyond, open)
-    const securedClients = openOpps.filter((o: any) => {
-      const name = STAGES[o.pipelineStageId] || '';
-      return SECURED_STAGES.includes(name);
-    }).length;
+    const discoveryCalls12m = currentDiscovery.length;
+    const discoveryCallsPrior = priorDiscovery.length;
 
-    // Meetings scheduled (on-site visits total, last 90 days)
-    const onsiteCount = onsiteEvents.length;
-    const discoveryCount = discoveryEvents.length;
+    const conversionRate12m = totalLeads12m > 0
+      ? Math.round((securedClients12m / totalLeads12m) * 100)
+      : 0;
+    const conversionRatePrior = totalLeadsPrior > 0
+      ? Math.round((securedClientsPrior / totalLeadsPrior) * 100)
+      : 0;
 
-    // Conversion rate: leads that made it to In Design+ out of all leads
-    // (including lost/abandoned)
-    const allLeadCount = opps.length;
-    const everSecured = opps.filter((o: any) => {
-      const name = STAGES[o.pipelineStageId] || '';
-      return SECURED_STAGES.includes(name);
-    }).length;
-    const conversionRate = allLeadCount > 0 ? Math.round((everSecured / allLeadCount) * 100) : 0;
+    // Active leads = currently open in lead stages
+    const activeLeads = openOpps.filter((o: any) =>
+      LEAD_STAGES.includes(STAGES[o.pipelineStageId] || '')
+    ).length;
 
-    // ── Funnel data (for chart) ──
-    // Shows how leads flow: Total Leads → Discovery/On-Site → Estimating → Secured
+    // Short-term metrics (for sub-labels)
+    const newLeadsThisWeek = opps.filter((o: any) => new Date(o.createdAt) >= sevenDaysAgo).length;
+    const newLeadsThisMonth = opps.filter((o: any) => new Date(o.createdAt) >= thirtyDaysAgo).length;
+
+    // ── Percent change helper ──
+    const pctChange = (current: number, prior: number): number | null => {
+      if (prior === 0 && current === 0) return null;
+      if (prior === 0) return 100; // went from 0 to something
+      return Math.round(((current - prior) / prior) * 100);
+    };
+
+    // ── Funnel (current 12m) ──
     const inEstimating = openOpps.filter((o: any) => o.pipelineStageId === 'c4012dfe-bc76-4447-8947-96a9e846ff2b').length;
     const funnel = [
-      { label: 'Total Leads', value: allLeadCount },
-      { label: 'Discovery Calls', value: discoveryCount },
-      { label: 'On-Site Visits', value: onsiteCount },
+      { label: 'Total Leads (12mo)', value: totalLeads12m },
+      { label: 'Discovery Calls', value: discoveryCalls12m },
+      { label: 'On-Site Visits', value: onsiteVisits12m },
       { label: 'Estimating', value: inEstimating },
-      { label: 'Secured (In Design+)', value: everSecured },
+      { label: 'Secured (In Design+)', value: securedClients12m },
     ];
 
-    // ── Monthly lead creation trend (last 6 months) ──
+    // ── Monthly lead creation trend (last 12 months) ──
     const monthlyTrend: { month: string; leads: number; secured: number }[] = [];
-    for (let i = 5; i >= 0; i--) {
+    for (let i = 11; i >= 0; i--) {
       const d = new Date(now.getFullYear(), now.getMonth() - i, 1);
       const monthEnd = new Date(d.getFullYear(), d.getMonth() + 1, 0, 23, 59, 59);
       const monthLabel = d.toLocaleDateString('en-US', { month: 'short', year: '2-digit' });
@@ -144,7 +187,6 @@ export async function GET() {
         const created = new Date(o.createdAt);
         return created >= d && created <= monthEnd;
       }).length;
-      // Secured = moved to In Design+ during that month (use lastStageChangeAt)
       const securedInMonth = opps.filter((o: any) => {
         const name = STAGES[o.pipelineStageId] || '';
         if (!SECURED_STAGES.includes(name)) return false;
@@ -154,7 +196,7 @@ export async function GET() {
       monthlyTrend.push({ month: monthLabel, leads: leadsInMonth, secured: securedInMonth });
     }
 
-    // ── Recent leads (last 10 created) ──
+    // ── Recent leads ──
     const recentLeads = [...opps]
       .sort((a: any, b: any) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime())
       .slice(0, 10)
@@ -167,7 +209,7 @@ export async function GET() {
         contactName: o.contact ? `${o.contact.name || ''}`.trim() : '',
       }));
 
-    // ── Pending New Leads (New Inquiry stage, open, with full contact details) ──
+    // ── Pending New Leads ──
     const NEW_INQUIRY_ID = 'da27d864-0a12-4f4b-9290-21d59a0f9f6f';
     const pendingNewLeads = opps
       .filter((o: any) => o.pipelineStageId === NEW_INQUIRY_ID && o.status === 'open')
@@ -189,13 +231,31 @@ export async function GET() {
 
     return NextResponse.json({
       kpis: {
+        // 12-month rolling primary KPIs
+        totalLeads12m,
+        totalLeadsPrior,
+        totalLeadsChange: pctChange(totalLeads12m, totalLeadsPrior),
+
+        securedClients12m,
+        securedClientsPrior,
+        securedClientsChange: pctChange(securedClients12m, securedClientsPrior),
+
+        onsiteVisits12m,
+        onsiteVisitsPrior,
+        onsiteVisitsChange: pctChange(onsiteVisits12m, onsiteVisitsPrior),
+
+        discoveryCalls12m,
+        discoveryCallsPrior,
+        discoveryCallsChange: pctChange(discoveryCalls12m, discoveryCallsPrior),
+
+        conversionRate12m,
+        conversionRatePrior,
+        conversionRateChange: pctChange(conversionRate12m, conversionRatePrior),
+
+        // Snapshot metrics (for sub-labels)
         newLeadsThisWeek,
         newLeadsThisMonth,
         activeLeads,
-        securedClients,
-        onsiteVisits: onsiteCount,
-        discoveryCalls: discoveryCount,
-        conversionRate,
         totalPipeline: openOpps.length,
       },
       pipelineBreakdown,

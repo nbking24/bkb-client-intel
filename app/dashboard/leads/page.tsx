@@ -43,13 +43,24 @@ interface PendingLead {
 
 interface KpiData {
   kpis: {
+    totalLeads12m: number;
+    totalLeadsPrior: number;
+    totalLeadsChange: number | null;
+    securedClients12m: number;
+    securedClientsPrior: number;
+    securedClientsChange: number | null;
+    onsiteVisits12m: number;
+    onsiteVisitsPrior: number;
+    onsiteVisitsChange: number | null;
+    discoveryCalls12m: number;
+    discoveryCallsPrior: number;
+    discoveryCallsChange: number | null;
+    conversionRate12m: number;
+    conversionRatePrior: number;
+    conversionRateChange: number | null;
     newLeadsThisWeek: number;
     newLeadsThisMonth: number;
     activeLeads: number;
-    securedClients: number;
-    onsiteVisits: number;
-    discoveryCalls: number;
-    conversionRate: number;
     totalPipeline: number;
   };
   pipelineBreakdown: { stage: string; count: number; stageId: string }[];
@@ -142,18 +153,38 @@ function SectionHeader({ number, title, icon: Icon, complete }: {
   );
 }
 
-/* ── KPI Card ── */
-function KpiCard({ label, value, icon: Icon, accent, sub }: {
+/* ── KPI Card with YoY comparison ── */
+function KpiCard({ label, value, icon: Icon, accent, sub, change, prior }: {
   label: string; value: string | number; icon: any; accent?: string; sub?: string;
+  change?: number | null; prior?: string | number;
 }) {
+  const showChange = change !== null && change !== undefined;
+  const isPositive = (change ?? 0) > 0;
+  const isNeutral = change === 0 || change === null;
+  const changeColor = isNeutral ? '#8a8078' : isPositive ? '#4ade80' : '#f87171';
+  const changeArrow = isPositive ? '↑' : (change ?? 0) < 0 ? '↓' : '→';
+
   return (
     <div className="rounded-lg p-4" style={{ background: '#242424', border: '1px solid rgba(205,162,116,0.08)' }}>
       <div className="flex items-center gap-2 mb-2">
         <Icon size={14} style={{ color: accent || '#8a8078' }} />
         <span className="text-xs uppercase tracking-wider" style={{ color: '#8a8078' }}>{label}</span>
       </div>
-      <div className="text-2xl font-bold" style={{ color: accent || '#e8e0d8' }}>{value}</div>
-      {sub && <div className="text-xs mt-1" style={{ color: '#6a6058' }}>{sub}</div>}
+      <div className="flex items-end gap-2">
+        <div className="text-2xl font-bold" style={{ color: accent || '#e8e0d8' }}>{value}</div>
+        {showChange && (
+          <span className="text-xs font-semibold mb-1 px-1.5 py-0.5 rounded" style={{
+            background: isNeutral ? 'rgba(138,128,120,0.1)' : isPositive ? 'rgba(74,222,128,0.1)' : 'rgba(248,113,113,0.1)',
+            color: changeColor,
+          }}>
+            {changeArrow} {Math.abs(change ?? 0)}%
+          </span>
+        )}
+      </div>
+      <div className="text-xs mt-1" style={{ color: '#6a6058' }}>
+        {sub}
+        {prior !== undefined && <span className="ml-1">({prior} prior yr)</span>}
+      </div>
     </div>
   );
 }
@@ -404,10 +435,42 @@ export default function LeadsPage() {
       ) : kpis ? (
         <>
           <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 mb-6">
-            <KpiCard label="New Leads (7d)" value={kpis.newLeadsThisWeek} icon={UserPlus} accent="#4ade80" sub={`${kpis.newLeadsThisMonth} this month`} />
-            <KpiCard label="On-Site Visits" value={kpis.onsiteVisits} icon={MapPin} accent="#a78bfa" sub={`${kpis.discoveryCalls} discovery calls`} />
-            <KpiCard label="Secured Clients" value={kpis.securedClients} icon={Shield} accent="#4ade80" sub={`In Design or beyond`} />
-            <KpiCard label="Conversion Rate" value={`${kpis.conversionRate}%`} icon={Target} accent="#CDA274" sub={`${kpis.totalPipeline} total in pipeline`} />
+            <KpiCard
+              label="Total Leads (12mo)"
+              value={kpis.totalLeads12m}
+              icon={UserPlus}
+              accent="#4ade80"
+              change={kpis.totalLeadsChange}
+              prior={kpis.totalLeadsPrior}
+              sub={`${kpis.newLeadsThisWeek} this week`}
+            />
+            <KpiCard
+              label="On-Site Visits (12mo)"
+              value={kpis.onsiteVisits12m}
+              icon={MapPin}
+              accent="#a78bfa"
+              change={kpis.onsiteVisitsChange}
+              prior={kpis.onsiteVisitsPrior}
+              sub={`${kpis.discoveryCalls12m} discovery calls`}
+            />
+            <KpiCard
+              label="Secured Clients (12mo)"
+              value={kpis.securedClients12m}
+              icon={Shield}
+              accent="#4ade80"
+              change={kpis.securedClientsChange}
+              prior={kpis.securedClientsPrior}
+              sub="In Design or beyond"
+            />
+            <KpiCard
+              label="Conversion Rate"
+              value={`${kpis.conversionRate12m}%`}
+              icon={Target}
+              accent="#CDA274"
+              change={kpis.conversionRateChange}
+              prior={`${kpis.conversionRatePrior}%`}
+              sub={`${kpis.totalPipeline} open in pipeline`}
+            />
           </div>
 
           {/* Charts Row */}
@@ -417,7 +480,7 @@ export default function LeadsPage() {
               <div className="flex items-center gap-2 mb-4">
                 <TrendingUp size={14} style={{ color: '#CDA274' }} />
                 <span className="text-sm font-semibold" style={{ color: '#e8e0d8' }}>Lead Funnel</span>
-                <span className="text-xs ml-auto" style={{ color: '#6a6058' }}>Last 90 days</span>
+                <span className="text-xs ml-auto" style={{ color: '#6a6058' }}>Last 12 months</span>
               </div>
               <FunnelChart data={kpiData!.funnel} />
             </div>
@@ -427,7 +490,7 @@ export default function LeadsPage() {
               <div className="flex items-center gap-2 mb-4">
                 <BarChart3 size={14} style={{ color: '#CDA274' }} />
                 <span className="text-sm font-semibold" style={{ color: '#e8e0d8' }}>Monthly Trend</span>
-                <span className="text-xs ml-auto" style={{ color: '#6a6058' }}>6 months</span>
+                <span className="text-xs ml-auto" style={{ color: '#6a6058' }}>12 months</span>
               </div>
               <MonthlyTrendChart data={kpiData!.monthlyTrend} />
             </div>
