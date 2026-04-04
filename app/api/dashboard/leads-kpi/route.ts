@@ -44,8 +44,21 @@ async function ghlGet(path: string) {
   return res.json();
 }
 
+async function ghlPost(path: string, body: Record<string, unknown>) {
+  const res = await fetch(`${GHL_BASE}${path}`, {
+    method: 'POST',
+    headers: ghlHeaders(),
+    body: JSON.stringify(body),
+    cache: 'no-store',
+  });
+  if (!res.ok) throw new Error(`GHL POST ${res.status}`);
+  return res.json();
+}
+
 /**
- * Fetch ALL opportunities with pagination (GHL caps at 100 per page).
+ * Fetch ALL opportunities via POST /opportunities/search.
+ * POST search returns richer customFields (including MULTIPLE_OPTIONS as fieldValueArray)
+ * whereas the GET endpoint omits array-type custom fields.
  */
 async function fetchAllOpportunities(): Promise<any[]> {
   const allOpps: any[] = [];
@@ -54,14 +67,16 @@ async function fetchAllOpportunities(): Promise<any[]> {
   const MAX_PAGES = 10; // safety cap: 10 pages × 100 = 1000 opps max
 
   while (page < MAX_PAGES) {
-    let url = `/opportunities/search?location_id=${GHL_LOC()}&status=all&limit=100`;
-    if (startAfterId) url += `&startAfterId=${startAfterId}`;
+    const body: Record<string, unknown> = {
+      locationId: GHL_LOC(),
+      limit: 100,
+    };
+    if (startAfterId) body.startAfterId = startAfterId;
 
-    const data = await ghlGet(url);
+    const data = await ghlPost('/opportunities/search', body);
     const opps = data.opportunities || [];
     allOpps.push(...opps);
 
-    // GHL returns a meta.nextPageUrl or we check if we got a full page
     if (opps.length < 100) break; // last page
     startAfterId = opps[opps.length - 1]?.id || '';
     if (!startAfterId) break;
@@ -202,14 +217,18 @@ export async function GET() {
     for (const o of currentOpps) {
       const cf = (o as any).customFields || [];
       const lsField = cf.find((f: any) => f.id === LEAD_SOURCE_FIELD);
-      const val = lsField?.fieldValueString || '';
-      if (val) {
-        // MULTIPLE_OPTIONS may be comma-separated
-        for (const v of val.split(',')) {
-          const trimmed = v.trim();
-          if (trimmed) {
-            sourceBreakdown[trimmed] = (sourceBreakdown[trimmed] || 0) + 1;
-          }
+      // POST search returns fieldValueArray for MULTIPLE_OPTIONS fields
+      const arrVal = lsField?.fieldValueArray || [];
+      const strVal = lsField?.fieldValueString || '';
+      let sources: string[] = [];
+      if (Array.isArray(arrVal) && arrVal.length > 0) {
+        sources = arrVal.map((v: string) => v.trim()).filter(Boolean);
+      } else if (strVal) {
+        sources = strVal.split(',').map((v: string) => v.trim()).filter(Boolean);
+      }
+      if (sources.length > 0) {
+        for (const s of sources) {
+          sourceBreakdown[s] = (sourceBreakdown[s] || 0) + 1;
         }
       } else {
         sourceBreakdown['Unknown'] = (sourceBreakdown['Unknown'] || 0) + 1;
