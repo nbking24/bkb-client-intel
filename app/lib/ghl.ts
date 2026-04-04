@@ -448,6 +448,94 @@ export async function syncGHLMeetingsToJT(params?: {
 }
 
 // ============================================================
+// PIPELINE STAGE MANAGEMENT & WORKFLOW TRIGGERS
+// ============================================================
+
+/**
+ * BKB pipeline stage IDs.
+ * Used to move opportunities between stages programmatically.
+ */
+export const PIPELINE_STAGES = {
+  NEW_INQUIRY: 'da27d864-0a12-4f4b-9290-21d59a0f9f6f',
+  ESTIMATING: 'c4012dfe-bc76-4447-8947-96a9e846ff2b',
+  // Add more stage IDs here as workflows are created for them
+} as const;
+
+/**
+ * GHL workflow IDs that should fire when entering a given stage.
+ * Map: stageId → workflowId
+ *
+ * GHL workflows only auto-trigger on UI-based stage changes.
+ * When moving stages via API, we enroll the contact into the
+ * workflow manually using addContactToWorkflow().
+ */
+export const STAGE_WORKFLOWS: Record<string, string> = {
+  [PIPELINE_STAGES.ESTIMATING]: 'efc2c619-9afb-410b-9af5-67276caa4ebe',
+  // Add more stage → workflow mappings here as needed
+};
+
+/**
+ * Enroll a contact into a GHL workflow.
+ * This triggers the workflow's actions (webhooks, emails, etc.)
+ * regardless of the workflow's trigger type.
+ */
+export async function addContactToWorkflow(contactId: string, workflowId: string) {
+  return ghlFetch(`/contacts/${contactId}/workflow/${workflowId}`, {
+    method: 'POST',
+  });
+}
+
+/**
+ * Move an opportunity to a new pipeline stage AND trigger any
+ * associated workflows. This is the single function to call
+ * whenever code needs to change an opportunity's stage.
+ *
+ * Handles the GHL limitation where API-based stage changes don't
+ * trigger workflows by enrolling the contact into the workflow
+ * after updating the stage.
+ *
+ * @returns Object with stage update result and workflow trigger status
+ */
+export async function moveOpportunityStage(params: {
+  opportunityId: string;
+  contactId: string;
+  stageId: string;
+}): Promise<{
+  stageUpdated: boolean;
+  workflowTriggered: boolean;
+  workflowId?: string;
+  error?: string;
+}> {
+  const { opportunityId, contactId, stageId } = params;
+
+  // Step 1: Move the stage via API
+  await updateOpportunity(opportunityId, {
+    pipelineStageId: stageId,
+  });
+
+  // Step 2: Check if there's a workflow to trigger for this stage
+  const workflowId = STAGE_WORKFLOWS[stageId];
+  if (!workflowId) {
+    return { stageUpdated: true, workflowTriggered: false };
+  }
+
+  // Step 3: Enroll the contact in the workflow
+  try {
+    await addContactToWorkflow(contactId, workflowId);
+    return { stageUpdated: true, workflowTriggered: true, workflowId };
+  } catch (err: any) {
+    // Stage moved successfully but workflow failed — log but don't throw
+    console.error(`[GHL] Stage moved but workflow trigger failed: ${err.message}`);
+    return {
+      stageUpdated: true,
+      workflowTriggered: false,
+      workflowId,
+      error: `Workflow trigger failed: ${err.message}`,
+    };
+  }
+}
+
+// ============================================================
 // CROSS-REFERENCE FIELDS
 // ============================================================
 
