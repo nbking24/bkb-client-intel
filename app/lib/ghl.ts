@@ -50,6 +50,31 @@ export async function searchContacts(query: string, limit = 20) {
   }));
 }
 
+/**
+ * Create a new contact in GHL.
+ */
+export async function createContact(params: {
+  firstName: string;
+  lastName: string;
+  phone?: string;
+  email?: string;
+  address1?: string;
+  city?: string;
+  state?: string;
+  postalCode?: string;
+  tags?: string[];
+  source?: string;
+  customFields?: Array<{ id: string; field_value: string }>;
+}) {
+  return ghlFetch('/contacts/', {
+    method: 'POST',
+    body: JSON.stringify({
+      locationId: GHL_LOC(),
+      ...params,
+    }),
+  });
+}
+
 // ============================================================
 // OPPORTUNITIES / PIPELINE
 // ============================================================
@@ -81,6 +106,31 @@ export async function updateOpportunity(id: string, updates: Record<string, unkn
   return ghlFetch(`/opportunities/${id}`, {
     method: 'PUT',
     body: JSON.stringify(updates),
+  });
+}
+
+/**
+ * Create a new opportunity in the BKB Sales Pipeline.
+ */
+export async function createOpportunity(params: {
+  name: string;
+  contactId: string;
+  stageId: string;
+  monetaryValue?: number;
+  source?: string;
+}) {
+  return ghlFetch('/opportunities/', {
+    method: 'POST',
+    body: JSON.stringify({
+      pipelineId: GHL_PIPELINE(),
+      locationId: GHL_LOC(),
+      pipelineStageId: params.stageId,
+      contactId: params.contactId,
+      name: params.name,
+      status: 'open',
+      ...(params.monetaryValue ? { monetaryValue: params.monetaryValue } : {}),
+      ...(params.source ? { source: params.source } : {}),
+    }),
   });
 }
 
@@ -457,8 +507,18 @@ export async function syncGHLMeetingsToJT(params?: {
  */
 export const PIPELINE_STAGES = {
   NEW_INQUIRY: 'da27d864-0a12-4f4b-9290-21d59a0f9f6f',
+  INITIAL_CALL_SCHEDULED: '3e720576-99cc-4e94-baa1-0d82e28b265d',
+  DISCOVERY_SCHEDULED: '25c69200-e006-4a7f-b949-687a66d019a7',
+  NO_SHOW: 'ae9b3d90-5264-4f38-9e96-85a537d5c035',
+  NURTURE: 'df802d7c-8a49-4e82-b9c1-2ad9d3dd1b80',
   ESTIMATING: 'c4012dfe-bc76-4447-8947-96a9e846ff2b',
-  // Add more stage IDs here as workflows are created for them
+  IN_DESIGN: '73fd2284-6b5f-4b24-9c10-cd8bca259552',
+  READY: '4d8a8bf2-0044-4c76-ae8b-2c71b0f47598',
+  IN_PRODUCTION: '787aa694-fac7-4ce6-ad93-2c9cf7a2e20d',
+  FINAL_BILLING: 'b00dfbb4-2440-451b-9975-17246d535ab3',
+  COMPLETED: '3d4bde41-7ee1-4ca0-ba2d-f4a6bc80238c',
+  CLOSED_NOT_INTERESTED: '84984d39-705e-406a-91ae-fcf2e98b4a03',
+  ON_HOLD: 'b85ba5c6-8ee6-419f-9ff7-a08a9106e58e',
 } as const;
 
 /**
@@ -543,6 +603,17 @@ export async function moveOpportunityStage(params: {
 export const CUSTOM_FIELDS = {
   JT_JOB_ID: 'GjwWvbGyh7CQfGmFir5p',
   JT_CUSTOMER_ID: 'QzmJOO31vKrjXZmRSm3X',
+} as const;
+
+// Calendar IDs
+export const GHL_CALENDARS = {
+  DISCOVERY_CALL: 'XAmFYzHwTcxmDRUrJSgJ',     // BKB Online Discovery Call
+  ONSITE_VISIT: 'DeoYiZ8TjDVoW6bFraUN',        // Initial Consultation - On Site
+} as const;
+
+// User IDs
+export const GHL_USERS = {
+  NATHAN: 'cFyoFwK0LIr0npmY7W34',
 } as const;
 
 // ============================================================

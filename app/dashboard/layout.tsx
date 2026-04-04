@@ -10,6 +10,7 @@ import {
 } from 'lucide-react';
 import { useAuth } from '../hooks/useAuth';
 import AskAgentPanel from './components/AskAgentPanel';
+import NewLeadPanel from './components/NewLeadPanel';
 
 // Full nav for admin/owner roles
 const ADMIN_NAV = [
@@ -29,6 +30,7 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
   const router = useRouter();
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [chatOpen, setChatOpen] = useState(false);
+  const [newLeadOpen, setNewLeadOpen] = useState(false);
   const [userMenuOpen, setUserMenuOpen] = useState(false);
   const userMenuRef = useRef<HTMLDivElement>(null);
   const auth = useAuth();
@@ -109,6 +111,18 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
         </div>
 
         <div className="flex items-center gap-2">
+          {/* New Lead button — admin/owner only */}
+          {!isFieldStaff && (
+            <button
+              onClick={() => setNewLeadOpen(true)}
+              className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-sm font-medium hover:bg-white/5 transition-all"
+              style={{ color: '#4ade80', border: '1px solid rgba(74,222,128,0.2)' }}
+            >
+              <span className="text-base leading-none">+</span>
+              <span className="hidden sm:inline">New Lead</span>
+            </button>
+          )}
+
           {/* Ask Agent toggle */}
           <button
             onClick={() => setChatOpen(!chatOpen)}
@@ -220,6 +234,11 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
 
       {/* Ask Agent slide-out panel — available from any dashboard page */}
       <AskAgentPanel isOpen={chatOpen} onClose={() => setChatOpen(false)} />
+
+      {/* New Lead slide-out panel — admin/owner only */}
+      {!isFieldStaff && (
+        <NewLeadPanel isOpen={newLeadOpen} onClose={() => setNewLeadOpen(false)} />
+      )}
     </div>
   );
 }
