@@ -6,7 +6,7 @@ import {
   UserPlus, Check, Phone, Mail, MapPin, Home, FileText,
   Calendar, Clock, Loader2, CheckCircle2, AlertCircle, ChevronDown, ChevronRight,
   TrendingUp, Target, PhoneCall, BarChart3, Users, ArrowRight, RefreshCw,
-  Shield, Eye,
+  Shield, Eye, Trash2, AlertTriangle, ExternalLink,
 } from 'lucide-react';
 
 /* ── Types ── */
@@ -28,6 +28,19 @@ interface FormData {
   appointmentTime: string;
 }
 
+interface PendingLead {
+  id: string;
+  name: string;
+  contactId: string;
+  contactName: string;
+  phone: string;
+  email: string;
+  source: string;
+  tags: string[];
+  createdAt: string;
+  daysPending: number;
+}
+
 interface KpiData {
   kpis: {
     newLeadsThisWeek: number;
@@ -43,6 +56,7 @@ interface KpiData {
   funnel: { label: string; value: number }[];
   monthlyTrend: { month: string; leads: number; secured: number }[];
   recentLeads: { id: string; name: string; stage: string; status: string; createdAt: string; contactName: string }[];
+  pendingNewLeads: PendingLead[];
 }
 
 const INITIAL_FORM: FormData = {
@@ -251,6 +265,29 @@ export default function LeadsPage() {
     }
   };
 
+  // Spam handling state
+  const [spamLoading, setSpamLoading] = useState<string | null>(null); // opportunityId being processed
+  const [spamConfirm, setSpamConfirm] = useState<string | null>(null); // opportunityId awaiting confirm
+
+  const handleMarkSpam = async (lead: PendingLead) => {
+    setSpamLoading(lead.id);
+    try {
+      const res = await fetch('/api/dashboard/leads-spam', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${getToken()}` },
+        body: JSON.stringify({ opportunityId: lead.id, contactId: lead.contactId }),
+      });
+      if (!res.ok) throw new Error('Failed to remove spam');
+      setSpamConfirm(null);
+      loadKpis(); // Refresh all data
+    } catch (err: any) {
+      console.error('Spam removal failed:', err);
+      alert('Failed to remove spam lead. Please try again.');
+    } finally {
+      setSpamLoading(null);
+    }
+  };
+
   useEffect(() => { loadKpis(); }, []);
 
   const update = (field: keyof FormData, value: string) => {
@@ -397,6 +434,105 @@ export default function LeadsPage() {
           </div>
         </>
       ) : null}
+
+      {/* ═══ Pending New Leads ═══ */}
+      {kpiData && kpiData.pendingNewLeads && kpiData.pendingNewLeads.length > 0 && (
+        <div className="rounded-xl overflow-hidden mb-6" style={{ background: '#1a1a1a', border: '1px solid rgba(205,162,116,0.12)' }}>
+          <div className="flex items-center gap-2 px-5 py-3" style={{ background: '#242424', borderBottom: '1px solid rgba(205,162,116,0.08)' }}>
+            <AlertTriangle size={14} style={{ color: '#f59e0b' }} />
+            <span className="text-sm font-semibold" style={{ color: '#e8e0d8' }}>Pending New Leads</span>
+            <span className="text-xs px-2 py-0.5 rounded-full ml-1" style={{ background: 'rgba(245,158,11,0.15)', color: '#f59e0b' }}>
+              {kpiData.pendingNewLeads.length} awaiting contact
+            </span>
+            <span className="text-xs ml-auto" style={{ color: '#6a6058' }}>
+              Needs discovery call scheduled
+            </span>
+          </div>
+          <div className="divide-y" style={{ borderColor: 'rgba(205,162,116,0.06)' }}>
+            {kpiData.pendingNewLeads.map((lead) => (
+              <div key={lead.id} className="px-5 py-3 flex items-start gap-4">
+                {/* Lead Info */}
+                <div className="flex-1 min-w-0">
+                  <div className="flex items-center gap-2 mb-1">
+                    <span className="text-sm font-semibold" style={{ color: '#e8e0d8' }}>
+                      {lead.contactName || lead.name}
+                    </span>
+                    {lead.daysPending > 3 && (
+                      <span className="text-[10px] px-1.5 py-0.5 rounded" style={{
+                        background: lead.daysPending > 7 ? 'rgba(239,68,68,0.15)' : 'rgba(245,158,11,0.15)',
+                        color: lead.daysPending > 7 ? '#ef4444' : '#f59e0b',
+                      }}>
+                        {lead.daysPending}d waiting
+                      </span>
+                    )}
+                    {lead.source && (
+                      <span className="text-[10px] px-1.5 py-0.5 rounded" style={{ background: 'rgba(205,162,116,0.1)', color: '#8a8078' }}>
+                        {lead.source}
+                      </span>
+                    )}
+                  </div>
+                  <div className="flex items-center gap-4 text-xs" style={{ color: '#8a8078' }}>
+                    {lead.phone && (
+                      <a href={`tel:${lead.phone}`} className="flex items-center gap-1 hover:opacity-80" style={{ color: '#60a5fa' }}>
+                        <Phone size={10} /> {lead.phone}
+                      </a>
+                    )}
+                    {lead.email && (
+                      <a href={`mailto:${lead.email}`} className="flex items-center gap-1 hover:opacity-80" style={{ color: '#60a5fa' }}>
+                        <Mail size={10} /> {lead.email}
+                      </a>
+                    )}
+                    <span style={{ color: '#6a6058' }}>{new Date(lead.createdAt).toLocaleDateString()}</span>
+                  </div>
+                  {lead.tags && lead.tags.length > 0 && (
+                    <div className="flex flex-wrap gap-1 mt-1.5">
+                      {lead.tags.filter((t: string) => t !== 'Dashboard Lead').slice(0, 4).map((tag: string) => (
+                        <span key={tag} className="text-[10px] px-1.5 py-0.5 rounded" style={{ background: 'rgba(205,162,116,0.08)', color: '#6a6058' }}>
+                          {tag}
+                        </span>
+                      ))}
+                    </div>
+                  )}
+                </div>
+
+                {/* Action Buttons */}
+                <div className="flex items-center gap-2 flex-shrink-0 pt-0.5">
+                  {spamConfirm === lead.id ? (
+                    <div className="flex items-center gap-1.5">
+                      <span className="text-xs" style={{ color: '#f87171' }}>Delete lead?</span>
+                      <button
+                        onClick={() => handleMarkSpam(lead)}
+                        disabled={spamLoading === lead.id}
+                        className="flex items-center gap-1 px-2 py-1 rounded text-xs font-medium transition-all"
+                        style={{ background: 'rgba(239,68,68,0.15)', color: '#ef4444', border: '1px solid rgba(239,68,68,0.3)' }}
+                      >
+                        {spamLoading === lead.id ? <Loader2 size={10} className="animate-spin" /> : <Trash2 size={10} />}
+                        Yes
+                      </button>
+                      <button
+                        onClick={() => setSpamConfirm(null)}
+                        className="px-2 py-1 rounded text-xs transition-all"
+                        style={{ background: '#242424', color: '#8a8078', border: '1px solid rgba(205,162,116,0.12)' }}
+                      >
+                        No
+                      </button>
+                    </div>
+                  ) : (
+                    <button
+                      onClick={() => setSpamConfirm(lead.id)}
+                      className="flex items-center gap-1 px-2 py-1 rounded text-xs transition-all hover:opacity-80"
+                      style={{ background: 'rgba(239,68,68,0.08)', color: '#8a8078', border: '1px solid rgba(239,68,68,0.12)' }}
+                      title="Mark as spam — deletes contact and opportunity"
+                    >
+                      <Trash2 size={10} /> Spam
+                    </button>
+                  )}
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
 
       {/* Three Column Layout */}
       <div className="grid grid-cols-1 lg:grid-cols-5 gap-6">

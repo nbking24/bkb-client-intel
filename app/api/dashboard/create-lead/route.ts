@@ -9,6 +9,68 @@ import {
   GHL_USERS,
 } from '@/app/lib/ghl';
 
+// ── JobTread PAVE helper for follow-up task creation ──
+const JT_URL = 'https://api.jobtread.com/pave';
+const JT_KEY = () => process.env.JOBTREAD_API_KEY || '';
+const JT_ORG = '22P5SRwhLaYe';
+const TERRI_USER_ID = '22P5SpJkzZSb';
+
+async function pave(query: Record<string, unknown>) {
+  const res = await fetch(JT_URL, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ query: { $: { grantKey: JT_KEY() }, ...query } }),
+    cache: 'no-store',
+  });
+  const text = await res.text();
+  if (!res.ok) throw new Error(`PAVE ${res.status}: ${text.slice(0, 300)}`);
+  return text ? JSON.parse(text) : {};
+}
+
+async function createFollowupTask(leadName: string, phone: string, email: string, projectType: string) {
+  const tomorrow = new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString().split('T')[0];
+  const descLines = [
+    `New lead awaiting initial contact and discovery call scheduling.`,
+    '',
+    phone ? `Phone: ${phone}` : '',
+    email ? `Email: ${email}` : '',
+    projectType ? `Project Type: ${projectType}` : '',
+    '',
+    'Action: Contact this lead and schedule a discovery call with Nathan.',
+  ].filter(Boolean).join('\n');
+
+  // Create the task
+  const taskData = await pave({
+    createTask: {
+      $: {
+        name: `Contact ${leadName} - Schedule Discovery`.slice(0, 100),
+        description: descLines,
+        targetType: 'organization',
+        targetId: JT_ORG,
+        isToDo: true,
+        endDate: tomorrow,
+      },
+      createdTask: { id: {}, name: {} },
+    },
+  });
+
+  const taskId = taskData?.createTask?.createdTask?.id;
+  if (!taskId) return null;
+
+  // Assign to Terri
+  try {
+    await pave({
+      createTaskAssignment: {
+        $: { taskId, userId: TERRI_USER_ID },
+      },
+    });
+  } catch (e: any) {
+    console.warn('[create-lead] Could not assign task to Terri:', e.message);
+  }
+
+  return taskId;
+}
+
 /**
  * POST /api/dashboard/create-lead
  *
@@ -198,6 +260,20 @@ export async function POST(req: NextRequest) {
       }
     }
 
+    // --- 7. Create JT follow-up task for Terri when lead is New Inquiry ---
+    let jtTaskId: string | null = null;
+    if (stageId === PIPELINE_STAGES.NEW_INQUIRY) {
+      try {
+        const leadName = `${firstName.trim()} ${lastName.trim()}`;
+        jtTaskId = await createFollowupTask(leadName, phone?.trim() || '', email?.trim() || '', projectType || '');
+        if (jtTaskId) {
+          console.log(`[create-lead] Created JT follow-up task ${jtTaskId} for ${leadName}`);
+        }
+      } catch (err: any) {
+        console.error('[create-lead] JT task creation failed (non-fatal):', err.message);
+      }
+    }
+
     return NextResponse.json({
       success: true,
       contactId,
@@ -205,6 +281,7 @@ export async function POST(req: NextRequest) {
       appointmentId,
       stage: stageName,
       jtJobCreated,
+      jtTaskId,
     });
   } catch (err: any) {
     console.error('[create-lead] Unhandled error:', err);

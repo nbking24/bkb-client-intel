@@ -167,6 +167,26 @@ export async function GET() {
         contactName: o.contact ? `${o.contact.name || ''}`.trim() : '',
       }));
 
+    // ── Pending New Leads (New Inquiry stage, open, with full contact details) ──
+    const NEW_INQUIRY_ID = 'da27d864-0a12-4f4b-9290-21d59a0f9f6f';
+    const pendingNewLeads = opps
+      .filter((o: any) => o.pipelineStageId === NEW_INQUIRY_ID && o.status === 'open')
+      .sort((a: any, b: any) => new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime())
+      .map((o: any) => ({
+        id: o.id,
+        name: o.name,
+        contactId: o.contact?.id || '',
+        contactName: o.contact?.name || o.contact?.firstName
+          ? `${o.contact?.firstName || ''} ${o.contact?.lastName || ''}`.trim()
+          : '',
+        phone: o.contact?.phone || '',
+        email: o.contact?.email || '',
+        source: o.source || '',
+        tags: o.contact?.tags || [],
+        createdAt: o.createdAt,
+        daysPending: Math.floor((now.getTime() - new Date(o.createdAt).getTime()) / (24 * 60 * 60 * 1000)),
+      }));
+
     return NextResponse.json({
       kpis: {
         newLeadsThisWeek,
@@ -182,6 +202,7 @@ export async function GET() {
       funnel,
       monthlyTrend,
       recentLeads,
+      pendingNewLeads,
     });
   } catch (err: any) {
     console.error('Leads KPI error:', err);
