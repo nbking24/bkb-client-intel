@@ -196,6 +196,30 @@ export async function GET() {
       monthlyTrend.push({ month: monthLabel, leads: leadsInMonth, secured: securedInMonth });
     }
 
+    // ── Lead Source breakdown (12-month) ──
+    const LEAD_SOURCE_FIELD = 'jffMrsPHeWBI581YsIYP';
+    const sourceBreakdown: Record<string, number> = {};
+    for (const o of currentOpps) {
+      const cf = (o as any).customFields || [];
+      const lsField = cf.find((f: any) => f.id === LEAD_SOURCE_FIELD);
+      const val = lsField?.fieldValueString || '';
+      if (val) {
+        // MULTIPLE_OPTIONS may be comma-separated
+        for (const v of val.split(',')) {
+          const trimmed = v.trim();
+          if (trimmed) {
+            sourceBreakdown[trimmed] = (sourceBreakdown[trimmed] || 0) + 1;
+          }
+        }
+      } else {
+        sourceBreakdown['Unknown'] = (sourceBreakdown['Unknown'] || 0) + 1;
+      }
+    }
+    // Sort by count descending
+    const sourceData = Object.entries(sourceBreakdown)
+      .map(([source, count]) => ({ source, count }))
+      .sort((a, b) => b.count - a.count);
+
     // ── Recent leads ──
     const recentLeads = [...opps]
       .sort((a: any, b: any) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime())
@@ -263,6 +287,7 @@ export async function GET() {
       monthlyTrend,
       recentLeads,
       pendingNewLeads,
+      sourceBreakdown: sourceData,
     });
   } catch (err: any) {
     console.error('Leads KPI error:', err);

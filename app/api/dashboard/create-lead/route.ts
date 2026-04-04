@@ -173,6 +173,9 @@ export async function POST(req: NextRequest) {
       contactId,
       stageId,
       source: referralSource || 'Dashboard',
+      customFields: referralSource
+        ? [{ id: 'jffMrsPHeWBI581YsIYP', field_value: [referralSource] }]
+        : [],
     });
 
     const opportunityId = oppRes?.opportunity?.id;

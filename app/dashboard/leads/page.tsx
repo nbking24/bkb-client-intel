@@ -41,6 +41,11 @@ interface PendingLead {
   daysPending: number;
 }
 
+interface SourceItem {
+  source: string;
+  count: number;
+}
+
 interface KpiData {
   kpis: {
     totalLeads12m: number;
@@ -68,6 +73,7 @@ interface KpiData {
   monthlyTrend: { month: string; leads: number; secured: number }[];
   recentLeads: { id: string; name: string; stage: string; status: string; createdAt: string; contactName: string }[];
   pendingNewLeads: PendingLead[];
+  sourceBreakdown: SourceItem[];
 }
 
 const INITIAL_FORM: FormData = {
@@ -78,7 +84,7 @@ const INITIAL_FORM: FormData = {
 };
 
 const PROJECT_TYPES = ['Kitchen', 'Bathroom', 'Addition', 'Whole-Home Remodel', 'Other'];
-const REFERRAL_SOURCES = ['Referral', 'Website', 'Google', 'Houzz', 'Drive-By', 'Repeat Client', 'Other'];
+const REFERRAL_SOURCES = ['Google', 'Referral', 'Social Media', 'Sign/Vehicle', 'Repeat Client', 'Magazine/News', 'Website', 'Houzz', 'Drive-By', 'Bucks Beautiful / Garden Tour', 'NARI', 'In-Person', 'ChatBot', 'Other'];
 const BUDGET_RANGES = ['Under $50K', '$50K–$100K', '$100K–$250K', '$250K–$500K', '$500K+', 'Not Sure'];
 
 const STAGE_COLORS: Record<string, string> = {
@@ -259,6 +265,48 @@ function MonthlyTrendChart({ data }: { data: { month: string; leads: number; sec
           </div>
         ))}
       </div>
+    </div>
+  );
+}
+
+/* ── Lead Source Breakdown Chart ── */
+function SourceChart({ data }: { data: SourceItem[] }) {
+  const total = data.reduce((s, d) => s + d.count, 0) || 1;
+  const SOURCE_COLORS: Record<string, string> = {
+    'Google': '#4285F4', 'Referral': '#4ade80', 'Website': '#60a5fa',
+    'Social Media': '#a78bfa', 'Sign/Vehicle': '#fbbf24', 'Repeat Client': '#34d399',
+    'Magazine/News': '#f472b6', 'Houzz': '#2dd4bf', 'Drive-By': '#fb923c',
+    'In-Person': '#CDA274', 'Bucks Beautiful / Garden Tour': '#c084fc',
+    'NARI': '#22d3ee', 'ChatBot': '#818cf8', 'Other': '#8a8078', 'Unknown': '#4a4540',
+  };
+  const shown = data.filter(d => d.source !== 'Unknown').slice(0, 8);
+  const unknownCount = data.find(d => d.source === 'Unknown')?.count || 0;
+
+  return (
+    <div className="space-y-2">
+      {shown.map((d) => {
+        const pct = Math.round((d.count / total) * 100);
+        const color = SOURCE_COLORS[d.source] || '#8a8078';
+        return (
+          <div key={d.source}>
+            <div className="flex items-center justify-between mb-0.5">
+              <span className="text-xs" style={{ color: '#e8e0d8' }}>{d.source}</span>
+              <span className="text-xs font-bold" style={{ color }}>{d.count} <span style={{ color: '#6a6058', fontWeight: 'normal' }}>({pct}%)</span></span>
+            </div>
+            <div className="h-4 rounded-md overflow-hidden" style={{ background: 'rgba(205,162,116,0.06)' }}>
+              <div
+                className="h-full rounded-md transition-all duration-700"
+                style={{ width: `${Math.max(pct, 3)}%`, background: `linear-gradient(90deg, ${color}, ${color}88)` }}
+              />
+            </div>
+          </div>
+        );
+      })}
+      {unknownCount > 0 && (
+        <div className="text-xs pt-1" style={{ color: '#6a6058' }}>
+          + {unknownCount} with no source recorded ({Math.round((unknownCount / total) * 100)}%)
+        </div>
+      )}
     </div>
   );
 }
@@ -474,7 +522,7 @@ export default function LeadsPage() {
           </div>
 
           {/* Charts Row */}
-          <div className="grid grid-cols-1 lg:grid-cols-2 gap-4 mb-6">
+          <div className="grid grid-cols-1 lg:grid-cols-3 gap-4 mb-6">
             {/* Funnel Chart */}
             <div className="rounded-xl p-4" style={{ background: '#1a1a1a', border: '1px solid rgba(205,162,116,0.12)' }}>
               <div className="flex items-center gap-2 mb-4">
@@ -493,6 +541,22 @@ export default function LeadsPage() {
                 <span className="text-xs ml-auto" style={{ color: '#6a6058' }}>12 months</span>
               </div>
               <MonthlyTrendChart data={kpiData!.monthlyTrend} />
+            </div>
+
+            {/* Lead Source Breakdown */}
+            <div className="rounded-xl p-4" style={{ background: '#1a1a1a', border: '1px solid rgba(205,162,116,0.12)' }}>
+              <div className="flex items-center gap-2 mb-4">
+                <BarChart3 size={14} style={{ color: '#CDA274' }} />
+                <span className="text-sm font-semibold" style={{ color: '#e8e0d8' }}>Lead Sources</span>
+                <span className="text-xs ml-auto" style={{ color: '#6a6058' }}>12 months</span>
+              </div>
+              {kpiData!.sourceBreakdown && kpiData!.sourceBreakdown.length > 0 ? (
+                <SourceChart data={kpiData!.sourceBreakdown} />
+              ) : (
+                <div className="flex items-center justify-center py-8 text-xs" style={{ color: '#6a6058' }}>
+                  No source data yet
+                </div>
+              )}
             </div>
           </div>
         </>

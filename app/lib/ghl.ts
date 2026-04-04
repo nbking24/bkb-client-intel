@@ -118,6 +118,7 @@ export async function createOpportunity(params: {
   stageId: string;
   monetaryValue?: number;
   source?: string;
+  customFields?: Array<{ id: string; field_value: string[] }>;
 }) {
   return ghlFetch('/opportunities/', {
     method: 'POST',
@@ -130,6 +131,7 @@ export async function createOpportunity(params: {
       status: 'open',
       ...(params.monetaryValue ? { monetaryValue: params.monetaryValue } : {}),
       ...(params.source ? { source: params.source } : {}),
+      ...(params.customFields?.length ? { customFields: params.customFields } : {}),
     }),
   });
 }
