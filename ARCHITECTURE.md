@@ -4,7 +4,7 @@
 >
 > **Nathan:** If starting a new conversation, mention this doc or say "review the architecture doc" so the assistant knows to read it first.
 
-**Last updated:** 2026-03-31
+**Last updated:** 2026-04-04
 **Repo:** `github.com/nbking24/bkb-client-intel`
 **Deploy:** Vercel (auto-deploy on push to `main`)
 **Live URL:** `https://bkb-client-intel.vercel.app`
@@ -47,6 +47,7 @@ app/
 ÃÂ¢ÃÂÃÂ   ÃÂ¢ÃÂÃÂÃÂ¢ÃÂÃÂÃÂ¢ÃÂÃÂ components/
 ÃÂ¢ÃÂÃÂ   ÃÂ¢ÃÂÃÂ   ÃÂ¢ÃÂÃÂÃÂ¢ÃÂÃÂÃÂ¢ÃÂÃÂ AskAgentPanel.tsx         # Slide-out Ask Agent panel (Know-it-All / Approved Specs toggle)
 ÃÂ¢ÃÂÃÂ   ÃÂ¢ÃÂÃÂÃÂ¢ÃÂÃÂÃÂ¢ÃÂÃÂ ask/page.tsx                  # Desktop Ask Agent (/dashboard/ask)
+ÃÂ¢ÃÂÃÂ   ÃÂ¢ÃÂÃÂÃÂ¢ÃÂÃÂÃÂ¢ÃÂÃÂ leads/page.tsx                # Leads Dashboard — new lead form + KPI cards + source chart + pipeline table
 ÃÂ¢ÃÂÃÂ   ÃÂ¢ÃÂÃÂÃÂ¢ÃÂÃÂÃÂ¢ÃÂÃÂ documents/page.tsx            # Document intelligence (placeholder)
 ÃÂ¢ÃÂÃÂ   ÃÂ¢ÃÂÃÂÃÂ¢ÃÂÃÂÃÂ¢ÃÂÃÂ precon/                       # Pre-Construction module
 ÃÂ¢ÃÂÃÂ   ÃÂ¢ÃÂÃÂ   ÃÂ¢ÃÂÃÂÃÂ¢ÃÂÃÂÃÂ¢ÃÂÃÂ page.tsx                  # Agent recommendations + orphan panel
@@ -109,6 +110,9 @@ app/
 ÃÂ¢ÃÂÃÂ   ÃÂ¢ÃÂÃÂ   ÃÂ¢ÃÂÃÂÃÂ¢ÃÂÃÂÃÂ¢ÃÂÃÂ inbox-cleanup/route.ts  # AI-powered email triage + archive
 ÃÂ¢ÃÂÃÂ   ÃÂ¢ÃÂÃÂ   ÃÂ¢ÃÂÃÂÃÂ¢ÃÂÃÂÃÂ¢ÃÂÃÂ quick-action/route.ts   # Do Now action handler (Gmail draft creation)
 ÃÂ¢ÃÂÃÂ   ÃÂ¢ÃÂÃÂ   ÃÂ¢ÃÂÃÂÃÂ¢ÃÂÃÂÃÂ¢ÃÂÃÂ overview/route.ts       # Dashboard overview data + AI analysis (cached)
+ÃÂ¢ÃÂÃÂ   ÃÂ¢ÃÂÃÂ   ÃÂ¢ÃÂÃÂÃÂ¢ÃÂÃÂÃÂ¢ÃÂÃÂ create-lead/route.ts    # Create GHL contact + opportunity from lead form
+ÃÂ¢ÃÂÃÂ   ÃÂ¢ÃÂÃÂ   ÃÂ¢ÃÂÃÂÃÂ¢ÃÂÃÂÃÂ¢ÃÂÃÂ leads-kpi/route.ts      # Leads KPI data: 12-month rolling metrics, YoY, source breakdown, pipeline table
+ÃÂ¢ÃÂÃÂ   ÃÂ¢ÃÂÃÂ   ÃÂ¢ÃÂÃÂÃÂ¢ÃÂÃÂÃÂ¢ÃÂÃÂ leads-spam/route.ts     # Delete spam opportunities from GHL pipeline
 ÃÂ¢ÃÂÃÂ   ÃÂ¢ÃÂÃÂ   ÃÂ¢ÃÂÃÂÃÂ¢ÃÂÃÂÃÂ¢ÃÂÃÂ schedule/route.ts        # Schedule multi-view endpoint
 ÃÂ¢ÃÂÃÂ   ÃÂ¢ÃÂÃÂ   ÃÂ¢ÃÂÃÂÃÂ¢ÃÂÃÂÃÂ¢ÃÂÃÂ schedule-setup/route.ts  # Survey-based schedule builder
 ÃÂ¢ÃÂÃÂ   ÃÂ¢ÃÂÃÂÃÂ¢ÃÂÃÂÃÂ¢ÃÂÃÂ agent/
@@ -125,6 +129,9 @@ app/
 ÃÂ¢ÃÂÃÂ   ÃÂ¢ÃÂÃÂ   ÃÂ¢ÃÂÃÂÃÂ¢ÃÂÃÂÃÂ¢ÃÂÃÂ gmail-to-pml/route.ts    # ÃÂ¢ÃÂÃÂ Hourly ÃÂ¢ÃÂÃÂ Gmail sent+inbox ÃÂ¢ÃÂÃÂ project_events (PLANNED)
 ÃÂ¢ÃÂÃÂ   ÃÂ¢ÃÂÃÂ   ÃÂ¢ÃÂÃÂÃÂ¢ÃÂÃÂÃÂ¢ÃÂÃÂ sync-incremental/route.ts # Daily 5 AM ÃÂ¢ÃÂÃÂ incremental sync
 ÃÂ¢ÃÂÃÂ   ÃÂ¢ÃÂÃÂÃÂ¢ÃÂÃÂÃÂ¢ÃÂÃÂ contacts/route.ts            # Contact search
+ÃÂ¢ÃÂÃÂ   ÃÂ¢ÃÂÃÂÃÂ¢ÃÂÃÂÃÂ¢ÃÂÃÂ webhook/
+ÃÂ¢ÃÂÃÂ   ÃÂ¢ÃÂÃÂÃÂ¢ÃÂÃÂÃÂ¢ÃÂÃÂ     ghl-new-lead/route.ts    # GHL webhook: new opportunity → JT follow-up task
+ÃÂ¢ÃÂÃÂ   ÃÂ¢ÃÂÃÂÃÂ¢ÃÂÃÂÃÂ¢ÃÂÃÂ     ghl-to-jobtread/route.ts # GHL webhook: pipeline stage change → JT job creation
 ÃÂ¢ÃÂÃÂ   ÃÂ¢ÃÂÃÂÃÂ¢ÃÂÃÂÃÂ¢ÃÂÃÂ notes/route.ts               # Create contact notes (chunked)
 ÃÂ¢ÃÂÃÂ   ÃÂ¢ÃÂÃÂÃÂ¢ÃÂÃÂÃÂ¢ÃÂÃÂ opportunities/route.ts       # Opportunities with pipeline data
 ÃÂ¢ÃÂÃÂ   ÃÂ¢ÃÂÃÂÃÂ¢ÃÂÃÂÃÂ¢ÃÂÃÂ query/route.ts               # General-purpose Q&A endpoint
@@ -479,6 +486,14 @@ JT API  ÃÂ¢ÃÂÃÂÃÂ¢ÃÂÃÂÃÂ¢ÃÂÃÂ
 - Base URL: `https://services.leadconnectorhq.com`
 - Contacts, conversations, messages, notes, tasks, opportunities, pipelines
 - Two service files: `app/api/lib/ghl.ts` (API routes) and `app/lib/ghl.ts` (expanded)
+- **Webhooks**: Two inbound webhook endpoints receive GHL events:
+  - `ghl-new-lead`: Triggered when a new opportunity enters the pipeline — creates a follow-up task in JobTread
+  - `ghl-to-jobtread`: Triggered on pipeline stage changes — creates a corresponding JobTread job when an opportunity advances
+- **Lead Source Custom Field** (opportunity-level):
+  - Field ID: `jffMrsPHeWBI581YsIYP`, Key: `opportunity.lead_source`
+  - Type: `MULTIPLE_OPTIONS`
+  - Options: Google, Referral, Website, Social Media, Signage/Trucks, Past Client, Repeat Client, Word of Mouth, Print Ad, Home Show, Trade Partner, Realtor, Architect/Designer, In-Person, Other, Unknown
+- **Contact "How did you hear about us?" field**: ID `aELxmkuyo2pER6h7j702`, Key `contact.how_did_you_hear_about_us` (SINGLE_OPTIONS, legacy — data migrated to opportunity-level Lead Source)
 
 ### 9.2 JobTread
 - Base URL: `https://api.jobtread.com/pave`
@@ -587,7 +602,9 @@ JT API  ÃÂ¢ÃÂÃÂÃÂ¢ÃÂÃÂÃÂ¢ÃÂÃÂ
 
 26. **PML: Email-to-project matching is probabilistic**: Not every email will match a project. Events with `job_id: null` are valid ÃÂ¢ÃÂÃÂ they still appear in global agent context. Nathan can manually link them later via conversation. Do not force-match ambiguous emails.
 
-27. **PAVE sub-collections cap at 100 entries, oldest-first, no sort/offset**: `job.timeEntries`, `job.costItems`, and similar sub-collections return a maximum of 100 entries in creation order (oldest first). PAVE does NOT support `offset`, `after`, `pageInfo`, `sort`, or `orderBy` on these sub-collections. To paginate, use `where: ["id", ">", lastId]` which exploits PAVE's deterministic ID ordering. Always paginate any sub-collection that could exceed 100 entries ÃÂ¢ÃÂÃÂ silently losing the newest entries causes subtle data bugs (e.g., Halvorsen's 102.5 CC23 hours showing as 0 because all 18 entries fell past position 100).
+28. **GHL POST vs GET search for MULTIPLE_OPTIONS fields**: `GET /opportunities/search` omits custom fields of type `MULTIPLE_OPTIONS` entirely from results. `POST /opportunities/search` returns them as `fieldValueArray` (array of strings). If you need to read array-type custom fields like Lead Source, you MUST use the POST endpoint. The POST body requires `locationId` and supports `limit` and `startAfterId` for pagination.
+
+29. **PAVE sub-collections cap at 100 entries, oldest-first, no sort/offset**: `job.timeEntries`, `job.costItems`, and similar sub-collections return a maximum of 100 entries in creation order (oldest first). PAVE does NOT support `offset`, `after`, `pageInfo`, `sort`, or `orderBy` on these sub-collections. To paginate, use `where: ["id", ">", lastId]` which exploits PAVE's deterministic ID ordering. Always paginate any sub-collection that could exceed 100 entries ÃÂ¢ÃÂÃÂ silently losing the newest entries causes subtle data bugs (e.g., Halvorsen's 102.5 CC23 hours showing as 0 because all 18 entries fell past position 100).
 
 ---
 
@@ -1080,7 +1097,130 @@ The Overview Dashboard (`/dashboard`) is Terri's primary workspace — a desktop
 
 ---
 
-## 18. Changelog
+## 18. Leads Dashboard
+
+The Leads Dashboard (`/dashboard/leads`) is Terri's lead management workspace — an inline form for new lead intake plus live KPI cards, a lead source breakdown chart, and a pipeline table showing all opportunities.
+
+### Route
+- **Page**: `/dashboard/leads` (`app/dashboard/leads/page.tsx`)
+- **Nav**: Sidebar item "Leads" with Users icon, positioned after Overview in `ADMIN_NAV`
+- **Auth**: Same token-based auth as other dashboard pages
+
+### Features
+
+#### New Lead Form (Left Column, 60%)
+- Inline card (not a slide-out panel — replaced the original `NewLeadPanel.tsx` slide-out)
+- Fields: First Name, Last Name, Email, Phone, Lead Source (dropdown with 14 options), Notes
+- **Two submission paths**:
+  - "Schedule Discovery Call" — creates GHL contact + opportunity + books on Discovery Calendar (`XAmFYzHwTcxmDRUrJSgJ`)
+  - "Save Without Scheduling" — creates GHL contact + opportunity only (no calendar booking)
+- Endpoint: `POST /api/dashboard/create-lead`
+- On success: shows confirmation card with "Add Another Lead" reset button
+- Lead Source value is written to opportunity custom field `jffMrsPHeWBI581YsIYP`
+
+#### KPI Cards (Right Column, 40%)
+- **New Leads This Month** — count of opportunities created in current calendar month (with YoY comparison arrow)
+- **Discovery Calls Scheduled** — opportunities with booked calendar events this month (YoY)
+- **Win Rate** — percentage of won vs total closed opportunities in trailing 12 months (YoY)
+- **Avg Days to Close** — average pipeline duration from creation to close in trailing 12 months (YoY)
+- All KPIs pull from `/api/dashboard/leads-kpi` endpoint
+
+#### Lead Source Breakdown (SourceChart Component)
+- Horizontal bar chart showing lead source distribution for trailing 12 months
+- Each bar is color-coded with a fixed palette mapped to source names
+- Reads `sourceBreakdown` from the KPI endpoint response
+- Component: `SourceChart` (defined inline in `leads/page.tsx`)
+
+#### Pipeline Table
+- Tabular view of all current opportunities in the GHL pipeline
+- Columns: Name, Email, Phone, Stage, Lead Source, Created Date
+- Stage shown as colored badge matching pipeline stage
+- Sorted by creation date (newest first)
+
+#### Pending New Leads Section
+- Shows opportunities in the first pipeline stage ("New Lead") that need triage
+- Each card has a "Delete (Spam)" button that calls `DELETE /api/dashboard/leads-spam`
+- Helps Terri quickly clear spam/junk entries from the pipeline
+
+### API Endpoints
+
+| Endpoint | Method | Purpose |
+|---|---|---|
+| `/api/dashboard/create-lead` | POST | Creates GHL contact + opportunity. Accepts `firstName`, `lastName`, `email`, `phone`, `leadSource`, `notes`, `scheduleCall`. Optionally books Discovery Calendar slot. Sets Lead Source custom field on the opportunity. |
+| `/api/dashboard/leads-kpi` | GET | Returns 12-month rolling KPI data: `newLeadsThisMonth`, `discoveryCallsThisMonth`, `winRate`, `avgDaysToClose`, plus YoY comparisons, `sourceBreakdown` object, and `pipelineOpportunities` array. Uses POST `/opportunities/search` internally to get MULTIPLE_OPTIONS custom fields. Paginated fetching (up to 1000 opps). |
+| `/api/dashboard/leads-spam` | DELETE | Deletes a spam opportunity by ID from GHL. Accepts `opportunityId` in body. |
+
+### Webhook Endpoints
+
+| Endpoint | Trigger | Action |
+|---|---|---|
+| `/api/webhook/ghl-new-lead` | New GHL opportunity created | Creates a follow-up task in JobTread assigned to Terri |
+| `/api/webhook/ghl-to-jobtread` | GHL pipeline stage change | Creates a corresponding JobTread job when opportunity advances past initial stage |
+
+### Key Implementation Details
+- **POST search instead of GET**: The KPI endpoint uses `POST /opportunities/search` (not GET) because GHL's GET endpoint omits `MULTIPLE_OPTIONS` custom fields. The POST variant returns them as `fieldValueArray`.
+- **Lead Source parser**: Checks `fieldValueArray` first (array type from POST search), falls back to `fieldValueString` (comma-delimited string) for backwards compatibility.
+- **12-month rolling window**: KPIs compare current trailing-12-months vs previous trailing-12-months for YoY arrows.
+- **Data migration (2026-04-04)**: 18 opportunities had their Lead Source field populated from contact-level "How did you hear about us?" data. Mapping: "contact us form (on the website)" → Website, "Initial Consultation - On Site" → In-Person, "60-90 Minute In-Person Meeting" → In-Person, etc. 35 opportunities remain "Unknown" due to no source data on their contacts.
+
+### Files
+| File | Purpose |
+|---|---|
+| `app/dashboard/leads/page.tsx` | Leads dashboard page — new lead form, KPI cards, SourceChart, pipeline table, pending leads, spam deletion |
+| `app/api/dashboard/create-lead/route.ts` | Create GHL contact + opportunity (with optional Discovery Calendar booking) |
+| `app/api/dashboard/leads-kpi/route.ts` | 12-month rolling KPI data with YoY, source breakdown, pipeline table data |
+| `app/api/dashboard/leads-spam/route.ts` | Delete spam opportunities |
+| `app/api/webhook/ghl-new-lead/route.ts` | Webhook: new opportunity → JT follow-up task |
+| `app/api/webhook/ghl-to-jobtread/route.ts` | Webhook: pipeline stage change → JT job creation |
+| `app/dashboard/components/NewLeadPanel.tsx` | (DEPRECATED — original slide-out panel, replaced by inline form on leads page) |
+| `app/lib/ghl.ts` | GHL API service (contact creation, opportunity creation, calendar booking, custom field writes) |
+
+---
+
+## 19. Changelog
+
+### 2026-04-04 — Lead Source Data Migration & KPI POST Search Fix
+
+- **Critical KPI endpoint fix**: Switched `fetchAllOpportunities()` from GET to POST `/opportunities/search` because GHL's GET endpoint omits `MULTIPLE_OPTIONS` custom fields entirely. POST returns them as `fieldValueArray`.
+- **Added `ghlPost()` helper** in `leads-kpi/route.ts` for POST requests to GHL API
+- **Updated Lead Source parser** to check `fieldValueArray` (array from POST) first, falling back to `fieldValueString` (comma-delimited string) for backwards compatibility
+- **Data migration**: Populated Lead Source for 18 opportunities using contact-level "How did you hear about us?" data:
+  - Mapped contact `source` values: "contact us form (on the website)" → Website, "Initial Consultation - On Site" → In-Person, etc.
+  - 11 contacts had direct "heard about" values, 16 had source field mappings, 23 had no data
+  - 35 opportunities remain "Unknown" (no source data on their contacts)
+- **Lead Source field options expanded**: Updated to 14 comprehensive options (Google, Referral, Website, Social Media, Signage/Trucks, Past Client, Repeat Client, Word of Mouth, Print Ad, Home Show, Trade Partner, Realtor, Architect/Designer, In-Person, Other, Unknown)
+- **Verified KPI dashboard** now shows correct source distribution: Google(6), Website(3), In-Person(3), Referral(3), Past Client(2), Other(2), Repeat Client(1), Signage/Trucks(1), Unknown(32)
+- **GHL API quirk documented**: POST vs GET search behavior for MULTIPLE_OPTIONS fields (Gotcha #28)
+- **Files changed**: `app/api/dashboard/leads-kpi/route.ts`
+- **Commits**: `9d0caa7` (POST search fix + Lead Source parser update)
+
+### 2026-04-03 — Leads Dashboard: SourceChart Render & KPI Enhancements
+
+- **Rendered SourceChart component** in the Leads dashboard JSX — was previously defined but not included in the page output
+- **SourceChart**: Horizontal bar chart showing lead source distribution with color-coded bars and fixed palette
+- **12-month rolling KPIs with YoY**: New Leads This Month, Discovery Calls, Win Rate, Avg Days to Close — each with year-over-year comparison arrows
+- **Pipeline table**: All current opportunities shown in tabular format with stage badges
+- **Pending New Leads section**: Shows "New Lead" stage opportunities with spam deletion buttons
+- **Files changed**: `app/dashboard/leads/page.tsx`
+- **Commits**: `cad23ff` (SourceChart render)
+
+### 2026-04-03 — Leads Dashboard Page, KPI Endpoint & Lead Intake System
+
+- **Created dedicated Leads page** (`/dashboard/leads`) with two-column layout:
+  - Left: inline new lead form (migrated from NewLeadPanel.tsx slide-out)
+  - Right: KPI cards + SourceChart + pipeline table
+- **Added Leads nav item** to sidebar in `layout.tsx` (Users icon, after Overview)
+- **Removed "+ New Lead" button** from dashboard header and `NewLeadPanel` import
+- **Created `POST /api/dashboard/create-lead`** — creates GHL contact + opportunity, optionally books Discovery Calendar, writes Lead Source to opportunity custom field
+- **Created `GET /api/dashboard/leads-kpi`** — 12-month rolling KPI data with paginated GHL opportunity fetching (up to 1000 opps)
+- **Created `DELETE /api/dashboard/leads-spam`** — deletes spam opportunities from GHL pipeline
+- **Created webhook endpoints**:
+  - `POST /api/webhook/ghl-new-lead` — new opportunity → creates JT follow-up task for Terri
+  - `POST /api/webhook/ghl-to-jobtread` — pipeline stage change → creates JT job
+- **Created opportunity-level Lead Source custom field** in GHL (ID: `jffMrsPHeWBI581YsIYP`, type: MULTIPLE_OPTIONS)
+- **Key IDs**: Discovery Calendar `XAmFYzHwTcxmDRUrJSgJ`, Onsite Calendar `DeoYiZ8TjDVoW6bFraUN`, Lead Source Field `jffMrsPHeWBI581YsIYP`, Contact Source Field `aELxmkuyo2pER6h7j702`
+- **Files changed**: `app/dashboard/leads/page.tsx` (new), `app/dashboard/layout.tsx`, `app/api/dashboard/create-lead/route.ts` (new), `app/api/dashboard/leads-kpi/route.ts` (new), `app/api/dashboard/leads-spam/route.ts` (new), `app/api/webhook/ghl-new-lead/route.ts` (new), `app/api/webhook/ghl-to-jobtread/route.ts` (new), `app/lib/ghl.ts`
+
 
 ### 2026-04-02 — CO Detection Overhaul: Document→Budget Linkage + ✅ Approval Tagging
 
