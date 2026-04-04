@@ -11,21 +11,11 @@
  *   4. Creates a job linked to that location (name capped at 30 chars)
  *   5. Sets the account's primary contact and primary location
  *   6. Writes the JT job ID back to the GHL opportunity custom field
+ *      (auto-looks up opportunity via GHL API if not in webhook body)
  *
- * Expects POST JSON body (from GHL Custom Webhook dynamic values):
- * {
- *   "firstName": "{{contact.first_name}}",
- *   "lastName": "{{contact.last_name}}",
- *   "email": "{{contact.email}}",
- *   "phone": "{{contact.phone}}",
- *   "address": "{{contact.address1}}",
- *   "city": "{{contact.city}}",
- *   "state": "{{contact.state}}",
- *   "zip": "{{contact.postal_code}}",
- *   "opportunityName": "{{opportunity.name}}",
- *   "ghlContactId": "{{contact.id}}",
- *   "ghlOpportunityId": "{{opportunity.id}}"
- * }
+ * GHL workflow sends the full contact object with all custom fields.
+ * Standard contact fields (first_name, last_name, phone, etc.) are included,
+ * but opportunity_id may NOT be present. The webhook auto-discovers it via API.
  *
  * Security: Protected by a shared secret in the X-Webhook-Secret header.
  */
@@ -59,6 +49,37 @@ async function pave(query: Record<string, unknown>) {
   if (!res.ok) throw new Error(`PAVE ${res.status}: ${text.slice(0, 300)}`);
   if (!text) return {};
   return JSON.parse(text);
+}
+
+// ── GHL opportunity lookup helper ──
+// When the webhook body doesn't include the opportunity ID, look it up via GHL API
+async function findGhlOpportunityId(contactId: string): Promise<string | null> {
+  if (!contactId || !GHL_API_KEY) return null;
+  try {
+    const url = `${GHL_API_URL}/opportunities/search?location_id=${GHL_LOCATION_ID}&contact_id=${contactId}`;
+    console.log('[WEBHOOK] Looking up opportunity for contact:', contactId);
+    const res = await fetch(url, {
+      headers: {
+        Authorization: `Bearer ${GHL_API_KEY}`,
+        Version: '2021-07-28',
+      },
+    });
+    if (!res.ok) {
+      console.log('[WEBHOOK] GHL opportunity search failed:', res.status);
+      return null;
+    }
+    const data = await res.json();
+    const opps = data?.opportunities || [];
+    console.log('[WEBHOOK] Found', opps.length, 'opportunities for contact');
+    if (opps.length === 0) return null;
+    // Return the most recently updated opportunity (first one from search results)
+    const opp = opps[0];
+    console.log('[WEBHOOK] Using opportunity:', opp.id, '| name:', opp.name, '| stage:', opp.pipelineStageId);
+    return opp.id;
+  } catch (e: any) {
+    console.log('[WEBHOOK] GHL opportunity lookup error:', e.message);
+    return null;
+  }
 }
 
 // ── Main handler ──
@@ -99,20 +120,23 @@ export async function POST(request: NextRequest) {
   }
 
   // Accept both camelCase (spec) and snake_case (GHL webhook default)
+  // GHL workflows send a flat object with both standard fields and custom field names
   const firstName = body.firstName || body.first_name || '';
   const lastName = body.lastName || body.last_name || '';
   const email = body.email || '';
   const phone = body.phone || '';
-  const address = body.address || '';
+  const address = body.address || body.address1 || '';
   const city = body.city || '';
   const state = body.state || '';
-  const zip = body.zip || body.zip_code || '';
+  const zip = body.zip || body.zip_code || body.postalCode || body.postal_code || '';
   const opportunityName = body.opportunityName || body.opportunity_name || '';
-  const ghlContactId = body.ghlContactId || body.contact_id || '';
-  const ghlOpportunityId = body.ghlOpportunityId || body.opportunity_id || '';
+  // Contact ID: try multiple variations (GHL sends different keys depending on config)
+  const ghlContactId = body.ghlContactId || body.contact_id || body.contactId || body.id || '';
+  // Opportunity ID: try multiple variations, will auto-lookup if missing
+  let ghlOpportunityId = body.ghlOpportunityId || body.opportunity_id || body.opportunityId || '';
 
   const fullName = `${firstName} ${lastName}`.trim();
-  console.log('[WEBHOOK] Extracted — name:', fullName, '| email:', email, '| phone:', phone, '| opp:', opportunityName, '| ghlOppId:', ghlOpportunityId);
+  console.log('[WEBHOOK] Extracted — name:', fullName, '| email:', email, '| phone:', phone, '| opp:', opportunityName, '| ghlContactId:', ghlContactId, '| ghlOppId:', ghlOpportunityId);
   if (!fullName) {
     console.log('[WEBHOOK] FAIL — no name extracted from body');
     return NextResponse.json({ error: 'firstName or lastName is required' }, { status: 400 });
@@ -205,6 +229,18 @@ export async function POST(request: NextRequest) {
     }
 
     // ── Step 6: Write JT job ID back to GHL opportunity ──
+    // If no opportunity ID was in the webhook body, auto-discover it via GHL API
+    if (!ghlOpportunityId && ghlContactId && GHL_API_KEY) {
+      log.push('  Looking up GHL opportunity by contact ID...');
+      const discoveredId = await findGhlOpportunityId(ghlContactId);
+      if (discoveredId) {
+        ghlOpportunityId = discoveredId;
+        log.push(`  → Found opportunity: ${ghlOpportunityId}`);
+      } else {
+        log.push('  ⚠ Could not find opportunity for contact');
+      }
+    }
+
     if (ghlOpportunityId && GHL_API_KEY) {
       try {
         const ghlRes = await fetch(
@@ -224,7 +260,7 @@ export async function POST(request: NextRequest) {
           }
         );
         if (ghlRes.ok) {
-          log.push(`  → JT Job ID written back to GHL opportunity`);
+          log.push(`  → JT Job ID written back to GHL opportunity ${ghlOpportunityId}`);
         } else {
           const errText = await ghlRes.text();
           log.push(`  ⚠ GHL write-back failed (${ghlRes.status}): ${errText.slice(0, 200)}`);
@@ -233,7 +269,7 @@ export async function POST(request: NextRequest) {
         log.push(`  ⚠ GHL write-back error: ${e.message}`);
       }
     } else {
-      if (!ghlOpportunityId) log.push('  ⚠ No GHL opportunity ID — skipping write-back');
+      if (!ghlOpportunityId) log.push('  ⚠ No GHL opportunity ID found — skipping write-back');
       if (!GHL_API_KEY) log.push('  ⚠ No GHL API key configured — skipping write-back');
     }
 
