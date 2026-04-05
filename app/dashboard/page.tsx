@@ -2209,7 +2209,7 @@ export default function DashboardOverview() {
                 </span>
               </div>
               <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-                {woItems.length > 5 && !woRibbonCollapsed && (
+                {false && woItems.length > 5 && !woRibbonCollapsed && (
                   <span onClick={(e) => { e.stopPropagation(); setShowWaitingOnPanel(true); }} style={{ fontSize: 9, color: '#CDA274', cursor: 'pointer' }}>
                     View all <ChevronRight size={9} style={{ display: 'inline', verticalAlign: 'middle' }} />
                   </span>
@@ -2218,57 +2218,91 @@ export default function DashboardOverview() {
               </div>
             </button>
 
-            {/* Collapsible task list */}
-            {!woRibbonCollapsed && sorted.slice(0, 5).map((t, i) => {
-              const d = agingDays(t);
-              const label = stripWoPrefix(t.name);
-              const jobName = t.jobName || '';
-              const isEditingDate = editingWoDateId === t.id;
-              const isCompleting = completingWoId === t.id;
-              return (
-                <div key={t.id || i} style={{ display: 'flex', alignItems: 'center', gap: 4, padding: '4px 6px', borderRadius: 6, background: agingBg(d), marginBottom: 2 }}>
-                  {/* Complete button */}
-                  <button
-                    onClick={() => handleWoComplete(t.id)}
-                    disabled={isCompleting}
-                    title="Mark complete"
-                    style={{ background: 'none', border: '1px solid rgba(205,162,116,0.2)', borderRadius: '50%', width: 16, height: 16, display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer', flexShrink: 0, padding: 0, opacity: isCompleting ? 0.4 : 1 }}
-                  >
-                    {isCompleting ? <Loader2 size={8} style={{ color: '#CDA274' }} className="animate-spin" /> : <Check size={8} style={{ color: '#6a6058' }} />}
-                  </button>
-                  {/* Task label */}
-                  <span style={{ fontSize: 11, color: '#e8e0d8', flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{label}</span>
-                  {/* Job name */}
-                  {jobName && <span style={{ fontSize: 9, color: '#6a6058', flexShrink: 0 }}>{jobName}</span>}
-                  {/* Date display / edit */}
-                  {isEditingDate ? (
-                    <div style={{ display: 'flex', alignItems: 'center', gap: 2, flexShrink: 0 }} onClick={(e) => e.stopPropagation()}>
-                      <input
-                        type="date"
-                        value={editingWoDateVal}
-                        onChange={(e) => setEditingWoDateVal(e.target.value)}
-                        style={{ fontSize: 9, background: '#2a2a2a', border: '1px solid rgba(205,162,116,0.3)', borderRadius: 4, color: '#e8e0d8', padding: '1px 4px', width: 110 }}
-                      />
-                      <button onClick={() => handleWoDateSave(t.id)} disabled={savingWoDate} style={{ background: 'none', border: 'none', cursor: 'pointer', padding: 0 }}>
-                        <Check size={10} style={{ color: '#22c55e' }} />
-                      </button>
-                      <button onClick={() => { setEditingWoDateId(null); setEditingWoDateVal(''); }} style={{ background: 'none', border: 'none', cursor: 'pointer', padding: 0 }}>
-                        <X size={10} style={{ color: '#6a6058' }} />
-                      </button>
-                    </div>
-                  ) : (
-                    <button
-                      onClick={() => { setEditingWoDateId(t.id); setEditingWoDateVal(t.endDate?.split('T')[0] || ''); }}
-                      title="Edit due date"
-                      style={{ background: 'none', border: 'none', cursor: 'pointer', padding: 0, flexShrink: 0, display: 'flex', alignItems: 'center', gap: 2 }}
-                    >
-                      {d !== null && <span style={{ fontSize: 9, color: agingColor(d) }}>{d < 0 ? `${Math.abs(d)}d late` : d === 0 ? 'today' : `${d}d`}</span>}
-                      <Calendar size={9} style={{ color: '#6a6058' }} />
-                    </button>
-                  )}
-                </div>
+            {/* Collapsible task list — grouped by job */}
+            {!woRibbonCollapsed && (() => {
+              // Group WO tasks by job name
+              const woJobGroups = new Map<string, typeof sorted>();
+              for (const t of sorted) {
+                const key = t.jobName || 'Unassigned';
+                if (!woJobGroups.has(key)) woJobGroups.set(key, []);
+                woJobGroups.get(key)!.push(t);
+              }
+              // Sort job groups A-Z by name
+              const sortedWoJobs = Array.from(woJobGroups.entries()).sort((a, b) =>
+                a[0].replace(/^#\d+\s*/, '').localeCompare(b[0].replace(/^#\d+\s*/, ''))
               );
-            })}
+              return sortedWoJobs.map(([jobName, jobWoTasks]) => {
+                const c = jobColor(jobWoTasks[0]?.jobNumber || '');
+                const overdueCount = jobWoTasks.filter(t => { const dd = agingDays(t); return dd !== null && dd < 0; }).length;
+                return (
+                  <div key={jobName} style={{ marginBottom: 4 }}>
+                    {/* Job header */}
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '4px 4px 2px 4px' }}>
+                      <span style={{ width: 6, height: 6, borderRadius: 3, background: c, flexShrink: 0 }} />
+                      <span style={{ fontSize: 10, fontWeight: 600, color: '#e8e0d8', flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                        {jobName.replace(/^#\d+\s*/, '')}
+                      </span>
+                      <span style={{ fontSize: 9, color: '#6a6058', flexShrink: 0 }}>{jobWoTasks.length}</span>
+                      {overdueCount > 0 && (
+                        <span style={{ fontSize: 8, color: '#ef4444', background: 'rgba(239,68,68,0.1)', padding: '1px 4px', borderRadius: 3, flexShrink: 0 }}>
+                          {overdueCount} late
+                        </span>
+                      )}
+                    </div>
+                    {/* Tasks under this job */}
+                    <div style={{ paddingLeft: 12 }}>
+                      {jobWoTasks.map((t, i) => {
+                        const d = agingDays(t);
+                        const label = stripWoPrefix(t.name);
+                        const isEditingDate = editingWoDateId === t.id;
+                        const isCompleting = completingWoId === t.id;
+                        return (
+                          <div key={t.id || i} style={{ display: 'flex', alignItems: 'center', gap: 4, padding: '4px 6px', borderRadius: 6, background: agingBg(d), marginBottom: 2 }}>
+                            {/* Complete button */}
+                            <button
+                              onClick={() => handleWoComplete(t.id)}
+                              disabled={isCompleting}
+                              title="Mark complete"
+                              style={{ background: 'none', border: '1px solid rgba(205,162,116,0.2)', borderRadius: '50%', width: 16, height: 16, display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer', flexShrink: 0, padding: 0, opacity: isCompleting ? 0.4 : 1 }}
+                            >
+                              {isCompleting ? <Loader2 size={8} style={{ color: '#CDA274' }} className="animate-spin" /> : <Check size={8} style={{ color: '#6a6058' }} />}
+                            </button>
+                            {/* Task label */}
+                            <span style={{ fontSize: 11, color: '#e8e0d8', flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{label}</span>
+                            {/* Date display / edit */}
+                            {isEditingDate ? (
+                              <div style={{ display: 'flex', alignItems: 'center', gap: 2, flexShrink: 0 }} onClick={(e) => e.stopPropagation()}>
+                                <input
+                                  type="date"
+                                  value={editingWoDateVal}
+                                  onChange={(e) => setEditingWoDateVal(e.target.value)}
+                                  style={{ fontSize: 9, background: '#2a2a2a', border: '1px solid rgba(205,162,116,0.3)', borderRadius: 4, color: '#e8e0d8', padding: '1px 4px', width: 110 }}
+                                />
+                                <button onClick={() => handleWoDateSave(t.id)} disabled={savingWoDate} style={{ background: 'none', border: 'none', cursor: 'pointer', padding: 0 }}>
+                                  <Check size={10} style={{ color: '#22c55e' }} />
+                                </button>
+                                <button onClick={() => { setEditingWoDateId(null); setEditingWoDateVal(''); }} style={{ background: 'none', border: 'none', cursor: 'pointer', padding: 0 }}>
+                                  <X size={10} style={{ color: '#6a6058' }} />
+                                </button>
+                              </div>
+                            ) : (
+                              <button
+                                onClick={() => { setEditingWoDateId(t.id); setEditingWoDateVal(t.endDate?.split('T')[0] || ''); }}
+                                title="Edit due date"
+                                style={{ background: 'none', border: 'none', cursor: 'pointer', padding: 0, flexShrink: 0, display: 'flex', alignItems: 'center', gap: 2 }}
+                              >
+                                {d !== null && <span style={{ fontSize: 9, color: agingColor(d) }}>{d < 0 ? `${Math.abs(d)}d late` : d === 0 ? 'today' : `${d}d`}</span>}
+                                <Calendar size={9} style={{ color: '#6a6058' }} />
+                              </button>
+                            )}
+                          </div>
+                        );
+                      })}
+                    </div>
+                  </div>
+                );
+              });
+            })()}
           </div>
         );
       })()}
