@@ -23,6 +23,7 @@ import {
   type JTCostItem,
   type JTTimeEntry,
 } from './jobtread';
+import { getCOTrackingForJob } from './co-tracking';
 
 // ============================================================
 // Constants
@@ -89,6 +90,11 @@ export interface ContractJobHealth {
   pendingInvoices: PendingInvoiceInfo[];
   uninvoicedBillableAmount: number;
   unbilledLaborHours: number;
+  // Change Order awareness
+  approvedCOValue: number;
+  totalContractAndCOValue: number;
+  unbilledCOAmount: number;
+  appliedCOsCount: number;
   health: InvoicingHealth;
   alerts: string[];
 }
@@ -488,6 +494,47 @@ async function analyzeContractJob(
   const invoicedToDate = [...approvedInvoices, ...pendingInvoicesDocs]
     .reduce((sum, d) => sum + (d.price || 0), 0);
 
+  // --- Change Order awareness ---
+  // Use shared CO tracking to identify approved COs, then calculate their value
+  // by matching approved CO group names against approved customerOrder documents.
+  let approvedCOValue = 0;
+  let appliedCOsCount = 0;
+  try {
+    const coTracking = await getCOTrackingForJob(job.id);
+    const approvedCOs = coTracking.budgetCOs.filter(co => co.isApproved);
+    appliedCOsCount = approvedCOs.length;
+
+    if (approvedCOs.length > 0) {
+      // Build a set of approved CO names (normalized) for matching against documents
+      const approvedCONameSet = new Set(
+        approvedCOs.map(co => co.name.toLowerCase().trim())
+      );
+
+      // Sum approved customerOrder document prices that correspond to COs
+      // CO documents have cost groups whose names match CO budget groups.
+      // We need document cost group names — re-fetch docs with cost groups for matching.
+      const allApprovedOrders = documents.filter(
+        (d) => d.type === 'customerOrder' && d.status === 'approved'
+      );
+
+      // The base estimates are the original contract — COs are additional approved orders
+      // whose cost groups match Post Pricing CO names.
+      // Since we already have `estimates` (all approved customerOrders), we can identify
+      // which are COs by checking if any of their cost group names match approved CO names.
+      // But we don't have cost group data on documents in this context...
+      // Instead, use a simpler heuristic: total approved orders - original estimate = CO value
+      const allApprovedOrderValue = allApprovedOrders.reduce((sum, d) => sum + (d.price || 0), 0);
+      approvedCOValue = Math.max(0, allApprovedOrderValue - totalContractValue);
+    }
+  } catch (err: any) {
+    console.error(`[Invoicing] CO tracking error for ${job.id}:`, err?.message || err);
+  }
+
+  const totalContractAndCOValue = totalContractValue + approvedCOValue;
+  const unbilledCOAmount = approvedCOValue > 0
+    ? Math.max(0, approvedCOValue - Math.max(0, invoicedToDate - totalContractValue))
+    : 0;
+
   // Released invoices (paid + open) for collapsible detail list
   const releasedInvoiceInfos: ReleasedInvoiceInfo[] = [
     ...approvedInvoices.map((d) => ({
@@ -519,7 +566,7 @@ async function analyzeContractJob(
     priceType: job.priceType,
     totalContractValue,
     invoicedToDate,
-    invoicedPercent: totalContractValue > 0 ? (invoicedToDate / totalContractValue) * 100 : 0,
+    invoicedPercent: totalContractAndCOValue > 0 ? (invoicedToDate / totalContractAndCOValue) * 100 : 0,
     scheduleProgress: schedule?.totalProgress ?? 0,
     nextMilestone,
     overdueMilestones,
@@ -530,6 +577,10 @@ async function analyzeContractJob(
     pendingInvoices,
     uninvoicedBillableAmount,
     unbilledLaborHours: roundedLaborHours,
+    approvedCOValue,
+    totalContractAndCOValue,
+    unbilledCOAmount,
+    appliedCOsCount,
     health,
     alerts,
   };

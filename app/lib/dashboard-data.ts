@@ -23,6 +23,7 @@ import { TEAM_USERS, ROLE_CONFIG, type TeamRole } from './constants';
 import { createServerClient } from './supabase';
 import { fetchGmailInbox, fetchCalendarEvents, type GmailMessage, type CalendarEvent } from './google-api';
 import { getOpenItems, formatOpenItemsForContext, type ProjectEvent } from './project-memory';
+import { getCOTrackingForJobs } from './co-tracking';
 
 export interface DashboardTask {
   id: string;
@@ -310,38 +311,22 @@ async function fetchARandCOData(
     const batch = activeJobs.slice(i, i + BATCH_SIZE);
     const results = await Promise.allSettled(
       batch.map(async (job) => {
-        // Single PAVE query per job: get documents + cost groups
-        const [docData, groupData] = await Promise.all([
-          pave({
-            job: {
-              $: { id: job.id },
-              documents: {
-                $: { size: 50 },
-                nodes: {
-                  id: {}, number: {}, status: {}, type: {},
-                  price: {}, createdAt: {},
-                  costGroups: { nodes: { name: {} } },
-                },
+        // PAVE query per job: get documents for AR tracking
+        // (CO tracking is handled separately by shared utility)
+        const docData = await pave({
+          job: {
+            $: { id: job.id },
+            documents: {
+              $: { size: 50 },
+              nodes: {
+                id: {}, number: {}, status: {}, type: {},
+                price: {}, createdAt: {},
               },
             },
-          }),
-          pave({
-            job: {
-              $: { id: job.id },
-              costGroups: {
-                $: { size: 100 },
-                nextPage: {},
-                nodes: {
-                  id: {}, name: {},
-                  parentCostGroup: { id: {}, name: {} },
-                },
-              },
-            },
-          }),
-        ]);
+          },
+        });
 
         const docs = (docData as any)?.job?.documents?.nodes || [];
-        const groups = (groupData as any)?.job?.costGroups?.nodes || [];
 
         // --- Outstanding Invoices (AR) ---
         for (const doc of docs) {
@@ -360,66 +345,7 @@ async function fetchARandCOData(
           }
         }
 
-        // --- Change Order Tracking ---
-        // Collect approved CO document cost group names
-        const approvedCOGroupNames = new Set<string>();
-        for (const doc of docs) {
-          if (doc.type === 'customerOrder' && doc.status === 'approved') {
-            for (const g of (doc.costGroups?.nodes || [])) {
-              if (g.name) approvedCOGroupNames.add(g.name.trim().toLowerCase());
-            }
-          }
-        }
-
-        // Find CO root groups and their children
-        const coRootIds = new Set<string>(
-          groups
-            .filter((g: any) => /change\s*order|🔁|post\s*pricing/i.test(g.name || ''))
-            .map((g: any) => g.id as string)
-        );
-
-        if (coRootIds.size === 0) return; // No COs in this job
-
-        const childrenOf = new Map<string, any[]>();
-        for (const g of groups) {
-          const pid = g.parentCostGroup?.id;
-          if (pid) {
-            if (!childrenOf.has(pid)) childrenOf.set(pid, []);
-            childrenOf.get(pid)!.push(g);
-          }
-        }
-
-        const visited = new Set<string>();
-        const seenNames = new Set<string>();
-
-        function findCOGroups(parentId: string, depth: number) {
-          const children = childrenOf.get(parentId) || [];
-          for (const child of children) {
-            if (visited.has(child.id)) continue;
-            visited.add(child.id);
-
-            const isStructural = /^(client|owner|bkb)\s+requested$|^[🟢✅]\s*approved$|^🔴\s*declined$|^scope\s*of\s*work$/i.test(child.name?.trim() || '');
-
-            if (isStructural) {
-              findCOGroups(child.id, depth + 1);
-            } else if (depth <= 3) {
-              const normName = (child.name || '').trim().toLowerCase();
-              if (!seenNames.has(normName)) {
-                seenNames.add(normName);
-                changeOrders.push({
-                  jobId: job.id,
-                  jobName: job.name,
-                  coName: child.name,
-                  status: approvedCOGroupNames.has(normName) ? 'approved' : 'pending',
-                });
-              }
-            }
-          }
-        }
-
-        for (const rootId of Array.from(coRootIds)) {
-          findCOGroups(rootId, 0);
-        }
+        // (CO tracking moved to shared utility — see below)
       })
     );
 
@@ -429,6 +355,25 @@ async function fetchARandCOData(
         console.error('[DashboardData] AR/CO fetch error:', r.reason?.message || r.reason);
       }
     }
+  }
+
+  // --- Change Order Tracking (shared utility — document→budget linkage) ---
+  try {
+    const jobMap = new Map(activeJobs.map(j => [j.id, j]));
+    const coResults = await getCOTrackingForJobs(activeJobs.map(j => j.id));
+    for (const { jobId, budgetCOs } of coResults) {
+      const job = jobMap.get(jobId);
+      for (const co of budgetCOs) {
+        changeOrders.push({
+          jobId,
+          jobName: job?.name || '',
+          coName: co.name,
+          status: co.isApproved ? 'approved' : 'pending',
+        });
+      }
+    }
+  } catch (err: any) {
+    console.error('[DashboardData] CO tracking error:', err?.message || err);
   }
 
   // Sort invoices: oldest (most days pending) first

@@ -82,6 +82,11 @@ interface ContractJobHealth {
   pendingInvoices: PendingInvoiceInfo[];
   uninvoicedBillableAmount: number;
   unbilledLaborHours: number;
+  // Change Order awareness
+  approvedCOValue?: number;
+  totalContractAndCOValue?: number;
+  unbilledCOAmount?: number;
+  appliedCOsCount?: number;
   health: InvoicingHealth;
   alerts: string[];
 }
@@ -461,7 +466,7 @@ function ContractJobCard({ job, onInvoiceCreated, arHeld, arToggling, onToggleAr
       </div>
       <div className="flex items-center justify-between mb-2">
         <span className="text-[11px]" style={{ color: '#8a8078' }}>
-          {formatCurrencyExact(job.invoicedToDate)} / {formatCurrencyExact(job.totalContractValue)}
+          {formatCurrencyExact(job.invoicedToDate)} / {formatCurrencyExact(job.totalContractAndCOValue || job.totalContractValue)}
           {unpaidTotal > 0 && (
             <span style={{ color: '#eab308' }}> • {formatCurrency(unpaidTotal)} unpaid</span>
           )}
@@ -481,6 +486,26 @@ function ContractJobCard({ job, onInvoiceCreated, arHeld, arToggling, onToggleAr
           }}
         />
       </div>
+
+      {/* CO breakdown — only show when approved COs exist */}
+      {(job.appliedCOsCount ?? 0) > 0 && (
+        <div className="text-[11px] mb-1" style={{ color: '#8a8078' }}>
+          <span>Contract: </span>
+          <span style={{ color: '#e8e0d8' }}>{formatCurrency(job.totalContractValue)}</span>
+          <span style={{ margin: '0 4px' }}>+</span>
+          <span>Approved COs: </span>
+          <span style={{ color: '#22c55e' }}>{formatCurrency(job.approvedCOValue ?? 0)}</span>
+          <span style={{ marginLeft: 4 }}>({job.appliedCOsCount} CO{(job.appliedCOsCount ?? 0) > 1 ? 's' : ''})</span>
+        </div>
+      )}
+
+      {/* Unbilled CO alert */}
+      {(job.unbilledCOAmount ?? 0) > 0 && (
+        <div className="flex items-center gap-1 text-[11px] py-0.5 mb-1" style={{ color: '#f97316' }}>
+          <AlertCircle size={10} className="flex-shrink-0" />
+          <span>{formatCurrency(job.unbilledCOAmount ?? 0)} in approved but uninvoiced COs</span>
+        </div>
+      )}
 
       {/* Inline stats row */}
       <div className="flex items-center gap-3 text-[11px] mb-1.5">
