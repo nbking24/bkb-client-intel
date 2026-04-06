@@ -914,9 +914,11 @@ export default function DashboardOverview() {
     { id: '22P6GTaPEbkh', name: 'Brett King', label: 'Brett' },
     { id: '22P5nJ7ncFj4', name: 'Evan Harrington', label: 'Evan' },
     { id: '22P6GTEnhCre', name: 'Josh King', label: 'Josh' },
+    { id: '22P5SpJkype2', name: 'Terri King', label: 'Terri' },
     { id: '22P732t6SgNk', name: 'Kim King', label: 'Kim' },
   ];
-  const TERRI_MEMBERSHIP_ID = '22P5SpJkype2';
+  // The dashboard creator — auto-assigned on Waiting On tasks alongside the person being waited on
+  const CREATOR_MEMBERSHIP_ID = '22P5SRwhLaYf'; // Nathan King
   const BKB_PHASES = ['Admin Tasks', 'Conceptual Design', 'Design Development', 'Contract', 'Preconstruction', 'In Production', 'Inspections', 'Punch List', 'Project Completion'];
 
   async function createNewTask() {
@@ -990,7 +992,7 @@ export default function DashboardOverview() {
           description: woDescription.trim() || undefined,
           endDate: woDate || undefined,
           assigneeMembershipId: woAssignee,
-          terriMembershipId: TERRI_MEMBERSHIP_ID,
+          creatorMembershipId: CREATOR_MEMBERSHIP_ID,
         }),
       });
       if (!res.ok) {

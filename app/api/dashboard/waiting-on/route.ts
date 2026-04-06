@@ -22,6 +22,16 @@ import {
 export const runtime = 'nodejs';
 export const maxDuration = 30;
 
+// Membership ID → display name for comment attribution
+const MEMBER_NAMES: Record<string, string> = {
+  '22P5SRwhLaYf': 'Nathan King',
+  '22P6GTaPEbkh': 'Brett King',
+  '22P5nJ7ncFj4': 'Evan Harrington',
+  '22P6GTEnhCre': 'Josh King',
+  '22P5SpJkype2': 'Terri King',
+  '22P732t6SgNk': 'Kim King',
+};
+
 // -- POST: Create a Waiting On task --------------------------
 export async function POST(req: NextRequest) {
   try {
@@ -30,13 +40,17 @@ export async function POST(req: NextRequest) {
       taskName,
       description,
       endDate,
-      assigneeMembershipId,   // Who Terri is waiting on
-      terriMembershipId,      // Terri's own membership ID
+      assigneeMembershipId,   // Who the creator is waiting on
+      creatorMembershipId,    // The dashboard user creating the task
+      terriMembershipId,      // DEPRECATED — kept for backwards compat
     } = await req.json();
 
-    if (!jobId || !taskName || !assigneeMembershipId || !terriMembershipId) {
+    // Support both new param name and legacy
+    const creatorId = creatorMembershipId || terriMembershipId;
+
+    if (!jobId || !taskName || !assigneeMembershipId || !creatorId) {
       return NextResponse.json(
-        { error: 'jobId, taskName, assigneeMembershipId, and terriMembershipId are required' },
+        { error: 'jobId, taskName, assigneeMembershipId, and creatorMembershipId are required' },
         { status: 400 }
       );
     }
@@ -70,10 +84,10 @@ export async function POST(req: NextRequest) {
     // 3. Default due date: 3 business days from now if not provided
     const dueDate = endDate || getBusinessDaysFromNow(3);
 
-    // 4. Create the task - assigned to both Terri and the person she's waiting on
-    const uniqueIds = terriMembershipId === assigneeMembershipId
-      ? [terriMembershipId]
-      : [terriMembershipId, assigneeMembershipId];
+    // 4. Create the task - assigned to both the creator and the person they're waiting on
+    const uniqueIds = creatorId === assigneeMembershipId
+      ? [creatorId]
+      : [creatorId, assigneeMembershipId];
 
     const result = await createPhaseTask({
       jobId,
@@ -87,11 +101,12 @@ export async function POST(req: NextRequest) {
     // 5. If description provided, post it as the first comment for context
     if (description?.trim()) {
       try {
+        const creatorName = MEMBER_NAMES[creatorId] || 'BKB Team';
         await createComment({
           targetId: result.id,
           targetType: 'task',
           message: description.trim(),
-          name: 'Terri King',
+          name: creatorName,
         });
       } catch (commentErr: any) {
         console.warn('Could not add initial comment:', commentErr.message);
@@ -142,7 +157,7 @@ export async function PUT(req: NextRequest) {
       targetId: taskId,
       targetType: 'task',
       message,
-      name: authorName || 'Terri King',
+      name: authorName || 'Nathan King',
     });
     return NextResponse.json({ success: true, comment });
   } catch (err: any) {
