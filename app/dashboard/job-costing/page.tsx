@@ -66,8 +66,12 @@ interface CostCodeRow {
   estimatedCost: number;
   estimatedPrice: number;
   actualCost: number;
+  pendingCost: number;
+  committedCost: number;
+  remaining: number;
   variance: number;
   pctUsed: number;
+  pctCommitted: number;
   status: string;
   itemCount: number;
   topItems: { name: string; cost: number; price: number; quantity: number }[];
@@ -90,6 +94,9 @@ interface JobDetail {
     estimatedMargin: number;
     estimatedMarginPct: number;
     actualCost: number;
+    pendingCost: number;
+    committedCost: number;
+    remainingBudget: number;
     costVariance: number;
     costVariancePct: number;
     projectedMargin: number;
@@ -301,23 +308,56 @@ export default function JobCostingDashboard() {
               </div>
             )}
 
-            {/* Financial Summary Cards */}
+            {/* Financial Summary Cards - Row 1: Budget overview */}
             <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
-              {(detail.financialSummary.isCostPlus ? [
+              {[
                 {
-                  label: 'Estimated Cost',
+                  label: 'Approved Budget',
                   value: '$' + fmt(detail.financialSummary.estimatedCost),
-                  sub: 'Budget',
+                  sub: detail.financialSummary.isCostPlus ? 'Cost-Plus' : `$${fmt(detail.financialSummary.estimatedPrice)} contract price`,
                   color: '#8a8078',
                 },
                 {
-                  label: 'Actual Cost',
+                  label: 'Actual Costs',
                   value: '$' + fmt(detail.financialSummary.actualCost),
                   sub: detail.financialSummary.costVariance >= 0
                     ? `$${fmt(detail.financialSummary.costVariance)} under budget`
                     : `$${fmt(Math.abs(detail.financialSummary.costVariance))} over budget`,
                   color: detail.financialSummary.costVariance >= 0 ? '#22c55e' : '#ef4444',
                 },
+                {
+                  label: 'Pending Expected',
+                  value: '$' + fmt(detail.financialSummary.pendingCost),
+                  sub: detail.financialSummary.pendingCost > 0
+                    ? `${fmt(detail.financialSummary.committedCost)} total committed`
+                    : 'No pending bills/POs',
+                  color: detail.financialSummary.pendingCost > 0 ? '#f59e0b' : '#8a8078',
+                },
+                {
+                  label: 'Remaining Budget',
+                  value: '$' + fmt(detail.financialSummary.remainingBudget),
+                  sub: detail.financialSummary.estimatedCost > 0
+                    ? `${Math.round((detail.financialSummary.remainingBudget / detail.financialSummary.estimatedCost) * 100)}% of budget left`
+                    : 'No budget set',
+                  color: detail.financialSummary.remainingBudget > 0 ? '#22c55e' :
+                    detail.financialSummary.remainingBudget === 0 && detail.financialSummary.estimatedCost === 0 ? '#8a8078' : '#ef4444',
+                },
+              ].map((card, i) => (
+                <div
+                  key={i}
+                  className="rounded-lg p-3"
+                  style={{ background: '#1a1a1a', border: '1px solid rgba(205,162,116,0.1)' }}
+                >
+                  <p className="text-xs mb-1" style={{ color: '#8a8078' }}>{card.label}</p>
+                  <p className="text-xl font-bold" style={{ color: card.color }}>{card.value}</p>
+                  <p className="text-xs mt-1" style={{ color: card.color }}>{card.sub}</p>
+                </div>
+              ))}
+            </div>
+
+            {/* Financial Summary Cards - Row 2: Revenue & margin */}
+            <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+              {(detail.financialSummary.isCostPlus ? [
                 {
                   label: 'Collected',
                   value: '$' + fmt(detail.financialSummary.collectedAmount),
@@ -332,21 +372,19 @@ export default function JobCostingDashboard() {
                     : 'No collections yet',
                   color: detail.financialSummary.projectedMargin >= 0 ? '#22c55e' : '#ef4444',
                 },
-              ] : [
                 {
-                  label: 'Estimated Cost',
-                  value: '$' + fmt(detail.financialSummary.estimatedCost),
-                  sub: 'Budget',
+                  label: 'Contract Value',
+                  value: '$' + fmt(detail.financialSummary.contractValue),
+                  sub: 'Approved proposals',
                   color: '#8a8078',
                 },
                 {
-                  label: 'Actual Cost',
-                  value: '$' + fmt(detail.financialSummary.actualCost),
-                  sub: detail.financialSummary.costVariance >= 0
-                    ? `$${fmt(detail.financialSummary.costVariance)} under`
-                    : `$${fmt(Math.abs(detail.financialSummary.costVariance))} over`,
-                  color: detail.financialSummary.costVariance >= 0 ? '#22c55e' : '#ef4444',
+                  label: 'Schedule',
+                  value: detail.financialSummary.scheduleProgress + '%',
+                  sub: 'tasks complete',
+                  color: detail.financialSummary.scheduleProgress >= 75 ? '#22c55e' : detail.financialSummary.scheduleProgress >= 25 ? '#C9A84C' : '#8a8078',
                 },
+              ] : [
                 {
                   label: 'Projected Margin',
                   value: fmtPct(detail.financialSummary.projectedMarginPct),
@@ -360,6 +398,20 @@ export default function JobCostingDashboard() {
                     ? `of $${fmt(detail.financialSummary.contractValue)}`
                     : 'No contract',
                   color: '#C9A84C',
+                },
+                {
+                  label: 'Collected',
+                  value: '$' + fmt(detail.financialSummary.collectedAmount),
+                  sub: detail.financialSummary.invoicedTotal > 0
+                    ? `${Math.round((detail.financialSummary.collectedAmount / detail.financialSummary.invoicedTotal) * 100)}% of invoiced`
+                    : 'Nothing invoiced',
+                  color: '#C9A84C',
+                },
+                {
+                  label: 'Schedule',
+                  value: detail.financialSummary.scheduleProgress + '%',
+                  sub: 'tasks complete',
+                  color: detail.financialSummary.scheduleProgress >= 75 ? '#22c55e' : detail.financialSummary.scheduleProgress >= 25 ? '#C9A84C' : '#8a8078',
                 },
               ]).map((card, i) => (
                 <div
@@ -381,118 +433,175 @@ export default function JobCostingDashboard() {
             >
               <div className="px-4 py-3" style={{ borderBottom: '1px solid rgba(205,162,116,0.08)' }}>
                 <h2 className="text-sm font-bold" style={{ color: '#e8e0d8' }}>
-                  Cost Breakdown by Code
+                  Cost Breakdown by Category
                 </h2>
+                <p className="text-xs mt-1" style={{ color: '#8a8078' }}>
+                  Budget from approved proposals · Actual from approved bills/POs · Pending from draft/pending bills/POs
+                </p>
               </div>
 
               {/* Table header */}
               <div
-                className="grid grid-cols-12 gap-2 px-4 py-2 text-xs font-medium"
-                style={{ color: '#8a8078', borderBottom: '1px solid rgba(205,162,116,0.06)' }}
+                className="grid gap-2 px-4 py-2 text-xs font-medium"
+                style={{
+                  color: '#8a8078',
+                  borderBottom: '1px solid rgba(205,162,116,0.06)',
+                  gridTemplateColumns: '2.5fr 1fr 1fr 1fr 1fr 80px',
+                }}
               >
-                <div className="col-span-4">Cost Code</div>
-                <div className="col-span-2 text-right">Estimated</div>
-                <div className="col-span-2 text-right">Actual</div>
-                <div className="col-span-2 text-right">Variance</div>
-                <div className="col-span-2 text-right">% Used</div>
+                <div>Cost Code</div>
+                <div className="text-right">Budgeted</div>
+                <div className="text-right">Actual</div>
+                <div className="text-right">Pending</div>
+                <div className="text-right">Remaining</div>
+                <div className="text-right">Status</div>
               </div>
 
               {/* Rows */}
-              {detail.costCodeBreakdown.map((cc) => (
-                <div key={cc.costCodeNumber + cc.costCodeName}>
-                  <button
-                    onClick={() => {
-                      setExpandedCodes((prev) => {
-                        const next = new Set(prev);
-                        const key = cc.costCodeNumber + cc.costCodeName;
-                        if (next.has(key)) next.delete(key);
-                        else next.add(key);
-                        return next;
-                      });
-                    }}
-                    className="w-full grid grid-cols-12 gap-2 px-4 py-2.5 text-sm hover:bg-white/[0.02] transition-colors items-center"
-                    style={{ borderBottom: '1px solid rgba(205,162,116,0.04)' }}
-                  >
-                    <div className="col-span-4 flex items-center gap-2 text-left">
-                      {expandedCodes.has(cc.costCodeNumber + cc.costCodeName) ? (
-                        <ChevronDown size={12} style={{ color: '#8a8078' }} />
-                      ) : (
-                        <ChevronRight size={12} style={{ color: '#8a8078' }} />
-                      )}
-                      <span
-                        className="text-xs px-1 py-0.5 rounded font-mono"
-                        style={{ background: '#222', color: '#8a8078' }}
-                      >
-                        {cc.costCodeNumber}
-                      </span>
-                      <span style={{ color: '#e8e0d8' }}>{cc.costCodeName}</span>
-                    </div>
-                    <div className="col-span-2 text-right" style={{ color: '#8a8078' }}>
-                      ${fmt(cc.estimatedCost)}
-                    </div>
-                    <div className="col-span-2 text-right" style={{ color: '#e8e0d8' }}>
-                      ${fmt(cc.actualCost)}
-                    </div>
-                    <div className="col-span-2 text-right" style={{ color: cc.variance >= 0 ? '#22c55e' : '#ef4444' }}>
-                      {cc.variance >= 0 ? '+' : ''}${fmt(cc.variance)}
-                    </div>
-                    <div className="col-span-2 text-right flex items-center justify-end gap-2">
-                      <div className="w-16 h-1.5 rounded-full overflow-hidden" style={{ background: '#333' }}>
-                        <div
-                          className="h-full rounded-full"
-                          style={{
-                            width: `${Math.min(cc.pctUsed, 100)}%`,
-                            background: statusColor(cc.status),
-                          }}
-                        />
-                      </div>
-                      <span style={{ color: statusColor(cc.status) }}>{cc.pctUsed}%</span>
-                    </div>
-                  </button>
-
-                  {/* Expanded: top items */}
-                  {expandedCodes.has(cc.costCodeNumber + cc.costCodeName) && cc.topItems.length > 0 && (
-                    <div className="px-4 pb-3 pt-1 ml-8">
-                      {cc.topItems.map((item, i) => (
-                        <div
-                          key={i}
-                          className="flex items-center gap-3 py-1 text-xs"
-                          style={{ color: '#8a8078' }}
-                        >
-                          <span className="flex-1" style={{ color: '#b0a898' }}>{item.name}</span>
-                          <span>Qty: {item.quantity}</span>
-                          <span>${fmt(item.cost)}</span>
-                        </div>
-                      ))}
-                    </div>
-                  )}
+              {detail.costCodeBreakdown.length === 0 ? (
+                <div className="px-4 py-6 text-center text-xs" style={{ color: '#8a8078' }}>
+                  No cost code breakdown available. Budget totals are shown in summary cards above.
                 </div>
-              ))}
+              ) : (
+                detail.costCodeBreakdown.map((cc) => {
+                  const key = cc.costCodeNumber + cc.costCodeName;
+                  const isExpanded = expandedCodes.has(key);
+                  return (
+                    <div key={key}>
+                      <button
+                        onClick={() => {
+                          setExpandedCodes((prev) => {
+                            const next = new Set(prev);
+                            if (next.has(key)) next.delete(key);
+                            else next.add(key);
+                            return next;
+                          });
+                        }}
+                        className="w-full grid gap-2 px-4 py-2.5 text-sm hover:bg-white/[0.02] transition-colors items-center"
+                        style={{
+                          borderBottom: '1px solid rgba(205,162,116,0.04)',
+                          gridTemplateColumns: '2.5fr 1fr 1fr 1fr 1fr 80px',
+                        }}
+                      >
+                        <div className="flex items-center gap-2 text-left min-w-0">
+                          {isExpanded ? (
+                            <ChevronDown size={12} className="shrink-0" style={{ color: '#8a8078' }} />
+                          ) : (
+                            <ChevronRight size={12} className="shrink-0" style={{ color: '#8a8078' }} />
+                          )}
+                          <span
+                            className="text-xs px-1 py-0.5 rounded font-mono shrink-0"
+                            style={{ background: '#222', color: '#8a8078' }}
+                          >
+                            {cc.costCodeNumber}
+                          </span>
+                          <span className="truncate" style={{ color: '#e8e0d8' }}>{cc.costCodeName}</span>
+                        </div>
+                        <div className="text-right" style={{ color: '#8a8078' }}>
+                          ${fmt(cc.estimatedCost)}
+                        </div>
+                        <div className="text-right" style={{ color: '#e8e0d8' }}>
+                          ${fmt(cc.actualCost)}
+                        </div>
+                        <div className="text-right" style={{ color: cc.pendingCost > 0 ? '#f59e0b' : '#555' }}>
+                          {cc.pendingCost > 0 ? `$${fmt(cc.pendingCost)}` : '—'}
+                        </div>
+                        <div className="text-right" style={{
+                          color: cc.remaining > 0 ? '#22c55e' : cc.remaining === 0 && cc.estimatedCost === 0 ? '#555' : '#ef4444'
+                        }}>
+                          {cc.estimatedCost > 0 || cc.committedCost > 0
+                            ? `$${fmt(cc.remaining)}`
+                            : '—'}
+                        </div>
+                        <div className="text-right flex items-center justify-end gap-1.5">
+                          {/* Stacked progress bar: actual (solid) + pending (striped) */}
+                          <div className="w-12 h-1.5 rounded-full overflow-hidden relative" style={{ background: '#333' }}>
+                            <div
+                              className="h-full rounded-full absolute left-0 top-0"
+                              style={{
+                                width: `${Math.min(cc.pctUsed, 100)}%`,
+                                background: statusColor(cc.status),
+                              }}
+                            />
+                            {cc.pendingCost > 0 && cc.estimatedCost > 0 && (
+                              <div
+                                className="h-full absolute top-0"
+                                style={{
+                                  left: `${Math.min(cc.pctUsed, 100)}%`,
+                                  width: `${Math.min((cc.pendingCost / cc.estimatedCost) * 100, 100 - Math.min(cc.pctUsed, 100))}%`,
+                                  background: 'rgba(245,158,11,0.5)',
+                                }}
+                              />
+                            )}
+                          </div>
+                          <span className="text-xs w-8 text-right" style={{ color: statusColor(cc.status) }}>
+                            {cc.pctUsed}%
+                          </span>
+                        </div>
+                      </button>
+
+                      {/* Expanded: top items */}
+                      {isExpanded && cc.topItems.length > 0 && (
+                        <div className="px-4 pb-3 pt-1 ml-8">
+                          <div className="text-xs font-medium mb-1.5" style={{ color: '#8a8078' }}>
+                            Budget Line Items ({cc.itemCount} items)
+                          </div>
+                          {cc.topItems.map((item, i) => (
+                            <div
+                              key={i}
+                              className="flex items-center gap-3 py-1 text-xs"
+                              style={{ color: '#8a8078' }}
+                            >
+                              <span className="flex-1 truncate" style={{ color: '#b0a898' }}>{item.name}</span>
+                              <span className="shrink-0">Qty: {item.quantity}</span>
+                              <span className="shrink-0 w-20 text-right">${fmt(item.cost)} cost</span>
+                              <span className="shrink-0 w-20 text-right">${fmt(item.price)} price</span>
+                            </div>
+                          ))}
+                          {cc.itemCount > 5 && (
+                            <div className="text-xs mt-1" style={{ color: '#6a6058' }}>
+                              + {cc.itemCount - 5} more items
+                            </div>
+                          )}
+                        </div>
+                      )}
+                    </div>
+                  );
+                })
+              )}
 
               {/* Totals row */}
-              <div
-                className="grid grid-cols-12 gap-2 px-4 py-3 text-sm font-bold"
-                style={{ borderTop: '1px solid rgba(205,162,116,0.15)', background: 'rgba(201,168,76,0.04)' }}
-              >
-                <div className="col-span-4" style={{ color: '#C9A84C' }}>TOTAL</div>
-                <div className="col-span-2 text-right" style={{ color: '#8a8078' }}>
-                  ${fmt(detail.financialSummary.estimatedCost)}
-                </div>
-                <div className="col-span-2 text-right" style={{ color: '#e8e0d8' }}>
-                  ${fmt(detail.financialSummary.actualCost)}
-                </div>
+              {detail.costCodeBreakdown.length > 0 && (
                 <div
-                  className="col-span-2 text-right"
-                  style={{ color: detail.financialSummary.costVariance >= 0 ? '#22c55e' : '#ef4444' }}
+                  className="grid gap-2 px-4 py-3 text-sm font-bold"
+                  style={{
+                    borderTop: '1px solid rgba(205,162,116,0.15)',
+                    background: 'rgba(201,168,76,0.04)',
+                    gridTemplateColumns: '2.5fr 1fr 1fr 1fr 1fr 80px',
+                  }}
                 >
-                  {detail.financialSummary.costVariance >= 0 ? '+' : ''}${fmt(detail.financialSummary.costVariance)}
+                  <div style={{ color: '#C9A84C' }}>TOTAL</div>
+                  <div className="text-right" style={{ color: '#8a8078' }}>
+                    ${fmt(detail.financialSummary.estimatedCost)}
+                  </div>
+                  <div className="text-right" style={{ color: '#e8e0d8' }}>
+                    ${fmt(detail.financialSummary.actualCost)}
+                  </div>
+                  <div className="text-right" style={{ color: detail.financialSummary.pendingCost > 0 ? '#f59e0b' : '#555' }}>
+                    {detail.financialSummary.pendingCost > 0 ? `$${fmt(detail.financialSummary.pendingCost)}` : '—'}
+                  </div>
+                  <div className="text-right" style={{
+                    color: detail.financialSummary.remainingBudget > 0 ? '#22c55e' : '#ef4444'
+                  }}>
+                    ${fmt(detail.financialSummary.remainingBudget)}
+                  </div>
+                  <div className="text-right text-xs" style={{ color: '#8a8078' }}>
+                    {detail.financialSummary.estimatedCost > 0
+                      ? Math.round((detail.financialSummary.actualCost / detail.financialSummary.estimatedCost) * 100) + '%'
+                      : '—'}
+                  </div>
                 </div>
-                <div className="col-span-2 text-right" style={{ color: '#8a8078' }}>
-                  {detail.financialSummary.estimatedCost > 0
-                    ? Math.round((detail.financialSummary.actualCost / detail.financialSummary.estimatedCost) * 100) + '%'
-                    : '—'}
-                </div>
-              </div>
+              )}
             </div>
 
             {/* Time Analysis */}

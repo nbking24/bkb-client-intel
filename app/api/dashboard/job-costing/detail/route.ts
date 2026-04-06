@@ -120,32 +120,45 @@ export async function POST(req: Request) {
     }
 
     // ============================================================
-    // 2. Actual costs from vendor bills/POs (document level)
+    // 2. Actual costs + Pending costs from vendor bills/POs
+    //    Actual = approved vendor bills/POs
+    //    Pending = draft/pending vendor bills/POs (expected but not yet approved)
     // ============================================================
     const actualByCostCode: Record<string, number> = {};
+    const pendingByCostCode: Record<string, number> = {};
     let totalActualCost = 0;
+    let totalPendingCost = 0;
 
-    // From document cost items (line items on vendor bills)
-    // Use the linked jobCostItem's cost code to map actuals to budget codes
+    // From document cost items (line items on vendor bills/POs)
     if (docCostItems.length > 0) {
       for (const dci of docCostItems) {
         const docType = dci.document?.type || '';
         const docStatus = dci.document?.status || '';
-        if ((docType === 'vendorBill' || docType === 'vendorOrder') && docStatus === 'approved') {
-          const cost = Number(dci.cost) || 0;
-          // Try to get cost code from the linked job cost item, or from the doc cost item itself
-          const ccName = dci.costCode?.name || dci.jobCostItem?.costCode?.name || 'Uncoded';
-          const ccNum = dci.costCode?.number || dci.jobCostItem?.costCode?.number || '00';
-          const key = ccNum + '-' + ccName;
+        if (docType !== 'vendorBill' && docType !== 'vendorOrder') continue;
+
+        const cost = Number(dci.cost) || 0;
+        const ccName = dci.costCode?.name || dci.jobCostItem?.costCode?.name || 'Uncoded';
+        const ccNum = dci.costCode?.number || dci.jobCostItem?.costCode?.number || '00';
+        const key = ccNum + '-' + ccName;
+
+        if (docStatus === 'approved') {
           actualByCostCode[key] = (actualByCostCode[key] || 0) + cost;
           totalActualCost += cost;
+        } else if (docStatus === 'draft' || docStatus === 'pending') {
+          pendingByCostCode[key] = (pendingByCostCode[key] || 0) + cost;
+          totalPendingCost += cost;
         }
       }
     } else {
       // Fallback: document-level totals (no cost code breakdown)
       for (const doc of documents) {
-        if ((doc.type === 'vendorBill' || doc.type === 'vendorOrder') && doc.status === 'approved') {
-          totalActualCost += Number(doc.cost) || 0;
+        if (doc.type === 'vendorBill' || doc.type === 'vendorOrder') {
+          const cost = Number(doc.cost) || 0;
+          if (doc.status === 'approved') {
+            totalActualCost += cost;
+          } else if (doc.status === 'draft' || doc.status === 'pending') {
+            totalPendingCost += cost;
+          }
         }
       }
     }
@@ -229,15 +242,37 @@ export async function POST(req: Request) {
 
     // ============================================================
     // 4. Merge into cost code breakdown
+    //    Includes: budgeted, actual, pending, remaining, % used
     // ============================================================
-    const costCodeBreakdown = Object.entries(budgetByCostCode)
-      .map(([key, budget]) => {
+
+    // Collect all cost code keys (from budget, actuals, and pending)
+    const allCostCodeKeys = new Set([
+      ...Object.keys(budgetByCostCode),
+      ...Object.keys(actualByCostCode),
+      ...Object.keys(pendingByCostCode),
+    ]);
+
+    const costCodeBreakdown = Array.from(allCostCodeKeys)
+      .map((key) => {
+        const budget = budgetByCostCode[key] || {
+          costCodeName: key.split('-').slice(1).join('-') || 'Uncoded',
+          costCodeNumber: key.split('-')[0] || '00',
+          estimatedCost: 0,
+          estimatedPrice: 0,
+          itemCount: 0,
+          items: [],
+        };
         const actual = actualByCostCode[key] || 0;
+        const pending = pendingByCostCode[key] || 0;
+        const committed = actual + pending; // total committed spend
+        const remaining = Math.max(0, budget.estimatedCost - committed);
         const variance = budget.estimatedCost - actual;
         const pctUsed = budget.estimatedCost > 0 ? (actual / budget.estimatedCost) * 100 : (actual > 0 ? 100 : 0);
+        const pctCommitted = budget.estimatedCost > 0 ? (committed / budget.estimatedCost) * 100 : (committed > 0 ? 100 : 0);
+
         let status: 'under' | 'on-track' | 'watch' | 'over' = 'on-track';
-        if (actual > budget.estimatedCost && budget.estimatedCost > 0) status = 'over';
-        else if (pctUsed > 85) status = 'watch';
+        if (committed > budget.estimatedCost && budget.estimatedCost > 0) status = 'over';
+        else if (pctCommitted > 85) status = 'watch';
         else if (pctUsed < 50 && budget.estimatedCost > 0) status = 'under';
 
         return {
@@ -246,8 +281,12 @@ export async function POST(req: Request) {
           estimatedCost: Math.round(budget.estimatedCost * 100) / 100,
           estimatedPrice: Math.round(budget.estimatedPrice * 100) / 100,
           actualCost: Math.round(actual * 100) / 100,
+          pendingCost: Math.round(pending * 100) / 100,
+          committedCost: Math.round(committed * 100) / 100,
+          remaining: Math.round(remaining * 100) / 100,
           variance: Math.round(variance * 100) / 100,
           pctUsed: Math.round(pctUsed),
+          pctCommitted: Math.round(pctCommitted),
           status,
           itemCount: budget.itemCount,
           topItems: budget.items.sort((a, b) => b.cost - a.cost).slice(0, 5),
@@ -334,6 +373,9 @@ export async function POST(req: Request) {
       projectedMarginPct = totalEstimatedPrice > 0 ? (projectedMargin / totalEstimatedPrice) * 100 : 0;
     }
 
+    const totalCommitted = totalActualCost + totalPendingCost;
+    const totalRemaining = Math.max(0, totalEstimatedCost - totalCommitted);
+
     const financialSummary = {
       isCostPlus,
       estimatedCost: Math.round(totalEstimatedCost * 100) / 100,
@@ -341,6 +383,9 @@ export async function POST(req: Request) {
       estimatedMargin: Math.round(estimatedMargin * 100) / 100,
       estimatedMarginPct: Math.round(estimatedMarginPct * 10) / 10,
       actualCost: Math.round(totalActualCost * 100) / 100,
+      pendingCost: Math.round(totalPendingCost * 100) / 100,
+      committedCost: Math.round(totalCommitted * 100) / 100,
+      remainingBudget: Math.round(totalRemaining * 100) / 100,
       costVariance: Math.round((totalEstimatedCost - totalActualCost) * 100) / 100,
       costVariancePct: totalEstimatedCost > 0
         ? Math.round(((totalEstimatedCost - totalActualCost) / totalEstimatedCost) * 1000) / 10
@@ -384,6 +429,9 @@ TYPE: ${isCostPlus ? 'Cost-Plus' : 'Fixed Price'}${costPlusNote}
 FINANCIAL OVERVIEW:
 - Estimated Cost: $${totalEstimatedCost.toLocaleString()}
 - Actual Cost to Date: $${totalActualCost.toLocaleString()}
+- Pending Costs (expected): $${totalPendingCost.toLocaleString()}
+- Total Committed (actual + pending): $${totalCommitted.toLocaleString()}
+- Remaining Budget: $${totalRemaining.toLocaleString()}
 - Cost Variance: $${(totalEstimatedCost - totalActualCost).toLocaleString()} (${totalActualCost > totalEstimatedCost ? 'OVER' : 'under'} budget)
 ${isCostPlus ? `- Collected from Client: $${collectedAmount.toLocaleString()}` : `- Estimated Revenue: $${totalEstimatedPrice.toLocaleString()}`}
 - ${isCostPlus ? 'Current Profit (Collected - Costs)' : 'Projected Margin'}: $${projectedMargin.toLocaleString()} (${projectedMarginPct.toFixed(1)}%)
