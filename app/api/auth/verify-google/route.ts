@@ -1,0 +1,68 @@
+import { NextRequest, NextResponse } from 'next/server';
+
+/**
+ * GET /api/auth/verify-google?userId=nathan
+ *
+ * Temporary endpoint to verify which Google account a refresh token resolves to.
+ * DELETE THIS AFTER USE.
+ */
+
+const REFRESH_TOKEN_ENV: Record<string, string> = {
+  nathan: 'GOOGLE_REFRESH_TOKEN',
+  terri: 'GOOGLE_REFRESH_TOKEN_TERRI',
+};
+
+export async function GET(req: NextRequest) {
+  try {
+    const userId = req.nextUrl.searchParams.get('userId') || 'nathan';
+    const envName = REFRESH_TOKEN_ENV[userId] || 'GOOGLE_REFRESH_TOKEN';
+    const refreshToken = process.env[envName];
+
+    if (!refreshToken) {
+      return NextResponse.json({ error: `No refresh token found in ${envName}` }, { status: 400 });
+    }
+
+    // Exchange refresh token for access token
+    const tokenRes = await fetch('https://oauth2.googleapis.com/token', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+      body: new URLSearchParams({
+        client_id: process.env.GOOGLE_CLIENT_ID || '',
+        client_secret: process.env.GOOGLE_CLIENT_SECRET || '',
+        refresh_token: refreshToken,
+        grant_type: 'refresh_token',
+      }),
+    });
+
+    if (!tokenRes.ok) {
+      const err = await tokenRes.json().catch(() => ({}));
+      return NextResponse.json({ error: 'Token refresh failed', details: err }, { status: 500 });
+    }
+
+    const tokenData = await tokenRes.json();
+    const accessToken = tokenData.access_token;
+
+    // Call Google userinfo to see which account this token belongs to
+    const userinfoRes = await fetch('https://www.googleapis.com/oauth2/v2/userinfo', {
+      headers: { Authorization: `Bearer ${accessToken}` },
+    });
+
+    if (!userinfoRes.ok) {
+      return NextResponse.json({ error: 'Userinfo fetch failed' }, { status: 500 });
+    }
+
+    const userinfo = await userinfoRes.json();
+
+    return NextResponse.json({
+      userId,
+      envVar: envName,
+      googleAccount: {
+        email: userinfo.email,
+        name: userinfo.name,
+        picture: userinfo.picture,
+      },
+    });
+  } catch (err: any) {
+    return NextResponse.json({ error: err.message }, { status: 500 });
+  }
+}
