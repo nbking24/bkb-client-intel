@@ -42,24 +42,32 @@ export async function GET(req: NextRequest) {
     const tokenData = await tokenRes.json();
     const accessToken = tokenData.access_token;
 
-    // Call Google userinfo to see which account this token belongs to
-    const userinfoRes = await fetch('https://www.googleapis.com/oauth2/v2/userinfo', {
+    // Use Gmail profile API to identify the account (we know this scope works)
+    const gmailRes = await fetch('https://gmail.googleapis.com/gmail/v1/users/me/profile', {
       headers: { Authorization: `Bearer ${accessToken}` },
     });
 
-    if (!userinfoRes.ok) {
-      return NextResponse.json({ error: 'Userinfo fetch failed' }, { status: 500 });
-    }
+    const gmailProfile = gmailRes.ok ? await gmailRes.json() : { error: `Gmail profile failed: ${gmailRes.status}` };
 
-    const userinfo = await userinfoRes.json();
+    // Also try Calendar settings to see which calendar account
+    const calRes = await fetch('https://www.googleapis.com/calendar/v3/calendars/primary', {
+      headers: { Authorization: `Bearer ${accessToken}` },
+    });
+
+    const calProfile = calRes.ok ? await calRes.json() : { error: `Calendar failed: ${calRes.status}` };
 
     return NextResponse.json({
       userId,
       envVar: envName,
-      googleAccount: {
-        email: userinfo.email,
-        name: userinfo.name,
-        picture: userinfo.picture,
+      gmail: {
+        emailAddress: gmailProfile.emailAddress,
+        messagesTotal: gmailProfile.messagesTotal,
+        threadsTotal: gmailProfile.threadsTotal,
+      },
+      calendar: {
+        id: calProfile.id,
+        summary: calProfile.summary,
+        timeZone: calProfile.timeZone,
       },
     });
   } catch (err: any) {
