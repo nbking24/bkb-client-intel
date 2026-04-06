@@ -552,7 +552,7 @@ function InlineAskAgent({ pmJobs, screen, hideToggle, defaultOpen }: { pmJobs: {
               }}
             >
               <option value="">All jobs (no filter)</option>
-              {pmJobs.map(j => (
+              {[...pmJobs].sort((a, b) => a.name.localeCompare(b.name)).map(j => (
                 <option key={j.id} value={j.id}>#{j.number} {j.name}</option>
               ))}
             </select>

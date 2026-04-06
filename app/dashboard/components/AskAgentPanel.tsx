@@ -106,11 +106,13 @@ export default function AskAgentPanel({
     return () => document.removeEventListener('mousedown', handler);
   }, [jobDropdownOpen]);
 
-  const filteredJobs = jobs.filter(
-    (j) =>
-      j.name.toLowerCase().includes(jobSearch.toLowerCase()) ||
-      j.number.includes(jobSearch)
-  );
+  const filteredJobs = jobs
+    .filter(
+      (j) =>
+        j.name.toLowerCase().includes(jobSearch.toLowerCase()) ||
+        j.number.includes(jobSearch)
+    )
+    .sort((a, b) => a.name.localeCompare(b.name));
 
   /* ── Send message ── */
   const sendMessage = useCallback(
