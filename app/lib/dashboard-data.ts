@@ -612,10 +612,10 @@ export async function buildUserDashboardData(userId: string): Promise<UserDashbo
     console.error('[DashboardData] Failed to fetch texts:', err.message);
   }
 
-  // Fetch Google Calendar events (next 7 days)
+  // Fetch Google Calendar events (next 14 days for 2-week calendar grid)
   let calendarEvents: CalendarEvent[] = [];
   try {
-    calendarEvents = await fetchCalendarEvents(7, undefined, undefined, userId);
+    calendarEvents = await fetchCalendarEvents(14, undefined, undefined, userId);
   } catch (err: any) {
     console.error('[DashboardData] Failed to fetch calendar:', err.message);
   }

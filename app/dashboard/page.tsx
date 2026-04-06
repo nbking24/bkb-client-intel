@@ -1364,6 +1364,17 @@ export default function DashboardOverview() {
     tasksByDate[d].push(t);
   }
 
+  // Group Google Calendar events by date for the 2-week grid
+  const calendarEvents = overview?.data?.calendarEvents || [];
+  const calEventsByDate: Record<string, typeof calendarEvents> = {};
+  for (const ev of calendarEvents) {
+    // Extract date from start (could be "2026-04-07T09:00:00-04:00" or "2026-04-07")
+    const d = ev.start?.slice(0, 10);
+    if (!d) continue;
+    if (!calEventsByDate[d]) calEventsByDate[d] = [];
+    calEventsByDate[d].push(ev);
+  }
+
   if (loading && !overview) return (
     <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '80px 0' }}>
       <Loader2 size={20} className="animate-spin" style={{ color: '#CDA274' }} />
@@ -2529,6 +2540,7 @@ export default function DashboardOverview() {
               const dayTasks = tasksByDate[day.date] || [];
               const incomplete = dayTasks.filter(t => t.progress < 1);
               const complete = dayTasks.filter(t => t.progress >= 1);
+              const dayCalEvents = calEventsByDate[day.date] || [];
 
               return (
                 <div key={day.date} style={{
@@ -2544,6 +2556,29 @@ export default function DashboardOverview() {
                     }}>{day.dayNum}</span>
                   </div>
                   <div style={{ flex: 1, padding: '1px 2px 3px', display: 'flex', flexDirection: 'column', gap: 1, overflow: 'hidden' }}>
+                    {/* Google Calendar events */}
+                    {dayCalEvents.map((ev: any) => {
+                      const timeStr = ev.allDay ? '' : ev.start?.includes('T')
+                        ? new Date(ev.start).toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit', hour12: true })
+                        : '';
+                      return (
+                        <div
+                          key={ev.id}
+                          style={{
+                            padding: '2px 3px', borderRadius: 3,
+                            borderLeft: '3px solid #4A90D9',
+                            background: '#4A90D918',
+                            fontSize: 9, lineHeight: '12px', color: '#a8c4e0',
+                            overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
+                          }}
+                          title={`${timeStr ? timeStr + ' \u2014 ' : ''}${ev.summary}${ev.location ? ' @ ' + ev.location : ''}`}
+                        >
+                          {timeStr ? <span style={{ color: '#6aa3d9', marginRight: 3 }}>{timeStr}</span> : null}
+                          {ev.summary}
+                        </div>
+                      );
+                    })}
+                    {/* JobTread tasks */}
                     {incomplete.map(task => {
                       const c = jobColor(task.jobNumber);
                       const isSelected = selectedCalTask?.id === task.id;

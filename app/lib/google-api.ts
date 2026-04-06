@@ -419,7 +419,7 @@ export async function fetchCalendarEvents(
     const timeMax = (customEnd || new Date(Date.now() + daysAhead * 24 * 60 * 60 * 1000)).toISOString();
 
     const calRes = await fetch(
-      `https://www.googleapis.com/calendar/v3/calendars/primary/events?timeMin=${encodeURIComponent(timeMin)}&timeMax=${encodeURIComponent(timeMax)}&singleEvents=true&orderBy=startTime&maxResults=20`,
+      `https://www.googleapis.com/calendar/v3/calendars/primary/events?timeMin=${encodeURIComponent(timeMin)}&timeMax=${encodeURIComponent(timeMax)}&singleEvents=true&orderBy=startTime&maxResults=50`,
       { headers: { Authorization: `Bearer ${token}` } }
     );
 
