@@ -38,10 +38,9 @@ export async function POST(req: Request) {
     ]);
 
     // ============================================================
-    // 1. Budget items by cost code
-    // ALL job.costItems are budget items — don't filter by document.id
-    // (items get a document association when placed on customer orders,
-    //  but they're still budget items)
+    // 1. Budget items by cost code — APPROVED items only
+    // Only count cost items on approved customer orders (proposals/COs).
+    // Items not on an approved document are uncommitted estimates.
     // ============================================================
     const budgetByCostCode: Record<string, {
       costCodeName: string;
@@ -57,6 +56,11 @@ export async function POST(req: Request) {
     let estimatedLaborHours = 0;
 
     for (const ci of costItems) {
+      const docType = ci.document?.type || '';
+      const docStatus = ci.document?.status || '';
+      // Only include items on approved customer orders
+      if (docType !== 'customerOrder' || docStatus !== 'approved') continue;
+
       const ccName = ci.costCode?.name || 'Uncoded';
       const ccNum = ci.costCode?.number || '00';
       const key = ccNum + '-' + ccName;

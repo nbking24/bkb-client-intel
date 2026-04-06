@@ -1929,7 +1929,7 @@ export async function getCostItemsForJobLite(jobId: string, limit = 200): Promis
             price: {},
             costType: { id: {}, name: {} },
             costCode: { id: {}, name: {}, number: {} },
-            document: { id: {}, name: {}, type: {} },
+            document: { id: {}, name: {}, type: {}, status: {} },
           },
         },
       },

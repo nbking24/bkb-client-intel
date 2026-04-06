@@ -79,15 +79,19 @@ export async function POST(req: Request) {
               getTimeEntriesForJob(job.id),
             ]);
 
-            // ---- Budget totals from ALL job cost items ----
-            // job.costItems ARE the budget — don't filter by document.id
-            // (items get a document association when placed on customer orders,
-            //  but they're still budget items)
+            // ---- Budget totals from APPROVED cost items only ----
+            // Only count cost items on approved customer orders (proposals/COs).
+            // Items not on an approved document are uncommitted estimates.
             let estimatedCost = 0;
             let estimatedPrice = 0;
             let estimatedHours = 0;
 
             for (const ci of costItems) {
+              const docType = ci.document?.type || '';
+              const docStatus = ci.document?.status || '';
+              // Only include items on approved customer orders
+              if (docType !== 'customerOrder' || docStatus !== 'approved') continue;
+
               estimatedCost += Number(ci.cost) || 0;
               estimatedPrice += Number(ci.price) || 0;
               // Estimate hours from labor cost items
