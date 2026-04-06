@@ -275,14 +275,42 @@ export async function POST(req: Request) {
     const scheduleProgress = totalTasks > 0 ? Math.round((completedTasks / totalTasks) * 100) : 0;
 
     // ============================================================
-    // 7. Financial summary
+    // 7. Financial summary — cost-plus aware
     // ============================================================
-    const estimatedMargin = totalEstimatedPrice - totalEstimatedCost;
-    const estimatedMarginPct = totalEstimatedPrice > 0 ? (estimatedMargin / totalEstimatedPrice) * 100 : 0;
-    const projectedMargin = totalEstimatedPrice - totalActualCost;
-    const projectedMarginPct = totalEstimatedPrice > 0 ? (projectedMargin / totalEstimatedPrice) * 100 : 0;
+    const isCostPlus = (job?.priceType || '').toLowerCase() === 'costplus'
+      || (job?.priceType || '').toLowerCase() === 'cost_plus'
+      || (job?.priceType || '').toLowerCase() === 'cost plus'
+      || (totalEstimatedPrice === 0 && totalEstimatedCost > 0);
+
+    // Collected = approved customer invoices
+    let collectedAmount = 0;
+    for (const doc of documents) {
+      if (doc.type === 'customerInvoice' && doc.status === 'approved') {
+        collectedAmount += Number(doc.price) || 0;
+      }
+    }
+
+    let estimatedMargin: number;
+    let estimatedMarginPct: number;
+    let projectedMargin: number;
+    let projectedMarginPct: number;
+
+    if (isCostPlus) {
+      // Cost-plus: profit = collected - actual cost
+      estimatedMargin = collectedAmount - totalActualCost;
+      estimatedMarginPct = collectedAmount > 0 ? (estimatedMargin / collectedAmount) * 100 : 0;
+      // Projected = same for cost-plus (we don't know future collections)
+      projectedMargin = estimatedMargin;
+      projectedMarginPct = estimatedMarginPct;
+    } else {
+      estimatedMargin = totalEstimatedPrice - totalEstimatedCost;
+      estimatedMarginPct = totalEstimatedPrice > 0 ? (estimatedMargin / totalEstimatedPrice) * 100 : 0;
+      projectedMargin = totalEstimatedPrice - totalActualCost;
+      projectedMarginPct = totalEstimatedPrice > 0 ? (projectedMargin / totalEstimatedPrice) * 100 : 0;
+    }
 
     const financialSummary = {
+      isCostPlus,
       estimatedCost: Math.round(totalEstimatedCost * 100) / 100,
       estimatedPrice: Math.round(totalEstimatedPrice * 100) / 100,
       estimatedMargin: Math.round(estimatedMargin * 100) / 100,
@@ -296,6 +324,7 @@ export async function POST(req: Request) {
       projectedMarginPct: Math.round(projectedMarginPct * 10) / 10,
       contractValue: Math.round(contractTotal * 100) / 100,
       invoicedTotal: Math.round(invoicedTotal * 100) / 100,
+      collectedAmount: Math.round(collectedAmount * 100) / 100,
       scheduleProgress,
     };
 
@@ -316,19 +345,23 @@ export async function POST(req: Request) {
 
       const totalActualHrs = totalWorkHours + totalTravelHours + totalBreakHours;
 
+      const costPlusNote = isCostPlus
+        ? `\nNOTE: This is a COST-PLUS job. There is no fixed contract price. The client is billed for actual costs plus a markup/fee. Margin = Collected - Actual Costs. Focus on whether collections are keeping pace with spending, not on estimated price (which is $0 for cost-plus).`
+        : '';
+
       const prompt = `You are a construction job costing analyst for Brett King Builder, a high-end residential renovation company in the Philadelphia area.
 
 Analyze this job's financial health and provide a concise executive summary.
 
 JOB: ${job?.name || 'Unknown'} (${job?.clientName || ''})
-TYPE: ${job?.priceType || 'fixed'}
+TYPE: ${isCostPlus ? 'Cost-Plus' : 'Fixed Price'}${costPlusNote}
 
 FINANCIAL OVERVIEW:
 - Estimated Cost: $${totalEstimatedCost.toLocaleString()}
 - Actual Cost to Date: $${totalActualCost.toLocaleString()}
 - Cost Variance: $${(totalEstimatedCost - totalActualCost).toLocaleString()} (${totalActualCost > totalEstimatedCost ? 'OVER' : 'under'} budget)
-- Estimated Revenue: $${totalEstimatedPrice.toLocaleString()}
-- Projected Margin: ${projectedMarginPct.toFixed(1)}%
+${isCostPlus ? `- Collected from Client: $${collectedAmount.toLocaleString()}` : `- Estimated Revenue: $${totalEstimatedPrice.toLocaleString()}`}
+- ${isCostPlus ? 'Current Profit (Collected - Costs)' : 'Projected Margin'}: $${projectedMargin.toLocaleString()} (${projectedMarginPct.toFixed(1)}%)
 - Contract Value: $${contractTotal.toLocaleString()}
 - Invoiced: $${invoicedTotal.toLocaleString()}
 
@@ -370,6 +403,7 @@ Keep it direct and practical — this is for a construction project manager. Use
         clientName: job?.clientName || '',
         priceType: job?.priceType || null,
         customStatus: job?.customStatus || null,
+        isCostPlus,
       },
       financialSummary,
       costCodeBreakdown,

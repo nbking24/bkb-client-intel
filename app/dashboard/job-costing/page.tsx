@@ -31,6 +31,7 @@ interface JobSummary {
   clientName: string;
   priceType: string | null;
   customStatus: string | null;
+  isCostPlus: boolean;
   estimatedCost: number;
   estimatedPrice: number;
   estimatedMargin: number;
@@ -81,8 +82,9 @@ interface TimeUser {
 }
 
 interface JobDetail {
-  job: { id: string; name: string; number: string; clientName: string; priceType: string; customStatus: string };
+  job: { id: string; name: string; number: string; clientName: string; priceType: string; customStatus: string; isCostPlus: boolean };
   financialSummary: {
+    isCostPlus: boolean;
     estimatedCost: number;
     estimatedPrice: number;
     estimatedMargin: number;
@@ -94,6 +96,7 @@ interface JobDetail {
     projectedMarginPct: number;
     contractValue: number;
     invoicedTotal: number;
+    collectedAmount: number;
     scheduleProgress: number;
   };
   costCodeBreakdown: CostCodeRow[];
@@ -289,9 +292,47 @@ export default function JobCostingDashboard() {
               </div>
             )}
 
+            {/* Cost-plus indicator */}
+            {detail.financialSummary.isCostPlus && (
+              <div className="flex items-center gap-2 px-3 py-1.5 rounded-lg text-xs"
+                style={{ background: 'rgba(99,102,241,0.08)', border: '1px solid rgba(99,102,241,0.2)', color: '#818cf8' }}>
+                <DollarSign size={12} />
+                <span>Cost-Plus Project — showing collected vs. actual costs</span>
+              </div>
+            )}
+
             {/* Financial Summary Cards */}
             <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
-              {[
+              {(detail.financialSummary.isCostPlus ? [
+                {
+                  label: 'Estimated Cost',
+                  value: '$' + fmt(detail.financialSummary.estimatedCost),
+                  sub: 'Budget',
+                  color: '#8a8078',
+                },
+                {
+                  label: 'Actual Cost',
+                  value: '$' + fmt(detail.financialSummary.actualCost),
+                  sub: detail.financialSummary.costVariance >= 0
+                    ? `$${fmt(detail.financialSummary.costVariance)} under budget`
+                    : `$${fmt(Math.abs(detail.financialSummary.costVariance))} over budget`,
+                  color: detail.financialSummary.costVariance >= 0 ? '#22c55e' : '#ef4444',
+                },
+                {
+                  label: 'Collected',
+                  value: '$' + fmt(detail.financialSummary.collectedAmount),
+                  sub: `$${fmt(detail.financialSummary.invoicedTotal)} invoiced`,
+                  color: '#C9A84C',
+                },
+                {
+                  label: 'Profit (Collected − Costs)',
+                  value: '$' + fmt(detail.financialSummary.projectedMargin),
+                  sub: detail.financialSummary.collectedAmount > 0
+                    ? fmtPct(detail.financialSummary.projectedMarginPct) + ' of collected'
+                    : 'No collections yet',
+                  color: detail.financialSummary.projectedMargin >= 0 ? '#22c55e' : '#ef4444',
+                },
+              ] : [
                 {
                   label: 'Estimated Cost',
                   value: '$' + fmt(detail.financialSummary.estimatedCost),
@@ -320,7 +361,7 @@ export default function JobCostingDashboard() {
                     : 'No contract',
                   color: '#C9A84C',
                 },
-              ].map((card, i) => (
+              ]).map((card, i) => (
                 <div
                   key={i}
                   className="rounded-lg p-3"
@@ -718,6 +759,11 @@ export default function JobCostingDashboard() {
                           <span className="text-xs px-1.5 py-0.5 rounded shrink-0" style={{ background: '#222', color: '#8a8078' }}>
                             #{job.jobNumber}
                           </span>
+                          {job.isCostPlus && (
+                            <span className="text-xs px-1.5 py-0.5 rounded shrink-0" style={{ background: 'rgba(99,102,241,0.12)', color: '#818cf8' }}>
+                              Cost+
+                            </span>
+                          )}
                         </div>
                         <div className="flex items-center gap-3 text-xs" style={{ color: '#8a8078' }}>
                           {job.clientName && <span>{job.clientName}</span>}
@@ -754,15 +800,25 @@ export default function JobCostingDashboard() {
                           </p>
                         </div>
                         <div className="text-right">
-                          <p className="text-xs" style={{ color: '#8a8078' }}>Margin</p>
-                          <p
-                            className="text-sm font-medium"
-                            style={{
-                              color: job.estimatedMarginPct > 15 ? '#22c55e' : job.estimatedMarginPct > 5 ? '#eab308' : '#ef4444',
-                            }}
-                          >
-                            {fmtPct(job.estimatedMarginPct)}
+                          <p className="text-xs" style={{ color: '#8a8078' }}>
+                            {job.isCostPlus ? 'Collected / Costs' : 'Margin'}
                           </p>
+                          {job.isCostPlus ? (
+                            <p className="text-sm font-medium" style={{
+                              color: job.collectedAmount >= job.actualCost ? '#22c55e' : '#ef4444',
+                            }}>
+                              ${fmt(job.collectedAmount)} / ${fmt(job.actualCost)}
+                            </p>
+                          ) : (
+                            <p
+                              className="text-sm font-medium"
+                              style={{
+                                color: job.estimatedMarginPct > 15 ? '#22c55e' : job.estimatedMarginPct > 5 ? '#eab308' : '#ef4444',
+                              }}
+                            >
+                              {fmtPct(job.estimatedMarginPct)}
+                            </p>
+                          )}
                         </div>
                         <div className="text-right">
                           <p className="text-xs" style={{ color: '#8a8078' }}>Hours</p>

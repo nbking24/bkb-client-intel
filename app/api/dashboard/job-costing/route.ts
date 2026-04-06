@@ -12,6 +12,10 @@ import {
 // Returns budget vs actual overview for all active jobs
 // ============================================================
 
+function fmt0(n: number): string {
+  return n.toLocaleString('en-US', { minimumFractionDigits: 0, maximumFractionDigits: 0 });
+}
+
 interface JobCostSummary {
   jobId: string;
   jobName: string;
@@ -19,6 +23,7 @@ interface JobCostSummary {
   clientName: string;
   priceType: string | null;
   customStatus: string | null;
+  isCostPlus: boolean;
   // Budget (estimated)
   estimatedCost: number;
   estimatedPrice: number;
@@ -126,9 +131,27 @@ export async function POST(req: Request) {
               actualCost += Number(te.cost) || 0;
             }
 
+            // ---- Determine if cost-plus ----
+            const isCostPlus = (job.priceType || '').toLowerCase() === 'costplus'
+              || (job.priceType || '').toLowerCase() === 'cost_plus'
+              || (job.priceType || '').toLowerCase() === 'cost plus'
+              || (estimatedPrice === 0 && estimatedCost > 0);
+
             // ---- Compute metrics ----
-            const estimatedMargin = estimatedPrice - estimatedCost;
-            const estimatedMarginPct = estimatedPrice > 0 ? (estimatedMargin / estimatedPrice) * 100 : 0;
+            // For cost-plus jobs: margin = collected - actual cost (profit from billing)
+            // For fixed-price jobs: margin = estimated price - estimated cost
+            let estimatedMargin: number;
+            let estimatedMarginPct: number;
+
+            if (isCostPlus) {
+              // Cost-plus: profit = what we've collected minus what we've spent
+              estimatedMargin = collectedAmount - actualCost;
+              estimatedMarginPct = collectedAmount > 0 ? (estimatedMargin / collectedAmount) * 100 : 0;
+            } else {
+              estimatedMargin = estimatedPrice - estimatedCost;
+              estimatedMarginPct = estimatedPrice > 0 ? (estimatedMargin / estimatedPrice) * 100 : 0;
+            }
+
             const costVariance = estimatedCost - actualCost;
             const costVariancePct = estimatedCost > 0 ? (costVariance / estimatedCost) * 100 : 0;
             const hoursVariance = estimatedHours - actualHours;
@@ -150,6 +173,12 @@ export async function POST(req: Request) {
               if (health === 'on-track') health = 'watch';
             }
 
+            // Cost-plus specific alert: if spending exceeds collections
+            if (isCostPlus && actualCost > collectedAmount && collectedAmount > 0) {
+              alerts.push(`Costs exceed collections by $${fmt0(actualCost - collectedAmount)}`);
+              if (health === 'on-track') health = 'watch';
+            }
+
             return {
               jobId: job.id,
               jobName: job.name,
@@ -157,6 +186,7 @@ export async function POST(req: Request) {
               clientName: job.clientName || '',
               priceType: job.priceType || null,
               customStatus: job.customStatus || null,
+              isCostPlus,
               estimatedCost: Math.round(estimatedCost * 100) / 100,
               estimatedPrice: Math.round(estimatedPrice * 100) / 100,
               estimatedMargin: Math.round(estimatedMargin * 100) / 100,
@@ -188,6 +218,7 @@ export async function POST(req: Request) {
       totalActualCost: summaries.reduce((s, j) => s + j.actualCost, 0),
       totalEstimatedPrice: summaries.reduce((s, j) => s + j.estimatedPrice, 0),
       totalInvoiced: summaries.reduce((s, j) => s + j.invoicedAmount, 0),
+      totalCollected: summaries.reduce((s, j) => s + j.collectedAmount, 0),
       totalEstimatedHours: summaries.reduce((s, j) => s + j.estimatedHours, 0),
       totalActualHours: summaries.reduce((s, j) => s + j.actualHours, 0),
       jobsOverBudget: summaries.filter((j) => j.health === 'over-budget').length,
