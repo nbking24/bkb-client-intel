@@ -472,7 +472,7 @@ export async function buildUserDashboardData(userId: string): Promise<UserDashbo
   // Fetch active jobs FIRST — needed for both per-job task scan and comment fetching
   let activeJobs: Array<{ id: string; name: string; number: string; status?: string }> = [];
   try {
-    const jobs = await getActiveJobs(50);
+    const jobs = await getActiveJobs();
     activeJobs = jobs.map((j: JTJob) => ({
       id: j.id,
       name: j.name,
@@ -682,7 +682,7 @@ export async function buildUserDashboardData(userId: string): Promise<UserDashbo
     userName,
     role,
     timeContext,
-    tasks: tasks.slice(0, 50),
+    tasks: tasks.slice(0, 100),
     tomorrowTasks,
     recentMessages,
     recentDailyLogs,

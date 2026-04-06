@@ -85,34 +85,50 @@ export interface JTJob {
   priceType?: string | null;          // Native JT field: "fixed", "costPlus", etc.
 }
 
-export async function getActiveJobs(limit = 50): Promise<JTJob[]> {
-  const result = await orgQuery('jobs', {
-    $: {
-      size: limit,
+export async function getActiveJobs(limit = 200): Promise<JTJob[]> {
+  // Paginate through all active jobs (PAVE max page size = 100)
+  const PAGE_SIZE = 100;
+  let allNodes: any[] = [];
+  let nextPage: string | null = null;
+
+  for (let page = 0; page < 5; page++) {
+    const pageParams: Record<string, unknown> = {
+      size: Math.min(PAGE_SIZE, limit - allNodes.length),
       where: ['closedOn', '=', null],
-    },
-    nodes: {
-      id: {},
-      name: {},
-      number: {},
-      status: {},
-      createdAt: {},
-      closedOn: {},
-      priceType: {},
-      location: {
+    };
+    if (nextPage) pageParams.page = nextPage;
+
+    const result = await orgQuery('jobs', {
+      $: pageParams,
+      nextPage: {},
+      nodes: {
         id: {},
         name: {},
-        account: { id: {}, name: {} },
-      },
-      customFieldValues: {
-        nodes: {
-          value: {},
-          customField: { name: {} },
+        number: {},
+        status: {},
+        createdAt: {},
+        closedOn: {},
+        priceType: {},
+        location: {
+          id: {},
+          name: {},
+          account: { id: {}, name: {} },
+        },
+        customFieldValues: {
+          nodes: {
+            value: {},
+            customField: { name: {} },
+          },
         },
       },
-    },
-  });
-  const jobs = result.nodes || [];
+    });
+    const nodes = result.nodes || [];
+    allNodes = allNodes.concat(nodes);
+    nextPage = result.nextPage || null;
+    if (!nextPage || allNodes.length >= limit || nodes.length < PAGE_SIZE) break;
+  }
+
+  const jobs = allNodes;
   return jobs.map((j: any) => {
     // Extract the custom "Status" field value
     const statusField = (j.customFieldValues?.nodes || []).find(
