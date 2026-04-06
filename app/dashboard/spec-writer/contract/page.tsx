@@ -102,6 +102,7 @@ export default function ContractSpecWriter() {
   const [budgetSections, setBudgetSections] = useState<BudgetSection[]>([]);
   const [selectedGroups, setSelectedGroups] = useState<Set<string>>(new Set());
   const [expandedSections, setExpandedSections] = useState<Set<string>>(new Set());
+  const [expandedDescs, setExpandedDescs] = useState<Set<string>>(new Set());
 
   // Step 3: Scope + documents
   const [projectScope, setProjectScope] = useState('');
@@ -624,32 +625,65 @@ export default function ContractSpecWriter() {
                     {expandedSections.has(section.id) && (
                       <div className="ml-6 space-y-1 mt-1">
                         {section.costGroups.map((group) => (
-                          <label
-                            key={group.id}
-                            className="flex items-center gap-2 py-1 px-2 rounded cursor-pointer hover:bg-[#222] transition-colors"
-                          >
-                            <input
-                              type="checkbox"
-                              checked={selectedGroups.has(group.id)}
-                              onChange={() => toggleGroupSelection(group.id)}
-                              className="rounded"
-                              style={{ accentColor: '#C9A84C' }}
-                            />
-                            <span className="text-sm" style={{ color: '#e8e0d8' }}>
-                              {group.name}
-                            </span>
-                            <span className="text-xs ml-auto" style={{ color: '#8a8078' }}>
-                              {group.costItems.length} items
-                            </span>
-                            {group.description && (
-                              <span
-                                className="text-xs px-1.5 py-0.5 rounded"
-                                style={{ background: 'rgba(201,168,76,0.15)', color: '#C9A84C' }}
-                              >
-                                has spec
+                          <div key={group.id}>
+                            <label
+                              className="flex items-center gap-2 py-1 px-2 rounded cursor-pointer hover:bg-[#222] transition-colors"
+                            >
+                              <input
+                                type="checkbox"
+                                checked={selectedGroups.has(group.id)}
+                                onChange={() => toggleGroupSelection(group.id)}
+                                className="rounded"
+                                style={{ accentColor: '#C9A84C' }}
+                              />
+                              <span className="text-sm" style={{ color: '#e8e0d8' }}>
+                                {group.name}
                               </span>
+                              <span className="text-xs ml-auto" style={{ color: '#8a8078' }}>
+                                {group.costItems.length} items
+                              </span>
+                              {group.description && (
+                                <button
+                                  type="button"
+                                  onClick={(e) => {
+                                    e.preventDefault();
+                                    e.stopPropagation();
+                                    setExpandedDescs((prev) => {
+                                      const next = new Set(prev);
+                                      if (next.has(group.id)) next.delete(group.id);
+                                      else next.add(group.id);
+                                      return next;
+                                    });
+                                  }}
+                                  className="text-xs px-1.5 py-0.5 rounded flex items-center gap-1 hover:opacity-80 transition-opacity"
+                                  style={{ background: 'rgba(201,168,76,0.15)', color: '#C9A84C' }}
+                                >
+                                  <FileText size={10} />
+                                  has notes
+                                  {expandedDescs.has(group.id) ? (
+                                    <ChevronDown size={10} />
+                                  ) : (
+                                    <ChevronRight size={10} />
+                                  )}
+                                </button>
+                              )}
+                            </label>
+                            {/* Expandable existing description preview */}
+                            {group.description && expandedDescs.has(group.id) && (
+                              <div
+                                className="ml-8 mt-1 mb-2 px-3 py-2 rounded text-xs whitespace-pre-wrap"
+                                style={{
+                                  background: 'rgba(201,168,76,0.04)',
+                                  border: '1px solid rgba(201,168,76,0.12)',
+                                  color: '#b0a898',
+                                  maxHeight: '150px',
+                                  overflowY: 'auto',
+                                }}
+                              >
+                                {group.description}
+                              </div>
                             )}
-                          </label>
+                          </div>
                         ))}
                       </div>
                     )}
@@ -841,6 +875,37 @@ export default function ContractSpecWriter() {
                 <h2 className="text-lg font-bold" style={{ color: '#C9A84C', fontFamily: 'Georgia, serif' }}>
                   {flatGroups[currentGroupIndex].group.name}
                 </h2>
+
+                {/* Existing notes from JobTread */}
+                {flatGroups[currentGroupIndex].group.description && (
+                  <div
+                    className="mt-3 px-3 py-2.5 rounded"
+                    style={{
+                      background: 'rgba(201,168,76,0.06)',
+                      border: '1px solid rgba(201,168,76,0.15)',
+                    }}
+                  >
+                    <div className="flex items-center gap-1.5 mb-1.5">
+                      <FileText size={12} style={{ color: '#C9A84C' }} />
+                      <span className="text-xs font-medium" style={{ color: '#C9A84C' }}>
+                        Existing Notes (from JobTread)
+                      </span>
+                    </div>
+                    <p
+                      className="text-xs whitespace-pre-wrap"
+                      style={{
+                        color: '#b0a898',
+                        maxHeight: '120px',
+                        overflowY: 'auto',
+                      }}
+                    >
+                      {flatGroups[currentGroupIndex].group.description}
+                    </p>
+                    <p className="text-xs mt-1.5 italic" style={{ color: '#6a6058' }}>
+                      These notes are being used by AI to generate more accurate specs.
+                    </p>
+                  </div>
+                )}
 
                 {/* Cost items list */}
                 {flatGroups[currentGroupIndex].group.costItems.length > 0 && (
