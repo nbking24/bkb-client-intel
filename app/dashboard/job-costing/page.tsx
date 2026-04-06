@@ -86,7 +86,7 @@ interface TimeUser {
 }
 
 interface JobDetail {
-  job: { id: string; name: string; number: string; clientName: string; priceType: string; customStatus: string; isCostPlus: boolean };
+  job: { id: string; name: string; number: string; clientName: string; priceType: string; customStatus: string; isCostPlus: boolean; isCompleted: boolean };
   financialSummary: {
     isCostPlus: boolean;
     estimatedCost: number;
@@ -259,13 +259,20 @@ export default function JobCostingDashboard() {
         ) : detail ? (
           <>
             {/* Job Header */}
-            <div className="flex items-center gap-3">
+            <div className="flex items-center gap-3 flex-wrap">
               <h1 className="text-2xl font-bold" style={{ color: '#C9A84C', fontFamily: 'Georgia, serif' }}>
                 {detail.job.name}
               </h1>
               <span className="text-sm px-2 py-0.5 rounded" style={{ background: '#222', color: '#8a8078' }}>
                 #{detail.job.number}
               </span>
+              {detail.job.isCompleted && (
+                <span className="text-xs px-2 py-1 rounded-full font-medium flex items-center gap-1"
+                  style={{ background: 'rgba(34,197,94,0.12)', border: '1px solid rgba(34,197,94,0.3)', color: '#22c55e' }}>
+                  <CheckCircle size={12} />
+                  Project Complete
+                </span>
+              )}
               {detail.job.clientName && (
                 <span className="text-sm" style={{ color: '#8a8078' }}>
                   — {detail.job.clientName}
@@ -284,7 +291,9 @@ export default function JobCostingDashboard() {
               >
                 <div className="flex items-center gap-2 mb-2">
                   <BarChart3 size={16} style={{ color: '#C9A84C' }} />
-                  <span className="text-sm font-semibold" style={{ color: '#C9A84C' }}>AI Cost Analysis</span>
+                  <span className="text-sm font-semibold" style={{ color: '#C9A84C' }}>
+                    {detail.job.isCompleted ? 'AI Final Assessment' : 'AI Cost Analysis'}
+                  </span>
                 </div>
                 <div className="text-sm" style={{ color: '#d0c8c0', lineHeight: '1.7' }}
                   dangerouslySetInnerHTML={{
@@ -296,6 +305,27 @@ export default function JobCostingDashboard() {
                       .replace(/\n/g, '<br/>')
                   }}
                 />
+              </div>
+            )}
+
+            {/* Completed project banner */}
+            {detail.job.isCompleted && (
+              <div className="flex items-center gap-2 px-3 py-2 rounded-lg text-xs"
+                style={{
+                  background: detail.financialSummary.pendingCost > 0
+                    ? 'rgba(245,158,11,0.08)'
+                    : 'rgba(34,197,94,0.06)',
+                  border: detail.financialSummary.pendingCost > 0
+                    ? '1px solid rgba(245,158,11,0.2)'
+                    : '1px solid rgba(34,197,94,0.15)',
+                  color: detail.financialSummary.pendingCost > 0 ? '#f59e0b' : '#22c55e',
+                }}>
+                <CheckCircle size={12} />
+                <span>
+                  {detail.financialSummary.pendingCost > 0
+                    ? `Project complete — $${fmt(detail.financialSummary.pendingCost)} in pending bills/POs still need to be closed out before final numbers are locked in.`
+                    : `Project complete — all costs are finalized. Final margin: ${fmtPct(detail.financialSummary.projectedMarginPct)} ($${fmt(detail.financialSummary.projectedMargin)})`}
+                </span>
               </div>
             )}
 
@@ -334,11 +364,13 @@ export default function JobCostingDashboard() {
                   color: detail.financialSummary.pendingCost > 0 ? '#f59e0b' : '#8a8078',
                 },
                 {
-                  label: 'Remaining Budget',
+                  label: detail.job.isCompleted ? 'Unused Budget' : 'Remaining Budget',
                   value: '$' + fmt(detail.financialSummary.remainingBudget),
-                  sub: detail.financialSummary.estimatedCost > 0
-                    ? `${Math.round((detail.financialSummary.remainingBudget / detail.financialSummary.estimatedCost) * 100)}% of budget left`
-                    : 'No budget set',
+                  sub: detail.job.isCompleted
+                    ? (detail.financialSummary.remainingBudget > 0 ? 'Savings vs. budget' : 'Budget fully spent')
+                    : (detail.financialSummary.estimatedCost > 0
+                      ? `${Math.round((detail.financialSummary.remainingBudget / detail.financialSummary.estimatedCost) * 100)}% of budget left`
+                      : 'No budget set'),
                   color: detail.financialSummary.remainingBudget > 0 ? '#22c55e' :
                     detail.financialSummary.remainingBudget === 0 && detail.financialSummary.estimatedCost === 0 ? '#8a8078' : '#ef4444',
                 },
@@ -365,7 +397,7 @@ export default function JobCostingDashboard() {
                   color: '#C9A84C',
                 },
                 {
-                  label: 'Profit (Collected − Costs)',
+                  label: detail.job.isCompleted ? 'Final Profit' : 'Profit (Collected − Costs)',
                   value: '$' + fmt(detail.financialSummary.projectedMargin),
                   sub: detail.financialSummary.collectedAmount > 0
                     ? fmtPct(detail.financialSummary.projectedMarginPct) + ' of collected'
@@ -386,7 +418,7 @@ export default function JobCostingDashboard() {
                 },
               ] : [
                 {
-                  label: 'Projected Margin',
+                  label: detail.job.isCompleted ? 'Final Margin' : 'Projected Margin',
                   value: fmtPct(detail.financialSummary.projectedMarginPct),
                   sub: '$' + fmt(detail.financialSummary.projectedMargin),
                   color: detail.financialSummary.projectedMarginPct > 15 ? '#22c55e' : detail.financialSummary.projectedMarginPct > 5 ? '#eab308' : '#ef4444',
@@ -871,6 +903,12 @@ export default function JobCostingDashboard() {
                           {job.isCostPlus && (
                             <span className="text-xs px-1.5 py-0.5 rounded shrink-0" style={{ background: 'rgba(99,102,241,0.12)', color: '#818cf8' }}>
                               Cost+
+                            </span>
+                          )}
+                          {job.customStatus && (job.customStatus.toLowerCase().includes('final billing') || job.customStatus.toLowerCase().includes('closed')) && (
+                            <span className="text-xs px-1.5 py-0.5 rounded shrink-0 flex items-center gap-1" style={{ background: 'rgba(34,197,94,0.12)', color: '#22c55e' }}>
+                              <CheckCircle size={10} />
+                              Complete
                             </span>
                           )}
                         </div>

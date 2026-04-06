@@ -324,12 +324,19 @@ export async function POST(req: Request) {
     const scheduleProgress = totalTasks > 0 ? Math.round((completedTasks / totalTasks) * 100) : 0;
 
     // ============================================================
-    // 7. Financial summary — cost-plus aware
+    // 7. Financial summary — cost-plus aware, completion-aware
     // ============================================================
     const isCostPlus = (job?.priceType || '').toLowerCase() === 'costplus'
       || (job?.priceType || '').toLowerCase() === 'cost_plus'
       || (job?.priceType || '').toLowerCase() === 'cost plus'
       || (totalEstimatedPrice === 0 && totalEstimatedCost > 0);
+
+    // Detect completed/final-billing projects based on JobTread custom status
+    const rawStatus = (job?.customStatus || '').toLowerCase();
+    const isCompleted = rawStatus.includes('final billing')
+      || rawStatus.includes('closed')
+      || rawStatus.includes('completed')
+      || !!job?.closedOn;
 
     // Collected = approved customer invoices
     let collectedAmount = 0;
@@ -404,12 +411,17 @@ export async function POST(req: Request) {
         ? `\nNOTE: This is a COST-PLUS job. There is no fixed contract price. The client is billed for actual costs plus a markup/fee. Margin = Collected - Actual Costs. Focus on whether collections are keeping pace with spending, not on estimated price (which is $0 for cost-plus).`
         : '';
 
+      const completedNote = isCompleted
+        ? `\nIMPORTANT: This project is SUBSTANTIALLY COMPLETE (status: "${job?.customStatus || 'Closed'}"). The construction work is done. Any remaining costs are final billing items (retention, punch-list, final invoices from subs/vendors). Treat all numbers as FINAL figures, not projections. Use "final margin" instead of "projected margin." Flag any pending bills/POs that still need to be closed out. Evaluate the overall job profitability as a completed project — what went well, what lessons can be applied to future jobs.`
+        : '';
+
       const prompt = `You are a construction job costing analyst for Brett King Builder, a high-end residential renovation company in the Philadelphia area.
 
 Analyze this job's financial health and provide a concise executive summary.
 
 JOB: ${job?.name || 'Unknown'} (${job?.clientName || ''})
-TYPE: ${isCostPlus ? 'Cost-Plus' : 'Fixed Price'}${costPlusNote}
+TYPE: ${isCostPlus ? 'Cost-Plus' : 'Fixed Price'}${costPlusNote}${completedNote}
+STATUS: ${isCompleted ? 'PROJECT COMPLETE' : 'In Progress'} (JobTread status: ${job?.customStatus || 'N/A'})
 
 FINANCIAL OVERVIEW:
 - Estimated Cost: $${totalEstimatedCost.toLocaleString()}
@@ -434,9 +446,13 @@ ${overBudgetCodes ? `COST CODES OVER/NEAR BUDGET:\n${overBudgetCodes}` : 'All co
 ${zeroCodes ? `UPCOMING COSTS (budgeted but no spend yet):\n${zeroCodes}` : ''}
 
 Provide:
-1. A 2-3 sentence executive summary of the job's financial health
+${isCompleted ? `1. A 2-3 sentence final assessment of the job's profitability and performance
+2. Top 2-3 specific wins or lessons learned (with dollar amounts)
+3. One actionable item — either a closeout task (pending bills to resolve, final invoicing) or a lesson for future jobs
+4. If there are pending/draft vendor bills or POs, flag them as items needing resolution before the job can be fully closed out` :
+`1. A 2-3 sentence executive summary of the job's financial health
 2. Top 2-3 specific areas of concern or strength (with dollar amounts)
-3. One actionable recommendation
+3. One actionable recommendation`}
 
 Keep it direct and practical — this is for a construction project manager. Use plain language, no jargon. No markdown formatting — use plain text only. Total response under 200 words.`;
 
@@ -462,6 +478,7 @@ Keep it direct and practical — this is for a construction project manager. Use
         priceType: job?.priceType || null,
         customStatus: job?.customStatus || null,
         isCostPlus,
+        isCompleted,
       },
       financialSummary,
       costCodeBreakdown,
