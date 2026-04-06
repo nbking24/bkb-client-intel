@@ -214,6 +214,7 @@ export async function POST(request: NextRequest) {
     const groupMap = new Map<string, {
       id: string;
       name: string;
+      displayName: string;
       description: string;
       sectionName: string;
       sectionId: string;
@@ -278,13 +279,29 @@ export async function POST(request: NextRequest) {
         groupSort = ancestry[ancestry.length - 1].sortOrder ?? 999999;
       }
 
-      // Deduplicate by section + group name (across estimates)
-      const dedupeKey = `${sectionName}|||${groupName}`;
+      // Build a unique dedupe key using the FULL ancestry path.
+      // This prevents groups with the same name under different parents
+      // (e.g., "10 Plumbing > Specifications" vs "12 Electrical > Specifications")
+      // from being merged together.
+      const fullPathKey = ancestry.length > 0
+        ? ancestry.map(a => a.name).join('|||')
+        : `${sectionName}|||${groupName}`;
+      const dedupeKey = fullPathKey;
+
+      // Build a display name that distinguishes same-named groups.
+      // For 3+ level ancestry, prefix the leaf name with its immediate parent
+      // (e.g., "10 Plumbing > Specifications" instead of just "Specifications").
+      let displayName = groupName;
+      if (ancestry.length >= 3) {
+        const parentLevel = ancestry[ancestry.length - 2]; // immediate parent of leaf
+        displayName = `${parentLevel.name} > ${groupName}`;
+      }
 
       if (!groupMap.has(dedupeKey)) {
         groupMap.set(dedupeKey, {
           id: groupId,
-          name: groupName,
+          name: displayName,
+          displayName,
           description: groupDesc,
           sectionName,
           sectionId,
