@@ -38,10 +38,23 @@ export async function POST(req: Request) {
     ]);
 
     // ============================================================
-    // 1. Budget from APPROVED customer order document cost items
-    // Only count line items on approved customer orders (proposals/COs).
-    // This uses docCostItems which have document type/status.
+    // 1. Budget totals from approved customer order DOCUMENTS
+    //    Category breakdown from JOB budget cost items (which have cost codes)
     // ============================================================
+    //
+    // Summary totals: use approved customer order document-level totals
+    // (these are the committed/approved budget numbers).
+    let totalEstimatedCost = 0;
+    let totalEstimatedPrice = 0;
+    for (const doc of documents) {
+      if (doc.type === 'customerOrder' && doc.status === 'approved') {
+        totalEstimatedCost += Number(doc.cost) || 0;
+        totalEstimatedPrice += Number(doc.price) || 0;
+      }
+    }
+
+    // Category breakdown: use job budget cost items (which HAVE cost codes).
+    // These represent the full budget allocation by category.
     const budgetByCostCode: Record<string, {
       costCodeName: string;
       costCodeNumber: string;
@@ -51,21 +64,15 @@ export async function POST(req: Request) {
       items: { name: string; cost: number; price: number; quantity: number }[];
     }> = {};
 
-    let totalEstimatedCost = 0;
-    let totalEstimatedPrice = 0;
+    let budgetBreakdownTotal = 0;
     let estimatedLaborHours = 0;
 
-    // Use document cost items from approved customer orders for budget breakdown
-    for (const dci of docCostItems) {
-      const docType = dci.document?.type || '';
-      const docStatus = dci.document?.status || '';
-      if (docType !== 'customerOrder' || docStatus !== 'approved') continue;
-
-      const ccName = dci.costCode?.name || dci.jobCostItem?.costCode?.name || 'Uncoded';
-      const ccNum = dci.costCode?.number || dci.jobCostItem?.costCode?.number || '00';
+    for (const ci of costItems) {
+      const ccName = ci.costCode?.name || 'Uncoded';
+      const ccNum = ci.costCode?.number || '00';
       const key = ccNum + '-' + ccName;
-      const cost = Number(dci.cost) || 0;
-      const price = Number(dci.price) || 0;
+      const cost = Number(ci.cost) || 0;
+      const price = Number(ci.price) || 0;
 
       if (!budgetByCostCode[key]) {
         budgetByCostCode[key] = {
@@ -82,40 +89,18 @@ export async function POST(req: Request) {
       budgetByCostCode[key].estimatedPrice += price;
       budgetByCostCode[key].itemCount++;
       budgetByCostCode[key].items.push({
-        name: dci.name,
+        name: ci.name,
         cost,
         price,
-        quantity: Number(dci.quantity) || 0,
+        quantity: Number(ci.quantity) || 0,
       });
 
-      totalEstimatedCost += cost;
-      totalEstimatedPrice += price;
+      budgetBreakdownTotal += cost;
 
       // Labor hours from cost type
-      const costType = dci.costType?.name?.toLowerCase() || '';
+      const costType = ci.costType?.name?.toLowerCase() || '';
       if (costType.includes('labor') || costType.includes('time')) {
-        estimatedLaborHours += Number(dci.quantity) || 0;
-      }
-    }
-
-    // If docCostItems had no approved customer order items, fall back to
-    // approved customer order document-level totals
-    if (totalEstimatedCost === 0 && totalEstimatedPrice === 0) {
-      for (const doc of documents) {
-        if (doc.type === 'customerOrder' && doc.status === 'approved') {
-          totalEstimatedCost += Number(doc.cost) || 0;
-          totalEstimatedPrice += Number(doc.price) || 0;
-        }
-      }
-    }
-
-    // Estimated labor hours from ALL budget cost items (as a baseline)
-    if (estimatedLaborHours === 0) {
-      for (const ci of costItems) {
-        const costType = ci.costType?.name?.toLowerCase() || '';
-        if (costType.includes('labor') || costType.includes('time')) {
-          estimatedLaborHours += Number(ci.quantity) || 0;
-        }
+        estimatedLaborHours += Number(ci.quantity) || 0;
       }
     }
 
