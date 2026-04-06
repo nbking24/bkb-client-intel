@@ -1,0 +1,364 @@
+// @ts-nocheck
+import { NextResponse } from 'next/server';
+import {
+  pave,
+  getJob,
+  getCostItemsForJobLite,
+  getDocumentsForJob,
+  getDocumentCostItemsForJob,
+  getTimeEntriesForJob,
+  getTasksForJob,
+} from '../../../../lib/jobtread';
+import Anthropic from '@anthropic-ai/sdk';
+
+// ============================================================
+// Job Costing Detail API
+// Deep-dive analysis for a single job
+// ============================================================
+
+function computeHours(startedAt: string, endedAt: string): number {
+  if (!startedAt || !endedAt) return 0;
+  const ms = new Date(endedAt).getTime() - new Date(startedAt).getTime();
+  return Math.max(0, ms / (1000 * 60 * 60));
+}
+
+export async function POST(req: Request) {
+  try {
+    const { jobId } = await req.json();
+    if (!jobId) return NextResponse.json({ error: 'jobId required' }, { status: 400 });
+
+    // Fetch all data in parallel
+    const [job, costItems, documents, docCostItems, timeEntries, tasks] = await Promise.all([
+      getJob(jobId),
+      getCostItemsForJobLite(jobId, 500),
+      getDocumentsForJob(jobId),
+      getDocumentCostItemsForJob(jobId).catch(() => []),
+      getTimeEntriesForJob(jobId),
+      getTasksForJob(jobId).catch(() => []),
+    ]);
+
+    // ============================================================
+    // 1. Budget items by cost code
+    // ============================================================
+    const budgetByCostCode: Record<string, {
+      costCodeName: string;
+      costCodeNumber: string;
+      estimatedCost: number;
+      estimatedPrice: number;
+      itemCount: number;
+      items: { name: string; cost: number; price: number; quantity: number }[];
+    }> = {};
+
+    let totalEstimatedCost = 0;
+    let totalEstimatedPrice = 0;
+    let estimatedLaborHours = 0;
+
+    for (const ci of costItems) {
+      // Skip document-level items (only budget items)
+      if (ci.document?.id) continue;
+
+      const ccName = ci.costCode?.name || 'Uncoded';
+      const ccNum = ci.costCode?.number || '00';
+      const key = ccNum + '-' + ccName;
+      const cost = Number(ci.cost) || 0;
+      const price = Number(ci.price) || 0;
+
+      if (!budgetByCostCode[key]) {
+        budgetByCostCode[key] = {
+          costCodeName: ccName,
+          costCodeNumber: ccNum,
+          estimatedCost: 0,
+          estimatedPrice: 0,
+          itemCount: 0,
+          items: [],
+        };
+      }
+
+      budgetByCostCode[key].estimatedCost += cost;
+      budgetByCostCode[key].estimatedPrice += price;
+      budgetByCostCode[key].itemCount++;
+      budgetByCostCode[key].items.push({
+        name: ci.name,
+        cost,
+        price,
+        quantity: Number(ci.quantity) || 0,
+      });
+
+      totalEstimatedCost += cost;
+      totalEstimatedPrice += price;
+
+      // Labor hours from cost type
+      const costType = ci.costType?.name?.toLowerCase() || '';
+      if (costType.includes('labor') || costType.includes('time')) {
+        estimatedLaborHours += Number(ci.quantity) || 0;
+      }
+    }
+
+    // ============================================================
+    // 2. Actual costs from approved vendor bills/POs
+    // ============================================================
+    const actualByCostCode: Record<string, number> = {};
+    let totalActualCost = 0;
+
+    // From document cost items (line items on vendor bills)
+    for (const dci of docCostItems) {
+      const docType = dci.document?.type || '';
+      if (docType === 'vendorBill' || docType === 'vendorOrder') {
+        const cost = Number(dci.cost) || 0;
+        const ccName = dci.costCode?.name || 'Uncoded';
+        const ccNum = dci.costCode?.number || '00';
+        const key = ccNum + '-' + ccName;
+        actualByCostCode[key] = (actualByCostCode[key] || 0) + cost;
+        totalActualCost += cost;
+      }
+    }
+
+    // If no document cost items, fall back to document-level totals
+    if (docCostItems.length === 0) {
+      for (const doc of documents) {
+        if ((doc.type === 'vendorBill' || doc.type === 'vendorOrder') && doc.status === 'approved') {
+          totalActualCost += Number(doc.cost) || 0;
+        }
+      }
+    }
+
+    // ============================================================
+    // 3. Merge into cost code breakdown
+    // ============================================================
+    const costCodeBreakdown = Object.entries(budgetByCostCode)
+      .map(([key, budget]) => {
+        const actual = actualByCostCode[key] || 0;
+        const variance = budget.estimatedCost - actual;
+        const pctUsed = budget.estimatedCost > 0 ? (actual / budget.estimatedCost) * 100 : 0;
+        let status: 'under' | 'on-track' | 'watch' | 'over' = 'on-track';
+        if (actual > budget.estimatedCost && budget.estimatedCost > 0) status = 'over';
+        else if (pctUsed > 85) status = 'watch';
+        else if (pctUsed < 50) status = 'under';
+
+        return {
+          costCodeName: budget.costCodeName,
+          costCodeNumber: budget.costCodeNumber,
+          estimatedCost: Math.round(budget.estimatedCost * 100) / 100,
+          estimatedPrice: Math.round(budget.estimatedPrice * 100) / 100,
+          actualCost: Math.round(actual * 100) / 100,
+          variance: Math.round(variance * 100) / 100,
+          pctUsed: Math.round(pctUsed),
+          status,
+          itemCount: budget.itemCount,
+          topItems: budget.items.sort((a, b) => b.cost - a.cost).slice(0, 5),
+        };
+      })
+      .sort((a, b) => a.costCodeNumber.localeCompare(b.costCodeNumber));
+
+    // ============================================================
+    // 4. Document summary
+    // ============================================================
+    const docSummary = {
+      customerOrders: [] as any[],
+      customerInvoices: [] as any[],
+      vendorBills: [] as any[],
+      vendorOrders: [] as any[],
+    };
+
+    let invoicedTotal = 0;
+    let contractTotal = 0;
+
+    for (const doc of documents) {
+      const entry = {
+        id: doc.id,
+        name: doc.name,
+        number: doc.number,
+        status: doc.status,
+        price: Number(doc.price) || 0,
+        cost: Number(doc.cost) || 0,
+        createdAt: doc.createdAt,
+      };
+
+      if (doc.type === 'customerOrder') {
+        docSummary.customerOrders.push(entry);
+        if (doc.status === 'approved') contractTotal += entry.price;
+      } else if (doc.type === 'customerInvoice') {
+        docSummary.customerInvoices.push(entry);
+        invoicedTotal += entry.price;
+      } else if (doc.type === 'vendorBill') {
+        docSummary.vendorBills.push(entry);
+      } else if (doc.type === 'vendorOrder') {
+        docSummary.vendorOrders.push(entry);
+      }
+    }
+
+    // ============================================================
+    // 5. Time analysis
+    // ============================================================
+    const timeByUser: Record<string, { name: string; work: number; travel: number; break_: number }> = {};
+    const timeByCostCode: Record<string, { name: string; hours: number }> = {};
+    let totalWorkHours = 0;
+    let totalTravelHours = 0;
+    let totalBreakHours = 0;
+
+    for (const te of timeEntries) {
+      const hours = computeHours(te.startedAt, te.endedAt);
+      const userName = te.user?.name || 'Unknown';
+      const userId = te.user?.id || 'unknown';
+
+      if (!timeByUser[userId]) {
+        timeByUser[userId] = { name: userName, work: 0, travel: 0, break_: 0 };
+      }
+
+      if (te.type === 'work' || !te.type) {
+        timeByUser[userId].work += hours;
+        totalWorkHours += hours;
+      } else if (te.type === 'travel') {
+        timeByUser[userId].travel += hours;
+        totalTravelHours += hours;
+      } else if (te.type === 'break') {
+        timeByUser[userId].break_ += hours;
+        totalBreakHours += hours;
+      }
+
+      // By cost code
+      const ccName = te.costItem?.costCode?.name || 'General';
+      if (!timeByCostCode[ccName]) {
+        timeByCostCode[ccName] = { name: ccName, hours: 0 };
+      }
+      timeByCostCode[ccName].hours += hours;
+    }
+
+    const timeAnalysis = {
+      estimatedHours: Math.round(estimatedLaborHours * 10) / 10,
+      actualWorkHours: Math.round(totalWorkHours * 10) / 10,
+      actualTravelHours: Math.round(totalTravelHours * 10) / 10,
+      actualBreakHours: Math.round(totalBreakHours * 10) / 10,
+      totalActualHours: Math.round((totalWorkHours + totalTravelHours + totalBreakHours) * 10) / 10,
+      hoursVariance: Math.round((estimatedLaborHours - totalWorkHours) * 10) / 10,
+      efficiencyRatio: estimatedLaborHours > 0
+        ? Math.round((totalWorkHours / estimatedLaborHours) * 100)
+        : 0,
+      byUser: Object.values(timeByUser)
+        .map((u) => ({
+          name: u.name,
+          work: Math.round(u.work * 10) / 10,
+          travel: Math.round(u.travel * 10) / 10,
+          break_: Math.round(u.break_ * 10) / 10,
+          total: Math.round((u.work + u.travel + u.break_) * 10) / 10,
+        }))
+        .sort((a, b) => b.total - a.total),
+      byCostCode: Object.values(timeByCostCode)
+        .map((c) => ({ name: c.name, hours: Math.round(c.hours * 10) / 10 }))
+        .sort((a, b) => b.hours - a.hours),
+    };
+
+    // ============================================================
+    // 6. Schedule progress
+    // ============================================================
+    const totalTasks = tasks.length;
+    const completedTasks = tasks.filter((t: any) => t.progress >= 1).length;
+    const scheduleProgress = totalTasks > 0 ? Math.round((completedTasks / totalTasks) * 100) : 0;
+
+    // ============================================================
+    // 7. Financial summary
+    // ============================================================
+    const estimatedMargin = totalEstimatedPrice - totalEstimatedCost;
+    const estimatedMarginPct = totalEstimatedPrice > 0 ? (estimatedMargin / totalEstimatedPrice) * 100 : 0;
+    const projectedMargin = totalEstimatedPrice - totalActualCost;
+    const projectedMarginPct = totalEstimatedPrice > 0 ? (projectedMargin / totalEstimatedPrice) * 100 : 0;
+
+    const financialSummary = {
+      estimatedCost: Math.round(totalEstimatedCost * 100) / 100,
+      estimatedPrice: Math.round(totalEstimatedPrice * 100) / 100,
+      estimatedMargin: Math.round(estimatedMargin * 100) / 100,
+      estimatedMarginPct: Math.round(estimatedMarginPct * 10) / 10,
+      actualCost: Math.round(totalActualCost * 100) / 100,
+      costVariance: Math.round((totalEstimatedCost - totalActualCost) * 100) / 100,
+      costVariancePct: totalEstimatedCost > 0
+        ? Math.round(((totalEstimatedCost - totalActualCost) / totalEstimatedCost) * 1000) / 10
+        : 0,
+      projectedMargin: Math.round(projectedMargin * 100) / 100,
+      projectedMarginPct: Math.round(projectedMarginPct * 10) / 10,
+      contractValue: Math.round(contractTotal * 100) / 100,
+      invoicedTotal: Math.round(invoicedTotal * 100) / 100,
+      scheduleProgress,
+    };
+
+    // ============================================================
+    // 8. AI Analysis
+    // ============================================================
+    let aiAnalysis = '';
+    try {
+      const overBudgetCodes = costCodeBreakdown
+        .filter((c) => c.status === 'over' || c.status === 'watch')
+        .map((c) => `${c.costCodeName}: est $${c.estimatedCost.toLocaleString()}, actual $${c.actualCost.toLocaleString()} (${c.pctUsed}%)`)
+        .join('\n');
+
+      const zeroCodes = costCodeBreakdown
+        .filter((c) => c.estimatedCost > 500 && c.actualCost === 0)
+        .map((c) => `${c.costCodeName}: $${c.estimatedCost.toLocaleString()} budgeted, $0 actual`)
+        .join('\n');
+
+      const prompt = `You are a construction job costing analyst for Brett King Builder, a high-end residential renovation company in the Philadelphia area.
+
+Analyze this job's financial health and provide a concise executive summary.
+
+JOB: ${job?.name || 'Unknown'} (${job?.clientName || ''})
+TYPE: ${job?.priceType || 'fixed'}
+
+FINANCIAL OVERVIEW:
+- Estimated Cost: $${totalEstimatedCost.toLocaleString()}
+- Actual Cost to Date: $${totalActualCost.toLocaleString()}
+- Cost Variance: $${(totalEstimatedCost - totalActualCost).toLocaleString()} (${totalActualCost > totalEstimatedCost ? 'OVER' : 'under'} budget)
+- Estimated Revenue: $${totalEstimatedPrice.toLocaleString()}
+- Projected Margin: ${projectedMarginPct.toFixed(1)}%
+- Contract Value: $${contractTotal.toLocaleString()}
+- Invoiced: $${invoicedTotal.toLocaleString()}
+
+LABOR:
+- Estimated Hours: ${estimatedLaborHours}
+- Actual Work Hours: ${totalWorkHours.toFixed(1)}
+- Travel Hours: ${totalTravelHours.toFixed(1)}
+
+SCHEDULE: ${scheduleProgress}% complete (${completedTasks}/${totalTasks} tasks)
+
+${overBudgetCodes ? `COST CODES OVER/NEAR BUDGET:\n${overBudgetCodes}` : 'All cost codes within budget.'}
+
+${zeroCodes ? `UPCOMING COSTS (budgeted but no spend yet):\n${zeroCodes}` : ''}
+
+Provide:
+1. A 2-3 sentence executive summary of the job's financial health
+2. Top 2-3 specific areas of concern or strength (with dollar amounts)
+3. One actionable recommendation
+
+Keep it direct and practical — this is for a construction project manager. Use plain language, no jargon. Total response under 200 words.`;
+
+      const client = new Anthropic();
+      const response = await client.messages.create({
+        model: 'claude-haiku-4-5-20251001',
+        max_tokens: 400,
+        messages: [{ role: 'user', content: prompt }],
+      });
+
+      aiAnalysis = response.content[0]?.type === 'text' ? response.content[0].text : '';
+    } catch (err: any) {
+      console.error('AI analysis error:', err.message);
+      aiAnalysis = 'AI analysis unavailable.';
+    }
+
+    return NextResponse.json({
+      job: {
+        id: job?.id || jobId,
+        name: job?.name || '',
+        number: job?.number || '',
+        clientName: job?.clientName || '',
+        priceType: job?.priceType || null,
+        customStatus: job?.customStatus || null,
+      },
+      financialSummary,
+      costCodeBreakdown,
+      docSummary,
+      timeAnalysis,
+      aiAnalysis,
+    });
+  } catch (err: any) {
+    console.error('Job costing detail error:', err);
+    return NextResponse.json({ error: err.message }, { status: 500 });
+  }
+}
