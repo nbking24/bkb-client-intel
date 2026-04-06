@@ -105,7 +105,7 @@ SECTION LABELS (bolded with single asterisks):
 - *Scope of Work* : Primary description of what is being done
 - *Included:* : Bullet list of what is covered (be specific about materials, labor, quantities)
 - *Clarifications:* : Conditions, limitations, assumptions
-- *Not Included:* : Items explicitly excluded (prevents misunderstandings)
+- *Not Included:* : Items a client might REASONABLY EXPECT to be included in THIS category's scope but are NOT. Only list genuine exclusions specific to this trade (e.g., "Relocation of existing gas line not included" in a plumbing spec). Do NOT use this section to state that work belonging to other categories is not included here (e.g., do NOT write "Painting not included" in a drywall spec, because painting is obviously a separate trade/category). The client reads all specifications as one unified document, so cross-category references in Not Included are unnecessary and clutter the spec.
 - NOTE: : Critical callout (NOT bolded)
 
 QUANTITY NOTATION:
@@ -155,7 +155,14 @@ All specifications in a contract are part of ONE unified document. When writing 
 - NEVER contradict information stated in another specification. If you are given previously written specifications, treat them as established facts for this contract.
 - When a related item is covered by another trade, use cross-references: "See [Category Name] specification" or "by others per [Category Name]."
 - Focus each specification ONLY on the work that is unique to that specific trade/category.
-- Common items that get incorrectly repeated: permits, cleanup, dust protection, final paint touch-up, general conditions. These should be stated ONCE in the appropriate category.`;
+- Common items that get incorrectly repeated: permits, cleanup, dust protection, final paint touch-up, general conditions. These should be stated ONCE in the appropriate category.
+
+NOT INCLUDED SECTION RULES (CRITICAL):
+- The *Not Included:* section must ONLY list items a client might reasonably expect to be part of THIS specific trade's scope but are genuinely excluded. For example, "Relocation of existing gas line" in a plumbing spec, or "Structural modifications to support new window opening" in a windows spec.
+- NEVER use *Not Included:* to state that work belonging to another category is not part of this category. The client reads all specifications as one document and understands that each category covers its own scope. Writing "Painting not included" in a drywall spec or "Electrical not included" in a plumbing spec is redundant, obvious, and unhelpful.
+- If a *Not Included:* section would only contain cross-category references (items that clearly belong to other trades), OMIT the *Not Included:* section entirely rather than filling it with obvious statements.
+- Good *Not Included:* examples: "Permits for gas line work" (in plumbing, when permits are handled by admin), "Removal of existing tile" (in tile spec, when demo is separate), "Custom stain color matching" (in painting, when only standard colors are included).
+- Bad *Not Included:* examples: "Painting not included, see 15 Painting", "Electrical rough-in not included", "Flooring not included in this category".`;
 
 /**
  * Category-specific question guidance.

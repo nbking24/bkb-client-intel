@@ -140,6 +140,7 @@ Write the specification for ONLY the "${costGroupName}" category. Follow BKB for
 - Mark unknown selections as "tbd"
 - Include *Included:* section if there are multiple components
 - Include *Clarifications:* section with applicable standard phrases
+- The *Not Included:* section should ONLY list items a client might reasonably expect in THIS trade but are genuinely excluded. NEVER list items that obviously belong to other categories (e.g., do NOT write "Painting not included" in a drywall spec). If there are no genuine exclusions specific to this trade, omit the *Not Included:* section entirely.
 - Never mention subcontractor or vendor names
 - Never use em dash characters
 - Preserve vendor estimate technical language exactly (strip vendor names and pricing only)
