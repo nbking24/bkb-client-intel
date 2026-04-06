@@ -39,6 +39,9 @@ export async function POST(req: Request) {
 
     // ============================================================
     // 1. Budget items by cost code
+    // ALL job.costItems are budget items — don't filter by document.id
+    // (items get a document association when placed on customer orders,
+    //  but they're still budget items)
     // ============================================================
     const budgetByCostCode: Record<string, {
       costCodeName: string;
@@ -54,9 +57,6 @@ export async function POST(req: Request) {
     let estimatedLaborHours = 0;
 
     for (const ci of costItems) {
-      // Skip document-level items (only budget items)
-      if (ci.document?.id) continue;
-
       const ccName = ci.costCode?.name || 'Uncoded';
       const ccNum = ci.costCode?.number || '00';
       const key = ccNum + '-' + ccName;
@@ -95,26 +95,29 @@ export async function POST(req: Request) {
     }
 
     // ============================================================
-    // 2. Actual costs from approved vendor bills/POs
+    // 2. Actual costs from vendor bills/POs (document level)
     // ============================================================
     const actualByCostCode: Record<string, number> = {};
     let totalActualCost = 0;
 
     // From document cost items (line items on vendor bills)
-    for (const dci of docCostItems) {
-      const docType = dci.document?.type || '';
-      if (docType === 'vendorBill' || docType === 'vendorOrder') {
-        const cost = Number(dci.cost) || 0;
-        const ccName = dci.costCode?.name || 'Uncoded';
-        const ccNum = dci.costCode?.number || '00';
-        const key = ccNum + '-' + ccName;
-        actualByCostCode[key] = (actualByCostCode[key] || 0) + cost;
-        totalActualCost += cost;
+    // Use the linked jobCostItem's cost code to map actuals to budget codes
+    if (docCostItems.length > 0) {
+      for (const dci of docCostItems) {
+        const docType = dci.document?.type || '';
+        const docStatus = dci.document?.status || '';
+        if ((docType === 'vendorBill' || docType === 'vendorOrder') && docStatus === 'approved') {
+          const cost = Number(dci.cost) || 0;
+          // Try to get cost code from the linked job cost item, or from the doc cost item itself
+          const ccName = dci.costCode?.name || dci.jobCostItem?.costCode?.name || 'Uncoded';
+          const ccNum = dci.costCode?.number || dci.jobCostItem?.costCode?.number || '00';
+          const key = ccNum + '-' + ccName;
+          actualByCostCode[key] = (actualByCostCode[key] || 0) + cost;
+          totalActualCost += cost;
+        }
       }
-    }
-
-    // If no document cost items, fall back to document-level totals
-    if (docCostItems.length === 0) {
+    } else {
+      // Fallback: document-level totals (no cost code breakdown)
       for (const doc of documents) {
         if ((doc.type === 'vendorBill' || doc.type === 'vendorOrder') && doc.status === 'approved') {
           totalActualCost += Number(doc.cost) || 0;
@@ -123,17 +126,94 @@ export async function POST(req: Request) {
     }
 
     // ============================================================
-    // 3. Merge into cost code breakdown
+    // 3. Time analysis — includes ALL time entries (no type filter)
+    //    Also adds time entry labor costs to actual cost totals
+    // ============================================================
+    const timeByUser: Record<string, { name: string; work: number; travel: number; break_: number }> = {};
+    const timeByCostCode: Record<string, { name: string; hours: number }> = {};
+    let totalWorkHours = 0;
+    let totalTravelHours = 0;
+    let totalBreakHours = 0;
+
+    for (const te of timeEntries) {
+      const hours = computeHours(te.startedAt, te.endedAt);
+      const userName = te.user?.name || 'Unknown';
+      const userId = te.user?.id || 'unknown';
+
+      if (!timeByUser[userId]) {
+        timeByUser[userId] = { name: userName, work: 0, travel: 0, break_: 0 };
+      }
+
+      // Categorize by type, but default to 'work' if unrecognized
+      const entryType = (te.type || '').toLowerCase();
+      if (entryType === 'travel') {
+        timeByUser[userId].travel += hours;
+        totalTravelHours += hours;
+      } else if (entryType === 'break') {
+        timeByUser[userId].break_ += hours;
+        totalBreakHours += hours;
+      } else {
+        // 'work', 'standard', null, or any other value → count as work
+        timeByUser[userId].work += hours;
+        totalWorkHours += hours;
+      }
+
+      // Add time entry labor cost to actual cost
+      const teCost = Number(te.cost) || 0;
+      totalActualCost += teCost;
+
+      // Map time to cost code
+      const ccName = te.costItem?.costCode?.name || 'General';
+      const ccNum = te.costItem?.costCode?.number || '00';
+      const timeKey = ccName;
+      if (!timeByCostCode[timeKey]) {
+        timeByCostCode[timeKey] = { name: ccName, hours: 0 };
+      }
+      timeByCostCode[timeKey].hours += hours;
+
+      // Also add time costs to the actualByCostCode for cost breakdown
+      if (teCost > 0) {
+        const costKey = ccNum + '-' + ccName;
+        actualByCostCode[costKey] = (actualByCostCode[costKey] || 0) + teCost;
+      }
+    }
+
+    const timeAnalysis = {
+      estimatedHours: Math.round(estimatedLaborHours * 10) / 10,
+      actualWorkHours: Math.round(totalWorkHours * 10) / 10,
+      actualTravelHours: Math.round(totalTravelHours * 10) / 10,
+      actualBreakHours: Math.round(totalBreakHours * 10) / 10,
+      totalActualHours: Math.round((totalWorkHours + totalTravelHours + totalBreakHours) * 10) / 10,
+      hoursVariance: Math.round((estimatedLaborHours - totalWorkHours) * 10) / 10,
+      efficiencyRatio: estimatedLaborHours > 0
+        ? Math.round((totalWorkHours / estimatedLaborHours) * 100)
+        : 0,
+      byUser: Object.values(timeByUser)
+        .map((u) => ({
+          name: u.name,
+          work: Math.round(u.work * 10) / 10,
+          travel: Math.round(u.travel * 10) / 10,
+          break_: Math.round(u.break_ * 10) / 10,
+          total: Math.round((u.work + u.travel + u.break_) * 10) / 10,
+        }))
+        .sort((a, b) => b.total - a.total),
+      byCostCode: Object.values(timeByCostCode)
+        .map((c) => ({ name: c.name, hours: Math.round(c.hours * 10) / 10 }))
+        .sort((a, b) => b.hours - a.hours),
+    };
+
+    // ============================================================
+    // 4. Merge into cost code breakdown
     // ============================================================
     const costCodeBreakdown = Object.entries(budgetByCostCode)
       .map(([key, budget]) => {
         const actual = actualByCostCode[key] || 0;
         const variance = budget.estimatedCost - actual;
-        const pctUsed = budget.estimatedCost > 0 ? (actual / budget.estimatedCost) * 100 : 0;
+        const pctUsed = budget.estimatedCost > 0 ? (actual / budget.estimatedCost) * 100 : (actual > 0 ? 100 : 0);
         let status: 'under' | 'on-track' | 'watch' | 'over' = 'on-track';
         if (actual > budget.estimatedCost && budget.estimatedCost > 0) status = 'over';
         else if (pctUsed > 85) status = 'watch';
-        else if (pctUsed < 50) status = 'under';
+        else if (pctUsed < 50 && budget.estimatedCost > 0) status = 'under';
 
         return {
           costCodeName: budget.costCodeName,
@@ -151,7 +231,7 @@ export async function POST(req: Request) {
       .sort((a, b) => a.costCodeNumber.localeCompare(b.costCodeNumber));
 
     // ============================================================
-    // 4. Document summary
+    // 5. Document summary
     // ============================================================
     const docSummary = {
       customerOrders: [] as any[],
@@ -186,67 +266,6 @@ export async function POST(req: Request) {
         docSummary.vendorOrders.push(entry);
       }
     }
-
-    // ============================================================
-    // 5. Time analysis
-    // ============================================================
-    const timeByUser: Record<string, { name: string; work: number; travel: number; break_: number }> = {};
-    const timeByCostCode: Record<string, { name: string; hours: number }> = {};
-    let totalWorkHours = 0;
-    let totalTravelHours = 0;
-    let totalBreakHours = 0;
-
-    for (const te of timeEntries) {
-      const hours = computeHours(te.startedAt, te.endedAt);
-      const userName = te.user?.name || 'Unknown';
-      const userId = te.user?.id || 'unknown';
-
-      if (!timeByUser[userId]) {
-        timeByUser[userId] = { name: userName, work: 0, travel: 0, break_: 0 };
-      }
-
-      if (te.type === 'work' || !te.type) {
-        timeByUser[userId].work += hours;
-        totalWorkHours += hours;
-      } else if (te.type === 'travel') {
-        timeByUser[userId].travel += hours;
-        totalTravelHours += hours;
-      } else if (te.type === 'break') {
-        timeByUser[userId].break_ += hours;
-        totalBreakHours += hours;
-      }
-
-      // By cost code
-      const ccName = te.costItem?.costCode?.name || 'General';
-      if (!timeByCostCode[ccName]) {
-        timeByCostCode[ccName] = { name: ccName, hours: 0 };
-      }
-      timeByCostCode[ccName].hours += hours;
-    }
-
-    const timeAnalysis = {
-      estimatedHours: Math.round(estimatedLaborHours * 10) / 10,
-      actualWorkHours: Math.round(totalWorkHours * 10) / 10,
-      actualTravelHours: Math.round(totalTravelHours * 10) / 10,
-      actualBreakHours: Math.round(totalBreakHours * 10) / 10,
-      totalActualHours: Math.round((totalWorkHours + totalTravelHours + totalBreakHours) * 10) / 10,
-      hoursVariance: Math.round((estimatedLaborHours - totalWorkHours) * 10) / 10,
-      efficiencyRatio: estimatedLaborHours > 0
-        ? Math.round((totalWorkHours / estimatedLaborHours) * 100)
-        : 0,
-      byUser: Object.values(timeByUser)
-        .map((u) => ({
-          name: u.name,
-          work: Math.round(u.work * 10) / 10,
-          travel: Math.round(u.travel * 10) / 10,
-          break_: Math.round(u.break_ * 10) / 10,
-          total: Math.round((u.work + u.travel + u.break_) * 10) / 10,
-        }))
-        .sort((a, b) => b.total - a.total),
-      byCostCode: Object.values(timeByCostCode)
-        .map((c) => ({ name: c.name, hours: Math.round(c.hours * 10) / 10 }))
-        .sort((a, b) => b.hours - a.hours),
-    };
 
     // ============================================================
     // 6. Schedule progress
@@ -295,6 +314,8 @@ export async function POST(req: Request) {
         .map((c) => `${c.costCodeName}: $${c.estimatedCost.toLocaleString()} budgeted, $0 actual`)
         .join('\n');
 
+      const totalActualHrs = totalWorkHours + totalTravelHours + totalBreakHours;
+
       const prompt = `You are a construction job costing analyst for Brett King Builder, a high-end residential renovation company in the Philadelphia area.
 
 Analyze this job's financial health and provide a concise executive summary.
@@ -313,8 +334,7 @@ FINANCIAL OVERVIEW:
 
 LABOR:
 - Estimated Hours: ${estimatedLaborHours}
-- Actual Work Hours: ${totalWorkHours.toFixed(1)}
-- Travel Hours: ${totalTravelHours.toFixed(1)}
+- Actual Hours: ${totalActualHrs.toFixed(1)} (work: ${totalWorkHours.toFixed(1)}, travel: ${totalTravelHours.toFixed(1)})
 
 SCHEDULE: ${scheduleProgress}% complete (${completedTasks}/${totalTasks} tasks)
 
@@ -327,7 +347,7 @@ Provide:
 2. Top 2-3 specific areas of concern or strength (with dollar amounts)
 3. One actionable recommendation
 
-Keep it direct and practical — this is for a construction project manager. Use plain language, no jargon. Total response under 200 words.`;
+Keep it direct and practical — this is for a construction project manager. Use plain language, no jargon. No markdown formatting — use plain text only. Total response under 200 words.`;
 
       const client = new Anthropic();
       const response = await client.messages.create({

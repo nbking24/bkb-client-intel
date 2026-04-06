@@ -25,12 +25,12 @@ interface JobCostSummary {
   estimatedMargin: number;
   estimatedMarginPct: number;
   // Actual
-  actualCost: number; // from approved vendor bills + POs
+  actualCost: number; // from vendor bills + POs + time entry labor costs
   costVariance: number; // estimated - actual (positive = under budget)
   costVariancePct: number;
   // Revenue
   invoicedAmount: number;
-  collectedAmount: number; // approximated from approved invoices
+  collectedAmount: number;
   // Hours
   estimatedHours: number; // from labor cost items
   actualHours: number; // from time entries
@@ -74,29 +74,28 @@ export async function POST(req: Request) {
               getTimeEntriesForJob(job.id),
             ]);
 
-            // ---- Budget totals from cost items ----
+            // ---- Budget totals from ALL job cost items ----
+            // job.costItems ARE the budget — don't filter by document.id
+            // (items get a document association when placed on customer orders,
+            //  but they're still budget items)
             let estimatedCost = 0;
             let estimatedPrice = 0;
             let estimatedHours = 0;
 
             for (const ci of costItems) {
-              // Only count budget-level items (no document association = budget item)
-              if (!ci.document || !ci.document.id) {
-                estimatedCost += Number(ci.cost) || 0;
-                estimatedPrice += Number(ci.price) || 0;
-                // Estimate hours from labor cost items
-                const costType = ci.costType?.name?.toLowerCase() || '';
-                if (costType.includes('labor') || costType.includes('time')) {
-                  estimatedHours += Number(ci.quantity) || 0;
-                }
+              estimatedCost += Number(ci.cost) || 0;
+              estimatedPrice += Number(ci.price) || 0;
+              // Estimate hours from labor cost items
+              const costType = ci.costType?.name?.toLowerCase() || '';
+              if (costType.includes('labor') || costType.includes('time')) {
+                estimatedHours += Number(ci.quantity) || 0;
               }
             }
 
-            // ---- Actual costs from approved vendor bills & POs ----
+            // ---- Actual costs from vendor bills/POs + time entry labor ----
             let actualCost = 0;
             let invoicedAmount = 0;
             let collectedAmount = 0;
-            let approvedChangeOrderValue = 0;
 
             for (const doc of documents) {
               const docCost = Number(doc.cost) || 0;
@@ -109,22 +108,22 @@ export async function POST(req: Request) {
               } else if (doc.type === 'customerInvoice') {
                 if (doc.status === 'approved') {
                   invoicedAmount += docPrice;
-                  collectedAmount += docPrice; // Approved = paid
+                  collectedAmount += docPrice;
                 } else if (doc.status === 'pending') {
                   invoicedAmount += docPrice;
                 }
-              } else if (doc.type === 'customerOrder' && doc.status === 'approved') {
-                // Change orders after the first are change orders
-                // We track total contract value through customer orders
               }
             }
 
-            // ---- Time entries ----
+            // ---- Time entries: hours AND labor costs ----
             let actualHours = 0;
             for (const te of timeEntries) {
-              if (te.type === 'work' || !te.type) {
-                actualHours += computeHours(te.startedAt, te.endedAt);
-              }
+              // Count ALL time entry hours (don't filter by type —
+              // PAVE may return type as null, 'work', 'Standard', etc.)
+              const hours = computeHours(te.startedAt, te.endedAt);
+              actualHours += hours;
+              // Add time entry labor cost to actual cost
+              actualCost += Number(te.cost) || 0;
             }
 
             // ---- Compute metrics ----
@@ -138,7 +137,7 @@ export async function POST(req: Request) {
             const alerts: string[] = [];
             let health: 'on-track' | 'watch' | 'over-budget' = 'on-track';
 
-            if (actualCost > estimatedCost) {
+            if (estimatedCost > 0 && actualCost > estimatedCost) {
               health = 'over-budget';
               alerts.push(`Over budget by $${Math.abs(costVariance).toLocaleString('en-US', { minimumFractionDigits: 0, maximumFractionDigits: 0 })}`);
             } else if (estimatedCost > 0 && actualCost / estimatedCost > 0.85) {
