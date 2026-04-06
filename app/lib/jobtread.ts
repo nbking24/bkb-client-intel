@@ -149,6 +149,7 @@ export async function getJob(jobId: string) {
       name: {},
       number: {},
       status: {},
+      priceType: {},
       createdAt: {},
       closedOn: {},
       description: {},
