@@ -85,34 +85,57 @@ export interface JTJob {
   priceType?: string | null;          // Native JT field: "fixed", "costPlus", etc.
 }
 
-export async function getActiveJobs(limit = 100): Promise<JTJob[]> {
-  const result = await orgQuery('jobs', {
-    $: {
-      size: limit,
+export async function getActiveJobs(limit = 200): Promise<JTJob[]> {
+  // Paginate with direct pave() calls (orgQuery doesn't expose nextPage).
+  // PAVE org-level queries cap at 50 per page, so we fetch multiple pages.
+  const PAGE_SIZE = 50;
+  let allNodes: any[] = [];
+  let nextPage: string | null = null;
+
+  for (let page = 0; page < 5 && allNodes.length < limit; page++) {
+    const pageParams: Record<string, unknown> = {
+      size: PAGE_SIZE,
       where: ['closedOn', '=', null],
-    },
-    nodes: {
-      id: {},
-      name: {},
-      number: {},
-      status: {},
-      createdAt: {},
-      closedOn: {},
-      priceType: {},
-      location: {
-        id: {},
-        name: {},
-        account: { id: {}, name: {} },
-      },
-      customFieldValues: {
-        nodes: {
-          value: {},
-          customField: { name: {} },
+    };
+    if (nextPage) pageParams.page = nextPage;
+
+    const data = await pave({
+      organization: {
+        $: { id: JT_ORG() },
+        jobs: {
+          $: pageParams,
+          nextPage: {},
+          nodes: {
+            id: {},
+            name: {},
+            number: {},
+            status: {},
+            createdAt: {},
+            closedOn: {},
+            priceType: {},
+            location: {
+              id: {},
+              name: {},
+              account: { id: {}, name: {} },
+            },
+            customFieldValues: {
+              nodes: {
+                value: {},
+                customField: { name: {} },
+              },
+            },
+          },
         },
       },
-    },
-  });
-  const jobs = result.nodes || [];
+    });
+    const jobsPage = (data as any)?.organization?.jobs;
+    const nodes = jobsPage?.nodes || [];
+    allNodes = allNodes.concat(nodes);
+    nextPage = jobsPage?.nextPage || null;
+    if (!nextPage || nodes.length < PAGE_SIZE) break;
+  }
+
+  const jobs = allNodes;
   return jobs.map((j: any) => {
     // Extract the custom "Status" field value
     const statusField = (j.customFieldValues?.nodes || []).find(
