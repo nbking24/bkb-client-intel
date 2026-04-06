@@ -38,9 +38,9 @@ export async function POST(req: Request) {
     ]);
 
     // ============================================================
-    // 1. Budget items by cost code — APPROVED items only
-    // Only count cost items on approved customer orders (proposals/COs).
-    // Items not on an approved document are uncommitted estimates.
+    // 1. Budget from APPROVED customer order document cost items
+    // Only count line items on approved customer orders (proposals/COs).
+    // This uses docCostItems which have document type/status.
     // ============================================================
     const budgetByCostCode: Record<string, {
       costCodeName: string;
@@ -55,17 +55,17 @@ export async function POST(req: Request) {
     let totalEstimatedPrice = 0;
     let estimatedLaborHours = 0;
 
-    for (const ci of costItems) {
-      const docType = ci.document?.type || '';
-      const docStatus = ci.document?.status || '';
-      // Only include items on approved customer orders
+    // Use document cost items from approved customer orders for budget breakdown
+    for (const dci of docCostItems) {
+      const docType = dci.document?.type || '';
+      const docStatus = dci.document?.status || '';
       if (docType !== 'customerOrder' || docStatus !== 'approved') continue;
 
-      const ccName = ci.costCode?.name || 'Uncoded';
-      const ccNum = ci.costCode?.number || '00';
+      const ccName = dci.costCode?.name || dci.jobCostItem?.costCode?.name || 'Uncoded';
+      const ccNum = dci.costCode?.number || dci.jobCostItem?.costCode?.number || '00';
       const key = ccNum + '-' + ccName;
-      const cost = Number(ci.cost) || 0;
-      const price = Number(ci.price) || 0;
+      const cost = Number(dci.cost) || 0;
+      const price = Number(dci.price) || 0;
 
       if (!budgetByCostCode[key]) {
         budgetByCostCode[key] = {
@@ -82,19 +82,40 @@ export async function POST(req: Request) {
       budgetByCostCode[key].estimatedPrice += price;
       budgetByCostCode[key].itemCount++;
       budgetByCostCode[key].items.push({
-        name: ci.name,
+        name: dci.name,
         cost,
         price,
-        quantity: Number(ci.quantity) || 0,
+        quantity: Number(dci.quantity) || 0,
       });
 
       totalEstimatedCost += cost;
       totalEstimatedPrice += price;
 
       // Labor hours from cost type
-      const costType = ci.costType?.name?.toLowerCase() || '';
+      const costType = dci.costType?.name?.toLowerCase() || '';
       if (costType.includes('labor') || costType.includes('time')) {
-        estimatedLaborHours += Number(ci.quantity) || 0;
+        estimatedLaborHours += Number(dci.quantity) || 0;
+      }
+    }
+
+    // If docCostItems had no approved customer order items, fall back to
+    // approved customer order document-level totals
+    if (totalEstimatedCost === 0 && totalEstimatedPrice === 0) {
+      for (const doc of documents) {
+        if (doc.type === 'customerOrder' && doc.status === 'approved') {
+          totalEstimatedCost += Number(doc.cost) || 0;
+          totalEstimatedPrice += Number(doc.price) || 0;
+        }
+      }
+    }
+
+    // Estimated labor hours from ALL budget cost items (as a baseline)
+    if (estimatedLaborHours === 0) {
+      for (const ci of costItems) {
+        const costType = ci.costType?.name?.toLowerCase() || '';
+        if (costType.includes('labor') || costType.includes('time')) {
+          estimatedLaborHours += Number(ci.quantity) || 0;
+        }
       }
     }
 

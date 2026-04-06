@@ -1976,6 +1976,7 @@ export async function getDocumentCostItemsForJob(jobId: string): Promise<JTCostI
                 id: {},
                 name: {},
                 cost: {},
+                price: {},
                 quantity: {},
                 costType: { name: {} },
                 costCode: { name: {}, number: {} },
