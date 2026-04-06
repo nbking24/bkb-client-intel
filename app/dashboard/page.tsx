@@ -1094,13 +1094,14 @@ export default function DashboardOverview() {
       const res = await fetch('/api/dashboard/create-task', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ jobId: stNewTaskJob, taskName: stNewTaskName.trim(), phaseName: stNewTaskPhase, endDate: stNewTaskDate || undefined, description: stNewTaskNote.trim() || undefined, fileUrls: fileUrls.length > 0 ? fileUrls : undefined }),
+        body: JSON.stringify({ jobId: stNewTaskJob, taskName: stNewTaskName.trim(), phaseName: stNewTaskPhase, endDate: stNewTaskDate || undefined, description: stNewTaskNote.trim() || undefined, fileUrls: fileUrls.length > 0 ? fileUrls : undefined, assigneeId: stNewTaskAssignee || undefined }),
       });
       if (!res.ok) throw new Error(await res.text());
       const data = await res.json();
       if (overview && data.task) {
         const mj = overview.data.activeJobs?.find((j: any) => j.id === stNewTaskJob);
-        setOverview({ ...overview, data: { ...overview.data, tasks: [...(overview.data.tasks || []), { id: data.task.id, name: stNewTaskName.trim(), jobName: mj ? mj.name : '', jobId: stNewTaskJob, jobNumber: mj ? String(mj.number) : '', endDate: stNewTaskDate || null, startDate: stNewTaskDate || null, progress: 0, urgency: 'normal', assignee: '', daysUntilDue: stNewTaskDate ? Math.ceil((new Date(stNewTaskDate).getTime() - Date.now()) / 86400000) : null } as any] } });
+        const assigneeName = TEAM_ASSIGNEES.find(a => a.id === stNewTaskAssignee)?.name || '';
+        setOverview({ ...overview, data: { ...overview.data, tasks: [...(overview.data.tasks || []), { id: data.task.id, name: stNewTaskName.trim(), jobName: mj ? mj.name : '', jobId: stNewTaskJob, jobNumber: mj ? String(mj.number) : '', endDate: stNewTaskDate || null, startDate: stNewTaskDate || null, progress: 0, urgency: 'normal', assignee: assigneeName, daysUntilDue: stNewTaskDate ? Math.ceil((new Date(stNewTaskDate).getTime() - Date.now()) / 86400000) : null } as any] } });
       }
       setStNewTaskName(''); setStNewTaskJob(''); setStNewTaskPhase(''); setStNewTaskDate(''); setStNewTaskAssignee(''); setStNewTaskNote(''); setStNewTaskFiles([]);
       setPanelTab('waitingOn');

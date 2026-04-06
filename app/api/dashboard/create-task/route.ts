@@ -15,7 +15,7 @@ export const maxDuration = 30;
 
 export async function POST(req: NextRequest) {
   try {
-    const { jobId, taskName, phaseName, endDate, description, fileUrls } = await req.json();
+    const { jobId, taskName, phaseName, endDate, description, fileUrls, assigneeId } = await req.json();
 
     if (!jobId || !taskName || !phaseName) {
       return NextResponse.json(
@@ -60,6 +60,7 @@ export async function POST(req: NextRequest) {
       name: taskName,
       ...(endDate ? { endDate } : {}),
       ...(description ? { description } : {}),
+      ...(assigneeId ? { assignedMembershipIds: [assigneeId] } : {}),
     });
 
     // 3. Attach files to the task if provided
