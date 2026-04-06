@@ -794,16 +794,6 @@ export default function DashboardOverview() {
   // Helper: detect ⏳ prefix (handles both proper Unicode U+23F3 and garbled UTF-8 bytes \u00e2\u008f\u00b3)
   const isWaitingOn = (name: string) => name.startsWith('⏳') || name.startsWith('\u00e2\u008f\u00b3');
   const stripWoPrefix = (name: string) => name.replace(/^⏳\s*/, '').replace(/^\u00e2\u008f\u00b3\s*/, '');
-  // Helper: detect tasks that represent meetings needing to be scheduled
-  const isMeetingToSchedule = (name: string) => {
-    // Already scheduled via GHL (📅 prefix) — skip
-    if (name.startsWith('📅')) return false;
-    // Already a waiting-on item — skip
-    if (isWaitingOn(name)) return false;
-    const lower = name.toLowerCase();
-    const keywords = ['schedule', 'meeting', 'coordinate', 'call', 'walkthrough', 'walk-through', 'site visit', 'on-site', 'onsite', 'pre-con', 'precon', 'design review'];
-    return keywords.some(kw => lower.includes(kw));
-  };
 
   const auth = useAuth();
   const isMobile = false; // Desktop-only dashboard
@@ -872,7 +862,6 @@ export default function DashboardOverview() {
   const [editingWoDateId, setEditingWoDateId] = useState<string | null>(null);
   const [editingWoDateVal, setEditingWoDateVal] = useState('');
   const [savingWoDate, setSavingWoDate] = useState(false);
-  const [mtsCollapsed, setMtsCollapsed] = useState(false);
 
   // Schedule Meeting state
   const [smCalendars, setSmCalendars] = useState<any[]>([]);
@@ -2236,7 +2225,6 @@ export default function DashboardOverview() {
       {(() => {
         const todayDue = tasks.filter(t => t.daysUntilDue !== null && t.daysUntilDue === 0);
         const overdueCount = overdueTasks.length;
-        const mtsCount = tasks.filter(t => isMeetingToSchedule(t.name)).length;
         const woCount = tasks.filter(t => isWaitingOn(t.name)).length;
         // Pick the single most actionable item
         let focusItem: { label: string; color: string } | null = null;
@@ -2245,14 +2233,10 @@ export default function DashboardOverview() {
           focusItem = { label: `${worst.name.replace(/^[^\w]*/, '').substring(0, 50)} — ${worst.jobName}`, color: '#ef4444' };
         } else if (todayDue.length > 0) {
           focusItem = { label: `${todayDue[0].name.replace(/^[^\w]*/, '').substring(0, 50)} — ${todayDue[0].jobName}`, color: '#f59e0b' };
-        } else if (mtsCount > 0) {
-          const mtsFirst = tasks.find(t => isMeetingToSchedule(t.name));
-          if (mtsFirst) focusItem = { label: `${mtsFirst.name.replace(/^[^\w]*/, '').substring(0, 50)} — ${mtsFirst.jobName}`, color: '#3b82f6' };
         }
         const bullets: Array<{ emoji: string; text: string; color: string }> = [];
         if (overdueCount > 0) bullets.push({ emoji: '🔴', text: `${overdueCount} overdue task${overdueCount !== 1 ? 's' : ''}`, color: '#ef4444' });
         if (todayDue.length > 0) bullets.push({ emoji: '📋', text: `${todayDue.length} task${todayDue.length !== 1 ? 's' : ''} due today`, color: '#f59e0b' });
-        if (mtsCount > 0) bullets.push({ emoji: '📅', text: `${mtsCount} meeting${mtsCount !== 1 ? 's' : ''} to schedule`, color: '#3b82f6' });
         if (woCount > 0) bullets.push({ emoji: '⏳', text: `${woCount} waiting-on item${woCount !== 1 ? 's' : ''}`, color: '#eab308' });
         // Day-aware weekly rhythm nudge
         const dayNudges: Record<number, string> = {
@@ -2456,83 +2440,6 @@ export default function DashboardOverview() {
         );
       })()}
 
-      {/* MEETINGS TO SCHEDULE — backlog of unscheduled meeting tasks */}
-      {(() => {
-        const mtsItems = tasks.filter(t => isMeetingToSchedule(t.name));
-        if (mtsItems.length === 0) return null;
-        const sorted = [...mtsItems].sort((a, b) => {
-          if (!a.endDate && !b.endDate) return 0;
-          if (!a.endDate) return -1;
-          if (!b.endDate) return 1;
-          return a.endDate.localeCompare(b.endDate);
-        });
-        return (
-          <div style={{ background: 'rgba(96,165,250,0.06)', border: '1px solid rgba(96,165,250,0.15)', borderRadius: 8, padding: '8px 10px', marginBottom: isTouch ? 10 : 6 }}>
-            <button
-              onClick={() => setMtsCollapsed(!mtsCollapsed)}
-              style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', width: '100%', background: 'none', border: 'none', cursor: 'pointer', padding: 0, marginBottom: mtsCollapsed ? 0 : 6 }}
-            >
-              <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
-                <Calendar size={12} style={{ color: '#60a5fa' }} />
-                <span style={{ fontSize: 11, fontWeight: 600, color: '#60a5fa', letterSpacing: '0.04em' }}>
-                  MEETINGS TO SCHEDULE ({mtsItems.length})
-                </span>
-              </div>
-              {mtsCollapsed ? <ChevronDown size={14} style={{ color: '#60a5fa' }} /> : <ChevronUp size={14} style={{ color: '#60a5fa' }} />}
-            </button>
-            {!mtsCollapsed && sorted.slice(0, 8).map((t, i) => {
-              const jobLabel = t.jobName ? t.jobName.replace(/^#\d+\s*/, '') : '';
-              const hasDue = !!t.endDate;
-              const dueLabel = hasDue
-                ? (() => {
-                    const d = t.daysUntilDue;
-                    if (d === null) return '';
-                    if (d < 0) return `${Math.abs(d)}d overdue`;
-                    if (d === 0) return 'today';
-                    return `in ${d}d`;
-                  })()
-                : 'no date';
-              const dueColor = !hasDue ? '#5a5550' : (t.daysUntilDue !== null && t.daysUntilDue < 0) ? '#ef4444' : (t.daysUntilDue !== null && t.daysUntilDue <= 3) ? '#eab308' : '#6a6058';
-              return (
-                <div key={t.id || i} style={{ display: 'flex', alignItems: 'center', gap: 4, padding: '4px 6px', borderRadius: 6, marginBottom: 2, background: (t.daysUntilDue !== null && t.daysUntilDue < 0) ? 'rgba(239,68,68,0.06)' : 'transparent' }}>
-                  <button
-                    onClick={() => completeTask(t.id)}
-                    disabled={completingTaskId === t.id}
-                    title="Mark complete"
-                    style={{ background: 'none', border: '1px solid rgba(96,165,250,0.25)', borderRadius: '50%', width: 16, height: 16, display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer', flexShrink: 0, padding: 0, opacity: completingTaskId === t.id ? 0.4 : 1 }}
-                  >
-                    {completingTaskId === t.id ? <Loader2 size={10} style={{ color: '#60a5fa' }} className="animate-spin" /> : <Check size={10} style={{ color: '#6a6058' }} />}
-                  </button>
-                  <div style={{ flex: 1, minWidth: 0, overflow: 'hidden' }}>
-                    <span style={{ fontSize: 13, color: '#e8e0d8', display: 'block', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' as const }}>{t.name}</span>
-                    {jobLabel && <span style={{ fontSize: 11, color: '#5a5550' }}>{jobLabel}</span>}
-                  </div>
-                  <span style={{ fontSize: 11, color: dueColor, flexShrink: 0, whiteSpace: 'nowrap' as const }}>{dueLabel}</span>
-                  <button
-                    onClick={() => {
-                      setShowWaitingOnPanel(true);
-                      setPanelTab('scheduleMeeting');
-                      setSmJobId(t.jobId || '');
-                      setSmTitle(t.name);
-                      if (t.jobId) fetchJobContacts(t.jobId);
-                    }}
-                    title="Schedule this meeting"
-                    style={{ background: 'rgba(96,165,250,0.15)', border: '1px solid rgba(96,165,250,0.2)', borderRadius: 4, padding: '2px 8px', cursor: 'pointer', flexShrink: 0, display: 'flex', alignItems: 'center', gap: 3 }}
-                  >
-                    <Calendar size={11} style={{ color: '#60a5fa' }} />
-                    <span style={{ fontSize: 11, color: '#60a5fa', fontWeight: 600 }}>Schedule</span>
-                  </button>
-                </div>
-              );
-            })}
-            {sorted.length > 8 && !mtsCollapsed && (
-              <div style={{ textAlign: 'center', padding: '4px 0' }}>
-                <span style={{ fontSize: 11, color: '#5a5550' }}>+{sorted.length - 8} more</span>
-              </div>
-            )}
-          </div>
-        );
-      })()}
 
       {/* OUTSTANDING INVOICES — expandable from KPI card click */}
       {showSection === 'invoices' && (
