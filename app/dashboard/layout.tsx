@@ -161,11 +161,11 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
         </div>
       </header>
 
-      <div className="flex">
-        {/* Sidebar */}
+      <div>
+        {/* Sidebar — fixed on all screen sizes to avoid layout gaps */}
         <aside
           className={`
-            fixed md:sticky top-14 left-0 z-40 h-[calc(100vh-3.5rem)] w-56
+            fixed top-14 left-0 z-40 h-[calc(100vh-3.5rem)] w-56
             transition-transform duration-200 ease-in-out
             ${sidebarOpen ? 'translate-x-0' : '-translate-x-full md:translate-x-0'}
           `}
@@ -207,8 +207,8 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
           </div>
         </aside>
 
-        {/* Main content */}
-        <main className="flex-1 min-h-[calc(100vh-3.5rem)] p-4 md:p-6 max-w-7xl">
+        {/* Main content — offset by sidebar width on desktop */}
+        <main className="min-h-[calc(100vh-3.5rem)] p-4 md:p-6 md:ml-56 max-w-7xl">
           {children}
         </main>
       </div>
