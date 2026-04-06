@@ -276,9 +276,16 @@ export default function JobCostingDashboard() {
                   <BarChart3 size={16} style={{ color: '#C9A84C' }} />
                   <span className="text-sm font-semibold" style={{ color: '#C9A84C' }}>AI Cost Analysis</span>
                 </div>
-                <p className="text-sm whitespace-pre-wrap" style={{ color: '#d0c8c0', lineHeight: '1.7' }}>
-                  {detail.aiAnalysis}
-                </p>
+                <div className="text-sm" style={{ color: '#d0c8c0', lineHeight: '1.7' }}
+                  dangerouslySetInnerHTML={{
+                    __html: detail.aiAnalysis
+                      .replace(/\*\*(.+?)\*\*/g, '<strong style="color:#e8e0d8">$1</strong>')
+                      .replace(/^### (.+)$/gm, '<div style="font-weight:600;color:#C9A84C;margin-top:0.75rem">$1</div>')
+                      .replace(/^## (.+)$/gm, '<div style="font-weight:600;color:#C9A84C;margin-top:0.75rem">$1</div>')
+                      .replace(/^# (.+)$/gm, '<div style="font-weight:600;color:#C9A84C;margin-top:0.75rem">$1</div>')
+                      .replace(/\n/g, '<br/>')
+                  }}
+                />
               </div>
             )}
 
