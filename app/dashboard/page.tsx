@@ -201,7 +201,7 @@ function JobSearchDropdown({ jobs, value, onChange, placeholder = 'Search jobs..
         onClick={() => { setOpen(!open); setTimeout(() => inputRef.current?.focus(), 50); }}
         style={{
           width: '100%', background: '#1a1a1a', border: '1px solid rgba(205,162,116,0.15)',
-          borderRadius: 5, color: value ? '#CDA274' : '#5a5550', fontSize: 11,
+          borderRadius: 5, color: value ? '#CDA274' : '#5a5550', fontSize: 13,
           padding: '7px 8px', cursor: 'pointer', boxSizing: 'border-box' as const,
           display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 4,
           minHeight: 32,
@@ -210,7 +210,7 @@ function JobSearchDropdown({ jobs, value, onChange, placeholder = 'Search jobs..
         <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' as const }}>
           {selectedJob ? label(selectedJob) : placeholder.replace('Search ', 'Select ')}
         </span>
-        <ChevronDown size={11} style={{ color: '#5a5550', flexShrink: 0 }} />
+        <ChevronDown size={13} style={{ color: '#5a5550', flexShrink: 0 }} />
       </div>
       {open && (
         <div style={{
@@ -220,7 +220,7 @@ function JobSearchDropdown({ jobs, value, onChange, placeholder = 'Search jobs..
           maxHeight: 220, display: 'flex', flexDirection: 'column',
         }}>
           <div style={{ padding: '6px 8px', borderBottom: '1px solid rgba(205,162,116,0.08)', display: 'flex', alignItems: 'center', gap: 6 }}>
-            <Search size={11} style={{ color: '#5a5550', flexShrink: 0 }} />
+            <Search size={13} style={{ color: '#5a5550', flexShrink: 0 }} />
             <input
               ref={inputRef}
               type="text"
@@ -230,13 +230,13 @@ function JobSearchDropdown({ jobs, value, onChange, placeholder = 'Search jobs..
               autoFocus
               style={{
                 flex: 1, background: 'transparent', border: 'none', outline: 'none',
-                color: '#e0e0d8', fontSize: 11, padding: 0,
+                color: '#e0e0d8', fontSize: 13, padding: 0,
               }}
             />
             {search && (
               <button onClick={(e) => { e.stopPropagation(); setSearch(''); }}
                 style={{ background: 'none', border: 'none', cursor: 'pointer', padding: 0, lineHeight: 0 }}>
-                <X size={10} style={{ color: '#5a5550' }} />
+                <X size={12} style={{ color: '#5a5550' }} />
               </button>
             )}
           </div>
@@ -245,7 +245,7 @@ function JobSearchDropdown({ jobs, value, onChange, placeholder = 'Search jobs..
               <div
                 onClick={() => { onChange(''); setOpen(false); setSearch(''); }}
                 style={{
-                  padding: '6px 10px', fontSize: 11, color: '#5a5550', cursor: 'pointer',
+                  padding: '6px 10px', fontSize: 13, color: '#5a5550', cursor: 'pointer',
                   borderBottom: '1px solid rgba(205,162,116,0.05)',
                 }}
                 onMouseEnter={e => (e.currentTarget.style.background = 'rgba(205,162,116,0.06)')}
@@ -255,7 +255,7 @@ function JobSearchDropdown({ jobs, value, onChange, placeholder = 'Search jobs..
               </div>
             )}
             {filtered.length === 0 ? (
-              <div style={{ padding: '12px 10px', fontSize: 11, color: '#5a5550', textAlign: 'center' as const }}>
+              <div style={{ padding: '12px 10px', fontSize: 13, color: '#5a5550', textAlign: 'center' as const }}>
                 No jobs match &ldquo;{search}&rdquo;
               </div>
             ) : (
@@ -264,7 +264,7 @@ function JobSearchDropdown({ jobs, value, onChange, placeholder = 'Search jobs..
                   key={j.id}
                   onClick={() => { onChange(j.id); setOpen(false); setSearch(''); }}
                   style={{
-                    padding: '6px 10px', fontSize: 11, cursor: 'pointer',
+                    padding: '6px 10px', fontSize: 13, cursor: 'pointer',
                     color: j.id === value ? '#CDA274' : '#c8c0b8',
                     background: j.id === value ? 'rgba(205,162,116,0.08)' : 'transparent',
                   }}
@@ -293,11 +293,11 @@ function RenderContent({ content }: { content: string }) {
       {(elements as any[]).map((el: any) => {
         if (el.type === 'code') {
           return (
-            <pre key={el.key} style={{ background: '#1a1a1a', border: '1px solid rgba(205,162,116,0.1)', borderRadius: 6, padding: '6px 8px', fontSize: 11, color: '#c8c0b8', overflowX: 'auto', whiteSpace: 'pre-wrap', margin: '4px 0', fontFamily: 'ui-monospace, SFMono-Regular, monospace' }}>{el.content}</pre>
+            <pre key={el.key} style={{ background: '#1a1a1a', border: '1px solid rgba(205,162,116,0.1)', borderRadius: 6, padding: '6px 8px', fontSize: 13, color: '#c8c0b8', overflowX: 'auto', whiteSpace: 'pre-wrap', margin: '4px 0', fontFamily: 'ui-monospace, SFMono-Regular, monospace' }}>{el.content}</pre>
           );
         }
-        if (el.type === 'h2') return <div key={el.key} style={{ fontWeight: 700, color: '#CDA274', fontSize: 13, marginTop: 6, marginBottom: 2 }} dangerouslySetInnerHTML={{ __html: el.html }} />;
-        if (el.type === 'h3') return <div key={el.key} style={{ fontWeight: 600, color: '#e8e0d8', fontSize: 12, marginTop: 4, marginBottom: 1 }} dangerouslySetInnerHTML={{ __html: el.html }} />;
+        if (el.type === 'h2') return <div key={el.key} style={{ fontWeight: 700, color: '#CDA274', fontSize: 15, marginTop: 6, marginBottom: 2 }} dangerouslySetInnerHTML={{ __html: el.html }} />;
+        if (el.type === 'h3') return <div key={el.key} style={{ fontWeight: 600, color: '#e8e0d8', fontSize: 14, marginTop: 4, marginBottom: 1 }} dangerouslySetInnerHTML={{ __html: el.html }} />;
         if (el.type === 'bullet') return <div key={el.key} style={{ marginLeft: 10 }} dangerouslySetInnerHTML={{ __html: '&bull; ' + el.html }} />;
         if (el.type === 'numbered') return <div key={el.key} style={{ marginLeft: 10 }} dangerouslySetInnerHTML={{ __html: el.html }} />;
         if (el.type === 'hr') return <hr key={el.key} style={{ border: 'none', borderTop: '1px solid rgba(205,162,116,0.1)', margin: '6px 0' }} />;
@@ -623,10 +623,10 @@ function InlineAskAgent({ pmJobs, screen, hideToggle, defaultOpen }: { pmJobs: {
                   return (
                     <div style={{ marginLeft: 24, marginTop: 6 }}>
                       <div style={{ background: '#1e293b', borderRadius: 8, padding: 10, marginBottom: 6, border: '1px solid rgba(59,130,246,0.2)' }}>
-                        <div style={{ fontSize: 12, fontWeight: 600, color: '#93c5fd', marginBottom: 6 }}>
+                        <div style={{ fontSize: 14, fontWeight: 600, color: '#93c5fd', marginBottom: 6 }}>
                           CO: {co.coName}
                         </div>
-                        <table style={{ width: '100%', fontSize: 10, borderCollapse: 'collapse' }}>
+                        <table style={{ width: '100%', fontSize: 12, borderCollapse: 'collapse' }}>
                           <thead>
                             <tr style={{ color: '#64748b', borderBottom: '1px solid rgba(100,116,139,0.2)' }}>
                               <th style={{ textAlign: 'left', padding: '2px 4px' }}>Item</th>
@@ -654,9 +654,9 @@ function InlineAskAgent({ pmJobs, screen, hideToggle, defaultOpen }: { pmJobs: {
                             </tr>
                           </tfoot>
                         </table>
-                        {co.createDocument && <div style={{ fontSize: 9, color: '#60a5fa', marginTop: 4 }}>+ Draft CO document will be created</div>}
-                        {co.followUp?.needed && <div style={{ fontSize: 9, color: '#f59e0b', marginTop: 2 }}>+ Follow-up task â {co.followUp.assignTo || 'Nathan'} by {co.followUp.dueDate || 'TBD'}</div>}
-                        {co.imageUrls && co.imageUrls.length > 0 && <div style={{ fontSize: 9, color: '#22c55e', marginTop: 2 }}>+ {co.imageUrls.length} photo(s) will be attached</div>}
+                        {co.createDocument && <div style={{ fontSize: 11, color: '#60a5fa', marginTop: 4 }}>+ Draft CO document will be created</div>}
+                        {co.followUp?.needed && <div style={{ fontSize: 11, color: '#f59e0b', marginTop: 2 }}>+ Follow-up task â {co.followUp.assignTo || 'Nathan'} by {co.followUp.dueDate || 'TBD'}</div>}
+                        {co.imageUrls && co.imageUrls.length > 0 && <div style={{ fontSize: 11, color: '#22c55e', marginTop: 2 }}>+ {co.imageUrls.length} photo(s) will be attached</div>}
                       </div>
                       <div style={{ display: 'flex', gap: isTouch ? 10 : 6 }}>
                         <button onClick={() => {
@@ -1515,25 +1515,25 @@ export default function DashboardOverview() {
 
   if (error && !overview) return (
     <div style={{ textAlign: 'center', padding: '60px 0' }}>
-      <p style={{ color: '#ef4444', fontSize: 13, marginBottom: 12 }}>{error}</p>
-      <button onClick={() => fetchOverview()} style={{ background: '#CDA274', color: '#1a1a1a', fontSize: 12, padding: '6px 16px', borderRadius: 6, border: 'none', cursor: 'pointer' }}>Retry</button>
+      <p style={{ color: '#ef4444', fontSize: 15, marginBottom: 12 }}>{error}</p>
+      <button onClick={() => fetchOverview()} style={{ background: '#CDA274', color: '#1a1a1a', fontSize: 14, padding: '6px 16px', borderRadius: 6, border: 'none', cursor: 'pointer' }}>Retry</button>
     </div>
   );
 
   if (!overview) return null;
 
   return (
-    <div style={{ maxWidth: 960, margin: '0 auto', padding: isMobile ? '0 12px' : '0 8px' }}>
+    <div style={{ maxWidth: 1200, margin: '0 auto', padding: isMobile ? '0 16px' : '0 24px' }}>
       {/* HEADER */}
       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: isTouch ? 10 : 6 }}>
         <div>
-          <h1 style={{ color: '#e8e0d8', fontSize: isTouch ? 22 : 18, fontWeight: 700, margin: 0 }}>{getGreeting()}, {firstName}</h1>
+          <h1 style={{ color: '#e8e0d8', fontSize: isTouch ? 24 : 22, fontWeight: 700, margin: 0 }}>{getGreeting()}, {firstName}</h1>
           {overview._cached && overview._cachedAt && (
-            <span style={{ fontSize: 10, color: '#5a5550' }}>Updated {timeAgo(overview._cachedAt)}</span>
+            <span style={{ fontSize: 12, color: '#5a5550' }}>Updated {timeAgo(overview._cachedAt)}</span>
           )}
         </div>
         <button onClick={() => fetchOverview(true)} disabled={refreshing} style={{ padding: 5, borderRadius: 6, background: 'rgba(205,162,116,0.08)', border: 'none', cursor: 'pointer', lineHeight: 0 }}>
-          <RefreshCw size={12} className={refreshing ? 'animate-spin' : ''} style={{ color: '#CDA274' }} />
+          <RefreshCw size={14} className={refreshing ? 'animate-spin' : ''} style={{ color: '#CDA274' }} />
         </button>
       </div>
 
@@ -1543,8 +1543,8 @@ export default function DashboardOverview() {
           style={{ flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6,
             background: showWaitingOnPanel ? 'rgba(205,162,116,0.08)' : '#1e1e1e', border: '1px solid rgba(205,162,116,0.08)', borderRadius: 8,
             padding: '7px 10px', cursor: 'pointer' }}>
-          <span style={{ fontSize: 13, color: '#CDA274' }}>+</span>
-          <span style={{ fontSize: 9, fontWeight: 600, color: '#CDA274', letterSpacing: '0.04em' }}>
+          <span style={{ fontSize: 15, color: '#CDA274' }}>+</span>
+          <span style={{ fontSize: 11, fontWeight: 600, color: '#CDA274', letterSpacing: '0.04em' }}>
             QUICK ADD
           </span>
         </button>
@@ -1552,8 +1552,8 @@ export default function DashboardOverview() {
           style={{ flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6,
             background: showAgentPanel ? 'rgba(205,162,116,0.08)' : '#1e1e1e', border: '1px solid rgba(205,162,116,0.08)', borderRadius: 8,
             padding: '7px 10px', cursor: 'pointer' }}>
-          <Bot size={12} style={{ color: '#CDA274' }} />
-          <span style={{ fontSize: 9, fontWeight: 600, color: '#CDA274', letterSpacing: '0.04em' }}>ASK AGENT</span>
+          <Bot size={14} style={{ color: '#CDA274' }} />
+          <span style={{ fontSize: 11, fontWeight: 600, color: '#CDA274', letterSpacing: '0.04em' }}>ASK AGENT</span>
         </button>
       </div>
       {showAgentPanel && <InlineAskAgent pmJobs={overview?.data?.activeJobs || []} screen={'desktop'} hideToggle defaultOpen />}
@@ -1579,21 +1579,21 @@ export default function DashboardOverview() {
 
 
               <div style={{ display: 'flex', borderBottom: '1px solid rgba(205,162,116,0.08)', flexShrink: 0 }}>
-                <button onClick={() => setPanelTab('newTask')} style={{ flex: 1, padding: '10px', background: 'none', border: 'none', borderBottom: panelTab === 'newTask' ? '2px solid #CDA274' : '2px solid transparent', color: panelTab === 'newTask' ? '#CDA274' : '#6a6058', fontSize: 13, fontWeight: 600, cursor: 'pointer' }}>New Task</button>
-                <button onClick={() => setPanelTab('waitingOn')} style={{ flex: 1, padding: '10px', background: 'none', border: 'none', borderBottom: panelTab === 'waitingOn' ? '2px solid #CDA274' : '2px solid transparent', color: panelTab === 'waitingOn' ? '#CDA274' : '#6a6058', fontSize: 13, fontWeight: 600, cursor: 'pointer' }}>Waiting On ({woTasks.length})</button>
-                <button onClick={() => setPanelTab('scheduleMeeting')} style={{ flex: 1, padding: '10px', background: 'none', border: 'none', borderBottom: panelTab === 'scheduleMeeting' ? '2px solid #CDA274' : '2px solid transparent', color: panelTab === 'scheduleMeeting' ? '#CDA274' : '#6a6058', fontSize: 13, fontWeight: 600, cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 4 }}><Calendar size={11} />Meeting</button>
+                <button onClick={() => setPanelTab('newTask')} style={{ flex: 1, padding: '10px', background: 'none', border: 'none', borderBottom: panelTab === 'newTask' ? '2px solid #CDA274' : '2px solid transparent', color: panelTab === 'newTask' ? '#CDA274' : '#6a6058', fontSize: 15, fontWeight: 600, cursor: 'pointer' }}>New Task</button>
+                <button onClick={() => setPanelTab('waitingOn')} style={{ flex: 1, padding: '10px', background: 'none', border: 'none', borderBottom: panelTab === 'waitingOn' ? '2px solid #CDA274' : '2px solid transparent', color: panelTab === 'waitingOn' ? '#CDA274' : '#6a6058', fontSize: 15, fontWeight: 600, cursor: 'pointer' }}>Waiting On ({woTasks.length})</button>
+                <button onClick={() => setPanelTab('scheduleMeeting')} style={{ flex: 1, padding: '10px', background: 'none', border: 'none', borderBottom: panelTab === 'scheduleMeeting' ? '2px solid #CDA274' : '2px solid transparent', color: panelTab === 'scheduleMeeting' ? '#CDA274' : '#6a6058', fontSize: 15, fontWeight: 600, cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 4 }}><Calendar size={13} />Meeting</button>
               </div>
               {/* Scrollable content */}
               <div style={{ maxHeight: '60vh', overflowY: 'auto', padding: '8px 12px' }}>
                 {panelTab === 'newTask' && (
                   <div style={{ padding: '4px 0' }}>
                     <div>
-                      <label style={{ fontSize: 9, color: '#6a6058', fontWeight: 600, display: 'block', marginBottom: 3 }}>TASK NAME</label>
+                      <label style={{ fontSize: 11, color: '#6a6058', fontWeight: 600, display: 'block', marginBottom: 3 }}>TASK NAME</label>
                       <input type="text" autoFocus placeholder="e.g. Order appliances" value={stNewTaskName} onChange={e => setStNewTaskName(e.target.value)}
-                        style={{ width: '100%', background: '#1a1a1a', border: '1px solid rgba(205,162,116,0.15)', borderRadius: 5, color: '#e0e0d8', fontSize: 12, padding: '7px 10px', outline: 'none', boxSizing: 'border-box' as const }} />
+                        style={{ width: '100%', background: '#1a1a1a', border: '1px solid rgba(205,162,116,0.15)', borderRadius: 5, color: '#e0e0d8', fontSize: 14, padding: '7px 10px', outline: 'none', boxSizing: 'border-box' as const }} />
                     </div>
                     <div style={{ marginTop: 8 }}>
-                      <label style={{ fontSize: 9, color: '#6a6058', fontWeight: 600, display: 'block', marginBottom: 3 }}>JOB</label>
+                      <label style={{ fontSize: 11, color: '#6a6058', fontWeight: 600, display: 'block', marginBottom: 3 }}>JOB</label>
                       <JobSearchDropdown
                         jobs={overview?.data?.activeJobs || []}
                         value={stNewTaskJob}
@@ -1603,46 +1603,46 @@ export default function DashboardOverview() {
                       />
                     </div>
                     <div style={{ marginTop: 8 }}>
-                      <label style={{ fontSize: 9, color: '#6a6058', fontWeight: 600, display: 'block', marginBottom: 3 }}>PHASE</label>
+                      <label style={{ fontSize: 11, color: '#6a6058', fontWeight: 600, display: 'block', marginBottom: 3 }}>PHASE</label>
                       <select value={stNewTaskPhase} onChange={e => setStNewTaskPhase(e.target.value)}
-                        style={{ width: '100%', background: '#1a1a1a', border: '1px solid rgba(205,162,116,0.15)', borderRadius: 5, color: stNewTaskPhase ? '#CDA274' : '#5a5550', fontSize: 11, padding: '7px 8px', outline: 'none', cursor: 'pointer', boxSizing: 'border-box' as const }}>
+                        style={{ width: '100%', background: '#1a1a1a', border: '1px solid rgba(205,162,116,0.15)', borderRadius: 5, color: stNewTaskPhase ? '#CDA274' : '#5a5550', fontSize: 13, padding: '7px 8px', outline: 'none', cursor: 'pointer', boxSizing: 'border-box' as const }}>
                         <option value="">Select phase...</option>
                         {BKB_PHASES.map(p => (<option key={p} value={p}>{p}</option>))}
                       </select>
                     </div>
                     <div style={{ marginTop: 8 }}>
-                      <label style={{ fontSize: 9, color: '#6a6058', fontWeight: 600, display: 'block', marginBottom: 3 }}>ASSIGN TO</label>
+                      <label style={{ fontSize: 11, color: '#6a6058', fontWeight: 600, display: 'block', marginBottom: 3 }}>ASSIGN TO</label>
                       <select value={stNewTaskAssignee} onChange={e => setStNewTaskAssignee(e.target.value)}
-                        style={{ width: '100%', background: '#1a1a1a', border: '1px solid rgba(205,162,116,0.15)', borderRadius: 5, color: stNewTaskAssignee ? '#CDA274' : '#5a5550', fontSize: 11, padding: '7px 8px', outline: 'none', cursor: 'pointer', boxSizing: 'border-box' as const }}>
+                        style={{ width: '100%', background: '#1a1a1a', border: '1px solid rgba(205,162,116,0.15)', borderRadius: 5, color: stNewTaskAssignee ? '#CDA274' : '#5a5550', fontSize: 13, padding: '7px 8px', outline: 'none', cursor: 'pointer', boxSizing: 'border-box' as const }}>
                         <option value="">Select assignee...</option>
                         {TEAM_ASSIGNEES.map((a: any) => (<option key={a.id} value={a.id}>{a.label}</option>))}
                       </select>
                     </div>
                     <div style={{ marginTop: 8 }}>
-                      <label style={{ fontSize: 9, color: '#6a6058', fontWeight: 600, display: 'block', marginBottom: 3 }}>DUE DATE</label>
+                      <label style={{ fontSize: 11, color: '#6a6058', fontWeight: 600, display: 'block', marginBottom: 3 }}>DUE DATE</label>
                       <input type="date" value={stNewTaskDate} onChange={e => setStNewTaskDate(e.target.value)}
-                        style={{ width: '100%', background: '#1a1a1a', border: '1px solid rgba(205,162,116,0.15)', borderRadius: 5, color: stNewTaskDate ? '#CDA274' : '#5a5550', fontSize: 11, padding: '7px 8px', outline: 'none', cursor: 'pointer', boxSizing: 'border-box' as const }} />
+                        style={{ width: '100%', background: '#1a1a1a', border: '1px solid rgba(205,162,116,0.15)', borderRadius: 5, color: stNewTaskDate ? '#CDA274' : '#5a5550', fontSize: 13, padding: '7px 8px', outline: 'none', cursor: 'pointer', boxSizing: 'border-box' as const }} />
                     </div>
                     <div style={{ marginTop: 8 }}>
-                      <label style={{ fontSize: 9, color: '#6a6058', fontWeight: 600, display: 'block', marginBottom: 3 }}>NOTE (OPTIONAL)</label>
+                      <label style={{ fontSize: 11, color: '#6a6058', fontWeight: 600, display: 'block', marginBottom: 3 }}>NOTE (OPTIONAL)</label>
                       <textarea placeholder="Add context or details..." value={stNewTaskNote} onChange={e => setStNewTaskNote(e.target.value)} rows={2}
-                        style={{ width: '100%', background: '#1a1a1a', border: '1px solid rgba(205,162,116,0.15)', borderRadius: 5, color: '#e8e0d8', fontSize: 11, padding: '7px 10px', outline: 'none', boxSizing: 'border-box' as const, resize: 'vertical' as const, fontFamily: 'inherit' }} />
+                        style={{ width: '100%', background: '#1a1a1a', border: '1px solid rgba(205,162,116,0.15)', borderRadius: 5, color: '#e8e0d8', fontSize: 13, padding: '7px 10px', outline: 'none', boxSizing: 'border-box' as const, resize: 'vertical' as const, fontFamily: 'inherit' }} />
                     </div>
                     <div style={{ marginTop: 8 }}>
-                      <label style={{ fontSize: 9, color: '#6a6058', fontWeight: 600, display: 'block', marginBottom: 3 }}>ATTACHMENTS (OPTIONAL)</label>
+                      <label style={{ fontSize: 11, color: '#6a6058', fontWeight: 600, display: 'block', marginBottom: 3 }}>ATTACHMENTS (OPTIONAL)</label>
                       <label style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '6px 10px', background: '#1a1a1a', border: '1px dashed rgba(205,162,116,0.2)', borderRadius: 5, cursor: 'pointer' }}>
-                        <Paperclip size={11} style={{ color: '#6a6058' }} />
-                        <span style={{ fontSize: 11, color: '#6a6058' }}>Add files (PDF, images, docs...)</span>
+                        <Paperclip size={13} style={{ color: '#6a6058' }} />
+                        <span style={{ fontSize: 13, color: '#6a6058' }}>Add files (PDF, images, docs...)</span>
                         <input type="file" multiple onChange={handleStFileSelect} accept=".pdf,.jpg,.jpeg,.png,.webp,.doc,.docx,.xls,.xlsx,.txt,.csv" style={{ display: 'none' }} />
                       </label>
                       {stNewTaskFiles.length > 0 && (
                         <div style={{ marginTop: 4, display: 'flex', flexDirection: 'column', gap: 2 }}>
                           {stNewTaskFiles.map((f, i) => (
                             <div key={i} style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '3px 8px', background: 'rgba(205,162,116,0.04)', borderRadius: 4 }}>
-                              {f.uploading ? <Loader2 size={10} className="animate-spin" style={{ color: '#CDA274' }} /> : f.error ? <XCircle size={10} style={{ color: '#ef4444' }} /> : <CheckCircle size={10} style={{ color: '#22c55e' }} />}
-                              <span style={{ fontSize: 10, color: f.error ? '#ef4444' : '#e8e0d8', flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' as const }}>{f.name}</span>
+                              {f.uploading ? <Loader2 size={12} className="animate-spin" style={{ color: '#CDA274' }} /> : f.error ? <XCircle size={12} style={{ color: '#ef4444' }} /> : <CheckCircle size={12} style={{ color: '#22c55e' }} />}
+                              <span style={{ fontSize: 12, color: f.error ? '#ef4444' : '#e8e0d8', flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' as const }}>{f.name}</span>
                               <button onClick={() => setStNewTaskFiles(prev => prev.filter((_, idx) => idx !== i))} style={{ background: 'none', border: 'none', cursor: 'pointer', padding: 0, lineHeight: 0 }}>
-                                <X size={10} style={{ color: '#5a5550' }} />
+                                <X size={12} style={{ color: '#5a5550' }} />
                               </button>
                             </div>
                           ))}
@@ -1653,7 +1653,7 @@ export default function DashboardOverview() {
                       style={{ marginTop: 12, width: '100%', padding: '10px', borderRadius: 6, border: 'none',
                         background: (!stNewTaskName.trim() || !stNewTaskJob || !stNewTaskPhase) ? '#333' : '#CDA274',
                         color: (!stNewTaskName.trim() || !stNewTaskJob || !stNewTaskPhase) ? '#666' : '#1a1a1a',
-                        fontWeight: 600, fontSize: 12,
+                        fontWeight: 600, fontSize: 14,
                         cursor: (!stNewTaskName.trim() || !stNewTaskJob || !stNewTaskPhase) ? 'default' : 'pointer',
                         opacity: creatingSt ? 0.5 : 1 }}>
                       {creatingSt ? 'Creating...' : 'Create Task'}
@@ -1662,16 +1662,16 @@ export default function DashboardOverview() {
                 )}
                 {panelTab === 'waitingOn' && (
                   <div style={{ background: '#242424', border: '1px solid rgba(205,162,116,0.12)', borderRadius: 8, padding: 12, marginBottom: 10 }}>
-                    <div style={{ fontSize: 11, fontWeight: 600, color: '#CDA274', marginBottom: 8 }}>New Waiting On Item</div>
+                    <div style={{ fontSize: 13, fontWeight: 600, color: '#CDA274', marginBottom: 8 }}>New Waiting On Item</div>
                     <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
                       <div>
-                        <label style={{ fontSize: 9, color: '#6a6058', fontWeight: 600, display: 'block', marginBottom: 3 }}>WHAT ARE YOU WAITING ON?</label>
+                        <label style={{ fontSize: 11, color: '#6a6058', fontWeight: 600, display: 'block', marginBottom: 3 }}>WHAT ARE YOU WAITING ON?</label>
                         <input type="text" autoFocus placeholder="e.g. Approval on tile selection" value={woTaskName} onChange={e => setWoTaskName(e.target.value)}
-                          style={{ width: '100%', background: '#1a1a1a', border: '1px solid rgba(205,162,116,0.15)', borderRadius: 5, color: '#e8e0d8', fontSize: 12, padding: '7px 10px', outline: 'none', boxSizing: 'border-box' as const }} />
+                          style={{ width: '100%', background: '#1a1a1a', border: '1px solid rgba(205,162,116,0.15)', borderRadius: 5, color: '#e8e0d8', fontSize: 14, padding: '7px 10px', outline: 'none', boxSizing: 'border-box' as const }} />
                       </div>
                       <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8 }}>
                         <div>
-                          <label style={{ fontSize: 9, color: '#6a6058', fontWeight: 600, display: 'block', marginBottom: 3 }}>JOB</label>
+                          <label style={{ fontSize: 11, color: '#6a6058', fontWeight: 600, display: 'block', marginBottom: 3 }}>JOB</label>
                           <JobSearchDropdown
                             jobs={overview?.data?.activeJobs || []}
                             value={woJobId}
@@ -1680,9 +1680,9 @@ export default function DashboardOverview() {
                           />
                         </div>
                         <div>
-                          <label style={{ fontSize: 9, color: '#6a6058', fontWeight: 600, display: 'block', marginBottom: 3 }}>WHO?</label>
+                          <label style={{ fontSize: 11, color: '#6a6058', fontWeight: 600, display: 'block', marginBottom: 3 }}>WHO?</label>
                           <select value={woAssignee} onChange={e => setWoAssignee(e.target.value)}
-                            style={{ width: '100%', background: '#1a1a1a', border: '1px solid rgba(205,162,116,0.15)', borderRadius: 5, color: woAssignee ? '#CDA274' : '#5a5550', fontSize: 11, padding: '7px 8px', outline: 'none', cursor: 'pointer', boxSizing: 'border-box' as const }}>
+                            style={{ width: '100%', background: '#1a1a1a', border: '1px solid rgba(205,162,116,0.15)', borderRadius: 5, color: woAssignee ? '#CDA274' : '#5a5550', fontSize: 13, padding: '7px 8px', outline: 'none', cursor: 'pointer', boxSizing: 'border-box' as const }}>
                             <option value="">Select person...</option>
                             {TEAM_ASSIGNEES.map((a: any) => (<option key={a.id} value={a.id}>{a.label}</option>))}
                           </select>
@@ -1690,22 +1690,22 @@ export default function DashboardOverview() {
                       </div>
                       <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8 }}>
                         <div>
-                          <label style={{ fontSize: 9, color: '#6a6058', fontWeight: 600, display: 'block', marginBottom: 3 }}>FOLLOW UP BY</label>
+                          <label style={{ fontSize: 11, color: '#6a6058', fontWeight: 600, display: 'block', marginBottom: 3 }}>FOLLOW UP BY</label>
                           <input type="date" value={woDate} onChange={e => setWoDate(e.target.value)}
-                            style={{ width: '100%', background: '#1a1a1a', border: '1px solid rgba(205,162,116,0.15)', borderRadius: 5, color: '#e8e0d8', fontSize: 11, padding: '7px 8px', colorScheme: 'dark', outline: 'none', boxSizing: 'border-box' as const }} />
-                          <div style={{ fontSize: 8, color: '#5a5550', marginTop: 2 }}>Default: 3 business days</div>
+                            style={{ width: '100%', background: '#1a1a1a', border: '1px solid rgba(205,162,116,0.15)', borderRadius: 5, color: '#e8e0d8', fontSize: 13, padding: '7px 8px', colorScheme: 'dark', outline: 'none', boxSizing: 'border-box' as const }} />
+                          <div style={{ fontSize: 10, color: '#5a5550', marginTop: 2 }}>Default: 3 business days</div>
                         </div>
                         <div>
-                          <label style={{ fontSize: 9, color: '#6a6058', fontWeight: 600, display: 'block', marginBottom: 3 }}>NOTE (OPTIONAL)</label>
+                          <label style={{ fontSize: 11, color: '#6a6058', fontWeight: 600, display: 'block', marginBottom: 3 }}>NOTE (OPTIONAL)</label>
                           <input type="text" placeholder="Context..." value={woDescription} onChange={e => setWoDescription(e.target.value)}
-                            style={{ width: '100%', background: '#1a1a1a', border: '1px solid rgba(205,162,116,0.15)', borderRadius: 5, color: '#e8e0d8', fontSize: 11, padding: '7px 8px', outline: 'none', boxSizing: 'border-box' as const }} />
+                            style={{ width: '100%', background: '#1a1a1a', border: '1px solid rgba(205,162,116,0.15)', borderRadius: 5, color: '#e8e0d8', fontSize: 13, padding: '7px 8px', outline: 'none', boxSizing: 'border-box' as const }} />
                         </div>
                       </div>
                       <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end', marginTop: 2 }}>
                         <button onClick={() => { setShowWaitingOnForm(false); setShowWaitingOnPanel(false); }}
-                          style={{ fontSize: 11, color: '#6a6058', background: 'transparent', border: '1px solid rgba(205,162,116,0.1)', borderRadius: 5, padding: '5px 12px', cursor: 'pointer' }}>Cancel</button>
+                          style={{ fontSize: 13, color: '#6a6058', background: 'transparent', border: '1px solid rgba(205,162,116,0.1)', borderRadius: 5, padding: '5px 12px', cursor: 'pointer' }}>Cancel</button>
                         <button onClick={createWaitingOnTask} disabled={!woTaskName.trim() || !woJobId || !woAssignee || creatingWo}
-                          style={{ fontSize: 11, fontWeight: 600, borderRadius: 5, padding: '5px 14px', border: 'none',
+                          style={{ fontSize: 13, fontWeight: 600, borderRadius: 5, padding: '5px 14px', border: 'none',
                             cursor: (woTaskName.trim() && woJobId && woAssignee && !creatingWo) ? 'pointer' : 'default',
                             background: (woTaskName.trim() && woJobId && woAssignee) ? '#CDA274' : 'rgba(205,162,116,0.2)',
                             color: (woTaskName.trim() && woJobId && woAssignee) ? '#1a1a1a' : '#6a6058', opacity: creatingWo ? 0.5 : 1 }}>
@@ -1718,26 +1718,26 @@ export default function DashboardOverview() {
                 {panelTab === 'scheduleMeeting' && (
                   <div style={{ padding: '4px 0' }}>
                     {smSuccess && (
-                      <div style={{ background: 'rgba(34,197,94,0.1)', border: '1px solid rgba(34,197,94,0.3)', borderRadius: 6, padding: '8px 12px', marginBottom: 8, fontSize: 11, color: '#22c55e', display: 'flex', alignItems: 'center', gap: 6 }}>
-                        <CheckCircle size={13} /> {smSuccess}
+                      <div style={{ background: 'rgba(34,197,94,0.1)', border: '1px solid rgba(34,197,94,0.3)', borderRadius: 6, padding: '8px 12px', marginBottom: 8, fontSize: 13, color: '#22c55e', display: 'flex', alignItems: 'center', gap: 6 }}>
+                        <CheckCircle size={15} /> {smSuccess}
                       </div>
                     )}
                     <div>
-                      <label style={{ fontSize: 9, color: '#6a6058', fontWeight: 600, display: 'block', marginBottom: 3 }}>MEETING TYPE</label>
+                      <label style={{ fontSize: 11, color: '#6a6058', fontWeight: 600, display: 'block', marginBottom: 3 }}>MEETING TYPE</label>
                       <select value={smCalendarId} onChange={e => { setSmCalendarId(e.target.value); const mt = MEETING_TYPES.find(m => m.id === e.target.value); if (mt) setSmDuration(mt.duration); }}
-                        style={{ width: '100%', background: '#1a1a1a', border: '1px solid rgba(205,162,116,0.15)', borderRadius: 5, color: smCalendarId ? '#CDA274' : '#5a5550', fontSize: 11, padding: '7px 8px', outline: 'none', cursor: 'pointer', boxSizing: 'border-box' as const }}>
+                        style={{ width: '100%', background: '#1a1a1a', border: '1px solid rgba(205,162,116,0.15)', borderRadius: 5, color: smCalendarId ? '#CDA274' : '#5a5550', fontSize: 13, padding: '7px 8px', outline: 'none', cursor: 'pointer', boxSizing: 'border-box' as const }}>
                         <option value="">Select meeting type...</option>
                         {MEETING_TYPES.map(mt => (<option key={mt.id} value={mt.id}>{mt.label} ({mt.duration} min)</option>))}
                       </select>
                     </div>
                     <div style={{ marginTop: 8 }}>
-                      <label style={{ fontSize: 9, color: '#6a6058', fontWeight: 600, display: 'block', marginBottom: 3 }}>MEETING TITLE</label>
+                      <label style={{ fontSize: 11, color: '#6a6058', fontWeight: 600, display: 'block', marginBottom: 3 }}>MEETING TITLE</label>
                       <input type="text" autoFocus placeholder="e.g. Smith Kitchen - Design Review" value={smTitle} onChange={e => setSmTitle(e.target.value)}
-                        style={{ width: '100%', background: '#1a1a1a', border: '1px solid rgba(205,162,116,0.15)', borderRadius: 5, color: '#e0e0d8', fontSize: 12, padding: '7px 10px', outline: 'none', boxSizing: 'border-box' as const }} />
+                        style={{ width: '100%', background: '#1a1a1a', border: '1px solid rgba(205,162,116,0.15)', borderRadius: 5, color: '#e0e0d8', fontSize: 14, padding: '7px 10px', outline: 'none', boxSizing: 'border-box' as const }} />
                     </div>
                     <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8, marginTop: 8 }}>
                       <div>
-                        <label style={{ fontSize: 9, color: '#6a6058', fontWeight: 600, display: 'block', marginBottom: 3 }}>JOB</label>
+                        <label style={{ fontSize: 11, color: '#6a6058', fontWeight: 600, display: 'block', marginBottom: 3 }}>JOB</label>
                         <JobSearchDropdown
                           jobs={overview?.data?.activeJobs || []}
                           value={smJobId}
@@ -1746,9 +1746,9 @@ export default function DashboardOverview() {
                         />
                       </div>
                       <div>
-                        <label style={{ fontSize: 9, color: '#6a6058', fontWeight: 600, display: 'block', marginBottom: 3 }}>BKB ATTENDEE</label>
+                        <label style={{ fontSize: 11, color: '#6a6058', fontWeight: 600, display: 'block', marginBottom: 3 }}>BKB ATTENDEE</label>
                         <select value={smAssignee} onChange={e => setSmAssignee(e.target.value)}
-                          style={{ width: '100%', background: '#1a1a1a', border: '1px solid rgba(205,162,116,0.15)', borderRadius: 5, color: smAssignee ? '#CDA274' : '#5a5550', fontSize: 11, padding: '7px 8px', outline: 'none', cursor: 'pointer', boxSizing: 'border-box' as const }}>
+                          style={{ width: '100%', background: '#1a1a1a', border: '1px solid rgba(205,162,116,0.15)', borderRadius: 5, color: smAssignee ? '#CDA274' : '#5a5550', fontSize: 13, padding: '7px 8px', outline: 'none', cursor: 'pointer', boxSizing: 'border-box' as const }}>
                           <option value="">Select attendee...</option>
                           {TEAM_ASSIGNEES.map((a: any) => (<option key={a.id} value={a.id}>{a.label}</option>))}
                         </select>
@@ -1757,11 +1757,11 @@ export default function DashboardOverview() {
                     {/* CONTACTS — who gets reminders */}
                     {smJobId && (
                       <div style={{ marginTop: 8, background: 'rgba(205,162,116,0.04)', borderRadius: 6, padding: '8px 10px', border: '1px solid rgba(205,162,116,0.08)' }}>
-                        <label style={{ fontSize: 9, color: '#6a6058', fontWeight: 600, display: 'block', marginBottom: 6 }}>WHO GETS REMINDERS?</label>
+                        <label style={{ fontSize: 11, color: '#6a6058', fontWeight: 600, display: 'block', marginBottom: 6 }}>WHO GETS REMINDERS?</label>
                         {smLoadingContacts ? (
-                          <div style={{ fontSize: 11, color: '#5a5550', display: 'flex', alignItems: 'center', gap: 6, padding: '4px 0' }}><Loader2 size={12} className="animate-spin" /> Loading contacts...</div>
+                          <div style={{ fontSize: 13, color: '#5a5550', display: 'flex', alignItems: 'center', gap: 6, padding: '4px 0' }}><Loader2 size={14} className="animate-spin" /> Loading contacts...</div>
                         ) : smJobContacts.length === 0 ? (
-                          <div style={{ fontSize: 10, color: '#5a5550', padding: '2px 0' }}>No contacts found for this job</div>
+                          <div style={{ fontSize: 12, color: '#5a5550', padding: '2px 0' }}>No contacts found for this job</div>
                         ) : (
                           <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
                             {smJobContacts.map((c: any) => (
@@ -1770,8 +1770,8 @@ export default function DashboardOverview() {
                                   onChange={() => c.ghlContactId && toggleContact(c.ghlContactId)}
                                   style={{ accentColor: '#CDA274', width: 14, height: 14, cursor: c.ghlContactId ? 'pointer' : 'default' }} />
                                 <div style={{ flex: 1, minWidth: 0 }}>
-                                  <div style={{ fontSize: 11, color: '#e8e0d8', fontWeight: 500 }}>{c.name}</div>
-                                  <div style={{ fontSize: 9, color: '#5a5550', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' as const }}>
+                                  <div style={{ fontSize: 13, color: '#e8e0d8', fontWeight: 500 }}>{c.name}</div>
+                                  <div style={{ fontSize: 11, color: '#5a5550', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' as const }}>
                                     {c.email || c.phone || 'No contact info'}{!c.ghlContactId && ' — not found in Loop'}
                                   </div>
                                 </div>
@@ -1788,11 +1788,11 @@ export default function DashboardOverview() {
                                   onChange={() => toggleContact(t.id)}
                                   style={{ accentColor: '#CDA274', width: 14, height: 14, cursor: 'pointer' }} />
                                 <div style={{ flex: 1, minWidth: 0 }}>
-                                  <div style={{ fontSize: 11, color: '#e8e0d8', fontWeight: 500 }}>{t.name} <span style={{ fontSize: 9, color: '#CDA274' }}>trade</span></div>
-                                  <div style={{ fontSize: 9, color: '#5a5550' }}>{t.email || t.phone || ''}</div>
+                                  <div style={{ fontSize: 13, color: '#e8e0d8', fontWeight: 500 }}>{t.name} <span style={{ fontSize: 11, color: '#CDA274' }}>trade</span></div>
+                                  <div style={{ fontSize: 11, color: '#5a5550' }}>{t.email || t.phone || ''}</div>
                                 </div>
                                 <button onClick={(e) => { e.preventDefault(); removeTradePartner(t.id); }} style={{ background: 'none', border: 'none', cursor: 'pointer', padding: 2, lineHeight: 0 }}>
-                                  <X size={11} style={{ color: '#5a5550' }} />
+                                  <X size={13} style={{ color: '#5a5550' }} />
                                 </button>
                               </label>
                             ))}
@@ -1803,16 +1803,16 @@ export default function DashboardOverview() {
                           <div style={{ display: 'flex', gap: 4 }}>
                             <input type="text" placeholder="+ Add trade partner (search name)..." value={smTradeSearch}
                               onChange={e => { setSmTradeSearch(e.target.value); if (e.target.value.length >= 2) searchTradePartner(e.target.value); else setSmTradeResults([]); }}
-                              style={{ flex: 1, background: '#1a1a1a', border: '1px solid rgba(205,162,116,0.12)', borderRadius: 5, color: '#e8e0d8', fontSize: 10, padding: '5px 8px', outline: 'none', boxSizing: 'border-box' as const }} />
-                            {smSearchingTrade && <Loader2 size={11} className="animate-spin" style={{ color: '#5a5550', position: 'absolute', right: 8, top: 7 }} />}
+                              style={{ flex: 1, background: '#1a1a1a', border: '1px solid rgba(205,162,116,0.12)', borderRadius: 5, color: '#e8e0d8', fontSize: 12, padding: '5px 8px', outline: 'none', boxSizing: 'border-box' as const }} />
+                            {smSearchingTrade && <Loader2 size={13} className="animate-spin" style={{ color: '#5a5550', position: 'absolute', right: 8, top: 7 }} />}
                           </div>
                           {smTradeResults.length > 0 && (
                             <div style={{ position: 'absolute', left: 0, right: 0, top: '100%', zIndex: 10, background: '#242424', border: '1px solid rgba(205,162,116,0.15)', borderRadius: 6, marginTop: 2, maxHeight: 120, overflowY: 'auto' }}>
                               {smTradeResults.map((r: any) => (
                                 <button key={r.id} onClick={() => addTradePartner(r)}
                                   style={{ width: '100%', display: 'flex', flexDirection: 'column', padding: '6px 10px', background: 'none', border: 'none', borderBottom: '1px solid rgba(205,162,116,0.06)', cursor: 'pointer', textAlign: 'left' as const }}>
-                                  <span style={{ fontSize: 11, color: '#e8e0d8' }}>{r.name}</span>
-                                  <span style={{ fontSize: 9, color: '#5a5550' }}>{r.email || r.phone || ''}</span>
+                                  <span style={{ fontSize: 13, color: '#e8e0d8' }}>{r.name}</span>
+                                  <span style={{ fontSize: 11, color: '#5a5550' }}>{r.email || r.phone || ''}</span>
                                 </button>
                               ))}
                             </div>
@@ -1822,50 +1822,50 @@ export default function DashboardOverview() {
                     )}
                     <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 80px', gap: 8, marginTop: 8 }}>
                       <div>
-                        <label style={{ fontSize: 9, color: '#6a6058', fontWeight: 600, display: 'block', marginBottom: 3 }}>DATE</label>
+                        <label style={{ fontSize: 11, color: '#6a6058', fontWeight: 600, display: 'block', marginBottom: 3 }}>DATE</label>
                         <input type="date" value={smDate} onChange={e => setSmDate(e.target.value)}
-                          style={{ width: '100%', background: '#1a1a1a', border: '1px solid rgba(205,162,116,0.15)', borderRadius: 5, color: smDate ? '#CDA274' : '#5a5550', fontSize: 11, padding: '7px 8px', outline: 'none', cursor: 'pointer', boxSizing: 'border-box' as const, colorScheme: 'dark' }} />
+                          style={{ width: '100%', background: '#1a1a1a', border: '1px solid rgba(205,162,116,0.15)', borderRadius: 5, color: smDate ? '#CDA274' : '#5a5550', fontSize: 13, padding: '7px 8px', outline: 'none', cursor: 'pointer', boxSizing: 'border-box' as const, colorScheme: 'dark' }} />
                       </div>
                       <div>
-                        <label style={{ fontSize: 9, color: '#6a6058', fontWeight: 600, display: 'block', marginBottom: 3 }}>TIME</label>
+                        <label style={{ fontSize: 11, color: '#6a6058', fontWeight: 600, display: 'block', marginBottom: 3 }}>TIME</label>
                         <input type="time" value={smTime} onChange={e => setSmTime(e.target.value)}
-                          style={{ width: '100%', background: '#1a1a1a', border: '1px solid rgba(205,162,116,0.15)', borderRadius: 5, color: '#CDA274', fontSize: 11, padding: '7px 8px', outline: 'none', cursor: 'pointer', boxSizing: 'border-box' as const, colorScheme: 'dark' }} />
+                          style={{ width: '100%', background: '#1a1a1a', border: '1px solid rgba(205,162,116,0.15)', borderRadius: 5, color: '#CDA274', fontSize: 13, padding: '7px 8px', outline: 'none', cursor: 'pointer', boxSizing: 'border-box' as const, colorScheme: 'dark' }} />
                       </div>
                       <div>
-                        <label style={{ fontSize: 9, color: '#6a6058', fontWeight: 600, display: 'block', marginBottom: 3 }}>MINS</label>
+                        <label style={{ fontSize: 11, color: '#6a6058', fontWeight: 600, display: 'block', marginBottom: 3 }}>MINS</label>
                         <input type="number" value={smDuration} onChange={e => setSmDuration(Number(e.target.value))} min={15} max={180} step={15}
-                          style={{ width: '100%', background: '#1a1a1a', border: '1px solid rgba(205,162,116,0.15)', borderRadius: 5, color: '#CDA274', fontSize: 11, padding: '7px 8px', outline: 'none', boxSizing: 'border-box' as const }} />
+                          style={{ width: '100%', background: '#1a1a1a', border: '1px solid rgba(205,162,116,0.15)', borderRadius: 5, color: '#CDA274', fontSize: 13, padding: '7px 8px', outline: 'none', boxSizing: 'border-box' as const }} />
                       </div>
                     </div>
                     <div style={{ marginTop: 8 }}>
-                      <label style={{ fontSize: 9, color: '#6a6058', fontWeight: 600, display: 'block', marginBottom: 3 }}>LOCATION / ADDRESS (OPTIONAL)</label>
+                      <label style={{ fontSize: 11, color: '#6a6058', fontWeight: 600, display: 'block', marginBottom: 3 }}>LOCATION / ADDRESS (OPTIONAL)</label>
                       <input type="text" placeholder="e.g. 123 Main St, Doylestown PA" value={smAddress} onChange={e => setSmAddress(e.target.value)}
-                        style={{ width: '100%', background: '#1a1a1a', border: '1px solid rgba(205,162,116,0.15)', borderRadius: 5, color: '#e8e0d8', fontSize: 11, padding: '7px 8px', outline: 'none', boxSizing: 'border-box' as const }} />
+                        style={{ width: '100%', background: '#1a1a1a', border: '1px solid rgba(205,162,116,0.15)', borderRadius: 5, color: '#e8e0d8', fontSize: 13, padding: '7px 8px', outline: 'none', boxSizing: 'border-box' as const }} />
                     </div>
                     <div style={{ marginTop: 8 }}>
-                      <label style={{ fontSize: 9, color: '#6a6058', fontWeight: 600, display: 'block', marginBottom: 3 }}>NOTES (OPTIONAL)</label>
+                      <label style={{ fontSize: 11, color: '#6a6058', fontWeight: 600, display: 'block', marginBottom: 3 }}>NOTES (OPTIONAL)</label>
                       <input type="text" placeholder="e.g. Bring sample tile selections" value={smNotes} onChange={e => setSmNotes(e.target.value)}
-                        style={{ width: '100%', background: '#1a1a1a', border: '1px solid rgba(205,162,116,0.15)', borderRadius: 5, color: '#e8e0d8', fontSize: 11, padding: '7px 8px', outline: 'none', boxSizing: 'border-box' as const }} />
+                        style={{ width: '100%', background: '#1a1a1a', border: '1px solid rgba(205,162,116,0.15)', borderRadius: 5, color: '#e8e0d8', fontSize: 13, padding: '7px 8px', outline: 'none', boxSizing: 'border-box' as const }} />
                     </div>
-                    <div style={{ marginTop: 8, padding: '6px 8px', background: 'rgba(205,162,116,0.04)', borderRadius: 6, fontSize: 10, color: '#6a6058', lineHeight: 1.5 }}>
+                    <div style={{ marginTop: 8, padding: '6px 8px', background: 'rgba(205,162,116,0.04)', borderRadius: 6, fontSize: 12, color: '#6a6058', lineHeight: 1.5 }}>
                       <span style={{ color: '#CDA274', fontWeight: 600 }}>How it works:</span> Creates the appointment in Loop (GHL) so auto-reminders fire, plus adds a schedule task in JobTread so the team sees it.
                     </div>
                     <button onClick={createScheduledMeeting} disabled={!smCalendarId || !smJobId || !smTitle.trim() || !smDate || !smTime || creatingSm}
                       style={{ marginTop: 12, width: '100%', padding: '10px', borderRadius: 6, border: 'none',
                         background: (!smCalendarId || !smJobId || !smTitle.trim() || !smDate || !smTime) ? '#333' : '#CDA274',
                         color: (!smCalendarId || !smJobId || !smTitle.trim() || !smDate || !smTime) ? '#666' : '#1a1a1a',
-                        fontWeight: 600, fontSize: 12, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6,
+                        fontWeight: 600, fontSize: 14, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6,
                         cursor: (!smCalendarId || !smJobId || !smTitle.trim() || !smDate || !smTime) ? 'default' : 'pointer',
                         opacity: creatingSm ? 0.5 : 1 }}>
-                      {creatingSm ? <><Loader2 size={13} className="animate-spin" /> Creating...</> : <><Calendar size={13} /> Schedule Meeting</>}
+                      {creatingSm ? <><Loader2 size={15} className="animate-spin" /> Creating...</> : <><Calendar size={15} /> Schedule Meeting</>}
                     </button>
                   </div>
                 )}
                 {sorted.length === 0 && panelTab !== 'waitingOn' && panelTab !== 'scheduleMeeting' && (
                   <div style={{ textAlign: 'center', padding: '30px 16px', color: '#5a5550' }}>
                     <Hourglass size={24} style={{ color: '#3a3a3a', marginBottom: 8 }} />
-                    <div style={{ fontSize: 12, marginBottom: 4 }}>No open items</div>
-                    <div style={{ fontSize: 10 }}>Select the Waiting On tab to start tracking</div>
+                    <div style={{ fontSize: 14, marginBottom: 4 }}>No open items</div>
+                    <div style={{ fontSize: 12 }}>Select the Waiting On tab to start tracking</div>
                   </div>
                 )}
                 {sorted.map((task: any) => {
@@ -1881,17 +1881,17 @@ export default function DashboardOverview() {
                       <div style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '7px 8px' }}>
                         <button onClick={() => completeWoTask(task.id)} disabled={isCompleting} title="Mark resolved"
                           style={{ width: 20, height: 20, borderRadius: '50%', border: `1.5px solid ${ac}`, background: 'transparent', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0, opacity: isCompleting ? 0.4 : 1 }}>
-                          {isCompleting ? <Loader2 size={10} className="animate-spin" style={{ color: '#8a8078' }} /> : <Check size={10} style={{ color: ac }} />}
+                          {isCompleting ? <Loader2 size={12} className="animate-spin" style={{ color: '#8a8078' }} /> : <Check size={12} style={{ color: ac }} />}
                         </button>
                         <button onClick={() => { if (isExpanded) { setExpandedWoTask(null); } else { setExpandedWoTask(task.id); fetchWoComments(task.id); } }}
                           style={{ flex: 1, minWidth: 0, display: 'flex', alignItems: 'center', gap: 4, background: 'none', border: 'none', cursor: 'pointer', textAlign: 'left' as const, padding: 0 }}>
                           <div style={{ flex: 1, minWidth: 0 }}>
-                            <div style={{ fontSize: 12, color: '#e8e0d8', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' as const, fontWeight: 500 }}>{displayName}</div>
-                            <div style={{ fontSize: 10, color: '#5a5550', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' as const }}>{task.jobName?.replace(/^#\d+\s*/, '') || ''}</div>
+                            <div style={{ fontSize: 14, color: '#e8e0d8', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' as const, fontWeight: 500 }}>{displayName}</div>
+                            <div style={{ fontSize: 12, color: '#5a5550', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' as const }}>{task.jobName?.replace(/^#\d+\s*/, '') || ''}</div>
                           </div>
-                          <ChevronRight size={11} style={{ color: '#5a5550', transform: isExpanded ? 'rotate(90deg)' : 'none', transition: 'transform 0.15s', flexShrink: 0 }} />
+                          <ChevronRight size={13} style={{ color: '#5a5550', transform: isExpanded ? 'rotate(90deg)' : 'none', transition: 'transform 0.15s', flexShrink: 0 }} />
                         </button>
-                        <div style={{ fontSize: 10, color: ac, fontWeight: 600, flexShrink: 0, minWidth: 40, textAlign: 'right' as const }}>
+                        <div style={{ fontSize: 12, color: ac, fontWeight: 600, flexShrink: 0, minWidth: 40, textAlign: 'right' as const }}>
                           {task.daysUntilDue !== null ? (task.daysUntilDue < 0 ? Math.abs(task.daysUntilDue) + 'd ago' : task.daysUntilDue === 0 ? 'Today' : task.daysUntilDue + 'd') : 'No date'}
                         </div>
                       </div>
@@ -1900,26 +1900,26 @@ export default function DashboardOverview() {
                           <div style={{ display: 'flex', gap: 4, marginBottom: 6 }}>
                             <input type="text" placeholder="Add a note..." value={woNewComment} onChange={e => setWoNewComment(e.target.value)}
                               onKeyDown={e => { if (e.key === 'Enter' && woNewComment.trim()) postWoComment(task.id); }}
-                              style={{ flex: 1, background: '#242424', border: '1px solid rgba(205,162,116,0.12)', borderRadius: 5, color: '#e8e0d8', fontSize: 11, padding: '5px 8px', outline: 'none' }} />
+                              style={{ flex: 1, background: '#242424', border: '1px solid rgba(205,162,116,0.12)', borderRadius: 5, color: '#e8e0d8', fontSize: 13, padding: '5px 8px', outline: 'none' }} />
                             <button onClick={() => postWoComment(task.id)} disabled={!woNewComment.trim() || postingWoComment}
                               style={{ background: woNewComment.trim() ? '#CDA274' : 'rgba(205,162,116,0.15)', border: 'none', borderRadius: 5, padding: '5px 8px', cursor: woNewComment.trim() ? 'pointer' : 'default', lineHeight: 0, opacity: postingWoComment ? 0.5 : 1 }}>
-                              <Send size={11} style={{ color: woNewComment.trim() ? '#1a1a1a' : '#5a5550' }} />
+                              <Send size={13} style={{ color: woNewComment.trim() ? '#1a1a1a' : '#5a5550' }} />
                             </button>
                           </div>
-                          {isLoadingComments && (<div style={{ display: 'flex', alignItems: 'center', gap: 4, padding: '4px 0' }}><Loader2 size={10} className="animate-spin" style={{ color: '#5a5550' }} /><span style={{ fontSize: 10, color: '#5a5550' }}>Loading...</span></div>)}
-                          {comments && comments.length === 0 && !isLoadingComments && (<div style={{ fontSize: 10, color: '#3a3a3a', padding: '2px 0' }}>No comments yet</div>)}
+                          {isLoadingComments && (<div style={{ display: 'flex', alignItems: 'center', gap: 4, padding: '4px 0' }}><Loader2 size={12} className="animate-spin" style={{ color: '#5a5550' }} /><span style={{ fontSize: 12, color: '#5a5550' }}>Loading...</span></div>)}
+                          {comments && comments.length === 0 && !isLoadingComments && (<div style={{ fontSize: 12, color: '#3a3a3a', padding: '2px 0' }}>No comments yet</div>)}
                           {comments && comments.slice(0, 8).map((cm: any, i: number) => (
                             <div key={cm.id || i} style={{ padding: '4px 0', borderBottom: '1px solid rgba(205,162,116,0.04)' }}>
                               <div style={{ display: 'flex', alignItems: 'center', gap: 4, marginBottom: 1 }}>
-                                <span style={{ fontSize: 10, fontWeight: 600, color: '#CDA274' }}>{cm.name || 'Unknown'}</span>
-                                {cm.createdAt && <span style={{ fontSize: 9, color: '#3a3a3a' }}>{timeAgo(cm.createdAt)}</span>}
+                                <span style={{ fontSize: 12, fontWeight: 600, color: '#CDA274' }}>{cm.name || 'Unknown'}</span>
+                                {cm.createdAt && <span style={{ fontSize: 11, color: '#3a3a3a' }}>{timeAgo(cm.createdAt)}</span>}
                               </div>
-                              <div style={{ fontSize: 11, color: '#c8c0b8', lineHeight: '15px' }}>{cm.message}</div>
+                              <div style={{ fontSize: 13, color: '#c8c0b8', lineHeight: '15px' }}>{cm.message}</div>
                             </div>
                           ))}
-                          {comments && comments.length > 8 && (<div style={{ fontSize: 9, color: '#5a5550', padding: '3px 0' }}>+{comments.length - 8} more in JobTread</div>)}
+                          {comments && comments.length > 8 && (<div style={{ fontSize: 11, color: '#5a5550', padding: '3px 0' }}>+{comments.length - 8} more in JobTread</div>)}
                           {task.jobId && (<a href={`https://app.jobtread.com/jobs/${task.jobId}/schedule`} target="_blank" rel="noopener noreferrer"
-                            style={{ display: 'inline-flex', alignItems: 'center', gap: 3, fontSize: 10, color: '#5a5550', marginTop: 4, textDecoration: 'none' }}><ExternalLink size={9} /> View in JobTread</a>)}
+                            style={{ display: 'inline-flex', alignItems: 'center', gap: 3, fontSize: 12, color: '#5a5550', marginTop: 4, textDecoration: 'none' }}><ExternalLink size={11} /> View in JobTread</a>)}
                         </div>
                       )}
                     </div>
@@ -1939,8 +1939,8 @@ export default function DashboardOverview() {
           style={{ background: showSection === 'activejobs' ? 'rgba(205,162,116,0.1)' : '#1e1e1e', borderRadius: 6, padding: '6px 7px', border: 'none', borderLeftWidth: 3, borderLeftStyle: 'solid', borderLeftColor: '#CDA274', cursor: 'pointer', textAlign: 'left' }}
         >
           <div style={{ display: 'flex', alignItems: 'center', gap: 3, marginBottom: 3 }}>
-            <Building2 size={9} style={{ color: '#CDA274' }} />
-            <span style={{ fontSize: 7, color: '#5a5550', fontWeight: 600, letterSpacing: '0.04em' }}>ACTIVE JOBS</span>
+            <Building2 size={11} style={{ color: '#CDA274' }} />
+            <span style={{ fontSize: 9, color: '#5a5550', fontWeight: 600, letterSpacing: '0.04em' }}>ACTIVE JOBS</span>
           </div>
           <div style={{ fontSize: 18, fontWeight: 700, color: '#CDA274', lineHeight: 1 }}>
             {stats?.activeJobCount || 0}
@@ -1954,8 +1954,8 @@ export default function DashboardOverview() {
           return (
             <div style={{ background: '#1e1e1e', borderRadius: 6, padding: '6px 7px', borderLeft: `3px solid ${hasUnread ? '#8b5cf6' : '#5a5550'}` }}>
               <div style={{ display: 'flex', alignItems: 'center', gap: 3, marginBottom: 3 }}>
-                <Mail size={9} style={{ color: hasUnread ? '#8b5cf6' : '#5a5550' }} />
-                <span style={{ fontSize: 7, color: '#5a5550', fontWeight: 600, letterSpacing: '0.04em' }}>UNREAD EMAILS</span>
+                <Mail size={11} style={{ color: hasUnread ? '#8b5cf6' : '#5a5550' }} />
+                <span style={{ fontSize: 9, color: '#5a5550', fontWeight: 600, letterSpacing: '0.04em' }}>UNREAD EMAILS</span>
               </div>
               <div style={{ fontSize: 18, fontWeight: 700, color: hasUnread ? '#8b5cf6' : '#5a5550', lineHeight: 1 }}>
                 {unread}
@@ -1974,8 +1974,8 @@ export default function DashboardOverview() {
               style={{ background: showSection === 'tasks' ? 'rgba(59,130,246,0.1)' : '#1e1e1e', borderRadius: 6, padding: '6px 7px', border: 'none', borderLeftWidth: 3, borderLeftStyle: 'solid', borderLeftColor: hasDue ? '#3b82f6' : '#5a5550', cursor: 'pointer', textAlign: 'left' }}
             >
               <div style={{ display: 'flex', alignItems: 'center', gap: 3, marginBottom: 3 }}>
-                <CalendarDays size={9} style={{ color: hasDue ? '#3b82f6' : '#5a5550' }} />
-                <span style={{ fontSize: 7, color: '#5a5550', fontWeight: 600, letterSpacing: '0.04em' }}>DUE TODAY</span>
+                <CalendarDays size={11} style={{ color: hasDue ? '#3b82f6' : '#5a5550' }} />
+                <span style={{ fontSize: 9, color: '#5a5550', fontWeight: 600, letterSpacing: '0.04em' }}>DUE TODAY</span>
               </div>
               <div style={{ fontSize: 18, fontWeight: 700, color: hasDue ? '#3b82f6' : '#5a5550', lineHeight: 1 }}>
                 {dueToday}
@@ -1990,8 +1990,8 @@ export default function DashboardOverview() {
           style={{ background: showSection === 'overdue' ? 'rgba(239,68,68,0.1)' : '#1e1e1e', borderRadius: 6, padding: '6px 7px', border: 'none', borderLeftWidth: 3, borderLeftStyle: 'solid', borderLeftColor: overdueTasks.length > 0 ? '#ef4444' : '#22c55e', cursor: 'pointer', textAlign: 'left' }}
         >
           <div style={{ display: 'flex', alignItems: 'center', gap: 3, marginBottom: 3 }}>
-            <AlertTriangle size={9} style={{ color: overdueTasks.length > 0 ? '#ef4444' : '#22c55e' }} />
-            <span style={{ fontSize: 7, color: '#5a5550', fontWeight: 600, letterSpacing: '0.04em' }}>OVERDUE</span>
+            <AlertTriangle size={11} style={{ color: overdueTasks.length > 0 ? '#ef4444' : '#22c55e' }} />
+            <span style={{ fontSize: 9, color: '#5a5550', fontWeight: 600, letterSpacing: '0.04em' }}>OVERDUE</span>
           </div>
           <div style={{ fontSize: 18, fontWeight: 700, color: overdueTasks.length > 0 ? '#ef4444' : '#22c55e', lineHeight: 1 }}>
             {overdueTasks.length}
@@ -2010,14 +2010,14 @@ export default function DashboardOverview() {
               style={{ background: isActive ? 'rgba(245,158,11,0.1)' : '#1e1e1e', borderRadius: 6, padding: '6px 7px', border: 'none', borderLeftWidth: 3, borderLeftStyle: 'solid', borderLeftColor: hasPending ? '#f59e0b' : '#22c55e', cursor: 'pointer', textAlign: 'left' }}
             >
               <div style={{ display: 'flex', alignItems: 'center', gap: 3, marginBottom: 3 }}>
-                <FileWarning size={9} style={{ color: hasPending ? '#f59e0b' : '#22c55e' }} />
-                <span style={{ fontSize: 7, color: '#5a5550', fontWeight: 600, letterSpacing: '0.04em' }}>PENDING COs</span>
+                <FileWarning size={11} style={{ color: hasPending ? '#f59e0b' : '#22c55e' }} />
+                <span style={{ fontSize: 9, color: '#5a5550', fontWeight: 600, letterSpacing: '0.04em' }}>PENDING COs</span>
               </div>
               <div style={{ fontSize: 18, fontWeight: 700, color: hasPending ? '#f59e0b' : '#22c55e', lineHeight: 1 }}>
                 {pending}
               </div>
               {(pending + approved) > 0 && (
-                <div style={{ fontSize: 8, color: '#6a6058', marginTop: 2 }}>
+                <div style={{ fontSize: 10, color: '#6a6058', marginTop: 2 }}>
                   {approved} approved
                 </div>
               )}
@@ -2037,14 +2037,14 @@ export default function DashboardOverview() {
               style={{ background: isActive ? 'rgba(245,158,11,0.1)' : '#1e1e1e', borderRadius: 6, padding: '6px 7px', border: 'none', borderLeftWidth: 3, borderLeftStyle: 'solid', borderLeftColor: hasInvoices ? '#f59e0b' : '#22c55e', cursor: 'pointer', textAlign: 'left' }}
             >
               <div style={{ display: 'flex', alignItems: 'center', gap: 3, marginBottom: 3 }}>
-                <Receipt size={9} style={{ color: hasInvoices ? '#f59e0b' : '#22c55e' }} />
-                <span style={{ fontSize: 7, color: '#5a5550', fontWeight: 600, letterSpacing: '0.04em' }}>UNPAID INV</span>
+                <Receipt size={11} style={{ color: hasInvoices ? '#f59e0b' : '#22c55e' }} />
+                <span style={{ fontSize: 9, color: '#5a5550', fontWeight: 600, letterSpacing: '0.04em' }}>UNPAID INV</span>
               </div>
               <div style={{ fontSize: 18, fontWeight: 700, color: hasInvoices ? '#f59e0b' : '#22c55e', lineHeight: 1 }}>
                 {invoiceCount}
               </div>
               {hasInvoices && invoicesWithReminders > 0 && (
-                <div style={{ fontSize: 8, color: '#6a6058', marginTop: 2 }}>
+                <div style={{ fontSize: 10, color: '#6a6058', marginTop: 2 }}>
                   {invoicesWithReminders} followed up
                 </div>
               )}
@@ -2058,9 +2058,9 @@ export default function DashboardOverview() {
         const jobs = overview?.data?.activeJobs || [];
         return (
           <div style={{ background: '#1e1e1e', border: '1px solid rgba(205,162,116,0.08)', borderRadius: 8, padding: '6px 10px', marginBottom: 6, maxHeight: 300, overflowY: 'auto' }}>
-            <div style={{ fontSize: 9, fontWeight: 600, color: '#CDA274', marginBottom: 4, letterSpacing: '0.04em' }}>Active Jobs</div>
+            <div style={{ fontSize: 11, fontWeight: 600, color: '#CDA274', marginBottom: 4, letterSpacing: '0.04em' }}>Active Jobs</div>
             {jobs.length === 0 && (
-              <p style={{ color: '#5a5550', fontSize: 11, textAlign: 'center', padding: 8 }}>No active jobs</p>
+              <p style={{ color: '#5a5550', fontSize: 13, textAlign: 'center', padding: 8 }}>No active jobs</p>
             )}
             {jobs.map((job: any) => (
               <a
@@ -2070,12 +2070,12 @@ export default function DashboardOverview() {
                 rel="noopener noreferrer"
                 style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '5px 0', borderBottom: '1px solid rgba(205,162,116,0.04)', textDecoration: 'none', cursor: 'pointer' }}
               >
-                <Building2 size={12} style={{ color: '#CDA274', flexShrink: 0 }} />
+                <Building2 size={14} style={{ color: '#CDA274', flexShrink: 0 }} />
                 <div style={{ flex: 1, minWidth: 0 }}>
-                  <p style={{ fontSize: 11, color: '#e8e0d8', margin: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{job.name}</p>
-                  <p style={{ fontSize: 9, color: '#6a6058', margin: 0 }}>#{job.number}</p>
+                  <p style={{ fontSize: 13, color: '#e8e0d8', margin: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{job.name}</p>
+                  <p style={{ fontSize: 11, color: '#6a6058', margin: 0 }}>#{job.number}</p>
                 </div>
-                <ExternalLink size={10} style={{ color: '#5a5550', flexShrink: 0 }} />
+                <ExternalLink size={12} style={{ color: '#5a5550', flexShrink: 0 }} />
               </a>
             ))}
           </div>
@@ -2087,18 +2087,18 @@ export default function DashboardOverview() {
         <div style={{ background: '#1e1e1e', border: '1px solid rgba(245,158,11,0.15)', borderRadius: 8, padding: '8px 10px', marginBottom: isTouch ? 10 : 6, maxHeight: 340, overflowY: 'auto' }}>
           <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 6 }}>
             <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
-              <FileWarning size={10} style={{ color: '#f59e0b' }} />
-              <span style={{ fontSize: 9, fontWeight: 600, color: '#f59e0b', letterSpacing: '0.04em' }}>
+              <FileWarning size={12} style={{ color: '#f59e0b' }} />
+              <span style={{ fontSize: 11, fontWeight: 600, color: '#f59e0b', letterSpacing: '0.04em' }}>
                 CHANGE ORDERS ({changeOrders.length})
               </span>
             </div>
             <div style={{ display: 'flex', gap: 8 }}>
-              <span style={{ fontSize: 9, color: '#f59e0b' }}>{changeOrders.filter(co => co.status === 'pending').length} pending</span>
-              <span style={{ fontSize: 9, color: '#22c55e' }}>{changeOrders.filter(co => co.status === 'approved').length} approved</span>
+              <span style={{ fontSize: 11, color: '#f59e0b' }}>{changeOrders.filter(co => co.status === 'pending').length} pending</span>
+              <span style={{ fontSize: 11, color: '#22c55e' }}>{changeOrders.filter(co => co.status === 'approved').length} approved</span>
             </div>
           </div>
           {changeOrders.length === 0 ? (
-            <p style={{ color: '#5a5550', fontSize: 11, textAlign: 'center', padding: 8 }}>No change orders</p>
+            <p style={{ color: '#5a5550', fontSize: 13, textAlign: 'center', padding: 8 }}>No change orders</p>
           ) : (() => {
             const jobGroups = new Map<string, typeof changeOrders>();
             for (const co of changeOrders) {
@@ -2112,17 +2112,17 @@ export default function DashboardOverview() {
               return (
                 <div key={jobName} style={{ marginBottom: 6 }}>
                   <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '4px 0', borderBottom: '1px solid rgba(205,162,116,0.08)' }}>
-                    <p style={{ fontSize: 11, fontWeight: 600, color: '#e8e0d8', margin: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', flex: 1 }}>
+                    <p style={{ fontSize: 13, fontWeight: 600, color: '#e8e0d8', margin: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', flex: 1 }}>
                       {jobName.replace(/^#\d+\s*/, '')}
                     </p>
                     <div style={{ display: 'flex', gap: 6, flexShrink: 0 }}>
                       {pendingCount > 0 && (
-                        <span style={{ fontSize: 9, color: '#f59e0b', background: 'rgba(245,158,11,0.1)', padding: '1px 5px', borderRadius: 3 }}>
+                        <span style={{ fontSize: 11, color: '#f59e0b', background: 'rgba(245,158,11,0.1)', padding: '1px 5px', borderRadius: 3 }}>
                           {pendingCount} pending
                         </span>
                       )}
                       {approvedCount > 0 && (
-                        <span style={{ fontSize: 9, color: '#22c55e', background: 'rgba(34,197,94,0.1)', padding: '1px 5px', borderRadius: 3 }}>
+                        <span style={{ fontSize: 11, color: '#22c55e', background: 'rgba(34,197,94,0.1)', padding: '1px 5px', borderRadius: 3 }}>
                           {approvedCount} approved
                         </span>
                       )}
@@ -2131,10 +2131,10 @@ export default function DashboardOverview() {
                   {cos.map((co, i) => (
                     <div key={i} style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '3px 0 3px 12px' }}>
                       {co.status === 'approved'
-                        ? <FileCheck size={10} style={{ color: '#22c55e', flexShrink: 0 }} />
-                        : <FileWarning size={10} style={{ color: '#f59e0b', flexShrink: 0 }} />
+                        ? <FileCheck size={12} style={{ color: '#22c55e', flexShrink: 0 }} />
+                        : <FileWarning size={12} style={{ color: '#f59e0b', flexShrink: 0 }} />
                       }
-                      <p style={{ fontSize: 10, color: co.status === 'approved' ? '#6a6058' : '#e8e0d8', margin: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                      <p style={{ fontSize: 12, color: co.status === 'approved' ? '#6a6058' : '#e8e0d8', margin: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
                         {co.coName}
                       </p>
                     </div>
@@ -2154,9 +2154,9 @@ export default function DashboardOverview() {
 
         return (
           <div style={{ background: '#1e1e1e', border: '1px solid rgba(205,162,116,0.08)', borderRadius: 8, padding: '6px 10px', marginBottom: 6, maxHeight: 300, overflowY: 'auto' }}>
-            <div style={{ fontSize: 9, fontWeight: 600, color: sectionColor, marginBottom: 4, letterSpacing: '0.04em' }}>{sectionLabel}</div>
+            <div style={{ fontSize: 11, fontWeight: 600, color: sectionColor, marginBottom: 4, letterSpacing: '0.04em' }}>{sectionLabel}</div>
             {sectionTasks.length === 0 && (
-              <p style={{ color: '#5a5550', fontSize: 11, textAlign: 'center', padding: 8 }}>None</p>
+              <p style={{ color: '#5a5550', fontSize: 13, textAlign: 'center', padding: 8 }}>None</p>
             )}
             {sectionTasks.slice(0, 20).map(task => {
               const isCompleting = completingTaskId === task.id;
@@ -2169,18 +2169,18 @@ export default function DashboardOverview() {
                     style={{ width: isTouch ? 24 : 18, height: isTouch ? 24 : 18, borderRadius: '50%', border: '1px solid rgba(205,162,116,0.25)', background: 'transparent', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}
                   >
                     {isCompleting
-                      ? <Loader2 size={10} className="animate-spin" style={{ color: '#8a8078' }} />
-                      : <CheckCircle2 size={10} style={{ color: '#22c55e' }} />
+                      ? <Loader2 size={12} className="animate-spin" style={{ color: '#8a8078' }} />
+                      : <CheckCircle2 size={12} style={{ color: '#22c55e' }} />
                     }
                   </button>
                   <div
                     onClick={() => { setSelectedCalTask(task); setCalEditingDate(task.endDate || ''); }}
                     style={{ flex: 1, minWidth: 0, cursor: 'pointer' }}
                   >
-                    <p style={{ fontSize: 11, color: '#e8e0d8', margin: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{task.name}</p>
-                    <p style={{ fontSize: 9, color: '#6a6058', margin: 0 }}>{task.jobName} #{task.jobNumber}</p>
+                    <p style={{ fontSize: 13, color: '#e8e0d8', margin: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{task.name}</p>
+                    <p style={{ fontSize: 11, color: '#6a6058', margin: 0 }}>{task.jobName} #{task.jobNumber}</p>
                     {task.description && (
-                      <p style={{ fontSize: 9, color: '#8a8078', margin: '2px 0 0 0', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{task.description}</p>
+                      <p style={{ fontSize: 11, color: '#8a8078', margin: '2px 0 0 0', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{task.description}</p>
                     )}
                   </div>
                   {isEditingDate ? (
@@ -2197,7 +2197,7 @@ export default function DashboardOverview() {
                         if (e.key === 'Enter' && pendingDate) updateTaskDate(task.id, pendingDate);
                         if (e.key === 'Escape') { setEditingDateTaskId(null); setPendingDate(''); }
                       }}
-                      style={{ fontSize: 10, padding: '2px 4px', borderRadius: 4, background: '#2a2a2a', border: '1px solid rgba(205,162,116,0.3)', color: '#e8e0d8', width: 110, flexShrink: 0 }}
+                      style={{ fontSize: 12, padding: '2px 4px', borderRadius: 4, background: '#2a2a2a', border: '1px solid rgba(205,162,116,0.3)', color: '#e8e0d8', width: 110, flexShrink: 0 }}
                     />
                   ) : (
                     <div style={{ display: 'flex', alignItems: 'center', gap: 4, flexShrink: 0 }}>
@@ -2208,14 +2208,14 @@ export default function DashboardOverview() {
                             next.setDate(next.getDate() + 1);
                             updateTaskDate(task.id, next.toISOString().split('T')[0]);
                           }}
-                          style={{ fontSize: 9, color: '#eab308', background: 'rgba(234,179,8,0.1)', padding: '1px 4px', borderRadius: 3, border: '1px solid rgba(234,179,8,0.2)', cursor: 'pointer' }}
+                          style={{ fontSize: 11, color: '#eab308', background: 'rgba(234,179,8,0.1)', padding: '1px 4px', borderRadius: 3, border: '1px solid rgba(234,179,8,0.2)', cursor: 'pointer' }}
                         >
                           +1d
                         </button>
                       )}
                       <button
                         onClick={() => { setEditingDateTaskId(task.id); setPendingDate(task.endDate || ''); }}
-                        style={{ fontSize: 10, color: task.urgency === 'urgent' ? '#ef4444' : '#6a6058', background: 'transparent', border: 'none', cursor: 'pointer', padding: 0 }}
+                        style={{ fontSize: 12, color: task.urgency === 'urgent' ? '#ef4444' : '#6a6058', background: 'transparent', border: 'none', cursor: 'pointer', padding: 0 }}
                       >
                         {task.daysUntilDue !== null
                           ? (task.daysUntilDue < 0 ? `${Math.abs(task.daysUntilDue)}d overdue` : task.daysUntilDue === 0 ? 'Today' : `${task.daysUntilDue}d`)
@@ -2265,25 +2265,25 @@ export default function DashboardOverview() {
         return (
           <div style={{ background: 'rgba(205,162,116,0.06)', border: '1px solid rgba(205,162,116,0.12)', borderRadius: 8, padding: '8px 10px', marginBottom: isTouch ? 10 : 6 }}>
             <div style={{ display: 'flex', alignItems: 'center', gap: 4, marginBottom: 5 }}>
-              <Target size={10} style={{ color: '#CDA274' }} />
-              <span style={{ fontSize: 9, fontWeight: 600, color: '#CDA274', letterSpacing: '0.04em' }}>TODAY&apos;S FOCUS</span>
+              <Target size={12} style={{ color: '#CDA274' }} />
+              <span style={{ fontSize: 11, fontWeight: 600, color: '#CDA274', letterSpacing: '0.04em' }}>TODAY&apos;S FOCUS</span>
             </div>
             {focusItem && (
-              <div style={{ fontSize: 12, color: focusItem.color, fontWeight: 600, marginBottom: 5, lineHeight: 1.4 }}>
+              <div style={{ fontSize: 14, color: focusItem.color, fontWeight: 600, marginBottom: 5, lineHeight: 1.4 }}>
                 → {focusItem.label}
               </div>
             )}
             {bullets.length > 0 && (
               <div style={{ display: 'flex', flexWrap: 'wrap', gap: '4px 12px' }}>
                 {bullets.map((b, i) => (
-                  <span key={i} style={{ fontSize: 11, color: '#e8e0d8', lineHeight: 1.5 }}>
+                  <span key={i} style={{ fontSize: 13, color: '#e8e0d8', lineHeight: 1.5 }}>
                     {b.emoji} <span style={{ color: b.color, fontWeight: 600 }}>{b.text}</span>
                   </span>
                 ))}
               </div>
             )}
             {dayNudge && (
-              <div style={{ fontSize: 11, color: '#8a8078', marginTop: bullets.length > 0 || focusItem ? 5 : 0, lineHeight: 1.4 }}>
+              <div style={{ fontSize: 13, color: '#8a8078', marginTop: bullets.length > 0 || focusItem ? 5 : 0, lineHeight: 1.4 }}>
                 {dayNudge}
               </div>
             )}
@@ -2350,18 +2350,18 @@ export default function DashboardOverview() {
               style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', width: '100%', background: 'none', border: 'none', cursor: 'pointer', padding: 0, marginBottom: woRibbonCollapsed ? 0 : 6 }}
             >
               <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
-                <Hourglass size={10} style={{ color: '#eab308' }} />
-                <span style={{ fontSize: 9, fontWeight: 600, color: '#eab308', letterSpacing: '0.04em' }}>
+                <Hourglass size={12} style={{ color: '#eab308' }} />
+                <span style={{ fontSize: 11, fontWeight: 600, color: '#eab308', letterSpacing: '0.04em' }}>
                   WAITING ON ({woItems.length})
                 </span>
               </div>
               <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
                 {false && woItems.length > 5 && !woRibbonCollapsed && (
-                  <span onClick={(e) => { e.stopPropagation(); setShowWaitingOnPanel(true); }} style={{ fontSize: 9, color: '#CDA274', cursor: 'pointer' }}>
-                    View all <ChevronRight size={9} style={{ display: 'inline', verticalAlign: 'middle' }} />
+                  <span onClick={(e) => { e.stopPropagation(); setShowWaitingOnPanel(true); }} style={{ fontSize: 11, color: '#CDA274', cursor: 'pointer' }}>
+                    View all <ChevronRight size={11} style={{ display: 'inline', verticalAlign: 'middle' }} />
                   </span>
                 )}
-                {woRibbonCollapsed ? <ChevronDown size={12} style={{ color: '#eab308' }} /> : <ChevronUp size={12} style={{ color: '#eab308' }} />}
+                {woRibbonCollapsed ? <ChevronDown size={14} style={{ color: '#eab308' }} /> : <ChevronUp size={14} style={{ color: '#eab308' }} />}
               </div>
             </button>
 
@@ -2386,12 +2386,12 @@ export default function DashboardOverview() {
                     {/* Job header */}
                     <div style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '4px 4px 2px 4px' }}>
                       <span style={{ width: 6, height: 6, borderRadius: 3, background: c, flexShrink: 0 }} />
-                      <span style={{ fontSize: 10, fontWeight: 600, color: '#e8e0d8', flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                      <span style={{ fontSize: 12, fontWeight: 600, color: '#e8e0d8', flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
                         {jobName.replace(/^#\d+\s*/, '')}
                       </span>
-                      <span style={{ fontSize: 9, color: '#6a6058', flexShrink: 0 }}>{jobWoTasks.length}</span>
+                      <span style={{ fontSize: 11, color: '#6a6058', flexShrink: 0 }}>{jobWoTasks.length}</span>
                       {overdueCount > 0 && (
-                        <span style={{ fontSize: 8, color: '#ef4444', background: 'rgba(239,68,68,0.1)', padding: '1px 4px', borderRadius: 3, flexShrink: 0 }}>
+                        <span style={{ fontSize: 10, color: '#ef4444', background: 'rgba(239,68,68,0.1)', padding: '1px 4px', borderRadius: 3, flexShrink: 0 }}>
                           {overdueCount} late
                         </span>
                       )}
@@ -2412,10 +2412,10 @@ export default function DashboardOverview() {
                               title="Mark complete"
                               style={{ background: 'none', border: '1px solid rgba(205,162,116,0.2)', borderRadius: '50%', width: 16, height: 16, display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer', flexShrink: 0, padding: 0, opacity: isCompleting ? 0.4 : 1 }}
                             >
-                              {isCompleting ? <Loader2 size={8} style={{ color: '#CDA274' }} className="animate-spin" /> : <Check size={8} style={{ color: '#6a6058' }} />}
+                              {isCompleting ? <Loader2 size={10} style={{ color: '#CDA274' }} className="animate-spin" /> : <Check size={10} style={{ color: '#6a6058' }} />}
                             </button>
                             {/* Task label */}
-                            <span style={{ fontSize: 11, color: '#e8e0d8', flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{label}</span>
+                            <span style={{ fontSize: 13, color: '#e8e0d8', flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{label}</span>
                             {/* Date display / edit */}
                             {isEditingDate ? (
                               <div style={{ display: 'flex', alignItems: 'center', gap: 2, flexShrink: 0 }} onClick={(e) => e.stopPropagation()}>
@@ -2423,13 +2423,13 @@ export default function DashboardOverview() {
                                   type="date"
                                   value={editingWoDateVal}
                                   onChange={(e) => setEditingWoDateVal(e.target.value)}
-                                  style={{ fontSize: 9, background: '#2a2a2a', border: '1px solid rgba(205,162,116,0.3)', borderRadius: 4, color: '#e8e0d8', padding: '1px 4px', width: 110 }}
+                                  style={{ fontSize: 11, background: '#2a2a2a', border: '1px solid rgba(205,162,116,0.3)', borderRadius: 4, color: '#e8e0d8', padding: '1px 4px', width: 110 }}
                                 />
                                 <button onClick={() => handleWoDateSave(t.id)} disabled={savingWoDate} style={{ background: 'none', border: 'none', cursor: 'pointer', padding: 0 }}>
-                                  <Check size={10} style={{ color: '#22c55e' }} />
+                                  <Check size={12} style={{ color: '#22c55e' }} />
                                 </button>
                                 <button onClick={() => { setEditingWoDateId(null); setEditingWoDateVal(''); }} style={{ background: 'none', border: 'none', cursor: 'pointer', padding: 0 }}>
-                                  <X size={10} style={{ color: '#6a6058' }} />
+                                  <X size={12} style={{ color: '#6a6058' }} />
                                 </button>
                               </div>
                             ) : (
@@ -2438,8 +2438,8 @@ export default function DashboardOverview() {
                                 title="Edit due date"
                                 style={{ background: 'none', border: 'none', cursor: 'pointer', padding: 0, flexShrink: 0, display: 'flex', alignItems: 'center', gap: 2 }}
                               >
-                                {d !== null && <span style={{ fontSize: 9, color: agingColor(d) }}>{d < 0 ? `${Math.abs(d)}d late` : d === 0 ? 'today' : `${d}d`}</span>}
-                                <Calendar size={9} style={{ color: '#6a6058' }} />
+                                {d !== null && <span style={{ fontSize: 11, color: agingColor(d) }}>{d < 0 ? `${Math.abs(d)}d late` : d === 0 ? 'today' : `${d}d`}</span>}
+                                <Calendar size={11} style={{ color: '#6a6058' }} />
                               </button>
                             )}
                           </div>
@@ -2471,12 +2471,12 @@ export default function DashboardOverview() {
               style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', width: '100%', background: 'none', border: 'none', cursor: 'pointer', padding: 0, marginBottom: mtsCollapsed ? 0 : 6 }}
             >
               <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
-                <Calendar size={10} style={{ color: '#60a5fa' }} />
-                <span style={{ fontSize: 9, fontWeight: 600, color: '#60a5fa', letterSpacing: '0.04em' }}>
+                <Calendar size={12} style={{ color: '#60a5fa' }} />
+                <span style={{ fontSize: 11, fontWeight: 600, color: '#60a5fa', letterSpacing: '0.04em' }}>
                   MEETINGS TO SCHEDULE ({mtsItems.length})
                 </span>
               </div>
-              {mtsCollapsed ? <ChevronDown size={12} style={{ color: '#60a5fa' }} /> : <ChevronUp size={12} style={{ color: '#60a5fa' }} />}
+              {mtsCollapsed ? <ChevronDown size={14} style={{ color: '#60a5fa' }} /> : <ChevronUp size={14} style={{ color: '#60a5fa' }} />}
             </button>
             {!mtsCollapsed && sorted.slice(0, 8).map((t, i) => {
               const jobLabel = t.jobName ? t.jobName.replace(/^#\d+\s*/, '') : '';
@@ -2499,13 +2499,13 @@ export default function DashboardOverview() {
                     title="Mark complete"
                     style={{ background: 'none', border: '1px solid rgba(96,165,250,0.25)', borderRadius: '50%', width: 16, height: 16, display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer', flexShrink: 0, padding: 0, opacity: completingTaskId === t.id ? 0.4 : 1 }}
                   >
-                    {completingTaskId === t.id ? <Loader2 size={8} style={{ color: '#60a5fa' }} className="animate-spin" /> : <Check size={8} style={{ color: '#6a6058' }} />}
+                    {completingTaskId === t.id ? <Loader2 size={10} style={{ color: '#60a5fa' }} className="animate-spin" /> : <Check size={10} style={{ color: '#6a6058' }} />}
                   </button>
                   <div style={{ flex: 1, minWidth: 0, overflow: 'hidden' }}>
-                    <span style={{ fontSize: 11, color: '#e8e0d8', display: 'block', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' as const }}>{t.name}</span>
-                    {jobLabel && <span style={{ fontSize: 9, color: '#5a5550' }}>{jobLabel}</span>}
+                    <span style={{ fontSize: 13, color: '#e8e0d8', display: 'block', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' as const }}>{t.name}</span>
+                    {jobLabel && <span style={{ fontSize: 11, color: '#5a5550' }}>{jobLabel}</span>}
                   </div>
-                  <span style={{ fontSize: 9, color: dueColor, flexShrink: 0, whiteSpace: 'nowrap' as const }}>{dueLabel}</span>
+                  <span style={{ fontSize: 11, color: dueColor, flexShrink: 0, whiteSpace: 'nowrap' as const }}>{dueLabel}</span>
                   <button
                     onClick={() => {
                       setShowWaitingOnPanel(true);
@@ -2517,15 +2517,15 @@ export default function DashboardOverview() {
                     title="Schedule this meeting"
                     style={{ background: 'rgba(96,165,250,0.15)', border: '1px solid rgba(96,165,250,0.2)', borderRadius: 4, padding: '2px 8px', cursor: 'pointer', flexShrink: 0, display: 'flex', alignItems: 'center', gap: 3 }}
                   >
-                    <Calendar size={9} style={{ color: '#60a5fa' }} />
-                    <span style={{ fontSize: 9, color: '#60a5fa', fontWeight: 600 }}>Schedule</span>
+                    <Calendar size={11} style={{ color: '#60a5fa' }} />
+                    <span style={{ fontSize: 11, color: '#60a5fa', fontWeight: 600 }}>Schedule</span>
                   </button>
                 </div>
               );
             })}
             {sorted.length > 8 && !mtsCollapsed && (
               <div style={{ textAlign: 'center', padding: '4px 0' }}>
-                <span style={{ fontSize: 9, color: '#5a5550' }}>+{sorted.length - 8} more</span>
+                <span style={{ fontSize: 11, color: '#5a5550' }}>+{sorted.length - 8} more</span>
               </div>
             )}
           </div>
@@ -2537,19 +2537,19 @@ export default function DashboardOverview() {
         <div style={{ background: '#1e1e1e', border: '1px solid rgba(245,158,11,0.15)', borderRadius: 8, padding: '8px 10px', marginBottom: isTouch ? 10 : 6, maxHeight: 440, overflowY: 'auto' }}>
           <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 6 }}>
             <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
-              <Receipt size={10} style={{ color: '#f59e0b' }} />
-              <span style={{ fontSize: 9, fontWeight: 600, color: '#f59e0b', letterSpacing: '0.04em' }}>
+              <Receipt size={12} style={{ color: '#f59e0b' }} />
+              <span style={{ fontSize: 11, fontWeight: 600, color: '#f59e0b', letterSpacing: '0.04em' }}>
                 OUTSTANDING INVOICES ({outstandingInvoices.length})
               </span>
             </div>
             {outstandingInvoices.length > 0 && (
-              <span style={{ fontSize: 9, color: '#6a6058' }}>
+              <span style={{ fontSize: 11, color: '#6a6058' }}>
                 Total: ${(stats?.outstandingInvoiceTotal || 0).toLocaleString('en-US', { minimumFractionDigits: 0, maximumFractionDigits: 0 })}
               </span>
             )}
           </div>
           {outstandingInvoices.length === 0 ? (
-            <p style={{ color: '#22c55e', fontSize: 11, textAlign: 'center', padding: 8 }}>All invoices paid</p>
+            <p style={{ color: '#22c55e', fontSize: 13, textAlign: 'center', padding: 8 }}>All invoices paid</p>
           ) : (
             outstandingInvoices.map((inv) => {
               const isOverdue = inv.daysPending > 30;
@@ -2563,18 +2563,18 @@ export default function DashboardOverview() {
                   <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
                     <div style={{ width: 5, height: 5, borderRadius: 3, background: statusColor, flexShrink: 0 }} />
                     <div style={{ flex: 1, minWidth: 0 }}>
-                      <p style={{ fontSize: 11, color: '#e8e0d8', margin: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                      <p style={{ fontSize: 13, color: '#e8e0d8', margin: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
                         {inv.jobName.replace(/^#\d+\s*/, '')}
                       </p>
-                      <p style={{ fontSize: 9, color: '#6a6058', margin: 0 }}>
+                      <p style={{ fontSize: 11, color: '#6a6058', margin: 0 }}>
                         Invoice #{inv.documentNumber}
                       </p>
                     </div>
                     <div style={{ textAlign: 'right', flexShrink: 0 }}>
-                      <p style={{ fontSize: 12, fontWeight: 600, color: '#e8e0d8', margin: 0 }}>
+                      <p style={{ fontSize: 14, fontWeight: 600, color: '#e8e0d8', margin: 0 }}>
                         ${inv.amount.toLocaleString('en-US', { minimumFractionDigits: 0, maximumFractionDigits: 0 })}
                       </p>
-                      <p style={{ fontSize: 9, color: statusColor, margin: 0, fontWeight: isOverdue ? 600 : 400 }}>
+                      <p style={{ fontSize: 11, color: statusColor, margin: 0, fontWeight: isOverdue ? 600 : 400 }}>
                         {inv.daysPending}d pending
                       </p>
                     </div>
@@ -2584,16 +2584,16 @@ export default function DashboardOverview() {
                     {/* Follow-up count badge row */}
                     <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
                       {isHeld && (
-                        <span style={{ fontSize: 8, background: 'rgba(239,68,68,0.12)', color: '#f87171', padding: '1px 5px', borderRadius: 3, fontWeight: 500 }}>
+                        <span style={{ fontSize: 10, background: 'rgba(239,68,68,0.12)', color: '#f87171', padding: '1px 5px', borderRadius: 3, fontWeight: 500 }}>
                           AR-HOLD
                         </span>
                       )}
                       {hasArAuto ? (
-                        <span style={{ fontSize: 8, background: 'rgba(34,197,94,0.1)', color: '#4ade80', padding: '1px 5px', borderRadius: 3, fontWeight: 600 }}>
+                        <span style={{ fontSize: 10, background: 'rgba(34,197,94,0.1)', color: '#4ade80', padding: '1px 5px', borderRadius: 3, fontWeight: 600 }}>
                           {reminderCount} follow-up{reminderCount !== 1 ? 's' : ''} sent
                         </span>
                       ) : !isHeld ? (
-                        <span style={{ fontSize: 8, color: '#5a5550', fontStyle: 'italic' }}>
+                        <span style={{ fontSize: 10, color: '#5a5550', fontStyle: 'italic' }}>
                           No follow-ups sent
                         </span>
                       ) : null}
@@ -2603,11 +2603,11 @@ export default function DashboardOverview() {
                       <div style={{ marginTop: 4, paddingLeft: 2, borderLeft: '2px solid rgba(34,197,94,0.15)' }}>
                         {inv.arAutoSent!.map((ar, idx) => (
                           <div key={idx} style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '2px 0 2px 6px' }}>
-                            <Send size={7} style={{ color: '#4ade80', flexShrink: 0 }} />
-                            <span style={{ fontSize: 9, color: '#b0a898' }}>
+                            <Send size={9} style={{ color: '#4ade80', flexShrink: 0 }} />
+                            <span style={{ fontSize: 11, color: '#b0a898' }}>
                               {new Date(ar.date).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}
                             </span>
-                            <span style={{ fontSize: 8, background: 'rgba(205,162,116,0.08)', color: '#8a7e72', padding: '0px 4px', borderRadius: 2 }}>
+                            <span style={{ fontSize: 10, background: 'rgba(205,162,116,0.08)', color: '#8a7e72', padding: '0px 4px', borderRadius: 2 }}>
                               {ar.tier}
                             </span>
                           </div>
@@ -2627,33 +2627,33 @@ export default function DashboardOverview() {
         <div style={{ background: '#1e1e1e', border: '1px solid rgba(34,197,94,0.12)', borderRadius: 8, padding: '6px 10px', marginBottom: isTouch ? 10 : 6 }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
             <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
-              <Send size={10} style={{ color: '#4ade80' }} />
-              <span style={{ fontSize: 9, fontWeight: 600, color: '#4ade80', letterSpacing: '0.04em' }}>
+              <Send size={12} style={{ color: '#4ade80' }} />
+              <span style={{ fontSize: 11, fontWeight: 600, color: '#4ade80', letterSpacing: '0.04em' }}>
                 AR REMINDERS
               </span>
             </div>
             <div style={{ display: 'flex', alignItems: 'center', gap: 3 }}>
               <span style={{ fontSize: 14, fontWeight: 700, color: '#e8e0d8' }}>{arStats.totalRemindersSent}</span>
-              <span style={{ fontSize: 9, color: '#6a6058' }}>sent</span>
+              <span style={{ fontSize: 11, color: '#6a6058' }}>sent</span>
             </div>
             <div style={{ width: 1, height: 14, background: 'rgba(205,162,116,0.08)' }} />
             <div style={{ display: 'flex', alignItems: 'center', gap: 3 }}>
-              <span style={{ fontSize: 11, fontWeight: 600, color: '#4ade80' }}>{arStats.activeJobs}</span>
-              <span style={{ fontSize: 9, color: '#6a6058' }}>active</span>
+              <span style={{ fontSize: 13, fontWeight: 600, color: '#4ade80' }}>{arStats.activeJobs}</span>
+              <span style={{ fontSize: 11, color: '#6a6058' }}>active</span>
             </div>
             {arStats.jobsOnHold > 0 && (
               <>
                 <div style={{ width: 1, height: 14, background: 'rgba(205,162,116,0.08)' }} />
                 <div style={{ display: 'flex', alignItems: 'center', gap: 3 }}>
-                  <span style={{ fontSize: 11, fontWeight: 600, color: '#f87171' }}>{arStats.jobsOnHold}</span>
-                  <span style={{ fontSize: 9, color: '#6a6058' }}>paused</span>
+                  <span style={{ fontSize: 13, fontWeight: 600, color: '#f87171' }}>{arStats.jobsOnHold}</span>
+                  <span style={{ fontSize: 11, color: '#6a6058' }}>paused</span>
                 </div>
               </>
             )}
             {arStats.recentReminders.length > 0 && (
               <>
                 <div style={{ width: 1, height: 14, background: 'rgba(205,162,116,0.08)' }} />
-                <span style={{ fontSize: 9, color: '#6a6058' }}>
+                <span style={{ fontSize: 11, color: '#6a6058' }}>
                   Last: {new Date(arStats.recentReminders[0].date).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })} â {arStats.recentReminders[0].jobName.replace(/^#\d+\s*/, '').split(' ').slice(0, 3).join(' ')} ({arStats.recentReminders[0].tier})
                 </span>
               </>
@@ -2666,9 +2666,9 @@ export default function DashboardOverview() {
       {weeks.map((week, wi) => (
         <div key={wi} style={{ marginBottom: 6 }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 3 }}>
-            <Calendar size={11} style={{ color: '#CDA274' }} />
-            <span style={{ fontSize: 10, fontWeight: 700, letterSpacing: '0.08em', color: '#5a5550' }}>{week.label.toUpperCase()}</span>
-            <span style={{ fontSize: 10, color: '#3f3f3f' }}>{week.days[0].month} {week.days[0].dayNum} â {week.days[6].month} {week.days[6].dayNum}</span>
+            <Calendar size={13} style={{ color: '#CDA274' }} />
+            <span style={{ fontSize: 12, fontWeight: 700, letterSpacing: '0.08em', color: '#5a5550' }}>{week.label.toUpperCase()}</span>
+            <span style={{ fontSize: 12, color: '#3f3f3f' }}>{week.days[0].month} {week.days[0].dayNum} â {week.days[6].month} {week.days[6].dayNum}</span>
           </div>
           <div style={{ display: 'grid', gridTemplateColumns: 'repeat(7, 1fr)', gap: 1, borderRadius: 8, overflow: 'hidden' }}>
             {week.days.map(day => {
@@ -2684,9 +2684,9 @@ export default function DashboardOverview() {
                   minHeight: 80, display: 'flex', flexDirection: 'column',
                 }}>
                   <div style={{ display: 'flex', alignItems: 'baseline', justifyContent: 'space-between', padding: '3px 5px 2px' }}>
-                    <span style={{ fontSize: 9, fontWeight: 500, color: day.isWeekend ? '#3a3a3a' : '#6a6058' }}>{day.dayName}</span>
+                    <span style={{ fontSize: 11, fontWeight: 500, color: day.isWeekend ? '#3a3a3a' : '#6a6058' }}>{day.dayName}</span>
                     <span style={{
-                      fontSize: 13, fontWeight: 700,
+                      fontSize: 15, fontWeight: 700,
                       color: isToday ? '#CDA274' : day.isWeekend ? '#3a3a3a' : '#7a7068',
                       ...(isToday ? { background: 'rgba(205,162,116,0.25)', borderRadius: 4, padding: '0 4px' } : {}),
                     }}>{day.dayNum}</span>
@@ -2704,7 +2704,7 @@ export default function DashboardOverview() {
                             padding: '2px 3px', borderRadius: 3,
                             borderLeft: '3px solid #4A90D9',
                             background: '#4A90D918',
-                            fontSize: 9, lineHeight: '12px', color: '#a8c4e0',
+                            fontSize: 11, lineHeight: '12px', color: '#a8c4e0',
                             overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
                           }}
                           title={`${timeStr ? timeStr + ' \u2014 ' : ''}${ev.summary}${ev.location ? ' @ ' + ev.location : ''}`}
@@ -2729,7 +2729,7 @@ export default function DashboardOverview() {
                             padding: '2px 3px', borderRadius: 3, cursor: 'pointer',
                             borderLeft: `3px solid ${c}`,
                             background: isSelected ? `${c}50` : `${c}18`,
-                            fontSize: 9, lineHeight: '12px', color: '#e8e0d8',
+                            fontSize: 11, lineHeight: '12px', color: '#e8e0d8',
                             overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
                           }}
                           title={`${task.name} â ${task.jobName}`}
@@ -2739,8 +2739,8 @@ export default function DashboardOverview() {
                       );
                     })}
                     {complete.length > 0 && (
-                      <div style={{ fontSize: 8, color: '#3a3a3a', display: 'flex', alignItems: 'center', gap: 2 }}>
-                        <CheckCircle2 size={7} style={{ color: '#22c55e' }} /> {complete.length} done
+                      <div style={{ fontSize: 10, color: '#3a3a3a', display: 'flex', alignItems: 'center', gap: 2 }}>
+                        <CheckCircle2 size={9} style={{ color: '#22c55e' }} /> {complete.length} done
                       </div>
                     )}
                   </div>
@@ -2786,9 +2786,9 @@ export default function DashboardOverview() {
           <div style={{ background: '#1e1e1e', border: '1px solid rgba(205,162,116,0.08)', borderRadius: 8, padding: '8px 10px', marginBottom: 6 }}>
             <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 6 }}>
               <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
-                <ClipboardList size={10} style={{ color: '#CDA274' }} />
-                <span style={{ fontSize: 9, fontWeight: 600, color: '#CDA274', letterSpacing: '0.04em' }}>ALL TASKS ({filteredTasks.length})</span>
-                <span style={{ fontSize: 8, color: '#5a5550', marginLeft: 2 }}>Overdue thru {rangeEndStr}</span>
+                <ClipboardList size={12} style={{ color: '#CDA274' }} />
+                <span style={{ fontSize: 11, fontWeight: 600, color: '#CDA274', letterSpacing: '0.04em' }}>ALL TASKS ({filteredTasks.length})</span>
+                <span style={{ fontSize: 10, color: '#5a5550', marginLeft: 2 }}>Overdue thru {rangeEndStr}</span>
               </div>
               <button
                 onClick={() => {
@@ -2798,21 +2798,21 @@ export default function DashboardOverview() {
                     setCollapsedJobs(new Set(sortedJobs.map(([name]) => name)));
                   }
                 }}
-                style={{ fontSize: 8, color: '#6a6058', background: 'transparent', border: 'none', cursor: 'pointer', padding: '2px 4px' }}
+                style={{ fontSize: 10, color: '#6a6058', background: 'transparent', border: 'none', cursor: 'pointer', padding: '2px 4px' }}
               >
                 {collapsedJobs.size === sortedJobs.length ? 'Expand All' : 'Collapse All'}
               </button>
             </div>
             {/* Search box */}
             <div style={{ position: 'relative', marginBottom: 6 }}>
-              <Search size={11} style={{ position: 'absolute', left: 8, top: '50%', transform: 'translateY(-50%)', color: '#5a5550' }} />
+              <Search size={13} style={{ position: 'absolute', left: 8, top: '50%', transform: 'translateY(-50%)', color: '#5a5550' }} />
               <input
                 type="text"
                 placeholder="Search by project name..."
                 value={taskSearch}
                 onChange={e => setTaskSearch(e.target.value)}
                 style={{
-                  width: '100%', padding: '5px 8px 5px 26px', fontSize: 11, borderRadius: 5,
+                  width: '100%', padding: '5px 8px 5px 26px', fontSize: 13, borderRadius: 5,
                   background: '#242424', border: '1px solid rgba(205,162,116,0.1)', color: '#e8e0d8',
                   outline: 'none', boxSizing: 'border-box',
                 }}
@@ -2822,12 +2822,12 @@ export default function DashboardOverview() {
                   onClick={() => setTaskSearch('')}
                   style={{ position: 'absolute', right: 6, top: '50%', transform: 'translateY(-50%)', background: 'none', border: 'none', cursor: 'pointer', padding: 0, lineHeight: 0 }}
                 >
-                  <X size={10} style={{ color: '#5a5550' }} />
+                  <X size={12} style={{ color: '#5a5550' }} />
                 </button>
               )}
             </div>
             {taskSearch && filteredJobs.length === 0 && (
-              <div style={{ textAlign: 'center', padding: '8px 0', fontSize: 10, color: '#5a5550' }}>
+              <div style={{ textAlign: 'center', padding: '8px 0', fontSize: 12, color: '#5a5550' }}>
                 No projects match "{taskSearch}"
               </div>
             )}
@@ -2854,16 +2854,16 @@ export default function DashboardOverview() {
                       }}
                     >
                       <span style={{ width: 6, height: 6, borderRadius: 3, background: c, flexShrink: 0 }} />
-                      <span style={{ fontSize: 11, fontWeight: 600, color: '#e8e0d8', flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                      <span style={{ fontSize: 13, fontWeight: 600, color: '#e8e0d8', flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
                         {jobName.replace(/^#\d+\s*/, '')}
                       </span>
-                      <span style={{ fontSize: 9, color: '#6a6058', flexShrink: 0 }}>{jobTasks.length}</span>
+                      <span style={{ fontSize: 11, color: '#6a6058', flexShrink: 0 }}>{jobTasks.length}</span>
                       {urgentCount > 0 && (
-                        <span style={{ fontSize: 8, color: '#ef4444', background: 'rgba(239,68,68,0.1)', padding: '1px 4px', borderRadius: 3, flexShrink: 0 }}>
+                        <span style={{ fontSize: 10, color: '#ef4444', background: 'rgba(239,68,68,0.1)', padding: '1px 4px', borderRadius: 3, flexShrink: 0 }}>
                           {urgentCount} overdue
                         </span>
                       )}
-                      {isCollapsed ? <ChevronDown size={10} style={{ color: '#5a5550', flexShrink: 0 }} /> : <ChevronUp size={10} style={{ color: '#5a5550', flexShrink: 0 }} />}
+                      {isCollapsed ? <ChevronDown size={12} style={{ color: '#5a5550', flexShrink: 0 }} /> : <ChevronUp size={12} style={{ color: '#5a5550', flexShrink: 0 }} />}
                     </button>
                     <button
                       onClick={(e) => {
@@ -2879,7 +2879,7 @@ export default function DashboardOverview() {
                         background: 'rgba(205,162,116,0.08)', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0,
                       }}
                     >
-                      <Plus size={11} style={{ color: '#CDA274' }} />
+                      <Plus size={13} style={{ color: '#CDA274' }} />
                     </button>
                   </div>
                   {!isCollapsed && (
@@ -2901,17 +2901,17 @@ export default function DashboardOverview() {
                               style={{ width: 18, height: 18, borderRadius: '50%', border: '1px solid rgba(205,162,116,0.25)', background: 'transparent', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}
                             >
                               {isCompleting
-                                ? <Loader2 size={10} className="animate-spin" style={{ color: '#8a8078' }} />
-                                : <Check size={10} style={{ color: '#22c55e' }} />
+                                ? <Loader2 size={12} className="animate-spin" style={{ color: '#8a8078' }} />
+                                : <Check size={12} style={{ color: '#22c55e' }} />
                               }
                             </button>
                             <div
                               onClick={() => { setSelectedCalTask(task); setCalEditingDate(task.endDate || ''); }}
                               style={{ flex: 1, minWidth: 0, cursor: 'pointer' }}
                             >
-                              <p style={{ fontSize: 11, color: '#e8e0d8', margin: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{task.name}</p>
+                              <p style={{ fontSize: 13, color: '#e8e0d8', margin: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{task.name}</p>
                               {task.description && (
-                                <p style={{ fontSize: 9, color: '#8a8078', margin: '1px 0 0 0', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{task.description}</p>
+                                <p style={{ fontSize: 11, color: '#8a8078', margin: '1px 0 0 0', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{task.description}</p>
                               )}
                             </div>
                             {isEditingDate ? (
@@ -2928,13 +2928,13 @@ export default function DashboardOverview() {
                                   if (e.key === 'Enter' && pendingDate) updateTaskDate(task.id, pendingDate);
                                   if (e.key === 'Escape') { setEditingDateTaskId(null); setPendingDate(''); }
                                 }}
-                                style={{ fontSize: 10, padding: '2px 4px', borderRadius: 4, background: '#2a2a2a', border: '1px solid rgba(205,162,116,0.3)', color: '#e8e0d8', width: 110, flexShrink: 0, colorScheme: 'dark' }}
+                                style={{ fontSize: 12, padding: '2px 4px', borderRadius: 4, background: '#2a2a2a', border: '1px solid rgba(205,162,116,0.3)', color: '#e8e0d8', width: 110, flexShrink: 0, colorScheme: 'dark' }}
                               />
                             ) : (
                               <div style={{ display: 'flex', alignItems: 'center', gap: 4, flexShrink: 0 }}>
                                 <button
                                   onClick={() => { setEditingDateTaskId(task.id); setPendingDate(task.endDate || ''); }}
-                                  style={{ fontSize: 10, color: statusColor, background: 'transparent', border: 'none', cursor: 'pointer', padding: 0 }}
+                                  style={{ fontSize: 12, color: statusColor, background: 'transparent', border: 'none', cursor: 'pointer', padding: 0 }}
                                 >
                                   {task.daysUntilDue !== null
                                     ? (task.daysUntilDue < 0 ? `${Math.abs(task.daysUntilDue)}d overdue` : task.daysUntilDue === 0 ? 'Today' : `${task.daysUntilDue}d`)
@@ -2948,7 +2948,7 @@ export default function DashboardOverview() {
                                     style={{ lineHeight: 0, flexShrink: 0 }}
                                     title="View in JobTread"
                                   >
-                                    <ExternalLink size={10} style={{ color: '#5a5550' }} />
+                                    <ExternalLink size={12} style={{ color: '#5a5550' }} />
                                   </a>
                                 )}
                               </div>
@@ -2983,7 +2983,7 @@ export default function DashboardOverview() {
                 <div style={{ fontSize: 14, fontWeight: 600, color: '#e8e0d8', lineHeight: '18px' }}>{selectedCalTask.name}</div>
                 <div style={{ display: 'flex', alignItems: 'center', gap: 5, marginTop: 4 }}>
                   <span style={{ width: 7, height: 7, borderRadius: 4, background: jobColor(selectedCalTask.jobNumber), flexShrink: 0 }} />
-                  <span style={{ fontSize: 11, color: '#8a8078' }}>#{selectedCalTask.jobNumber} {selectedCalTask.jobName}</span>
+                  <span style={{ fontSize: 13, color: '#8a8078' }}>#{selectedCalTask.jobNumber} {selectedCalTask.jobName}</span>
                 </div>
               </div>
               <button onClick={() => setSelectedCalTask(null)} style={{ background: 'none', border: 'none', cursor: 'pointer', padding: 2, lineHeight: 0 }}>
@@ -2994,13 +2994,13 @@ export default function DashboardOverview() {
             {/* Description */}
             {selectedCalTask.description && (
               <div style={{ marginBottom: 12, padding: '8px 10px', background: 'rgba(205,162,116,0.06)', borderRadius: 6, border: '1px solid rgba(205,162,116,0.08)' }}>
-                <div style={{ fontSize: 11, color: '#a89888', lineHeight: 1.5, whiteSpace: 'pre-wrap' }}>{selectedCalTask.description}</div>
+                <div style={{ fontSize: 13, color: '#a89888', lineHeight: 1.5, whiteSpace: 'pre-wrap' }}>{selectedCalTask.description}</div>
               </div>
             )}
 
             {/* Date edit */}
             <div style={{ marginBottom: 12 }}>
-              <label style={{ fontSize: 10, color: '#6a6058', fontWeight: 600, display: 'block', marginBottom: 4 }}>DUE DATE</label>
+              <label style={{ fontSize: 12, color: '#6a6058', fontWeight: 600, display: 'block', marginBottom: 4 }}>DUE DATE</label>
               <div style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
                 <input
                   type="date"
@@ -3008,14 +3008,14 @@ export default function DashboardOverview() {
                   onChange={e => setCalEditingDate(e.target.value)}
                   style={{
                     flex: 1, background: '#1a1a1a', border: '1px solid rgba(205,162,116,0.15)', borderRadius: 6,
-                    color: '#e8e0d8', fontSize: 12, padding: '5px 8px',
+                    color: '#e8e0d8', fontSize: 14, padding: '5px 8px',
                     colorScheme: 'dark',
                   }}
                 />
                 {calEditingDate !== (selectedCalTask.endDate || '') && (
                   <button onClick={saveCalDate} disabled={calSavingDate}
                     style={{
-                      background: '#CDA274', color: '#1a1a1a', fontSize: 11, fontWeight: 600,
+                      background: '#CDA274', color: '#1a1a1a', fontSize: 13, fontWeight: 600,
                       padding: '5px 10px', borderRadius: 6, border: 'none', cursor: 'pointer',
                       opacity: calSavingDate ? 0.5 : 1,
                     }}>
@@ -3032,13 +3032,13 @@ export default function DashboardOverview() {
                 disabled={calCompleting}
                 style={{
                   flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 5,
-                  padding: '7px 0', borderRadius: 6, border: 'none', cursor: 'pointer', fontSize: 12, fontWeight: 600,
+                  padding: '7px 0', borderRadius: 6, border: 'none', cursor: 'pointer', fontSize: 14, fontWeight: 600,
                   background: 'rgba(34,197,94,0.1)', color: '#22c55e',
                   opacity: calCompleting ? 0.5 : 1,
                 }}>
                 {calCompleting
-                  ? <Loader2 size={13} className="animate-spin" />
-                  : <><Check size={13} /> Mark Complete</>
+                  ? <Loader2 size={15} className="animate-spin" />
+                  : <><Check size={15} /> Mark Complete</>
                 }
               </button>
               <a
@@ -3046,10 +3046,10 @@ export default function DashboardOverview() {
                 target="_blank" rel="noopener noreferrer"
                 style={{
                   flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 5,
-                  padding: '7px 0', borderRadius: 6, fontSize: 12, fontWeight: 600, textDecoration: 'none',
+                  padding: '7px 0', borderRadius: 6, fontSize: 14, fontWeight: 600, textDecoration: 'none',
                   background: 'rgba(205,162,116,0.1)', color: '#CDA274',
                 }}>
-                <ExternalLink size={13} /> View in JobTread
+                <ExternalLink size={15} /> View in JobTread
               </a>
             </div>
           </div>
@@ -3071,7 +3071,7 @@ export default function DashboardOverview() {
             <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 12 }}>
               <div>
                 <div style={{ fontSize: 14, fontWeight: 600, color: '#e8e0d8' }}>New Task</div>
-                <div style={{ fontSize: 11, color: '#8a8078', marginTop: 2 }}>{newTaskForm.jobName.replace(/^#\d+\s*/, '')}</div>
+                <div style={{ fontSize: 13, color: '#8a8078', marginTop: 2 }}>{newTaskForm.jobName.replace(/^#\d+\s*/, '')}</div>
               </div>
               <button onClick={() => setNewTaskForm(null)} style={{ background: 'none', border: 'none', cursor: 'pointer', padding: 2, lineHeight: 0 }}>
                 <X size={14} style={{ color: '#6a6058' }} />
@@ -3080,7 +3080,7 @@ export default function DashboardOverview() {
 
             {/* Task Name */}
             <div style={{ marginBottom: 10 }}>
-              <label style={{ fontSize: 10, color: '#6a6058', fontWeight: 600, display: 'block', marginBottom: 4 }}>TASK NAME</label>
+              <label style={{ fontSize: 12, color: '#6a6058', fontWeight: 600, display: 'block', marginBottom: 4 }}>TASK NAME</label>
               <input
                 type="text"
                 autoFocus
@@ -3090,20 +3090,20 @@ export default function DashboardOverview() {
                 onKeyDown={e => { if (e.key === 'Enter' && newTaskName.trim()) createNewTask(); }}
                 style={{
                   width: '100%', background: '#1a1a1a', border: '1px solid rgba(205,162,116,0.15)', borderRadius: 6,
-                  color: '#e8e0d8', fontSize: 12, padding: '7px 10px', outline: 'none', boxSizing: 'border-box',
+                  color: '#e8e0d8', fontSize: 14, padding: '7px 10px', outline: 'none', boxSizing: 'border-box',
                 }}
               />
             </div>
 
             {/* Phase (Category) Selector */}
             <div style={{ marginBottom: 10 }}>
-              <label style={{ fontSize: 10, color: '#6a6058', fontWeight: 600, display: 'block', marginBottom: 4 }}>PHASE (CATEGORY)</label>
+              <label style={{ fontSize: 12, color: '#6a6058', fontWeight: 600, display: 'block', marginBottom: 4 }}>PHASE (CATEGORY)</label>
               <select
                 value={newTaskPhase}
                 onChange={e => setNewTaskPhase(e.target.value)}
                 style={{
                   width: '100%', background: '#1a1a1a', border: '1px solid rgba(205,162,116,0.15)', borderRadius: 6,
-                  color: '#CDA274', fontSize: 12, padding: '7px 10px', outline: 'none', cursor: 'pointer', boxSizing: 'border-box',
+                  color: '#CDA274', fontSize: 14, padding: '7px 10px', outline: 'none', cursor: 'pointer', boxSizing: 'border-box',
                 }}
               >
                 {PHASES.map(p => (
@@ -3114,14 +3114,14 @@ export default function DashboardOverview() {
 
             {/* Due Date */}
             <div style={{ marginBottom: 14 }}>
-              <label style={{ fontSize: 10, color: '#6a6058', fontWeight: 600, display: 'block', marginBottom: 4 }}>DUE DATE (OPTIONAL)</label>
+              <label style={{ fontSize: 12, color: '#6a6058', fontWeight: 600, display: 'block', marginBottom: 4 }}>DUE DATE (OPTIONAL)</label>
               <input
                 type="date"
                 value={newTaskDate}
                 onChange={e => setNewTaskDate(e.target.value)}
                 style={{
                   width: '100%', background: '#1a1a1a', border: '1px solid rgba(205,162,116,0.15)', borderRadius: 6,
-                  color: '#e8e0d8', fontSize: 12, padding: '7px 10px', colorScheme: 'dark', outline: 'none', boxSizing: 'border-box',
+                  color: '#e8e0d8', fontSize: 14, padding: '7px 10px', colorScheme: 'dark', outline: 'none', boxSizing: 'border-box',
                 }}
               />
             </div>
@@ -3132,7 +3132,7 @@ export default function DashboardOverview() {
                 onClick={() => setNewTaskForm(null)}
                 style={{
                   flex: 1, padding: '8px 0', borderRadius: 6, border: '1px solid rgba(205,162,116,0.15)', cursor: 'pointer',
-                  fontSize: 12, fontWeight: 600, background: 'transparent', color: '#6a6058',
+                  fontSize: 14, fontWeight: 600, background: 'transparent', color: '#6a6058',
                 }}>
                 Cancel
               </button>
@@ -3141,7 +3141,7 @@ export default function DashboardOverview() {
                 disabled={!newTaskName.trim() || creatingTask}
                 style={{
                   flex: 1, padding: '8px 0', borderRadius: 6, border: 'none', cursor: newTaskName.trim() && !creatingTask ? 'pointer' : 'default',
-                  fontSize: 12, fontWeight: 600,
+                  fontSize: 14, fontWeight: 600,
                   background: newTaskName.trim() ? '#CDA274' : 'rgba(205,162,116,0.2)',
                   color: newTaskName.trim() ? '#1a1a1a' : '#6a6058',
                   opacity: creatingTask ? 0.5 : 1,
