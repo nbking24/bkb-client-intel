@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { getCostItemsForJob, getCostGroupOrder, getJob, JTCostItem } from '../../../../lib/jobtread';
+import { getCostGroupOrder, getJob, JTCostItem, pave } from '../../../../lib/jobtread';
 
 interface BudgetCostItem {
   id: string;
@@ -21,6 +21,62 @@ interface BudgetSection {
   id: string;
   name: string;
   costGroups: BudgetCostGroup[];
+}
+
+/**
+ * Lightweight cost item fetch for the spec writer.
+ * Only requests fields the spec writer actually needs — no files,
+ * no customFieldValues, no isSpecification — to avoid 413 on large jobs.
+ */
+async function getCostItemsForSpecWriter(jobId: string): Promise<JTCostItem[]> {
+  const PAGE_SIZE = 30; // small pages to stay well under 413 limit
+  let allItems: any[] = [];
+  let nextPage: string | null = null;
+  const MAX_PAGES = 20; // safety cap: 30 × 20 = 600 items max
+
+  for (let page = 0; page < MAX_PAGES; page++) {
+    const pageParams: Record<string, unknown> = { size: PAGE_SIZE };
+    if (nextPage) pageParams.page = nextPage;
+
+    const data = await pave({
+      job: {
+        $: { id: jobId },
+        costItems: {
+          $: pageParams,
+          nextPage: {},
+          nodes: {
+            id: {},
+            name: {},
+            description: {},
+            quantity: {},
+            unitCost: {},
+            unitPrice: {},
+            cost: {},
+            price: {},
+            costGroup: {
+              id: {},
+              name: {},
+              description: {},
+              parentCostGroup: {
+                id: {},
+                name: {},
+                description: {},
+              },
+            },
+            document: { id: {}, type: {} },
+          },
+        },
+      },
+    });
+
+    const costItemPage = (data as any)?.job?.costItems;
+    const nodes = costItemPage?.nodes || [];
+    allItems = allItems.concat(nodes);
+    nextPage = costItemPage?.nextPage || null;
+    if (!nextPage || nodes.length < PAGE_SIZE) break;
+  }
+
+  return allItems;
 }
 
 /**
@@ -89,9 +145,9 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: 'Job not found' }, { status: 404 });
     }
 
-    // Fetch all cost items and cost group ordering in parallel
+    // Fetch cost items (lightweight query) and cost group ordering in parallel
     const [allItems, groupOrder] = await Promise.all([
-      getCostItemsForJob(jobId, 500),
+      getCostItemsForSpecWriter(jobId),
       getCostGroupOrder(jobId),
     ]);
 
