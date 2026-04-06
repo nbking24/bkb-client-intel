@@ -7,11 +7,12 @@ import {
   DollarSign, ClipboardList,
   ChevronUp, ChevronDown, TrendingUp, TrendingDown, Minus,
   Target, Clock3, Activity, CalendarDays, Building2,
-  FileCheck, FileWarning, FileClock, XCircle, Send,
+  FileCheck, FileWarning, FileClock, FileText, XCircle, Send,
   X, ExternalLink, Check, Bot, User, CheckCircle,
   Paperclip, ImageIcon, X as XIcon, Plus, Search,
   Hourglass, ChevronRight, Mail, Receipt
 } from 'lucide-react';
+import Link from 'next/link';
 import { useAuth } from '@/app/hooks/useAuth';
 import {
   formatContent,
@@ -1555,6 +1556,13 @@ export default function DashboardOverview() {
           <Bot size={14} style={{ color: '#CDA274' }} />
           <span style={{ fontSize: 11, fontWeight: 600, color: '#CDA274', letterSpacing: '0.04em' }}>ASK AGENT</span>
         </button>
+        <Link href="/dashboard/spec-writer"
+          style={{ flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6,
+            background: '#1e1e1e', border: '1px solid rgba(205,162,116,0.08)', borderRadius: 8,
+            padding: '7px 10px', cursor: 'pointer', textDecoration: 'none' }}>
+          <FileText size={14} style={{ color: '#CDA274' }} />
+          <span style={{ fontSize: 11, fontWeight: 600, color: '#CDA274', letterSpacing: '0.04em' }}>SPEC WRITER</span>
+        </Link>
       </div>
       {showAgentPanel && <InlineAskAgent pmJobs={overview?.data?.activeJobs || []} screen={'desktop'} hideToggle defaultOpen />}
               {/* QUICK ADD — Inline Panel */}
