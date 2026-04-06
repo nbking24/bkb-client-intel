@@ -152,6 +152,137 @@ interface OverviewResponse {
 }
 
 // ============================================================
+// Searchable Job Dropdown (type-ahead, A-Z sorted)
+// ============================================================
+
+function JobSearchDropdown({ jobs, value, onChange, placeholder = 'Search jobs...', formatLabel }: {
+  jobs: Array<{ id: string; name: string; number: string }>;
+  value: string;
+  onChange: (id: string) => void;
+  placeholder?: string;
+  formatLabel?: (j: { id: string; name: string; number: string }) => string;
+}) {
+  const [open, setOpen] = useState(false);
+  const [search, setSearch] = useState('');
+  const containerRef = useRef<HTMLDivElement>(null);
+  const inputRef = useRef<HTMLInputElement>(null);
+
+  const label = formatLabel || ((j: { id: string; name: string; number: string }) => `#${j.number} ${j.name}`);
+
+  // Sort jobs A-Z by name, then filter by search
+  const sorted = useMemo(() =>
+    [...(jobs || [])].sort((a, b) => a.name.localeCompare(b.name)),
+    [jobs]
+  );
+
+  const filtered = useMemo(() => {
+    if (!search.trim()) return sorted;
+    const q = search.toLowerCase();
+    return sorted.filter(j => j.name.toLowerCase().includes(q) || j.number.toLowerCase().includes(q));
+  }, [sorted, search]);
+
+  // Close on outside click
+  useEffect(() => {
+    const handler = (e: MouseEvent) => {
+      if (containerRef.current && !containerRef.current.contains(e.target as Node)) {
+        setOpen(false);
+        setSearch('');
+      }
+    };
+    document.addEventListener('mousedown', handler);
+    return () => document.removeEventListener('mousedown', handler);
+  }, []);
+
+  const selectedJob = sorted.find(j => j.id === value);
+
+  return (
+    <div ref={containerRef} style={{ position: 'relative', width: '100%' }}>
+      <div
+        onClick={() => { setOpen(!open); setTimeout(() => inputRef.current?.focus(), 50); }}
+        style={{
+          width: '100%', background: '#1a1a1a', border: '1px solid rgba(205,162,116,0.15)',
+          borderRadius: 5, color: value ? '#CDA274' : '#5a5550', fontSize: 11,
+          padding: '7px 8px', cursor: 'pointer', boxSizing: 'border-box' as const,
+          display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 4,
+          minHeight: 32,
+        }}
+      >
+        <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' as const }}>
+          {selectedJob ? label(selectedJob) : placeholder.replace('Search ', 'Select ')}
+        </span>
+        <ChevronDown size={11} style={{ color: '#5a5550', flexShrink: 0 }} />
+      </div>
+      {open && (
+        <div style={{
+          position: 'absolute', top: '100%', left: 0, right: 0, zIndex: 999,
+          background: '#1e1e1e', border: '1px solid rgba(205,162,116,0.2)',
+          borderRadius: 6, marginTop: 2, boxShadow: '0 8px 24px rgba(0,0,0,0.5)',
+          maxHeight: 220, display: 'flex', flexDirection: 'column',
+        }}>
+          <div style={{ padding: '6px 8px', borderBottom: '1px solid rgba(205,162,116,0.08)', display: 'flex', alignItems: 'center', gap: 6 }}>
+            <Search size={11} style={{ color: '#5a5550', flexShrink: 0 }} />
+            <input
+              ref={inputRef}
+              type="text"
+              value={search}
+              onChange={e => setSearch(e.target.value)}
+              placeholder={placeholder}
+              autoFocus
+              style={{
+                flex: 1, background: 'transparent', border: 'none', outline: 'none',
+                color: '#e0e0d8', fontSize: 11, padding: 0,
+              }}
+            />
+            {search && (
+              <button onClick={(e) => { e.stopPropagation(); setSearch(''); }}
+                style={{ background: 'none', border: 'none', cursor: 'pointer', padding: 0, lineHeight: 0 }}>
+                <X size={10} style={{ color: '#5a5550' }} />
+              </button>
+            )}
+          </div>
+          <div style={{ overflowY: 'auto', maxHeight: 180 }}>
+            {value && (
+              <div
+                onClick={() => { onChange(''); setOpen(false); setSearch(''); }}
+                style={{
+                  padding: '6px 10px', fontSize: 11, color: '#5a5550', cursor: 'pointer',
+                  borderBottom: '1px solid rgba(205,162,116,0.05)',
+                }}
+                onMouseEnter={e => (e.currentTarget.style.background = 'rgba(205,162,116,0.06)')}
+                onMouseLeave={e => (e.currentTarget.style.background = 'transparent')}
+              >
+                Clear selection
+              </div>
+            )}
+            {filtered.length === 0 ? (
+              <div style={{ padding: '12px 10px', fontSize: 11, color: '#5a5550', textAlign: 'center' as const }}>
+                No jobs match &ldquo;{search}&rdquo;
+              </div>
+            ) : (
+              filtered.map(j => (
+                <div
+                  key={j.id}
+                  onClick={() => { onChange(j.id); setOpen(false); setSearch(''); }}
+                  style={{
+                    padding: '6px 10px', fontSize: 11, cursor: 'pointer',
+                    color: j.id === value ? '#CDA274' : '#c8c0b8',
+                    background: j.id === value ? 'rgba(205,162,116,0.08)' : 'transparent',
+                  }}
+                  onMouseEnter={e => (e.currentTarget.style.background = 'rgba(205,162,116,0.06)')}
+                  onMouseLeave={e => (e.currentTarget.style.background = j.id === value ? 'rgba(205,162,116,0.08)' : 'transparent')}
+                >
+                  {label(j)}
+                </div>
+              ))
+            )}
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ============================================================
 // Inline Ask Agent Chat
 // ============================================================
 
@@ -1463,11 +1594,13 @@ export default function DashboardOverview() {
                     </div>
                     <div style={{ marginTop: 8 }}>
                       <label style={{ fontSize: 9, color: '#6a6058', fontWeight: 600, display: 'block', marginBottom: 3 }}>JOB</label>
-                      <select value={stNewTaskJob} onChange={e => setStNewTaskJob(e.target.value)}
-                        style={{ width: '100%', background: '#1a1a1a', border: '1px solid rgba(205,162,116,0.15)', borderRadius: 5, color: stNewTaskJob ? '#CDA274' : '#5a5550', fontSize: 11, padding: '7px 8px', outline: 'none', cursor: 'pointer', boxSizing: 'border-box' as const }}>
-                        <option value="">Select job...</option>
-                        {overview?.data?.activeJobs?.map((j: any) => (<option key={j.id} value={j.id}>{j.number} - {j.name}</option>))}
-                      </select>
+                      <JobSearchDropdown
+                        jobs={overview?.data?.activeJobs || []}
+                        value={stNewTaskJob}
+                        onChange={setStNewTaskJob}
+                        placeholder="Search jobs..."
+                        formatLabel={j => `${j.number} - ${j.name}`}
+                      />
                     </div>
                     <div style={{ marginTop: 8 }}>
                       <label style={{ fontSize: 9, color: '#6a6058', fontWeight: 600, display: 'block', marginBottom: 3 }}>PHASE</label>
@@ -1539,11 +1672,12 @@ export default function DashboardOverview() {
                       <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8 }}>
                         <div>
                           <label style={{ fontSize: 9, color: '#6a6058', fontWeight: 600, display: 'block', marginBottom: 3 }}>JOB</label>
-                          <select value={woJobId} onChange={e => setWoJobId(e.target.value)}
-                            style={{ width: '100%', background: '#1a1a1a', border: '1px solid rgba(205,162,116,0.15)', borderRadius: 5, color: woJobId ? '#CDA274' : '#5a5550', fontSize: 11, padding: '7px 8px', outline: 'none', cursor: 'pointer', boxSizing: 'border-box' as const }}>
-                            <option value="">Select job...</option>
-                            {(overview?.data?.activeJobs || []).map((j: any) => (<option key={j.id} value={j.id}>#{j.number} {j.name}</option>))}
-                          </select>
+                          <JobSearchDropdown
+                            jobs={overview?.data?.activeJobs || []}
+                            value={woJobId}
+                            onChange={setWoJobId}
+                            placeholder="Search jobs..."
+                          />
                         </div>
                         <div>
                           <label style={{ fontSize: 9, color: '#6a6058', fontWeight: 600, display: 'block', marginBottom: 3 }}>WHO?</label>
@@ -1604,11 +1738,12 @@ export default function DashboardOverview() {
                     <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8, marginTop: 8 }}>
                       <div>
                         <label style={{ fontSize: 9, color: '#6a6058', fontWeight: 600, display: 'block', marginBottom: 3 }}>JOB</label>
-                        <select value={smJobId} onChange={e => { setSmJobId(e.target.value); fetchJobContacts(e.target.value); }}
-                          style={{ width: '100%', background: '#1a1a1a', border: '1px solid rgba(205,162,116,0.15)', borderRadius: 5, color: smJobId ? '#CDA274' : '#5a5550', fontSize: 11, padding: '7px 8px', outline: 'none', cursor: 'pointer', boxSizing: 'border-box' as const }}>
-                          <option value="">Select job...</option>
-                          {(overview?.data?.activeJobs || []).map((j: any) => (<option key={j.id} value={j.id}>#{j.number} {j.name}</option>))}
-                        </select>
+                        <JobSearchDropdown
+                          jobs={overview?.data?.activeJobs || []}
+                          value={smJobId}
+                          onChange={(id: string) => { setSmJobId(id); fetchJobContacts(id); }}
+                          placeholder="Search jobs..."
+                        />
                       </div>
                       <div>
                         <label style={{ fontSize: 9, color: '#6a6058', fontWeight: 600, display: 'block', marginBottom: 3 }}>BKB ATTENDEE</label>
