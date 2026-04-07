@@ -97,10 +97,13 @@ export async function POST(req: Request) {
 
       budgetBreakdownTotal += cost;
 
-      // Labor hours from cost type
+      // Labor hours from cost type — only from approved customer orders
+      // (matches how totalEstimatedCost/Price are calculated from approved docs)
       const costType = ci.costType?.name?.toLowerCase() || '';
       if (costType.includes('labor') || costType.includes('time')) {
-        estimatedLaborHours += Number(ci.quantity) || 0;
+        if (ci.document?.type === 'customerOrder' && ci.document?.status === 'approved') {
+          estimatedLaborHours += Number(ci.quantity) || 0;
+        }
       }
     }
 

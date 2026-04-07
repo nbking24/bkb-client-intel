@@ -92,12 +92,16 @@ export async function POST(req: Request) {
               }
             }
 
-            // Estimated labor hours from ALL budget cost items (labor line items)
+            // Estimated labor hours from APPROVED customer order cost items only
+            // (matches how estimatedCost/estimatedPrice are calculated above)
             let estimatedHours = 0;
             for (const ci of costItems) {
               const costType = ci.costType?.name?.toLowerCase() || '';
               if (costType.includes('labor') || costType.includes('time')) {
-                estimatedHours += Number(ci.quantity) || 0;
+                // Only count hours from approved customer orders (proposals + COs)
+                if (ci.document?.type === 'customerOrder' && ci.document?.status === 'approved') {
+                  estimatedHours += Number(ci.quantity) || 0;
+                }
               }
             }
 
