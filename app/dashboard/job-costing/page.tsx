@@ -32,13 +32,20 @@ interface JobSummary {
   priceType: string | null;
   customStatus: string | null;
   isCostPlus: boolean;
+  // New fields
+  contractPrice?: number;
+  pendingCost?: number;
+  totalCosts?: number;
+  margin?: number;
+  marginPct?: number;
+  // Legacy fields (kept for backward compat)
   estimatedCost: number;
-  estimatedPrice: number;
-  estimatedMargin: number;
-  estimatedMarginPct: number;
+  estimatedPrice?: number;
+  estimatedMargin?: number;
+  estimatedMarginPct?: number;
   actualCost: number;
-  costVariance: number;
-  costVariancePct: number;
+  costVariance?: number;
+  costVariancePct?: number;
   invoicedAmount: number;
   collectedAmount: number;
   estimatedHours: number;
@@ -49,10 +56,15 @@ interface JobSummary {
 }
 
 interface Totals {
+  totalContractPrice?: number;
   totalEstimatedCost: number;
   totalActualCost: number;
-  totalEstimatedPrice: number;
+  totalPendingCost?: number;
+  totalCosts?: number;
+  totalMargin?: number;
+  totalEstimatedPrice?: number;
   totalInvoiced: number;
+  totalCollected?: number;
   totalEstimatedHours: number;
   totalActualHours: number;
   jobsOverBudget: number;
@@ -89,16 +101,20 @@ interface JobDetail {
   job: { id: string; name: string; number: string; clientName: string; priceType: string; customStatus: string; isCostPlus: boolean; isCompleted: boolean };
   financialSummary: {
     isCostPlus: boolean;
+    contractPrice?: number;
     estimatedCost: number;
     estimatedPrice: number;
-    estimatedMargin: number;
-    estimatedMarginPct: number;
+    estimatedMargin?: number;
+    estimatedMarginPct?: number;
     actualCost: number;
     pendingCost: number;
+    totalCosts?: number;
     committedCost: number;
     remainingBudget: number;
     costVariance: number;
     costVariancePct: number;
+    margin?: number;
+    marginPct?: number;
     projectedMargin: number;
     projectedMarginPct: number;
     contractValue: number;
@@ -226,11 +242,11 @@ export default function JobCostingDashboard() {
       const order = { 'over-budget': 0, watch: 1, 'on-track': 2 };
       jobs.sort((a, b) => (order[a.health] ?? 2) - (order[b.health] ?? 2));
     } else if (sortBy === 'variance') {
-      jobs.sort((a, b) => a.costVariance - b.costVariance); // most over-budget first
+      jobs.sort((a, b) => (a.margin ?? 0) - (b.margin ?? 0)); // worst margin first
     } else if (sortBy === 'name') {
       jobs.sort((a, b) => a.jobName.localeCompare(b.jobName));
     } else if (sortBy === 'cost') {
-      jobs.sort((a, b) => b.actualCost - a.actualCost);
+      jobs.sort((a, b) => (b.totalCosts ?? b.actualCost) - (a.totalCosts ?? a.actualCost));
     }
     return jobs;
   }, [summaries, search, filterHealth, sortBy]);
@@ -323,8 +339,8 @@ export default function JobCostingDashboard() {
                 <CheckCircle size={12} />
                 <span>
                   {detail.financialSummary.pendingCost > 0
-                    ? `Project complete — $${fmt(detail.financialSummary.pendingCost)} in pending bills/POs still need to be closed out before final numbers are locked in.`
-                    : `Project complete — all costs are finalized. Final margin: ${fmtPct(detail.financialSummary.projectedMarginPct)} ($${fmt(detail.financialSummary.projectedMargin)})`}
+                    ? `Project complete — $${fmt(detail.financialSummary.pendingCost)} in pending bills/POs included in total costs. Final margin: ${fmtPct(detail.financialSummary.marginPct ?? detail.financialSummary.projectedMarginPct)} ($${fmt(detail.financialSummary.margin ?? detail.financialSummary.projectedMargin)})`
+                    : `Project complete — all costs finalized. Final margin: ${fmtPct(detail.financialSummary.marginPct ?? detail.financialSummary.projectedMarginPct)} ($${fmt(detail.financialSummary.margin ?? detail.financialSummary.projectedMargin)})`}
                 </span>
               </div>
             )}
@@ -342,37 +358,37 @@ export default function JobCostingDashboard() {
             <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
               {[
                 {
-                  label: 'Approved Budget',
-                  value: '$' + fmt(detail.financialSummary.estimatedCost),
-                  sub: detail.financialSummary.isCostPlus ? 'Cost-Plus' : `$${fmt(detail.financialSummary.estimatedPrice)} contract price`,
-                  color: '#8a8078',
+                  label: 'Contract Price',
+                  value: '$' + fmt(detail.financialSummary.contractPrice || detail.financialSummary.estimatedPrice),
+                  sub: detail.financialSummary.isCostPlus
+                    ? 'Cost-Plus'
+                    : `$${fmt(detail.financialSummary.estimatedCost)} internal cost budget`,
+                  color: '#C9A84C',
                 },
                 {
-                  label: 'Actual Costs',
-                  value: '$' + fmt(detail.financialSummary.actualCost),
-                  sub: detail.financialSummary.costVariance >= 0
-                    ? `$${fmt(detail.financialSummary.costVariance)} under budget`
-                    : `$${fmt(Math.abs(detail.financialSummary.costVariance))} over budget`,
-                  color: detail.financialSummary.costVariance >= 0 ? '#22c55e' : '#ef4444',
-                },
-                {
-                  label: 'Pending Expected',
-                  value: '$' + fmt(detail.financialSummary.pendingCost),
+                  label: 'Total Costs',
+                  value: '$' + fmt(detail.financialSummary.totalCosts || detail.financialSummary.committedCost),
                   sub: detail.financialSummary.pendingCost > 0
-                    ? `${fmt(detail.financialSummary.committedCost)} total committed`
-                    : 'No pending bills/POs',
-                  color: detail.financialSummary.pendingCost > 0 ? '#f59e0b' : '#8a8078',
+                    ? `$${fmt(detail.financialSummary.actualCost)} paid · $${fmt(detail.financialSummary.pendingCost)} pending`
+                    : `$${fmt(detail.financialSummary.actualCost)} paid`,
+                  color: (detail.financialSummary.totalCosts || detail.financialSummary.committedCost) > detail.financialSummary.estimatedCost && detail.financialSummary.estimatedCost > 0
+                    ? '#ef4444' : '#e8e0d8',
                 },
                 {
-                  label: detail.job.isCompleted ? 'Unused Budget' : 'Remaining Budget',
-                  value: '$' + fmt(detail.financialSummary.remainingBudget),
-                  sub: detail.job.isCompleted
-                    ? (detail.financialSummary.remainingBudget > 0 ? 'Savings vs. budget' : 'Budget fully spent')
-                    : (detail.financialSummary.estimatedCost > 0
-                      ? `${Math.round((detail.financialSummary.remainingBudget / detail.financialSummary.estimatedCost) * 100)}% of budget left`
-                      : 'No budget set'),
-                  color: detail.financialSummary.remainingBudget > 0 ? '#22c55e' :
-                    detail.financialSummary.remainingBudget === 0 && detail.financialSummary.estimatedCost === 0 ? '#8a8078' : '#ef4444',
+                  label: detail.job.isCompleted ? 'Final Margin' : 'Margin',
+                  value: '$' + fmt(detail.financialSummary.margin ?? detail.financialSummary.projectedMargin),
+                  sub: (detail.financialSummary.marginPct ?? detail.financialSummary.projectedMarginPct) !== undefined
+                    ? `${(detail.financialSummary.marginPct ?? detail.financialSummary.projectedMarginPct).toFixed(1)}% of contract`
+                    : '',
+                  color: (detail.financialSummary.margin ?? detail.financialSummary.projectedMargin) >= 0 ? '#22c55e' : '#ef4444',
+                },
+                {
+                  label: 'Invoiced',
+                  value: '$' + fmt(detail.financialSummary.invoicedTotal),
+                  sub: detail.financialSummary.contractValue > 0
+                    ? `${Math.round((detail.financialSummary.invoicedTotal / detail.financialSummary.contractValue) * 100)}% of contract`
+                    : 'No contract',
+                  color: '#C9A84C',
                 },
               ].map((card, i) => (
                 <div
@@ -389,48 +405,7 @@ export default function JobCostingDashboard() {
 
             {/* Financial Summary Cards - Row 2: Revenue & margin */}
             <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
-              {(detail.financialSummary.isCostPlus ? [
-                {
-                  label: 'Collected',
-                  value: '$' + fmt(detail.financialSummary.collectedAmount),
-                  sub: `$${fmt(detail.financialSummary.invoicedTotal)} invoiced`,
-                  color: '#C9A84C',
-                },
-                {
-                  label: detail.job.isCompleted ? 'Final Profit' : 'Profit (Collected − Costs)',
-                  value: '$' + fmt(detail.financialSummary.projectedMargin),
-                  sub: detail.financialSummary.collectedAmount > 0
-                    ? fmtPct(detail.financialSummary.projectedMarginPct) + ' of collected'
-                    : 'No collections yet',
-                  color: detail.financialSummary.projectedMargin >= 0 ? '#22c55e' : '#ef4444',
-                },
-                {
-                  label: 'Contract Value',
-                  value: '$' + fmt(detail.financialSummary.contractValue),
-                  sub: 'Approved proposals',
-                  color: '#8a8078',
-                },
-                {
-                  label: 'Schedule',
-                  value: detail.financialSummary.scheduleProgress + '%',
-                  sub: 'tasks complete',
-                  color: detail.financialSummary.scheduleProgress >= 75 ? '#22c55e' : detail.financialSummary.scheduleProgress >= 25 ? '#C9A84C' : '#8a8078',
-                },
-              ] : [
-                {
-                  label: detail.job.isCompleted ? 'Final Margin' : 'Projected Margin',
-                  value: fmtPct(detail.financialSummary.projectedMarginPct),
-                  sub: '$' + fmt(detail.financialSummary.projectedMargin),
-                  color: detail.financialSummary.projectedMarginPct > 15 ? '#22c55e' : detail.financialSummary.projectedMarginPct > 5 ? '#eab308' : '#ef4444',
-                },
-                {
-                  label: 'Invoiced / Contract',
-                  value: '$' + fmt(detail.financialSummary.invoicedTotal),
-                  sub: detail.financialSummary.contractValue > 0
-                    ? `of $${fmt(detail.financialSummary.contractValue)}`
-                    : 'No contract',
-                  color: '#C9A84C',
-                },
+              {[
                 {
                   label: 'Collected',
                   value: '$' + fmt(detail.financialSummary.collectedAmount),
@@ -440,12 +415,28 @@ export default function JobCostingDashboard() {
                   color: '#C9A84C',
                 },
                 {
+                  label: 'Remaining to Bill',
+                  value: '$' + fmt(Math.max(0, detail.financialSummary.contractValue - detail.financialSummary.invoicedTotal)),
+                  sub: detail.financialSummary.contractValue > 0
+                    ? `${Math.round(((detail.financialSummary.contractValue - detail.financialSummary.invoicedTotal) / detail.financialSummary.contractValue) * 100)}% unbilled`
+                    : 'No contract',
+                  color: detail.financialSummary.contractValue - detail.financialSummary.invoicedTotal > 0 ? '#f59e0b' : '#22c55e',
+                },
+                {
+                  label: 'Internal Cost Budget',
+                  value: '$' + fmt(detail.financialSummary.estimatedCost),
+                  sub: detail.financialSummary.estimatedCost > 0
+                    ? `${Math.round(((detail.financialSummary.totalCosts || detail.financialSummary.committedCost) / detail.financialSummary.estimatedCost) * 100)}% of budget spent`
+                    : 'No budget set',
+                  color: '#8a8078',
+                },
+                {
                   label: 'Schedule',
                   value: detail.financialSummary.scheduleProgress + '%',
                   sub: 'tasks complete',
                   color: detail.financialSummary.scheduleProgress >= 75 ? '#22c55e' : detail.financialSummary.scheduleProgress >= 25 ? '#C9A84C' : '#8a8078',
                 },
-              ]).map((card, i) => (
+              ].map((card, i) => (
                 <div
                   key={i}
                   className="rounded-lg p-3"
@@ -806,13 +797,13 @@ export default function JobCostingDashboard() {
                 <p className="text-2xl font-bold" style={{ color: '#e8e0d8' }}>{totals.jobCount}</p>
               </div>
               <div className="rounded-lg p-3" style={{ background: '#1a1a1a', border: '1px solid rgba(205,162,116,0.1)' }}>
-                <p className="text-xs" style={{ color: '#8a8078' }}>Total Budget</p>
-                <p className="text-2xl font-bold" style={{ color: '#e8e0d8' }}>${fmt(totals.totalEstimatedCost)}</p>
+                <p className="text-xs" style={{ color: '#8a8078' }}>Total Contract</p>
+                <p className="text-2xl font-bold" style={{ color: '#C9A84C' }}>${fmt(totals.totalContractPrice || totals.totalEstimatedCost)}</p>
               </div>
               <div className="rounded-lg p-3" style={{ background: '#1a1a1a', border: '1px solid rgba(205,162,116,0.1)' }}>
-                <p className="text-xs" style={{ color: '#8a8078' }}>Total Actual</p>
-                <p className="text-2xl font-bold" style={{ color: totals.totalActualCost > totals.totalEstimatedCost ? '#ef4444' : '#e8e0d8' }}>
-                  ${fmt(totals.totalActualCost)}
+                <p className="text-xs" style={{ color: '#8a8078' }}>Total Costs</p>
+                <p className="text-2xl font-bold" style={{ color: (totals.totalCosts || totals.totalActualCost) > totals.totalEstimatedCost ? '#ef4444' : '#e8e0d8' }}>
+                  ${fmt(totals.totalCosts || totals.totalActualCost)}
                 </p>
               </div>
               <div className="rounded-lg p-3" style={{ background: 'rgba(239,68,68,0.06)', border: '1px solid rgba(239,68,68,0.15)' }}>
@@ -878,7 +869,8 @@ export default function JobCostingDashboard() {
             ) : (
               filteredJobs.map((job) => {
                 const hc = healthColor(job.health);
-                const budgetPct = job.estimatedCost > 0 ? Math.min((job.actualCost / job.estimatedCost) * 100, 120) : 0;
+                const jobTotalCosts = job.totalCosts ?? job.actualCost;
+                const budgetPct = job.estimatedCost > 0 ? Math.min((jobTotalCosts / job.estimatedCost) * 100, 120) : 0;
 
                 return (
                   <button
@@ -941,9 +933,9 @@ export default function JobCostingDashboard() {
                       {/* Right: key metrics */}
                       <div className="flex gap-6 shrink-0">
                         <div className="text-right">
-                          <p className="text-xs" style={{ color: '#8a8078' }}>Budget / Actual</p>
+                          <p className="text-xs" style={{ color: '#8a8078' }}>Contract / Costs</p>
                           <p className="text-sm font-medium" style={{ color: '#e8e0d8' }}>
-                            ${fmt(job.estimatedCost)} / ${fmt(job.actualCost)}
+                            ${fmt(job.contractPrice ?? job.estimatedPrice ?? job.estimatedCost)} / ${fmt(jobTotalCosts)}
                           </p>
                         </div>
                         <div className="text-right">
@@ -952,18 +944,18 @@ export default function JobCostingDashboard() {
                           </p>
                           {job.isCostPlus ? (
                             <p className="text-sm font-medium" style={{
-                              color: job.collectedAmount >= job.actualCost ? '#22c55e' : '#ef4444',
+                              color: job.collectedAmount >= jobTotalCosts ? '#22c55e' : '#ef4444',
                             }}>
-                              ${fmt(job.collectedAmount)} / ${fmt(job.actualCost)}
+                              ${fmt(job.collectedAmount)} / ${fmt(jobTotalCosts)}
                             </p>
                           ) : (
                             <p
                               className="text-sm font-medium"
                               style={{
-                                color: job.estimatedMarginPct > 15 ? '#22c55e' : job.estimatedMarginPct > 5 ? '#eab308' : '#ef4444',
+                                color: (job.marginPct ?? job.estimatedMarginPct ?? 0) > 15 ? '#22c55e' : (job.marginPct ?? job.estimatedMarginPct ?? 0) > 5 ? '#eab308' : '#ef4444',
                               }}
                             >
-                              {fmtPct(job.estimatedMarginPct)}
+                              {fmtPct(job.marginPct ?? job.estimatedMarginPct ?? 0)}
                             </p>
                           )}
                         </div>

@@ -349,44 +349,49 @@ export async function POST(req: Request) {
       }
     }
 
-    let estimatedMargin: number;
-    let estimatedMarginPct: number;
-    let projectedMargin: number;
-    let projectedMarginPct: number;
+    // Total committed = paid + pending (all costs, including time entry labor)
+    const totalCommitted = totalActualCost + totalPendingCost;
+
+    // Margin = Contract Price - Total Costs (paid + pending)
+    // This is the real margin: what we'll collect vs what we'll actually spend.
+    // There is no "unused budget" — everything approved will be billed/spent.
+    let margin: number;
+    let marginPct: number;
 
     if (isCostPlus) {
-      // Cost-plus: profit = collected - actual cost
-      estimatedMargin = collectedAmount - totalActualCost;
-      estimatedMarginPct = collectedAmount > 0 ? (estimatedMargin / collectedAmount) * 100 : 0;
-      // Projected = same for cost-plus (we don't know future collections)
-      projectedMargin = estimatedMargin;
-      projectedMarginPct = estimatedMarginPct;
+      // Cost-plus: profit = collected - total costs
+      margin = collectedAmount - totalCommitted;
+      marginPct = collectedAmount > 0 ? (margin / collectedAmount) * 100 : 0;
     } else {
-      estimatedMargin = totalEstimatedPrice - totalEstimatedCost;
-      estimatedMarginPct = totalEstimatedPrice > 0 ? (estimatedMargin / totalEstimatedPrice) * 100 : 0;
-      projectedMargin = totalEstimatedPrice - totalActualCost;
-      projectedMarginPct = totalEstimatedPrice > 0 ? (projectedMargin / totalEstimatedPrice) * 100 : 0;
+      // Fixed-price: margin = contract price - total costs (including pending)
+      margin = totalEstimatedPrice - totalCommitted;
+      marginPct = totalEstimatedPrice > 0 ? (margin / totalEstimatedPrice) * 100 : 0;
     }
-
-    const totalCommitted = totalActualCost + totalPendingCost;
-    const totalRemaining = Math.max(0, totalEstimatedCost - totalCommitted);
 
     const financialSummary = {
       isCostPlus,
+      // Contract price = what the client pays (price side of approved customer orders)
+      contractPrice: Math.round(totalEstimatedPrice * 100) / 100,
+      // Internal cost budget (cost side of approved customer orders) — for reference
       estimatedCost: Math.round(totalEstimatedCost * 100) / 100,
+      // Keep estimatedPrice for backward compat
       estimatedPrice: Math.round(totalEstimatedPrice * 100) / 100,
-      estimatedMargin: Math.round(estimatedMargin * 100) / 100,
-      estimatedMarginPct: Math.round(estimatedMarginPct * 10) / 10,
+      // Costs: paid, pending, and total
       actualCost: Math.round(totalActualCost * 100) / 100,
       pendingCost: Math.round(totalPendingCost * 100) / 100,
+      totalCosts: Math.round(totalCommitted * 100) / 100,
+      // Margin = contractPrice - totalCosts
+      margin: Math.round(margin * 100) / 100,
+      marginPct: Math.round(marginPct * 10) / 10,
+      // Keep old field names for backward compat
+      projectedMargin: Math.round(margin * 100) / 100,
+      projectedMarginPct: Math.round(marginPct * 10) / 10,
       committedCost: Math.round(totalCommitted * 100) / 100,
-      remainingBudget: Math.round(totalRemaining * 100) / 100,
-      costVariance: Math.round((totalEstimatedCost - totalActualCost) * 100) / 100,
+      remainingBudget: Math.round(Math.max(0, totalEstimatedCost - totalCommitted) * 100) / 100,
+      costVariance: Math.round((totalEstimatedCost - totalCommitted) * 100) / 100,
       costVariancePct: totalEstimatedCost > 0
-        ? Math.round(((totalEstimatedCost - totalActualCost) / totalEstimatedCost) * 1000) / 10
+        ? Math.round(((totalEstimatedCost - totalCommitted) / totalEstimatedCost) * 1000) / 10
         : 0,
-      projectedMargin: Math.round(projectedMargin * 100) / 100,
-      projectedMarginPct: Math.round(projectedMarginPct * 10) / 10,
       contractValue: Math.round(contractTotal * 100) / 100,
       invoicedTotal: Math.round(invoicedTotal * 100) / 100,
       collectedAmount: Math.round(collectedAmount * 100) / 100,
@@ -427,15 +432,13 @@ TYPE: ${isCostPlus ? 'Cost-Plus' : 'Fixed Price'}${costPlusNote}${completedNote}
 STATUS: ${isCompleted ? 'PROJECT COMPLETE' : 'In Progress'} (JobTread status: ${job?.customStatus || 'N/A'})
 
 FINANCIAL OVERVIEW:
-- Estimated Cost: $${totalEstimatedCost.toLocaleString()}
-- Actual Cost to Date: $${totalActualCost.toLocaleString()}
-- Pending Costs (expected): $${totalPendingCost.toLocaleString()}
-- Total Committed (actual + pending): $${totalCommitted.toLocaleString()}
-- Remaining Budget: $${totalRemaining.toLocaleString()}
-- Cost Variance: $${(totalEstimatedCost - totalActualCost).toLocaleString()} (${totalActualCost > totalEstimatedCost ? 'OVER' : 'under'} budget)
-${isCostPlus ? `- Collected from Client: $${collectedAmount.toLocaleString()}` : `- Estimated Revenue: $${totalEstimatedPrice.toLocaleString()}`}
-- ${isCostPlus ? 'Current Profit (Collected - Costs)' : 'Projected Margin'}: $${projectedMargin.toLocaleString()} (${projectedMarginPct.toFixed(1)}%)
-- Contract Value: $${contractTotal.toLocaleString()}
+- Contract Price (what client pays): $${totalEstimatedPrice.toLocaleString()}
+- Internal Cost Budget: $${totalEstimatedCost.toLocaleString()}
+- Paid Costs (approved bills/POs + labor): $${totalActualCost.toLocaleString()}
+- Pending Costs (draft/pending bills/POs): $${totalPendingCost.toLocaleString()}
+- Total Costs (paid + pending): $${totalCommitted.toLocaleString()}
+${isCostPlus ? `- Collected from Client: $${collectedAmount.toLocaleString()}` : `- Contract Value: $${contractTotal.toLocaleString()}`}
+- ${isCostPlus ? 'Profit (Collected - Total Costs)' : 'Margin (Contract - Total Costs)'}: $${margin.toLocaleString()} (${marginPct.toFixed(1)}%)
 - Invoiced: $${invoicedTotal.toLocaleString()}
 
 LABOR:
