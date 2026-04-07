@@ -53,8 +53,9 @@ export async function POST(req: Request) {
       }
     }
 
-    // Category breakdown: use job budget cost items (which HAVE cost codes).
-    // These represent the full budget allocation by category.
+    // Category breakdown: use job budget cost items from APPROVED customer orders only.
+    // Unapproved items (items being priced, draft proposals, etc.) are excluded —
+    // they don't represent committed budget until approved.
     const budgetByCostCode: Record<string, {
       costCodeName: string;
       costCodeNumber: string;
@@ -68,6 +69,12 @@ export async function POST(req: Request) {
     let estimatedLaborHours = 0;
 
     for (const ci of costItems) {
+      // Only include items from approved customer orders in the budget breakdown.
+      // Items on draft/pending proposals or unassigned items are NOT part of the
+      // committed budget and should not inflate cost code budgets or AI analysis.
+      const isApprovedBudget = ci.document?.type === 'customerOrder' && ci.document?.status === 'approved';
+      if (!isApprovedBudget) continue;
+
       const ccName = ci.costCode?.name || 'Uncoded';
       const ccNum = ci.costCode?.number || '00';
       const key = ccNum + '-' + ccName;
@@ -97,13 +104,10 @@ export async function POST(req: Request) {
 
       budgetBreakdownTotal += cost;
 
-      // Labor hours from cost type — only from approved customer orders
-      // (matches how totalEstimatedCost/Price are calculated from approved docs)
+      // Labor hours from cost type — already filtered to approved customer orders above
       const costType = ci.costType?.name?.toLowerCase() || '';
       if (costType.includes('labor') || costType.includes('time')) {
-        if (ci.document?.type === 'customerOrder' && ci.document?.status === 'approved') {
-          estimatedLaborHours += Number(ci.quantity) || 0;
-        }
+        estimatedLaborHours += Number(ci.quantity) || 0;
       }
     }
 
@@ -292,7 +296,8 @@ export async function POST(req: Request) {
       vendorOrders: [] as any[],
     };
 
-    let invoicedTotal = 0;
+    let invoicedTotal = 0;     // Only non-draft invoices (sent to client)
+    let draftInvoiceTotal = 0; // Draft invoices (prepared but not sent)
     let contractTotal = 0;
 
     for (const doc of documents) {
@@ -311,7 +316,13 @@ export async function POST(req: Request) {
         if (doc.status === 'approved') contractTotal += entry.price;
       } else if (doc.type === 'customerInvoice') {
         docSummary.customerInvoices.push(entry);
-        invoicedTotal += entry.price;
+        // Draft invoices haven't been sent to the client — they should NOT
+        // count as "invoiced" for remaining-to-bill calculations.
+        if (doc.status === 'draft') {
+          draftInvoiceTotal += entry.price;
+        } else {
+          invoicedTotal += entry.price;
+        }
       } else if (doc.type === 'vendorBill') {
         docSummary.vendorBills.push(entry);
       } else if (doc.type === 'vendorOrder') {
@@ -394,6 +405,7 @@ export async function POST(req: Request) {
         : 0,
       contractValue: Math.round(contractTotal * 100) / 100,
       invoicedTotal: Math.round(invoicedTotal * 100) / 100,
+      draftInvoiceTotal: Math.round(draftInvoiceTotal * 100) / 100,
       collectedAmount: Math.round(collectedAmount * 100) / 100,
       scheduleProgress,
     };

@@ -119,6 +119,7 @@ interface JobDetail {
     projectedMarginPct: number;
     contractValue: number;
     invoicedTotal: number;
+    draftInvoiceTotal?: number;
     collectedAmount: number;
     scheduleProgress: number;
   };
@@ -387,6 +388,9 @@ export default function JobCostingDashboard() {
                   value: '$' + fmt(detail.financialSummary.invoicedTotal),
                   sub: detail.financialSummary.contractValue > 0
                     ? `${Math.round((detail.financialSummary.invoicedTotal / detail.financialSummary.contractValue) * 100)}% of contract`
+                    + (detail.financialSummary.draftInvoiceTotal > 0
+                      ? ` · $${fmt(detail.financialSummary.draftInvoiceTotal)} in draft`
+                      : '')
                     : 'No contract',
                   color: '#C9A84C',
                 },
@@ -733,16 +737,40 @@ export default function JobCostingDashboard() {
               </h2>
               <div className="grid grid-cols-2 md:grid-cols-4 gap-3 text-center">
                 {[
-                  { label: 'Proposals/COs', items: detail.docSummary.customerOrders, type: 'revenue' },
-                  { label: 'Invoices', items: detail.docSummary.customerInvoices, type: 'revenue' },
+                  {
+                    label: 'Proposals/COs',
+                    items: detail.docSummary.customerOrders,
+                    type: 'revenue',
+                    // Only show approved customer orders total (the committed contract)
+                    totalOverride: detail.docSummary.customerOrders
+                      .filter((d: any) => d.status === 'approved')
+                      .reduce((s: number, d: any) => s + (d.price || 0), 0),
+                    countOverride: detail.docSummary.customerOrders.filter((d: any) => d.status === 'approved').length,
+                    sublabel: 'approved',
+                  },
+                  {
+                    label: 'Invoices',
+                    items: detail.docSummary.customerInvoices,
+                    type: 'revenue',
+                    // Show sent (non-draft) invoice total; draft invoices noted separately
+                    totalOverride: detail.docSummary.customerInvoices
+                      .filter((d: any) => d.status !== 'draft')
+                      .reduce((s: number, d: any) => s + (d.price || 0), 0),
+                    countOverride: detail.docSummary.customerInvoices.filter((d: any) => d.status !== 'draft').length,
+                    sublabel: (() => {
+                      const drafts = detail.docSummary.customerInvoices.filter((d: any) => d.status === 'draft');
+                      return drafts.length > 0 ? `sent · ${drafts.length} draft ($${fmt(drafts.reduce((s: number, d: any) => s + (d.price || 0), 0))})` : 'sent';
+                    })(),
+                  },
                   { label: 'Vendor Bills', items: detail.docSummary.vendorBills, type: 'cost' },
                   { label: 'Purchase Orders', items: detail.docSummary.vendorOrders, type: 'cost' },
-                ].map((cat) => (
+                ].map((cat: any) => (
                   <div key={cat.label} className="p-2 rounded" style={{ background: '#0d0d0d' }}>
                     <p className="text-xs mb-1" style={{ color: '#8a8078' }}>{cat.label}</p>
-                    <p className="text-lg font-bold" style={{ color: '#e8e0d8' }}>{cat.items.length}</p>
+                    <p className="text-lg font-bold" style={{ color: '#e8e0d8' }}>{cat.countOverride ?? cat.items.length}</p>
                     <p className="text-xs" style={{ color: '#8a8078' }}>
-                      ${fmt(cat.items.reduce((s, d) => s + (cat.type === 'cost' ? d.cost : d.price), 0))}
+                      ${fmt(cat.totalOverride ?? cat.items.reduce((s: number, d: any) => s + (cat.type === 'cost' ? d.cost : d.price), 0))}
+                      {cat.sublabel ? ` ${cat.sublabel}` : ''}
                     </p>
                   </div>
                 ))}
