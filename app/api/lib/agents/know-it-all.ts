@@ -695,7 +695,7 @@ const knowItAll: AgentModule = {
       '1. Identify the project (by name, or ask Nathan to confirm)\n' +
       '2. Ask Nathan: "When did this meeting take place?" — transcripts are often from past meetings. If Nathan provides a date, use it as the eventDate when logging. If he says "today" or "just now", use today\'s date. Do NOT skip this step or assume today\'s date.\n' +
       '3. Extract: summary (2-3 sentences), key decisions, action items, commitments made\n' +
-      '4. Log the meeting as a project event with channel="meeting" and set eventDate to the date Nathan provided\n' +
+      '4. Log the meeting as a project event with channel="meeting" and set eventDate to the date Nathan provided. CRITICAL: Set the "detail" field to the COMPLETE raw transcript text — do NOT summarize or truncate it. The summary field gets the 2-3 sentence overview, but the detail field must contain the FULL transcript so it can be searched and referenced later.\n' +
       '5. Log each key decision as a separate "decision_made" event linked to the meeting (same eventDate)\n' +
       '6. For action items, offer to create JT tasks (standard confirmation flow)\n' +
       '7. For commitments awaiting follow-up, log as open items\n\n';

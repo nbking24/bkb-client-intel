@@ -322,6 +322,9 @@ export function formatEventsForContext(events: ProjectEvent[]): string {
     const openTag = e.open_item ? (e.resolved ? ' [RESOLVED]' : ' [OPEN - ' + (e.open_item_description || 'awaiting response') + ']') : '';
 
     lines.push(`[${date} ${time}] [${channelLabel}] ${e.summary}${participants}${openTag}`);
+    if (e.detail) {
+      lines.push(`  Detail: ${e.detail}`);
+    }
     if (e.resolved && e.resolved_note) {
       lines.push(`  → Resolved: ${e.resolved_note}`);
     }
