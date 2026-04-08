@@ -1764,7 +1764,14 @@ export async function getTaskCommentsWithUser(taskId: string, limit = 50): Promi
     const results = await Promise.allSettled(
       batch.map(c =>
         pave({ comment: { $: { id: c.id }, user: { name: {} } } })
-          .then(data => ({ id: c.id, userName: (data as any)?.comment?.user?.name }))
+          .then(data => {
+            console.log(`[comment-enrich] ${c.id}:`, JSON.stringify(data?.comment || data));
+            return { id: c.id, userName: (data as any)?.comment?.user?.name };
+          })
+          .catch(err => {
+            console.error(`[comment-enrich] ${c.id} error:`, err.message);
+            throw err;
+          })
       )
     );
     for (const r of results) {
