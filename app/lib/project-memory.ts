@@ -117,6 +117,41 @@ export async function createProjectEvent(input: CreateEventInput): Promise<Proje
   return data as ProjectEvent;
 }
 
+// ── Update Event (for pre-saved transcripts, etc.) ─────────────
+
+export interface UpdateEventInput {
+  summary?: string;
+  detail?: string;
+  participants?: string[] | null;
+  event_date?: string | null;
+  event_type?: PMLEventType;
+  open_item?: boolean;
+  open_item_description?: string | null;
+}
+
+export async function updateProjectEvent(eventId: string, updates: UpdateEventInput): Promise<ProjectEvent> {
+  const row: Record<string, any> = {};
+  if (updates.summary !== undefined) row.summary = updates.summary;
+  if (updates.detail !== undefined) row.detail = updates.detail;
+  if (updates.participants !== undefined) row.participants = updates.participants;
+  if (updates.event_date !== undefined) row.event_date = updates.event_date;
+  if (updates.event_type !== undefined) row.event_type = updates.event_type;
+  if (updates.open_item !== undefined) row.open_item = updates.open_item;
+  if (updates.open_item_description !== undefined) row.open_item_description = updates.open_item_description;
+
+  if (Object.keys(row).length === 0) throw new Error('No fields to update');
+
+  const { data, error } = await getSupabase()
+    .from('project_events')
+    .update(row)
+    .eq('id', eventId)
+    .select('*')
+    .single();
+
+  if (error) throw new Error('Failed to update project event: ' + error.message);
+  return data as ProjectEvent;
+}
+
 // ── Get Project Memory ─────────────────────────────────────────
 
 export interface GetProjectMemoryOptions {

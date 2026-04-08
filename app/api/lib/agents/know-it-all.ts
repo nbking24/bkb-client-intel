@@ -80,6 +80,7 @@ import {
 import { getBrandVoicePrompt } from '@/app/lib/bkb-brand-voice';
 import {
   createProjectEvent,
+  updateProjectEvent,
   getProjectMemory,
   getOpenItems,
   resolveOpenItem,
@@ -695,7 +696,8 @@ const knowItAll: AgentModule = {
       '1. Identify the project (by name, or ask Nathan to confirm)\n' +
       '2. Ask Nathan: "When did this meeting take place?" — transcripts are often from past meetings. If Nathan provides a date, use it as the eventDate when logging. If he says "today" or "just now", use today\'s date. Do NOT skip this step or assume today\'s date.\n' +
       '3. Extract: summary (2-3 sentences), key decisions, action items, commitments made\n' +
-      '4. Log the meeting as a project event with channel="meeting" and set eventDate to the date Nathan provided. CRITICAL: Set the "detail" field to the COMPLETE raw transcript text — do NOT summarize or truncate it. The summary field gets the 2-3 sentence overview, but the detail field must contain the FULL transcript so it can be searched and referenced later.\n' +
+      '4. IMPORTANT — CHECK FOR PRE-SAVED TRANSCRIPT: If the message starts with "[TRANSCRIPT AUTO-SAVED..." then the full transcript is ALREADY saved to Supabase. Use update_project_event (with the event ID from that notice) to set the real summary, eventDate, and participants. Do NOT call log_project_event for the main meeting — it is already stored. Do NOT include the transcript text in any tool call — it is already in the database.\n' +
+      '   If there is NO "[TRANSCRIPT AUTO-SAVED..." notice, then call log_project_event normally. Set the "detail" field to the COMPLETE raw transcript text. The summary field gets the 2-3 sentence overview, but the detail field must contain the FULL transcript.\n' +
       '5. Log each key decision as a separate "decision_made" event linked to the meeting (same eventDate)\n' +
       '6. For action items, offer to create JT tasks (standard confirmation flow)\n' +
       '7. For commitments awaiting follow-up, log as open items\n\n';
@@ -1199,6 +1201,20 @@ const knowItAll: AgentModule = {
           jobId: { type: 'string', description: 'Filter to a specific job (optional)' },
         },
         required: ['query'],
+      },
+    },
+    {
+      name: 'update_project_event',
+      description: 'Update an existing project event (e.g. update the summary or eventDate of a pre-saved transcript). Use when a transcript was auto-saved and you need to finalize it with the real summary, date, and participants.',
+      input_schema: {
+        type: 'object',
+        properties: {
+          eventId: { type: 'string', description: 'The project event ID to update' },
+          summary: { type: 'string', description: 'Updated summary (2-3 sentences)' },
+          eventDate: { type: 'string', description: 'When the event occurred (ISO date or YYYY-MM-DD)' },
+          participants: { type: 'array', items: { type: 'string' }, description: 'Names of people involved' },
+        },
+        required: ['eventId'],
       },
     },
     {
@@ -2112,6 +2128,19 @@ const knowItAll: AgentModule = {
         return JSON.stringify({
           success: true,
           message: 'Open item resolved: ' + resolved.summary + ' → ' + input.resolvedNote,
+        });
+      }
+
+      if (name === 'update_project_event') {
+        const updated = await updateProjectEvent(input.eventId, {
+          summary: input.summary || undefined,
+          event_date: input.eventDate || undefined,
+          participants: input.participants || undefined,
+        });
+        return JSON.stringify({
+          success: true,
+          eventId: updated.id,
+          message: 'Event updated: ' + updated.summary,
         });
       }
 

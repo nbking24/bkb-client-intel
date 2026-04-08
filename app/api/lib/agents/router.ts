@@ -6,6 +6,7 @@ import projectDetails from './project-details';
 import fieldStaff from './field-staff';
 import { getActiveJobs, getTasksForJob, getJobSchedule, getMembers, createPhaseTask, createTask } from '@/app/lib/jobtread';
 import { findJTJobByName } from '@/app/api/lib/supabase';
+import { createProjectEvent } from '@/app/lib/project-memory';
 
 const anthropic = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY });
 
@@ -395,6 +396,35 @@ export async function routeMessage(
   const taskResult = await tryTaskCreationFastPath(lastMsg, ctx, messages);
   if (taskResult) return taskResult;
 
+  // ── TRANSCRIPT PRE-SAVE BYPASS ──
+  // If the message looks like a transcript (long + keywords), save the raw text
+  // directly to Supabase BEFORE sending to Claude. Claude still sees the full
+  // text for analysis but does NOT need to echo it back through log_project_event.
+  // This saves thousands of output tokens on transcript submissions.
+  let transcriptPreSaveId: string | null = null;
+  let transcriptWordCount = 0;
+  const isTranscript = lastMsg.length > 2000 &&
+    /transcript|meeting notes|here'?s the|meeting with|we discussed|we met|we talked/i.test(lastMsg);
+
+  if (isTranscript && ctx.jtJobId) {
+    try {
+      transcriptWordCount = lastMsg.split(/\s+/).length;
+      const event = await createProjectEvent({
+        job_id: ctx.jtJobId,
+        channel: 'meeting',
+        event_type: 'meeting_held',
+        summary: '[Transcript pending analysis — full text saved]',
+        detail: lastMsg,
+        participants: null,
+      });
+      transcriptPreSaveId = event.id;
+      console.log('[ROUTER] Pre-saved transcript as event', event.id, '— ' + transcriptWordCount + ' words');
+    } catch (preSaveErr) {
+      console.error('[ROUTER] Transcript pre-save failed:', preSaveErr);
+      // Fall through — Claude will handle it the normal way
+    }
+  }
+
   // Select the best agent for this message
   const agent = selectAgent(lastMsg, lastAgent, forcedAgent);
 
@@ -406,6 +436,18 @@ export async function routeMessage(
     role: m.role as 'user' | 'assistant',
     content: m.content,
   }));
+
+  // If transcript was pre-saved, inject a notice so Claude knows the raw text
+  // is already stored and it only needs to update the summary/eventDate
+  if (transcriptPreSaveId) {
+    const lastIdx = claudeMessages.length - 1;
+    claudeMessages[lastIdx].content =
+      `[TRANSCRIPT AUTO-SAVED: The full raw transcript (${transcriptWordCount} words) has already been saved to project memory as event ID "${transcriptPreSaveId}" for job ${ctx.jtJobId}. ` +
+      `The detail field contains the complete text. When you call log_project_event for this meeting, do NOT include the transcript in the "detail" field — it is already saved. ` +
+      `Instead, just provide your summary, participants, eventDate, and set detail to "See event ${transcriptPreSaveId} for full transcript". ` +
+      `Then update the pre-saved event's summary by calling update_project_event with eventId="${transcriptPreSaveId}" and the real summary once Nathan provides the date.]\n\n` +
+      claudeMessages[lastIdx].content;
+  }
 
   // Inject context into the last user message
   if (contextData) {
