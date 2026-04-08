@@ -112,6 +112,9 @@ QUANTITY NOTATION:
 Use parenthetical notation: (4) LED recessed lights, 4-inch, IC rated
 For measurements: Approx. 42 LF of crown molding, 5-1/4 inch, paint-grade
 
+BKB TRADE STANDARDS (always apply unless explicitly overridden):
+- DRYWALL: All BKB drywall work is a Level-4 Finish (tape, bed, and two coats of joint compound, sanded smooth). Every drywall specification must state "Level-4 Finish" in the scope of work. Do NOT ask the client what finish level they want; Level-4 is the BKB standard.
+
 STANDARD CLARIFICATION PHRASES (use these exact phrases):
 - "Concealed conditions may require additional work at additional cost."
 - "Permit fees included." or "Permit fees not included."
@@ -240,7 +243,7 @@ export const CATEGORY_QUESTION_GUIDE: Record<string, string> = {
 - Smoke/CO detector requirements`,
 
   '13': `DRYWALL questions must define:
-- Drywall finish level (Level 3, Level 4, Level 5 / skim coat)
+- NOTE: BKB standard is Level-4 Finish on ALL drywall work. Do NOT ask about finish level; it is always Level-4 unless the client specifically requests Level 5 / skim coat.
 - Drywall type by area (standard, moisture-resistant/green board, mold-resistant/purple)
 - Ceiling texture (smooth, knockdown, skip trowel, orange peel, match existing)
 - Wall texture (smooth, match existing)
