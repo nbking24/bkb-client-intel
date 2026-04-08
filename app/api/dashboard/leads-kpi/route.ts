@@ -69,6 +69,8 @@ async function fetchAllOpportunities(): Promise<any[]> {
   while (page < MAX_PAGES) {
     const body: Record<string, unknown> = {
       locationId: GHL_LOC(),
+      pipelineId: '1iqzDqMkl6sxHr8OCeqi',
+      status: 'all',
       limit: 100,
     };
     if (startAfterId) body.startAfterId = startAfterId;
