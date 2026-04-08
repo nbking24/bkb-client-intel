@@ -1747,37 +1747,31 @@ export async function getCommentsForTarget(targetId: string, targetType: string,
 
 /**
  * Get comments for a task with author names (user field).
- * Uses sub-collection query to get IDs, then batch-fetches user info.
+ * Uses sub-collection query to get IDs, then fetches user info
+ * via individual comment queries in parallel (user field only works at top level).
  */
 export async function getTaskCommentsWithUser(taskId: string, limit = 50): Promise<Array<JTComment & { userName?: string }>> {
   // Step 1: Get comment list via sub-collection (fast, reliable)
   const comments = await getCommentsForTarget(taskId, 'task', limit);
   if (comments.length === 0) return [];
 
-  // Step 2: Batch-fetch user names via individual comment queries (user field works at top level)
-  // PAVE supports multiple keys in one request, so batch up to 10 at a time
-  const BATCH = 10;
-  const enriched = [...comments] as Array<JTComment & { userName?: string }>;
+  // Step 2: Fetch user names in parallel (5 at a time to avoid rate limits)
+  const enriched = comments.map(c => ({ ...c, userName: undefined as string | undefined }));
+  const BATCH = 5;
 
-  for (let i = 0; i < comments.length; i += BATCH) {
-    const batch = comments.slice(i, i + BATCH);
-    const query: Record<string, unknown> = {};
-    batch.forEach((c, idx) => {
-      query[`c${idx}`] = {
-        $: { __typeName: 'comment', id: c.id },
-        user: { name: {} },
-      };
-    });
-
-    try {
-      const data = await pave(query);
-      batch.forEach((c, idx) => {
-        const userName = (data as any)?.[`c${idx}`]?.user?.name;
-        const original = enriched.find(e => e.id === c.id);
-        if (original && userName) original.userName = userName;
-      });
-    } catch (_err) {
-      // If batch query fails, continue without user names
+  for (let i = 0; i < enriched.length; i += BATCH) {
+    const batch = enriched.slice(i, i + BATCH);
+    const results = await Promise.allSettled(
+      batch.map(c =>
+        pave({ comment: { $: { id: c.id }, user: { name: {} } } })
+          .then(data => ({ id: c.id, userName: (data as any)?.comment?.user?.name }))
+      )
+    );
+    for (const r of results) {
+      if (r.status === 'fulfilled' && r.value.userName) {
+        const match = enriched.find(e => e.id === r.value.id);
+        if (match) match.userName = r.value.userName;
+      }
     }
   }
 
