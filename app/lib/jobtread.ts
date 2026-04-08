@@ -3312,7 +3312,7 @@ export async function createDraftCostPlusInvoice(jobId: string): Promise<{
                 'anthropic-version': '2023-06-01',
               },
               body: JSON.stringify({
-                model: 'claude-sonnet-4-20250514',
+                model: 'claude-haiku-4-5-20251001',
                 max_tokens: 256,
                 messages: [{
                   role: 'user',
@@ -3378,7 +3378,7 @@ export async function createDraftCostPlusInvoice(jobId: string): Promise<{
               'anthropic-version': '2023-06-01',
             },
             body: JSON.stringify({
-              model: 'claude-sonnet-4-20250514',
+              model: 'claude-haiku-4-5-20251001',
               max_tokens: 256,
               messages: [{
                 role: 'user',
@@ -3440,7 +3440,7 @@ export async function createDraftCostPlusInvoice(jobId: string): Promise<{
                 'anthropic-version': '2023-06-01',
               },
               body: JSON.stringify({
-                model: 'claude-sonnet-4-20250514',
+                model: 'claude-haiku-4-5-20251001',
                 max_tokens: 256,
                 messages: [{
                   role: 'user',
@@ -3853,7 +3853,7 @@ export async function createDraftBillableInvoice(jobId: string): Promise<{
                 'anthropic-version': '2023-06-01',
               },
               body: JSON.stringify({
-                model: 'claude-sonnet-4-20250514',
+                model: 'claude-haiku-4-5-20251001',
                 max_tokens: 256,
                 messages: [{
                   role: 'user',
@@ -3915,7 +3915,7 @@ export async function createDraftBillableInvoice(jobId: string): Promise<{
               'anthropic-version': '2023-06-01',
             },
             body: JSON.stringify({
-              model: 'claude-sonnet-4-20250514',
+              model: 'claude-haiku-4-5-20251001',
               max_tokens: 256,
               messages: [{
                 role: 'user',
@@ -3989,7 +3989,7 @@ export async function createDraftBillableInvoice(jobId: string): Promise<{
             'anthropic-version': '2023-06-01',
           },
           body: JSON.stringify({
-            model: 'claude-sonnet-4-20250514',
+            model: 'claude-haiku-4-5-20251001',
             max_tokens: 256,
             messages: [{
               role: 'user',
@@ -4243,7 +4243,7 @@ If a section is "(none)", return empty string for that key.`;
               'anthropic-version': '2023-06-01',
             },
             body: JSON.stringify({
-              model: 'claude-sonnet-4-20250514',
+              model: 'claude-haiku-4-5-20251001',
               max_tokens: 1024,
               messages: [{ role: 'user', content: prompt }],
             }),
@@ -4511,7 +4511,7 @@ If a section is "(none)", return empty string for that key.`;
             'anthropic-version': '2023-06-01',
           },
           body: JSON.stringify({
-            model: 'claude-sonnet-4-20250514',
+            model: 'claude-haiku-4-5-20251001',
             max_tokens: 256,
             messages: [{
               role: 'user',
@@ -4561,7 +4561,7 @@ If a section is "(none)", return empty string for that key.`;
           'anthropic-version': '2023-06-01',
         },
         body: JSON.stringify({
-          model: 'claude-sonnet-4-20250514',
+          model: 'claude-haiku-4-5-20251001',
           max_tokens: 1024,
           messages: [{ role: 'user', content: prompt }],
         }),
