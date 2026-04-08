@@ -428,10 +428,15 @@ export async function routeMessage(
 
   const systemPrompt = agent.systemPrompt(ctx, lastMsg);
 
+  // Use higher output token limit for long messages (transcripts, long emails, etc.)
+  // so the AI can pass the full content through tool calls without truncation
+  const isLongInput = lastMsg.length > 3000 || /transcript|meeting notes|here'?s the/i.test(lastMsg);
+  const maxTokens = isLongInput ? 16000 : 4096;
+
   // Call Claude (with tools if agent has them)
   const createParams: any = {
     model: 'claude-sonnet-4-20250514',
-    max_tokens: 4096,
+    max_tokens: maxTokens,
     system: systemPrompt,
     messages: claudeMessages,
   };
@@ -540,7 +545,7 @@ export async function routeMessage(
     try {
       response = await anthropic.messages.create({
         model: 'claude-sonnet-4-20250514',
-        max_tokens: 4096,
+        max_tokens: maxTokens,
         system: systemPrompt,
         tools: agent.tools.length > 0 ? agent.tools : undefined,
         messages: claudeMessages,
