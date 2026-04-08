@@ -1648,6 +1648,7 @@ export interface JTComment {
   createdAt: string;
   isPinned: boolean;
   parentComment?: { id: string } | null;
+  user?: { name: string } | null;
 }
 
 export async function getCommentsForTarget(targetId: string, targetType: string, limit = 200): Promise<JTComment[]> {
@@ -1655,7 +1656,6 @@ export async function getCommentsForTarget(targetId: string, targetType: string,
   // Try querying comments through the parent entity first
   // targetType can be: job, task, document, costItem, etc.
 
-  // Note: 'user' relation works in org-level queries but NOT in sub-collection queries
   const commentFieldsBase = {
     id: {},
     message: {},
@@ -1663,6 +1663,7 @@ export async function getCommentsForTarget(targetId: string, targetType: string,
     createdAt: {},
     isPinned: {},
     parentComment: { id: {} },
+    user: { name: {} },
   };
 
   // Strategy 1: Sub-collection query through the parent entity, with pagination

@@ -3018,7 +3018,7 @@ export default function DashboardOverview() {
                       taskComments.map(c => (
                         <div key={c.id} style={{ marginBottom: 8 }}>
                           <div style={{ display: 'flex', alignItems: 'baseline', gap: 6, marginBottom: 2 }}>
-                            <span style={{ fontSize: 11, fontWeight: 700, color: '#CDA274' }}>{c.name}</span>
+                            <span style={{ fontSize: 11, fontWeight: 700, color: '#CDA274' }}>{(c as any).user?.name || c.name || 'Unknown'}</span>
                             <span style={{ fontSize: 10, color: '#5a5048' }}>
                               {new Date(c.createdAt).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}
                               {' '}
