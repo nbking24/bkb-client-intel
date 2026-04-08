@@ -819,6 +819,12 @@ export default function DashboardOverview() {
   const [calEditingDate, setCalEditingDate] = useState('');
   const [calSavingDate, setCalSavingDate] = useState(false);
   const [calCompleting, setCalCompleting] = useState(false);
+  // Task comments (lazy-loaded)
+  const [taskComments, setTaskComments] = useState<Array<{ id: string; message: string; name: string; createdAt: string; isPinned: boolean }>>([]);
+  const [taskCommentsOpen, setTaskCommentsOpen] = useState(false);
+  const [taskCommentsLoading, setTaskCommentsLoading] = useState(false);
+  const [taskCommentText, setTaskCommentText] = useState('');
+  const [taskCommentSending, setTaskCommentSending] = useState(false);
   // AR Stats
   const [arStats, setArStats] = useState<{
     totalRemindersSent: number;
@@ -1156,6 +1162,54 @@ export default function DashboardOverview() {
     } finally {
       setEditingDateTaskId(null);
       setPendingDate('');
+    }
+  }
+
+  // Reset comment state when task popup opens/closes
+  useEffect(() => {
+    setTaskCommentsOpen(false);
+    setTaskComments([]);
+    setTaskCommentText('');
+  }, [selectedCalTask?.id]);
+
+  // Task comments — lazy load
+  async function loadTaskComments(taskId: string) {
+    setTaskCommentsLoading(true);
+    setTaskComments([]);
+    setTaskCommentsOpen(true);
+    try {
+      const res = await fetch(`/api/dashboard/task-comments?taskId=${taskId}`);
+      if (!res.ok) throw new Error('Failed to load');
+      const data = await res.json();
+      setTaskComments(data.comments || []);
+    } catch (err) {
+      console.error('Load comments error:', err);
+    } finally {
+      setTaskCommentsLoading(false);
+    }
+  }
+
+  async function postTaskComment() {
+    if (!selectedCalTask || !taskCommentText.trim()) return;
+    setTaskCommentSending(true);
+    try {
+      const res = await fetch('/api/dashboard/task-comments', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          taskId: selectedCalTask.id,
+          message: taskCommentText.trim(),
+          authorName: auth.user?.name || 'BKB Dashboard',
+        }),
+      });
+      if (!res.ok) throw new Error('Failed to post');
+      setTaskCommentText('');
+      // Refresh comments
+      await loadTaskComments(selectedCalTask.id);
+    } catch (err) {
+      console.error('Post comment error:', err);
+    } finally {
+      setTaskCommentSending(false);
     }
   }
 
@@ -2890,7 +2944,7 @@ export default function DashboardOverview() {
           zIndex: 1000,
         }} onClick={() => setSelectedCalTask(null)}>
           <div onClick={e => e.stopPropagation()} style={{
-            background: '#252525', borderRadius: 12, padding: 16, minWidth: 280, maxWidth: 360,
+            background: '#252525', borderRadius: 12, padding: 16, minWidth: 300, maxWidth: 420,
             border: '1px solid rgba(205,162,116,0.15)', boxShadow: '0 12px 40px rgba(0,0,0,0.6)',
           }}>
             {/* Header */}
@@ -2913,6 +2967,101 @@ export default function DashboardOverview() {
                 <div style={{ fontSize: 13, color: '#a89888', lineHeight: 1.5, whiteSpace: 'pre-wrap' }}>{selectedCalTask.description}</div>
               </div>
             )}
+
+            {/* Comments toggle */}
+            <div style={{ marginBottom: 12 }}>
+              <button
+                onClick={() => {
+                  if (taskCommentsOpen) {
+                    setTaskCommentsOpen(false);
+                  } else {
+                    loadTaskComments(selectedCalTask.id);
+                  }
+                }}
+                style={{
+                  width: '100%', display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+                  padding: '7px 10px', borderRadius: 6, border: '1px solid rgba(205,162,116,0.12)',
+                  background: taskCommentsOpen ? 'rgba(205,162,116,0.08)' : 'transparent',
+                  cursor: 'pointer', transition: 'background 0.15s',
+                }}>
+                <span style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 13, fontWeight: 600, color: '#CDA274' }}>
+                  <MessageSquare size={14} />
+                  Comments
+                  {taskComments.length > 0 && taskCommentsOpen && (
+                    <span style={{
+                      fontSize: 11, background: 'rgba(205,162,116,0.2)', color: '#CDA274',
+                      borderRadius: 8, padding: '1px 6px', fontWeight: 700,
+                    }}>{taskComments.length}</span>
+                  )}
+                </span>
+                {taskCommentsOpen ? <ChevronUp size={14} style={{ color: '#6a6058' }} /> : <ChevronDown size={14} style={{ color: '#6a6058' }} />}
+              </button>
+
+              {/* Comment thread */}
+              {taskCommentsOpen && (
+                <div style={{
+                  marginTop: 6, borderRadius: 6, border: '1px solid rgba(205,162,116,0.08)',
+                  background: 'rgba(0,0,0,0.15)', maxHeight: 220, display: 'flex', flexDirection: 'column',
+                }}>
+                  {/* Messages area */}
+                  <div style={{ flex: 1, overflowY: 'auto', padding: '8px 10px', minHeight: 40, maxHeight: 160 }}>
+                    {taskCommentsLoading ? (
+                      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6, padding: 12 }}>
+                        <Loader2 size={14} className="animate-spin" style={{ color: '#6a6058' }} />
+                        <span style={{ fontSize: 12, color: '#6a6058' }}>Loading...</span>
+                      </div>
+                    ) : taskComments.length === 0 ? (
+                      <div style={{ fontSize: 12, color: '#5a5048', textAlign: 'center', padding: 12 }}>
+                        No comments yet
+                      </div>
+                    ) : (
+                      taskComments.map(c => (
+                        <div key={c.id} style={{ marginBottom: 8 }}>
+                          <div style={{ display: 'flex', alignItems: 'baseline', gap: 6, marginBottom: 2 }}>
+                            <span style={{ fontSize: 11, fontWeight: 700, color: '#CDA274' }}>{c.name}</span>
+                            <span style={{ fontSize: 10, color: '#5a5048' }}>
+                              {new Date(c.createdAt).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}
+                              {' '}
+                              {new Date(c.createdAt).toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' })}
+                            </span>
+                            {c.isPinned && <span style={{ fontSize: 9, color: '#CDA274', fontWeight: 700 }}>PINNED</span>}
+                          </div>
+                          <div style={{ fontSize: 13, color: '#c8c0b8', lineHeight: 1.45, whiteSpace: 'pre-wrap' }}>{c.message}</div>
+                        </div>
+                      ))
+                    )}
+                  </div>
+
+                  {/* Compose */}
+                  <div style={{
+                    display: 'flex', gap: 6, padding: '6px 8px',
+                    borderTop: '1px solid rgba(205,162,116,0.08)',
+                  }}>
+                    <input
+                      type="text"
+                      value={taskCommentText}
+                      onChange={e => setTaskCommentText(e.target.value)}
+                      onKeyDown={e => { if (e.key === 'Enter' && !e.shiftKey && taskCommentText.trim()) { e.preventDefault(); postTaskComment(); } }}
+                      placeholder="Add a comment..."
+                      style={{
+                        flex: 1, background: '#1a1a1a', border: '1px solid rgba(205,162,116,0.12)', borderRadius: 6,
+                        color: '#e8e0d8', fontSize: 13, padding: '5px 8px', outline: 'none',
+                      }}
+                    />
+                    <button
+                      onClick={postTaskComment}
+                      disabled={taskCommentSending || !taskCommentText.trim()}
+                      style={{
+                        background: '#CDA274', color: '#1a1a1a', border: 'none', borderRadius: 6,
+                        padding: '4px 8px', cursor: 'pointer', display: 'flex', alignItems: 'center',
+                        opacity: (taskCommentSending || !taskCommentText.trim()) ? 0.4 : 1,
+                      }}>
+                      {taskCommentSending ? <Loader2 size={14} className="animate-spin" /> : <Send size={14} />}
+                    </button>
+                  </div>
+                </div>
+              )}
+            </div>
 
             {/* Date edit */}
             <div style={{ marginBottom: 12 }}>
