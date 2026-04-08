@@ -82,6 +82,7 @@ import {
   createProjectEvent,
   updateProjectEvent,
   getProjectMemory,
+  getProjectEventById,
   getOpenItems,
   resolveOpenItem,
   searchProjectEvents,
@@ -1239,6 +1240,17 @@ const knowItAll: AgentModule = {
         required: ['jobId'],
       },
     },
+    {
+      name: 'get_event_detail',
+      description: 'Retrieve the FULL detail/content of a specific project event by ID. Use when you need the complete text of a meeting transcript, long email, or detailed note. The timeline view (get_project_memory) shows only a preview of long details — use this tool to get the full content.',
+      input_schema: {
+        type: 'object',
+        properties: {
+          eventId: { type: 'string', description: 'The project event ID to retrieve full detail for' },
+        },
+        required: ['eventId'],
+      },
+    },
   ],
 
   canHandle: (message: string) => {
@@ -2141,6 +2153,26 @@ const knowItAll: AgentModule = {
           success: true,
           eventId: updated.id,
           message: 'Event updated: ' + updated.summary,
+        });
+      }
+
+      if (name === 'get_event_detail') {
+        const event = await getProjectEventById(input.eventId);
+        if (!event) {
+          return JSON.stringify({ success: false, message: 'Event not found with ID: ' + input.eventId });
+        }
+        // Return full detail — the router's 12K truncation will cap it if needed,
+        // but for most use cases the agent only retrieves one event at a time
+        return JSON.stringify({
+          success: true,
+          eventId: event.id,
+          channel: event.channel,
+          event_type: event.event_type,
+          summary: event.summary,
+          detail: event.detail,
+          participants: event.participants,
+          event_date: event.event_date,
+          created_at: event.created_at,
         });
       }
 

@@ -358,7 +358,16 @@ export function formatEventsForContext(events: ProjectEvent[]): string {
 
     lines.push(`[${date} ${time}] [${channelLabel}] ${e.summary}${participants}${openTag}`);
     if (e.detail) {
-      lines.push(`  Detail: ${e.detail}`);
+      // Cap detail at 500 chars in timeline view to prevent oversized tool results.
+      // Full transcripts/details are stored in the database and can be retrieved
+      // individually via get_event_detail tool.
+      const MAX_DETAIL_CHARS = 500;
+      if (e.detail.length <= MAX_DETAIL_CHARS) {
+        lines.push(`  Detail: ${e.detail}`);
+      } else {
+        const wordCount = e.detail.split(/\s+/).length;
+        lines.push(`  Detail (preview — ${wordCount} words total, use get_event_detail with eventId="${e.id}" for full text): ${e.detail.slice(0, MAX_DETAIL_CHARS)}...`);
+      }
     }
     if (e.resolved && e.resolved_note) {
       lines.push(`  → Resolved: ${e.resolved_note}`);

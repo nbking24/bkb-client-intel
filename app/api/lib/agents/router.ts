@@ -408,13 +408,17 @@ export async function routeMessage(
 
   if (isTranscript && ctx.jtJobId) {
     try {
-      transcriptWordCount = lastMsg.split(/\s+/).length;
+      // Strip the frontend-injected [Context: ...] prefix before saving.
+      // The frontend prepends job context to every message but it's metadata,
+      // not part of the actual transcript content.
+      const cleanedTranscript = lastMsg.replace(/^\[Context:[^\]]*\]\s*/i, '');
+      transcriptWordCount = cleanedTranscript.split(/\s+/).length;
       const event = await createProjectEvent({
         job_id: ctx.jtJobId,
         channel: 'meeting',
         event_type: 'meeting_held',
         summary: '[Transcript pending analysis — full text saved]',
-        detail: lastMsg,
+        detail: cleanedTranscript,
         participants: null,
       });
       transcriptPreSaveId = event.id;
@@ -575,10 +579,13 @@ export async function routeMessage(
       }
     }
 
-    // Truncate oversized tool results to prevent "request too large" errors
+    // Truncate oversized tool results to prevent "request too large" errors.
+    // Allow up to 40K per result to accommodate full transcripts and long details.
+    // Sonnet supports 200K context so this is well within budget for typical usage.
+    const TOOL_RESULT_LIMIT = 40_000;
     for (const tr of toolResults) {
-      if (typeof tr.content === 'string' && tr.content.length > 12000) {
-        tr.content = tr.content.substring(0, 12000) + '\n...(truncated — too many results to show all)';
+      if (typeof tr.content === 'string' && tr.content.length > TOOL_RESULT_LIMIT) {
+        tr.content = tr.content.substring(0, TOOL_RESULT_LIMIT) + '\n...(truncated — full content is ' + tr.content.length + ' chars. Use get_event_detail for specific events.)';
       }
     }
 
