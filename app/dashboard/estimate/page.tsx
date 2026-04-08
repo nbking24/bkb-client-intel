@@ -565,8 +565,14 @@ export default function EstimatePage() {
       const assistantMsg: ChatMessage = { role: 'assistant', content: data.reply };
       setMessages([...updatedMessages, assistantMsg]);
 
-      if (data.proposedBudget) {
-        setProposedBudget(data.proposedBudget);
+      if (data.proposedBudgets && data.proposedBudgets.length > 0) {
+        setProposedBudgets(data.proposedBudgets);
+        setActiveOptionIndex(0);
+        setCreateResults({});
+      } else if (data.proposedBudget) {
+        setProposedBudgets([data.proposedBudget]);
+        setActiveOptionIndex(0);
+        setCreateResults({});
       }
 
       if (data.structuredQuestions && data.structuredQuestions.length > 0) {
@@ -621,8 +627,14 @@ export default function EstimatePage() {
       const assistantMsg: ChatMessage = { role: 'assistant', content: data.reply };
       setMessages([...updatedMessages, assistantMsg]);
 
-      if (data.proposedBudget) {
-        setProposedBudget(data.proposedBudget);
+      if (data.proposedBudgets && data.proposedBudgets.length > 0) {
+        setProposedBudgets(data.proposedBudgets);
+        setActiveOptionIndex(0);
+        setCreateResults({});
+      } else if (data.proposedBudget) {
+        setProposedBudgets([data.proposedBudget]);
+        setActiveOptionIndex(0);
+        setCreateResults({});
       }
 
       if (data.structuredQuestions && data.structuredQuestions.length > 0) {

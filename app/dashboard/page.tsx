@@ -326,12 +326,17 @@ function InlineAskAgent({ pmJobs, screen, hideToggle, defaultOpen }: { pmJobs: {
   const inputRef = useRef<HTMLTextAreaElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
+  // Only auto-scroll when there are actual messages (not on initial render)
+  const hasMessages = messages.length > 0 || loading;
   useEffect(() => {
-    messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
-  }, [messages, loading]);
+    if (hasMessages) {
+      messagesEndRef.current?.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+    }
+  }, [messages, loading, hasMessages]);
 
+  // Focus input without scrolling the page
   useEffect(() => {
-    if (open) setTimeout(() => inputRef.current?.focus(), 100);
+    if (open) setTimeout(() => inputRef.current?.focus({ preventScroll: true }), 100);
   }, [open]);
 
   const selectedJob = useMemo(() => pmJobs.find(j => j.id === selectedJobId) || null, [pmJobs, selectedJobId]);
@@ -541,21 +546,15 @@ function InlineAskAgent({ pmJobs, screen, hideToggle, defaultOpen }: { pmJobs: {
                 </button>
               ))}
             </div>
-            <select
-              value={selectedJobId}
-              onChange={e => setSelectedJobId(e.target.value)}
-              style={{
-                flex: 1, background: '#242424', border: '1px solid rgba(205,162,116,0.1)',
-                borderRadius: isTouch ? 8 : 4, color: selectedJobId ? '#CDA274' : '#5a5550',
-                fontSize: isTouch ? 13 : 10, padding: isTouch ? '8px 10px' : '3px 6px', outline: 'none', cursor: 'pointer',
-                ...(isMobile ? { width: '100%' } : {}),
-              }}
-            >
-              <option value="">All jobs (no filter)</option>
-              {[...pmJobs].sort((a, b) => a.name.localeCompare(b.name)).map(j => (
-                <option key={j.id} value={j.id}>#{j.number} {j.name}</option>
-              ))}
-            </select>
+            <div style={{ flex: 1, ...(isMobile ? { width: '100%' } : {}) }}>
+              <JobSearchDropdown
+                jobs={pmJobs}
+                value={selectedJobId}
+                onChange={setSelectedJobId}
+                placeholder="Search jobs..."
+                formatLabel={j => `#${j.number} ${j.name}`}
+              />
+            </div>
             {messages.length > 0 && (
               <button onClick={() => { setMessages([]); setLastAgent(null); setUploadedUrls([]); }} style={{ fontSize: isTouch ? 12 : 9, color: '#5a5550', background: 'none', border: 'none', cursor: 'pointer', textDecoration: 'underline', padding: isTouch ? '6px 4px' : 0 }}>Clear</button>
             )}
