@@ -35,11 +35,14 @@ export interface ProposedBudget {
   lineItems: BudgetLineItem[];
   totalCost: number;
   totalPrice: number;
+  optionNumber?: number;   // 1-based option number for multi-option estimates
+  optionLabel?: string;    // e.g., "Option 1: Standard Finishes"
 }
 
 export interface EstimatingResponse {
   reply: string;
-  proposedBudget: ProposedBudget | null;
+  proposedBudget: ProposedBudget | null;       // First/only budget (backward compat)
+  proposedBudgets: ProposedBudget[];           // All budgets (multi-option support)
   readyToCreate: boolean;
 }
 
@@ -362,6 +365,8 @@ When you have gathered enough information, output a JSON block wrapped in marker
   "estimateType": "initial" or "change-order",
   "changeOrderName": "name if change order",
   "areaName": "Kitchen",
+  "optionNumber": 1,
+  "optionLabel": "Option 1: Standard Finishes",
   "lineItems": [
     {
       "name": "Item Name",
@@ -379,6 +384,44 @@ When you have gathered enough information, output a JSON block wrapped in marker
   ]
 }
 @@END_PROPOSAL@@
+
+MULTI-OPTION ESTIMATES:
+When the user asks for MULTIPLE options (e.g., "give me 2 options", "price Option A and Option B",
+"estimate both the standard and premium versions"), you MUST produce SEPARATE budget proposals for
+each option. Each option gets its own @@BUDGET_PROPOSAL@@...@@END_PROPOSAL@@ block.
+
+Rules for multi-option estimates:
+- Output one @@BUDGET_PROPOSAL@@...@@END_PROPOSAL@@ block PER option
+- Each block MUST include "optionNumber" (1, 2, 3...) and "optionLabel" (descriptive name)
+- For change orders, each option should have a distinct "changeOrderName" that includes the option
+  (e.g., "Kitchen Upgrade - Option 1: Standard", "Kitchen Upgrade - Option 2: Premium")
+- The group hierarchy for each option should include the option in the path so they don't collide
+  when imported to the same job. For change orders:
+    Option 1: "Post Pricing Changes > Client Requested > [CO Name] - Option 1 > ..."
+    Option 2: "Post Pricing Changes > Client Requested > [CO Name] - Option 2 > ..."
+  For initial estimates:
+    Option 1: "Scope of Work > [Area] - Option 1 > ..."
+    Option 2: "Scope of Work > [Area] - Option 2 > ..."
+- Write your conversational reply FIRST describing all options, THEN output all budget blocks at the end
+- The user can then choose which option(s) to import into JobTread independently
+
+Example with 2 options:
+[Your conversational summary of both options]
+
+@@BUDGET_PROPOSAL@@
+{ "estimateType": "change-order", "changeOrderName": "Deck Expansion - Option 1: Composite",
+  "optionNumber": 1, "optionLabel": "Option 1: Composite Decking",
+  "areaName": "Deck", "lineItems": [...] }
+@@END_PROPOSAL@@
+
+@@BUDGET_PROPOSAL@@
+{ "estimateType": "change-order", "changeOrderName": "Deck Expansion - Option 2: Hardwood",
+  "optionNumber": 2, "optionLabel": "Option 2: Hardwood Decking",
+  "areaName": "Deck", "lineItems": [...] }
+@@END_PROPOSAL@@
+
+If the user only asks for ONE estimate (the normal case), just output a single block as usual.
+Include optionNumber: 1 and a simple optionLabel like "Option 1" for single estimates too.
 
 IMPORTANT RULES:
 - Always include the groupName path with proper " > " separators
@@ -528,6 +571,57 @@ export function parseProposedBudget(reply: string): ProposedBudget | null {
     console.error('Failed to parse budget proposal:', err);
     return null;
   }
+}
+
+// -- Parse MULTIPLE budget proposals from agent response (multi-option support) --
+
+export function parseMultipleBudgets(reply: string): ProposedBudget[] {
+  const regex = /@@BUDGET_PROPOSAL@@\s*([\s\S]*?)\s*@@END_PROPOSAL@@/g;
+  const budgets: ProposedBudget[] = [];
+  let match: RegExpExecArray | null;
+  let fallbackOptionNum = 1;
+
+  while ((match = regex.exec(reply)) !== null) {
+    try {
+      const raw = JSON.parse(match[1].trim());
+      const lineItems: BudgetLineItem[] = (raw.lineItems || []).map((item: any) => ({
+        name: item.name || '',
+        description: item.description || '',
+        costCodeId: '',
+        costCodeNumber: item.costCodeNumber || '',
+        costTypeName: item.costTypeName || 'Materials',
+        costTypeId: '',
+        unitName: item.unitName || 'Lump Sum',
+        unitId: '',
+        quantity: item.quantity || 1,
+        unitCost: item.unitCost || 0,
+        unitPrice: item.unitPrice || item.unitCost ? calculatePrice(item.unitCost, item.costTypeName || 'Materials') : 0,
+        groupName: item.groupName || '',
+        groupDescription: item.groupDescription || '',
+        organizationCostItemId: item.organizationCostItemId || undefined,
+      }));
+
+      const totalCost = lineItems.reduce((sum, i) => sum + (i.quantity * i.unitCost), 0);
+      const totalPrice = lineItems.reduce((sum, i) => sum + (i.quantity * i.unitPrice), 0);
+
+      budgets.push({
+        estimateType: raw.estimateType || 'initial',
+        changeOrderName: raw.changeOrderName,
+        areaName: raw.areaName || '',
+        lineItems,
+        totalCost,
+        totalPrice,
+        optionNumber: raw.optionNumber || fallbackOptionNum,
+        optionLabel: raw.optionLabel || `Option ${fallbackOptionNum}`,
+      });
+
+      fallbackOptionNum++;
+    } catch (err) {
+      console.error('Failed to parse budget proposal block:', err);
+    }
+  }
+
+  return budgets;
 }
 
 // -- Resolve IDs from catalog --

@@ -11,12 +11,14 @@ import { validateAuth } from '../lib/auth';
 import {
   buildEstimatingContext,
   parseProposedBudget,
+  parseMultipleBudgets,
   parseStructuredQuestions,
   resolveIds,
   stripProposalMarkers,
   stripQuestionMarkers,
   validateMargins,
   enforceTargetMargins,
+  type ProposedBudget,
 } from '@/app/lib/estimating-agent';
 
 const anthropic = new Anthropic();
@@ -86,61 +88,62 @@ export async function POST(req: NextRequest) {
       .map((block: any) => block.text)
       .join('\n');
 
-    // Handle truncation: if response hit max_tokens and contains an open
-    // @@BUDGET_PROPOSAL@@ without @@END_PROPOSAL@@, send a continuation
-    // request so Claude finishes the JSON.
-    if (
-      response.stop_reason === 'max_tokens' &&
-      replyText.includes('@@BUDGET_PROPOSAL@@') &&
-      !replyText.includes('@@END_PROPOSAL@@')
-    ) {
-      const continuationMessages = [
-        ...enrichedMessages.map((m: any) => ({
-          role: m.role as 'user' | 'assistant',
-          content: m.content,
-        })),
-        { role: 'assistant' as const, content: replyText },
-        { role: 'user' as const, content: 'Continue — finish the JSON budget proposal and close with @@END_PROPOSAL@@' },
-      ];
+    // Handle truncation: if response hit max_tokens and has more proposal
+    // opening markers than closing markers, send a continuation request.
+    if (response.stop_reason === 'max_tokens' && replyText.includes('@@BUDGET_PROPOSAL@@')) {
+      const openCount = (replyText.match(/@@BUDGET_PROPOSAL@@/g) || []).length;
+      const closeCount = (replyText.match(/@@END_PROPOSAL@@/g) || []).length;
 
-      const continuation = await anthropic.messages.create({
-        model: 'claude-sonnet-4-20250514',
-        max_tokens: 16384,
-        system: fullSystemPrompt,
-        messages: continuationMessages,
-      });
+      if (openCount > closeCount) {
+        const continuationMessages = [
+          ...enrichedMessages.map((m: any) => ({
+            role: m.role as 'user' | 'assistant',
+            content: m.content,
+          })),
+          { role: 'assistant' as const, content: replyText },
+          { role: 'user' as const, content: 'Continue — finish ALL remaining JSON budget proposal blocks and close each with @@END_PROPOSAL@@' },
+        ];
 
-      const continuationText = continuation.content
-        .filter((block: any) => block.type === 'text')
-        .map((block: any) => block.text)
-        .join('\n');
+        const continuation = await anthropic.messages.create({
+          model: 'claude-sonnet-4-20250514',
+          max_tokens: 16384,
+          system: fullSystemPrompt,
+          messages: continuationMessages,
+        });
 
-      replyText = replyText + continuationText;
+        const continuationText = continuation.content
+          .filter((block: any) => block.type === 'text')
+          .map((block: any) => block.text)
+          .join('\n');
+
+        replyText = replyText + continuationText;
+      }
     }
 
-    // Check for budget proposal in the response
-    let proposedBudget = parseProposedBudget(replyText);
-    let marginWarnings: ReturnType<typeof validateMargins> = [];
+    // Check for budget proposals in the response (supports multiple options)
+    let proposedBudgets = parseMultipleBudgets(replyText);
+    let allMarginWarnings: ReturnType<typeof validateMargins> = [];
 
-    if (proposedBudget) {
-      // Resolve IDs from the org catalog
-      proposedBudget = resolveIds(proposedBudget, catalog);
+    // Process each budget: resolve IDs, validate & enforce margins
+    proposedBudgets = proposedBudgets.map((budget) => {
+      let processed = resolveIds(budget, catalog);
+      const warnings = validateMargins(processed);
+      allMarginWarnings.push(...warnings);
 
-      // Validate margins and collect warnings
-      marginWarnings = validateMargins(proposedBudget);
-
-      // Auto-correct any items below target margin
-      if (marginWarnings.length > 0) {
-        proposedBudget = enforceTargetMargins(proposedBudget);
-        // Recalculate totals after correction
-        proposedBudget.totalCost = proposedBudget.lineItems.reduce(
+      if (warnings.length > 0) {
+        processed = enforceTargetMargins(processed);
+        processed.totalCost = processed.lineItems.reduce(
           (sum, i) => sum + (i.quantity * i.unitCost), 0
         );
-        proposedBudget.totalPrice = proposedBudget.lineItems.reduce(
+        processed.totalPrice = processed.lineItems.reduce(
           (sum, i) => sum + (i.quantity * i.unitPrice), 0
         );
       }
-    }
+      return processed;
+    });
+
+    // Backward compatibility: first budget as singular proposedBudget
+    const proposedBudget = proposedBudgets.length > 0 ? proposedBudgets[0] : null;
 
     // Check for structured questions in the response
     const structuredQuestions = parseStructuredQuestions(replyText);
@@ -152,9 +155,10 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({
       reply: cleanReply,
       proposedBudget,
+      proposedBudgets,
       structuredQuestions,
-      readyToCreate: !!proposedBudget && proposedBudget.lineItems.length > 0,
-      marginWarnings: marginWarnings.length > 0 ? marginWarnings : undefined,
+      readyToCreate: proposedBudgets.length > 0 && proposedBudgets.some(b => b.lineItems.length > 0),
+      marginWarnings: allMarginWarnings.length > 0 ? allMarginWarnings : undefined,
     });
   } catch (err) {
     console.error('Estimating error:', err);

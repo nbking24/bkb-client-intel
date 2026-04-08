@@ -33,6 +33,8 @@ interface ProposedBudget {
   lineItems: BudgetLineItem[];
   totalCost: number;
   totalPrice: number;
+  optionNumber?: number;
+  optionLabel?: string;
 }
 
 interface UploadedFile {
@@ -345,9 +347,10 @@ export default function EstimatePage() {
   const [scopeText, setScopeText] = useState('');
   const [uploadedFiles, setUploadedFiles] = useState<UploadedFile[]>([]);
   const [quickEstimate, setQuickEstimate] = useState(false);
-  const [proposedBudget, setProposedBudget] = useState<ProposedBudget | null>(null);
+  const [proposedBudgets, setProposedBudgets] = useState<ProposedBudget[]>([]);
+  const [activeOptionIndex, setActiveOptionIndex] = useState(0);
   const [creating, setCreating] = useState(false);
-  const [createResult, setCreateResult] = useState<{ success: boolean; message: string } | null>(null);
+  const [createResults, setCreateResults] = useState<Record<number, { success: boolean; message: string }>>({});
   const [pendingQuestions, setPendingQuestions] = useState<StructuredQuestion[] | null>(null);
   const [questionAnswers, setQuestionAnswers] = useState<QuestionAnswers>({});
 
@@ -479,8 +482,14 @@ export default function EstimatePage() {
       const assistantMsg: ChatMessage = { role: 'assistant', content: data.reply };
       setMessages([...updatedMessages, assistantMsg]);
 
-      if (data.proposedBudget) {
-        setProposedBudget(data.proposedBudget);
+      if (data.proposedBudgets && data.proposedBudgets.length > 0) {
+        setProposedBudgets(data.proposedBudgets);
+        setActiveOptionIndex(0);
+        setCreateResults({});
+      } else if (data.proposedBudget) {
+        setProposedBudgets([data.proposedBudget]);
+        setActiveOptionIndex(0);
+        setCreateResults({});
       }
 
       // Check for structured questions
@@ -630,11 +639,12 @@ export default function EstimatePage() {
     }
   };
 
-  /* Create budget in JobTread */
-  const handleCreateBudget = async () => {
-    if (!proposedBudget || !selectedJob || creating) return;
+  /* Create budget in JobTread (for active option) */
+  const handleCreateBudget = async (optionIdx?: number) => {
+    const idx = optionIdx ?? activeOptionIndex;
+    const budget = proposedBudgets[idx];
+    if (!budget || !selectedJob || creating) return;
     setCreating(true);
-    setCreateResult(null);
 
     try {
       const res = await fetch('/api/estimating/create', {
@@ -645,27 +655,36 @@ export default function EstimatePage() {
         },
         body: JSON.stringify({
           jobId: selectedJob.id,
-          budget: proposedBudget,
+          budget,
         }),
       });
 
       const data = await res.json();
       if (data.success) {
-        setCreateResult({
-          success: true,
-          message: `Created ${data.createdCount} items in ${data.groupsCreated} groups`,
-        });
+        setCreateResults(prev => ({
+          ...prev,
+          [idx]: {
+            success: true,
+            message: `Created ${data.createdCount} items in ${data.groupsCreated} groups`,
+          },
+        }));
       } else {
-        setCreateResult({
-          success: false,
-          message: data.errors?.join('; ') || data.error || 'Creation failed',
-        });
+        setCreateResults(prev => ({
+          ...prev,
+          [idx]: {
+            success: false,
+            message: data.errors?.join('; ') || data.error || 'Creation failed',
+          },
+        }));
       }
     } catch (err) {
-      setCreateResult({
-        success: false,
-        message: err instanceof Error ? err.message : 'Creation failed',
-      });
+      setCreateResults(prev => ({
+        ...prev,
+        [idx]: {
+          success: false,
+          message: err instanceof Error ? err.message : 'Creation failed',
+        },
+      }));
     } finally {
       setCreating(false);
     }
@@ -674,8 +693,9 @@ export default function EstimatePage() {
   /* Reset */
   const handleReset = () => {
     setMessages([]);
-    setProposedBudget(null);
-    setCreateResult(null);
+    setProposedBudgets([]);
+    setActiveOptionIndex(0);
+    setCreateResults({});
     setChangeOrderName('');
     setScopeText('');
     setUploadedFiles([]);
@@ -1102,47 +1122,76 @@ export default function EstimatePage() {
         className="w-80 flex-shrink-0 flex flex-col border-l overflow-y-auto"
         style={{ background: DARK_BG, borderColor: 'rgba(205,162,116,0.12)' }}
       >
-        <div className="p-3 border-b flex items-center justify-between" style={{ borderColor: 'rgba(205,162,116,0.08)' }}>
-          <div className="flex items-center gap-2">
-            <DollarSign size={14} style={{ color: GOLD }} />
-            <span className="text-xs font-semibold" style={{ color: TEXT }}>Budget Preview</span>
+        <div className="p-3 border-b" style={{ borderColor: 'rgba(205,162,116,0.08)' }}>
+          <div className="flex items-center justify-between">
+            <div className="flex items-center gap-2">
+              <DollarSign size={14} style={{ color: GOLD }} />
+              <span className="text-xs font-semibold" style={{ color: TEXT }}>Budget Preview</span>
+            </div>
+            {proposedBudgets.length > 0 && (
+              <span className="text-[10px] px-1.5 py-0.5 rounded" style={{ background: 'rgba(34,197,94,0.1)', color: '#22c55e' }}>
+                {proposedBudgets.length > 1 ? `${proposedBudgets.length} Options` : 'Ready'}
+              </span>
+            )}
           </div>
-          {proposedBudget && (
-            <span className="text-[10px] px-1.5 py-0.5 rounded" style={{ background: 'rgba(34,197,94,0.1)', color: '#22c55e' }}>
-              Ready
-            </span>
+
+          {/* Option tabs — only shown when multiple options exist */}
+          {proposedBudgets.length > 1 && (
+            <div className="flex gap-1 mt-2">
+              {proposedBudgets.map((b, idx) => {
+                const isActive = activeOptionIndex === idx;
+                const isImported = createResults[idx]?.success;
+                return (
+                  <button
+                    key={idx}
+                    onClick={() => setActiveOptionIndex(idx)}
+                    className="flex-1 px-2 py-1.5 rounded-lg text-[10px] font-medium transition-colors relative"
+                    style={{
+                      background: isActive ? 'rgba(201,168,76,0.15)' : 'transparent',
+                      color: isActive ? GOLD : TEXT_MUTED,
+                      border: `1px solid ${isActive ? 'rgba(201,168,76,0.3)' : 'rgba(205,162,116,0.08)'}`,
+                    }}
+                  >
+                    {isImported && (
+                      <CheckCircle2 size={10} className="inline mr-1" style={{ color: '#22c55e' }} />
+                    )}
+                    {b.optionLabel || `Option ${idx + 1}`}
+                  </button>
+                );
+              })}
+            </div>
           )}
         </div>
 
         <div className="flex-1 p-3">
-          <BudgetPreview budget={proposedBudget} />
+          <BudgetPreview budget={proposedBudgets[activeOptionIndex] || null} />
         </div>
 
-        {/* Create button */}
-        {proposedBudget && (
+        {/* Create button — for active option */}
+        {proposedBudgets.length > 0 && proposedBudgets[activeOptionIndex] && (
           <div className="p-3 border-t space-y-2" style={{ borderColor: 'rgba(205,162,116,0.08)' }}>
-            {createResult && (
+            {createResults[activeOptionIndex] && (
               <div
                 className="flex items-start gap-2 px-3 py-2 rounded-lg text-xs"
                 style={{
-                  background: createResult.success ? 'rgba(34,197,94,0.08)' : 'rgba(239,68,68,0.08)',
-                  border: `1px solid ${createResult.success ? 'rgba(34,197,94,0.2)' : 'rgba(239,68,68,0.2)'}`,
-                  color: createResult.success ? '#22c55e' : '#ef4444',
+                  background: createResults[activeOptionIndex].success ? 'rgba(34,197,94,0.08)' : 'rgba(239,68,68,0.08)',
+                  border: `1px solid ${createResults[activeOptionIndex].success ? 'rgba(34,197,94,0.2)' : 'rgba(239,68,68,0.2)'}`,
+                  color: createResults[activeOptionIndex].success ? '#22c55e' : '#ef4444',
                 }}
               >
-                {createResult.success ? <CheckCircle2 size={14} /> : <AlertCircle size={14} />}
-                <span>{createResult.message}</span>
+                {createResults[activeOptionIndex].success ? <CheckCircle2 size={14} /> : <AlertCircle size={14} />}
+                <span>{createResults[activeOptionIndex].message}</span>
               </div>
             )}
 
             <button
-              onClick={handleCreateBudget}
-              disabled={creating || createResult?.success}
+              onClick={() => handleCreateBudget(activeOptionIndex)}
+              disabled={creating || createResults[activeOptionIndex]?.success}
               className="w-full flex items-center justify-center gap-2 px-4 py-2.5 rounded-lg text-xs font-semibold transition-colors disabled:opacity-50"
               style={{
-                background: createResult?.success ? 'rgba(34,197,94,0.15)' : 'rgba(201,168,76,0.15)',
-                color: createResult?.success ? '#22c55e' : GOLD,
-                border: `1px solid ${createResult?.success ? 'rgba(34,197,94,0.3)' : 'rgba(201,168,76,0.3)'}`,
+                background: createResults[activeOptionIndex]?.success ? 'rgba(34,197,94,0.15)' : 'rgba(201,168,76,0.15)',
+                color: createResults[activeOptionIndex]?.success ? '#22c55e' : GOLD,
+                border: `1px solid ${createResults[activeOptionIndex]?.success ? 'rgba(34,197,94,0.3)' : 'rgba(201,168,76,0.3)'}`,
               }}
             >
               {creating ? (
@@ -1150,7 +1199,7 @@ export default function EstimatePage() {
                   <Loader2 size={14} className="animate-spin" />
                   Creating in JobTread...
                 </>
-              ) : createResult?.success ? (
+              ) : createResults[activeOptionIndex]?.success ? (
                 <>
                   <CheckCircle2 size={14} />
                   Created in JobTread
@@ -1158,7 +1207,9 @@ export default function EstimatePage() {
               ) : (
                 <>
                   <FileText size={14} />
-                  Create in JobTread
+                  {proposedBudgets.length > 1
+                    ? `Create ${proposedBudgets[activeOptionIndex]?.optionLabel || `Option ${activeOptionIndex + 1}`} in JobTread`
+                    : 'Create in JobTread'}
                 </>
               )}
             </button>
