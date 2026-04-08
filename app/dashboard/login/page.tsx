@@ -10,7 +10,7 @@ const LOGIN_USERS = [
   { id: 'josh',        name: 'Josh King',        role: 'Project Manager',  initials: 'JK' },
 ];
 
-type Step = 'select-user' | 'enter-pin' | 'create-pin' | 'confirm-pin';
+type Step = 'select-user' | 'enter-pin' | 'create-pin' | 'confirm-pin' | 'forgot-pin';
 
 export default function DashboardLoginPage() {
   const router = useRouter();
@@ -108,6 +108,34 @@ export default function DashboardLoginPage() {
     }
   };
 
+  const resetPinWithMaster = async () => {
+    if (!pin.trim() || !selectedUser) return;
+    setBusy(true);
+    setErr('');
+    try {
+      // Use the setup flow with masterPin to clear + reset
+      const res = await fetch('/api/auth/forgot-pin', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ userId: selectedUser.id, masterPin: pin }),
+      });
+      const data = await res.json();
+      if (!res.ok) {
+        setErr(data.error || 'Invalid master PIN');
+        setPin('');
+        return;
+      }
+      // PIN cleared — go to create-pin flow
+      setPin('');
+      setErr('');
+      setStep('create-pin');
+    } catch {
+      setErr('Connection error. Please try again.');
+    } finally {
+      setBusy(false);
+    }
+  };
+
   const goBack = () => {
     setStep('select-user');
     setSelectedUser(null);
@@ -190,11 +218,59 @@ export default function DashboardLoginPage() {
             {busy ? 'Signing in...' : 'Sign In'}
           </button>
           <button
+            onClick={() => { setPin(''); setErr(''); setStep('forgot-pin'); }}
+            className="w-full py-2 text-sm rounded-lg"
+            style={{ color: '#CDA274' }}
+          >
+            Forgot PIN?
+          </button>
+          <button
             onClick={goBack}
             className="w-full py-2 text-sm rounded-lg"
             style={{ color: '#8a8078' }}
           >
             Not {selectedUser.name.split(' ')[0]}? Go back
+          </button>
+        </div>
+      </div>
+    );
+  }
+
+  // Step 2b: Forgot PIN — enter master PIN to reset
+  if (step === 'forgot-pin' && selectedUser) {
+    return (
+      <div className="min-h-screen flex flex-col items-center justify-center p-4" style={{ background: '#141414' }}>
+        <img src="https://www.brettkingbuilder.com/wp-content/uploads/2021/08/logowhite.png" alt="BKB" className="h-16 w-auto mb-6" />
+        <h1 className="text-xl mb-1" style={{ color: '#CDA274', fontFamily: 'Georgia, serif' }}>Reset PIN</h1>
+        <p className="text-sm mb-8" style={{ color: '#8a8078' }}>Ask Nathan for the master PIN to reset yours</p>
+        <div className="w-full max-w-xs space-y-4">
+          <input
+            type="password"
+            inputMode="numeric"
+            value={pin}
+            onChange={e => setPin(e.target.value)}
+            onKeyDown={e => e.key === 'Enter' && resetPinWithMaster()}
+            placeholder="Master PIN"
+            autoFocus
+            maxLength={10}
+            className="w-full px-4 py-4 rounded-lg text-center text-2xl tracking-widest outline-none"
+            style={inputStyle}
+          />
+          {err && <p className="text-center text-sm" style={{ color: '#c45c4c' }}>{err}</p>}
+          <button
+            onClick={resetPinWithMaster}
+            disabled={!pin.trim() || busy}
+            className="w-full py-4 rounded-lg font-semibold disabled:opacity-30"
+            style={{ background: '#CDA274', color: '#1a1a1a' }}
+          >
+            {busy ? 'Verifying...' : 'Reset My PIN'}
+          </button>
+          <button
+            onClick={() => { setPin(''); setErr(''); setStep('enter-pin'); }}
+            className="w-full py-2 text-sm rounded-lg"
+            style={{ color: '#8a8078' }}
+          >
+            Back to sign in
           </button>
         </div>
       </div>
