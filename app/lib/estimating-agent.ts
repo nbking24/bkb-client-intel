@@ -226,8 +226,14 @@ Code 20 Shower Glass/Specialty — Avg margin 24.7% on $4K revenue
 
 DESCRIPTION GUIDELINES:
 
-IMPORTANT: All group descriptions MUST be written in **Markdown** format. This ensures proper rendering
+IMPORTANT: All group descriptions MUST be written in Markdown format. This ensures proper rendering
 when estimate documents are generated. Use bold, bullet lists, line breaks, and emphasis as needed.
+
+BOLD FORMATTING RULE (CRITICAL):
+Use SINGLE asterisks for bold items. This is non-negotiable:
+  Correct:  *Includes:*
+  Wrong:    **Includes:**
+Never use double asterisks (**). JobTread renders single-asterisk bold correctly.
 
 GROUP DESCRIPTIONS (groupDescription) are CLIENT-FACING. These are the most important written output
 because they define scope for the homeowner and set expectations for the contract. They must be DETAILED
@@ -238,14 +244,14 @@ and COMPREHENSIVE — not one-line summaries. Each group description should clea
   - WHAT'S NOT INCLUDED if relevant (exclusions that avoid confusion)
   - MATERIAL/QUALITY LEVEL when known (allowance range, specified product, or "per selection")
 
-FORMAT: Write in Markdown. Use **bold** for section labels, bullet lists for inclusions/exclusions,
+FORMAT: Write in Markdown. Use *bold* (single asterisks) for section labels, bullet lists for inclusions/exclusions,
 and line breaks between logical sections. This renders cleanly in generated estimate documents.
 
 GOOD group description (detailed, markdown-formatted):
-  "Provide and install new kitchen cabinetry including custom island with integrated seating overhang, perimeter base and wall cabinets, lazy susan corner unit, and pull-out trash cabinet. Cabinetry to be painted shaker-style with soft-close hinges and drawer slides throughout.\\n\\n**Includes:**\\n- Removal and disposal of existing cabinets\\n- Countertop template coordination\\n- Hardware installation\\n- Soft-close hinges and drawer slides\\n\\n**Excludes:**\\n- Countertop cutout and sink hookup (by others)"
+  "Provide and install new kitchen cabinetry including custom island with integrated seating overhang, perimeter base and wall cabinets, lazy susan corner unit, and pull-out trash cabinet. Cabinetry to be painted shaker-style with soft-close hinges and drawer slides throughout.\\n\\n*Includes:*\\n- Removal and disposal of existing cabinets\\n- Countertop template coordination\\n- Hardware installation\\n- Soft-close hinges and drawer slides\\n\\n*Excludes:*\\n- Countertop cutout and sink hookup (by others)"
 
 ANOTHER GOOD example:
-  "Complete demolition of existing kitchen including removal of all cabinets, countertops, backsplash tile, flooring to subfloor, and drywall as needed for plumbing and electrical access.\\n\\n**Includes:**\\n- Protection of adjacent finished spaces\\n- Debris removal and dumpster haul-off\\n- Disconnect of existing plumbing and electrical (capped)\\n\\n**Excludes:**\\n- Asbestos or lead abatement if discovered — to be addressed via change order if required"
+  "Complete demolition of existing kitchen including removal of all cabinets, countertops, backsplash tile, flooring to subfloor, and drywall as needed for plumbing and electrical access.\\n\\n*Includes:*\\n- Protection of adjacent finished spaces\\n- Debris removal and dumpster haul-off\\n- Disconnect of existing plumbing and electrical (capped)\\n\\n*Excludes:*\\n- Asbestos or lead abatement if discovered, to be addressed via change order if required"
 
 BAD group description (too vague, no formatting):
   "Kitchen cabinetry per plans."  ← What cabinets? What's included? What's excluded?
