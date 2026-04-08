@@ -1644,11 +1644,10 @@ export async function deleteDailyLog(id: string) {
 export interface JTComment {
   id: string;
   message: string;
-  name: string;
+  name: string;          // Used as author display name on dashboard-created comments
   createdAt: string;
   isPinned: boolean;
   parentComment?: { id: string } | null;
-  user?: { name: string } | null;
 }
 
 export async function getCommentsForTarget(targetId: string, targetType: string, limit = 200): Promise<JTComment[]> {
@@ -1656,6 +1655,8 @@ export async function getCommentsForTarget(targetId: string, targetType: string,
   // Try querying comments through the parent entity first
   // targetType can be: job, task, document, costItem, etc.
 
+  // Note: 'user' relation does NOT work in sub-collection queries
+  // We use the 'name' field to store/display author name on creation
   const commentFieldsBase = {
     id: {},
     message: {},
@@ -1663,7 +1664,6 @@ export async function getCommentsForTarget(targetId: string, targetType: string,
     createdAt: {},
     isPinned: {},
     parentComment: { id: {} },
-    user: { name: {} },
   };
 
   // Strategy 1: Sub-collection query through the parent entity, with pagination
@@ -1743,6 +1743,45 @@ export async function getCommentsForTarget(targetId: string, targetType: string,
     return dateB - dateA;
   });
   return allComments.slice(0, limit);
+}
+
+/**
+ * Get comments for a task with author names (user field).
+ * Uses sub-collection query to get IDs, then batch-fetches user info.
+ */
+export async function getTaskCommentsWithUser(taskId: string, limit = 50): Promise<Array<JTComment & { userName?: string }>> {
+  // Step 1: Get comment list via sub-collection (fast, reliable)
+  const comments = await getCommentsForTarget(taskId, 'task', limit);
+  if (comments.length === 0) return [];
+
+  // Step 2: Batch-fetch user names via individual comment queries (user field works at top level)
+  // PAVE supports multiple keys in one request, so batch up to 10 at a time
+  const BATCH = 10;
+  const enriched = [...comments] as Array<JTComment & { userName?: string }>;
+
+  for (let i = 0; i < comments.length; i += BATCH) {
+    const batch = comments.slice(i, i + BATCH);
+    const query: Record<string, unknown> = {};
+    batch.forEach((c, idx) => {
+      query[`c${idx}`] = {
+        $: { __typeName: 'comment', id: c.id },
+        user: { name: {} },
+      };
+    });
+
+    try {
+      const data = await pave(query);
+      batch.forEach((c, idx) => {
+        const userName = (data as any)?.[`c${idx}`]?.user?.name;
+        const original = enriched.find(e => e.id === c.id);
+        if (original && userName) original.userName = userName;
+      });
+    } catch (_err) {
+      // If batch query fails, continue without user names
+    }
+  }
+
+  return enriched;
 }
 
 export async function createComment(params: {

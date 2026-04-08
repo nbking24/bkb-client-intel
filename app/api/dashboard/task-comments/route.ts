@@ -1,9 +1,10 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { getCommentsForTarget, createComment } from '@/app/lib/jobtread';
+import { getTaskCommentsWithUser, createComment } from '@/app/lib/jobtread';
 
 /**
  * GET /api/dashboard/task-comments?taskId=xxx
  * Lazy-load comments for a specific task. Only called when user expands comments.
+ * Returns comments with author (userName) field.
  */
 export async function GET(req: NextRequest) {
   try {
@@ -12,7 +13,7 @@ export async function GET(req: NextRequest) {
       return NextResponse.json({ error: 'taskId required' }, { status: 400 });
     }
 
-    const comments = await getCommentsForTarget(taskId, 'task', 50);
+    const comments = await getTaskCommentsWithUser(taskId, 50);
 
     // Sort oldest-first for chat-style display
     comments.sort((a, b) => new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime());
