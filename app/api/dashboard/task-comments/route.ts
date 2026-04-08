@@ -18,19 +18,7 @@ export async function GET(req: NextRequest) {
     // Sort oldest-first for chat-style display
     comments.sort((a, b) => new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime());
 
-    // Debug: also try a direct PAVE query for the first comment to see what comes back
-    let debug: any = null;
-    if (comments.length > 0) {
-      try {
-        const { pave } = await import('@/app/lib/jobtread');
-        const d = await pave({ comment: { $: { id: comments[0].id }, id: {}, message: {}, user: { name: {} } } });
-        debug = d;
-      } catch (e: any) {
-        debug = { error: e.message };
-      }
-    }
-
-    return NextResponse.json({ comments, count: comments.length, debug });
+    return NextResponse.json({ comments, count: comments.length });
   } catch (err: any) {
     console.error('Task comments fetch error:', err);
     return NextResponse.json({ error: err.message }, { status: 500 });

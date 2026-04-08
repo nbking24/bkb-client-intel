@@ -1751,38 +1751,11 @@ export async function getCommentsForTarget(targetId: string, targetType: string,
  * via individual comment queries in parallel (user field only works at top level).
  */
 export async function getTaskCommentsWithUser(taskId: string, limit = 50): Promise<Array<JTComment & { userName?: string }>> {
-  // Step 1: Get comment list via sub-collection (fast, reliable)
+  // Get comments via sub-collection query (fast, reliable)
+  // Note: PAVE doesn't expose a `user` relation on comments, so author name
+  // comes from the `name` field (set to poster's name for dashboard-created comments).
   const comments = await getCommentsForTarget(taskId, 'task', limit);
-  if (comments.length === 0) return [];
-
-  // Step 2: Fetch user names in parallel (5 at a time to avoid rate limits)
-  const enriched = comments.map(c => ({ ...c, userName: undefined as string | undefined }));
-  const BATCH = 5;
-
-  for (let i = 0; i < enriched.length; i += BATCH) {
-    const batch = enriched.slice(i, i + BATCH);
-    const results = await Promise.allSettled(
-      batch.map(c =>
-        pave({ comment: { $: { id: c.id }, user: { name: {} } } })
-          .then(data => {
-            console.log(`[comment-enrich] ${c.id}:`, JSON.stringify(data?.comment || data));
-            return { id: c.id, userName: (data as any)?.comment?.user?.name };
-          })
-          .catch(err => {
-            console.error(`[comment-enrich] ${c.id} error:`, err.message);
-            throw err;
-          })
-      )
-    );
-    for (const r of results) {
-      if (r.status === 'fulfilled' && r.value.userName) {
-        const match = enriched.find(e => e.id === r.value.id);
-        if (match) match.userName = r.value.userName;
-      }
-    }
-  }
-
-  return enriched;
+  return comments.map(c => ({ ...c, userName: c.name || undefined }));
 }
 
 export async function createComment(params: {
