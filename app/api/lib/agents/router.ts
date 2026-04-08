@@ -110,6 +110,10 @@ async function tryFastPath(msg: string, ctx: AgentContext): Promise<AgentResult 
 
   const stripped = msg.replace(/^\[Context:.*?\]\s*/s, '').trim().toLowerCase();
 
+  // Skip fast path for long messages (transcripts, pasted documents, etc.)
+  // These need full Claude processing, not keyword matching
+  if (stripped.length > 300) return null;
+
   // Pattern: "list open tasks", "show my tasks", "what are my open tasks", etc.
   if (/\b(list|show|give|what|get)\b.*\b(open|incomplete|pending|my)\b.*\btask/i.test(stripped) ||
       /\btask.*\b(open|incomplete|pending|list)\b/i.test(stripped)) {
