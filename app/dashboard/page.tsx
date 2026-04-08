@@ -413,12 +413,20 @@ function InlineAskAgent({ pmJobs, screen, hideToggle, defaultOpen }: { pmJobs: {
         { role: 'user', content: messageForApi },
       ];
 
+      // Map UI agent mode to API agent name for forced routing
+      const forcedAgentMap: Record<string, string> = {
+        'general': 'know-it-all',
+        'change-order': 'know-it-all',  // CO mode uses context injection, same base agent
+        'specs': 'project-details',
+      };
+
       const response = await fetch('/api/chat', {
         method: 'POST',
         headers: { 'Authorization': `Bearer ${getAuthToken()}`, 'Content-Type': 'application/json' },
         body: JSON.stringify({
           messages: allMessages,
           lastAgent: lastAgent || undefined,
+          forcedAgent: forcedAgentMap[agentMode] || 'know-it-all',
           ...(selectedJob ? { jtJobId: selectedJob.id } : {}),
         }),
       });
