@@ -1694,15 +1694,13 @@ export async function getCommentsForTarget(targetId: string, targetType: string,
       if (allComments.length >= limit || !nextPage || nodes.length < PAGE_SIZE) break;
     }
 
-    if (allComments.length > 0) {
-      // Sort by createdAt descending (newest first) to ensure recent comments are included
-      allComments.sort((a, b) => {
-        const dateA = a.createdAt ? new Date(a.createdAt).getTime() : 0;
-        const dateB = b.createdAt ? new Date(b.createdAt).getTime() : 0;
-        return dateB - dateA;
-      });
-      return allComments.slice(0, limit);
-    }
+    // Sort by createdAt descending (newest first) to ensure recent comments are included
+    allComments.sort((a, b) => {
+      const dateA = a.createdAt ? new Date(a.createdAt).getTime() : 0;
+      const dateB = b.createdAt ? new Date(b.createdAt).getTime() : 0;
+      return dateB - dateA;
+    });
+    return allComments.slice(0, limit);
   } catch (_err: any) {
     // Fall through to org-level query
   }
