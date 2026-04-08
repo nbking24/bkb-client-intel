@@ -60,6 +60,7 @@ export interface ProjectEvent {
   resolved_at: string | null;
   resolved_note: string | null;
   auto_resolved: boolean;
+  event_date: string | null;
   created_at: string;
   updated_at: string;
 }
@@ -77,12 +78,13 @@ export interface CreateEventInput {
   related_event_id?: string | null;
   open_item?: boolean;
   open_item_description?: string | null;
+  event_date?: string | null;
 }
 
 // ── Create Event ───────────────────────────────────────────────
 
 export async function createProjectEvent(input: CreateEventInput): Promise<ProjectEvent> {
-  const row = {
+  const row: Record<string, any> = {
     job_id: input.job_id || null,
     job_name: input.job_name || null,
     job_number: input.job_number || null,
@@ -100,6 +102,10 @@ export async function createProjectEvent(input: CreateEventInput): Promise<Proje
     resolved_note: null,
     auto_resolved: false,
   };
+  // event_date: when the event actually occurred (may differ from created_at for past meetings)
+  if (input.event_date) {
+    row.event_date = input.event_date;
+  }
 
   const { data, error } = await getSupabase()
     .from('project_events')
@@ -298,13 +304,15 @@ export function formatEventsForContext(events: ProjectEvent[]): string {
 
   const lines: string[] = [];
   for (const e of events) {
-    const date = new Date(e.created_at).toLocaleDateString('en-US', {
+    // Use event_date (when the event actually happened) if available, otherwise fall back to created_at
+    const displayTimestamp = e.event_date || e.created_at;
+    const date = new Date(displayTimestamp).toLocaleDateString('en-US', {
       timeZone: 'America/New_York',
       month: 'short',
       day: 'numeric',
       year: 'numeric',
     });
-    const time = new Date(e.created_at).toLocaleTimeString('en-US', {
+    const time = new Date(displayTimestamp).toLocaleTimeString('en-US', {
       timeZone: 'America/New_York',
       hour: 'numeric',
       minute: '2-digit',

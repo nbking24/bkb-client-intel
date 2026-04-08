@@ -693,11 +693,12 @@ const knowItAll: AgentModule = {
       'MEETING TRANSCRIPT PROCESSING:\n' +
       'When Nathan pastes a meeting transcript:\n' +
       '1. Identify the project (by name, or ask Nathan to confirm)\n' +
-      '2. Extract: summary (2-3 sentences), key decisions, action items, commitments made\n' +
-      '3. Log the meeting as a project event with channel="meeting"\n' +
-      '4. Log each key decision as a separate "decision_made" event linked to the meeting\n' +
-      '5. For action items, offer to create JT tasks (standard confirmation flow)\n' +
-      '6. For commitments awaiting follow-up, log as open items\n\n';
+      '2. Ask Nathan: "When did this meeting take place?" — transcripts are often from past meetings. If Nathan provides a date, use it as the eventDate when logging. If he says "today" or "just now", use today\'s date. Do NOT skip this step or assume today\'s date.\n' +
+      '3. Extract: summary (2-3 sentences), key decisions, action items, commitments made\n' +
+      '4. Log the meeting as a project event with channel="meeting" and set eventDate to the date Nathan provided\n' +
+      '5. Log each key decision as a separate "decision_made" event linked to the meeting (same eventDate)\n' +
+      '6. For action items, offer to create JT tasks (standard confirmation flow)\n' +
+      '7. For commitments awaiting follow-up, log as open items\n\n';
 
     // Task creation rules (always needed for write operations)
     const taskRules =
@@ -1160,6 +1161,7 @@ const knowItAll: AgentModule = {
           openItem: { type: 'boolean', description: 'Is this waiting on a response or follow-up? (default false)' },
           openItemDescription: { type: 'string', description: 'What is being waited on, e.g. "Waiting on closet pricing from supplier"' },
           resolvesEventId: { type: 'string', description: 'If this event resolves a previous open item, provide that event ID to auto-resolve it' },
+          eventDate: { type: 'string', description: 'When the event actually occurred (ISO date or YYYY-MM-DD). Use this for past meetings/calls so the timeline shows the correct date. If omitted, defaults to now.' },
         },
         required: ['channel', 'eventType', 'summary'],
       },
@@ -2084,6 +2086,7 @@ const knowItAll: AgentModule = {
           participants: input.participants || null,
           open_item: input.openItem || false,
           open_item_description: input.openItemDescription || null,
+          event_date: input.eventDate || null,
         });
         return JSON.stringify({
           success: true,
