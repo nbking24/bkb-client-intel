@@ -100,6 +100,7 @@ export interface OutstandingInvoice {
   jobId: string;
   amount: number;
   createdAt: string;
+  issueDate?: string | null;    // when the invoice was issued/sent to customer
   daysPending: number;
   arAutoSent?: ArAutoRecord[];  // history of automated AR reminders sent
   arHold?: boolean;             // true if [AR-HOLD] is active on this job
@@ -320,7 +321,7 @@ async function fetchARandCOData(
               $: { size: 50 },
               nodes: {
                 id: {}, number: {}, status: {}, type: {},
-                price: {}, createdAt: {},
+                price: {}, createdAt: {}, issueDate: {},
               },
             },
           },
@@ -331,8 +332,9 @@ async function fetchARandCOData(
         // --- Outstanding Invoices (AR) ---
         for (const doc of docs) {
           if (doc.type === 'customerInvoice' && doc.status === 'pending') {
-            const created = new Date(doc.createdAt);
-            const daysPending = Math.floor((today.getTime() - created.getTime()) / (1000 * 60 * 60 * 24));
+            // Use issueDate (when invoice was sent) for age; fall back to createdAt
+            const referenceDate = new Date(doc.issueDate || doc.createdAt);
+            const daysPending = Math.floor((today.getTime() - referenceDate.getTime()) / (1000 * 60 * 60 * 24));
             invoices.push({
               id: doc.id,
               documentNumber: doc.number || '',
@@ -340,6 +342,7 @@ async function fetchARandCOData(
               jobId: job.id,
               amount: doc.price || 0,
               createdAt: doc.createdAt,
+              issueDate: doc.issueDate || null,
               daysPending,
             });
           }

@@ -124,6 +124,7 @@ export interface PendingInvoiceInfo {
   documentNumber: string;
   amount: number;
   createdAt: string;
+  issueDate: string | null;
   daysPending: number;
 }
 
@@ -134,6 +135,7 @@ export interface ReleasedInvoiceInfo {
   documentNumber: string;
   amount: number;
   createdAt: string;
+  issueDate: string | null;
   status: 'paid' | 'open';
 }
 
@@ -254,16 +256,18 @@ async function analyzeContractJob(
   const pendingInvoicesDocs = customerInvoices.filter((d) => d.status === 'pending');
 
   // Build pending invoice info (sent but not yet paid)
+  // Use issueDate (when sent to customer) for age tracking; fall back to createdAt
   const today = new Date(todayStr);
   const pendingInvoices: PendingInvoiceInfo[] = pendingInvoicesDocs.map((d) => {
-    const created = new Date(d.createdAt);
-    const daysPending = Math.floor((today.getTime() - created.getTime()) / (1000 * 60 * 60 * 24));
+    const referenceDate = new Date(d.issueDate || d.createdAt);
+    const daysPending = Math.floor((today.getTime() - referenceDate.getTime()) / (1000 * 60 * 60 * 24));
     return {
       documentId: d.id,
       documentSubject: d.subject || null,
       documentNumber: d.number,
       amount: d.price || 0,
       createdAt: d.createdAt,
+      issueDate: d.issueDate || null,
       daysPending,
     };
   });
@@ -544,6 +548,7 @@ async function analyzeContractJob(
       documentNumber: d.number || '',
       amount: d.price || 0,
       createdAt: d.createdAt,
+      issueDate: d.issueDate || null,
       status: 'paid' as const,
     })),
     ...pendingInvoicesDocs.map((d) => ({
@@ -553,6 +558,7 @@ async function analyzeContractJob(
       documentNumber: d.number || '',
       amount: d.price || 0,
       createdAt: d.createdAt,
+      issueDate: d.issueDate || null,
       status: 'open' as const,
     })),
   ];
@@ -813,6 +819,7 @@ async function analyzeCostPlusJob(
       documentNumber: d.number || '',
       amount: d.price || 0,
       createdAt: d.createdAt,
+      issueDate: d.issueDate || null,
       status: 'paid' as const,
     })),
     ...pendingInvoices.map((d) => ({
@@ -822,6 +829,7 @@ async function analyzeCostPlusJob(
       documentNumber: d.number || '',
       amount: d.price || 0,
       createdAt: d.createdAt,
+      issueDate: d.issueDate || null,
       status: 'open' as const,
     })),
   ];

@@ -51,6 +51,7 @@ export interface OutstandingInvoice {
   jobId: string;
   amount: number;
   createdAt: string;
+  issueDate?: string | null;
   daysPending: number;
   arAutoSent?: ArAutoRecord[];
   arHold?: boolean;

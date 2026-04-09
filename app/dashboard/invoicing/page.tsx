@@ -59,6 +59,7 @@ interface ReleasedInvoiceInfo {
   documentNumber: string;
   amount: number;
   createdAt: string;
+  issueDate: string | null;
   status: 'paid' | 'open';
 }
 
@@ -1260,7 +1261,7 @@ export default function InvoicingDashboard() {
                 documentNumber: inv.documentNumber,
                 documentSubject: inv.documentSubject,
                 amount: inv.amount,
-                daysPending: Math.floor((Date.now() - new Date(inv.createdAt || '').getTime()) / 86400000),
+                daysPending: Math.floor((Date.now() - new Date(inv.issueDate || inv.createdAt || '').getTime()) / 86400000),
                 jobId: job.jobId,
                 jobName: job.jobName,
                 clientName: job.clientName,
