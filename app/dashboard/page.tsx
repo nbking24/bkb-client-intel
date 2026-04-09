@@ -2270,7 +2270,7 @@ export default function DashboardOverview() {
                         style={{ fontSize: 12, color: task.daysUntilDue !== null && task.daysUntilDue < 0 ? '#ef4444' : task.daysUntilDue !== null && task.daysUntilDue <= 2 ? '#eab308' : '#6a6058', background: 'transparent', border: 'none', cursor: 'pointer', padding: 0 }}
                       >
                         {task.daysUntilDue !== null
-                          ? (task.daysUntilDue < 0 ? `${Math.abs(task.daysUntilDue)}d overdue` : task.daysUntilDue === 0 ? 'Today' : task.daysUntilDue === 1 ? 'Tomorrow' : task.daysUntilDue <= 7 ? (() => { const d = new Date(); d.setDate(d.getDate() + task.daysUntilDue); return d.toLocaleDateString('en-US', { weekday: 'short' }); })() : `in ${task.daysUntilDue} days`)
+                          ? (task.daysUntilDue < 0 ? `${Math.abs(task.daysUntilDue)}d overdue` : task.daysUntilDue === 0 ? 'Today' : task.daysUntilDue === 1 ? 'Tomorrow' : (() => { const d = new Date(); d.setDate(d.getDate() + task.daysUntilDue); return `${d.toLocaleDateString('en-US', { weekday: 'short' })} ${d.toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}`; })())
                           : 'No date'}
                       </button>
                     </div>
@@ -2868,11 +2868,10 @@ export default function DashboardOverview() {
                           if (task.daysUntilDue < 0) return `${Math.abs(task.daysUntilDue)}d overdue`;
                           if (task.daysUntilDue === 0) return 'Today';
                           if (task.daysUntilDue === 1) return 'Tomorrow';
-                          if (task.daysUntilDue <= 7) {
-                            const d = new Date(); d.setDate(d.getDate() + task.daysUntilDue);
-                            return d.toLocaleDateString('en-US', { weekday: 'short' });
-                          }
-                          return `in ${task.daysUntilDue} days`;
+                          const d = new Date(); d.setDate(d.getDate() + task.daysUntilDue);
+                          const dayName = d.toLocaleDateString('en-US', { weekday: 'short' });
+                          const monthDay = d.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+                          return `${dayName} ${monthDay}`;
                         })();
                         return (
                           <div key={task.id} style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '4px 0', borderBottom: '1px solid rgba(200,140,0,0.04)', opacity: isCompleting ? 0.4 : 1 }}>
