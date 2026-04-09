@@ -5,7 +5,7 @@ import {
   AlertTriangle, Building2, CalendarDays, CheckCircle2,
   ChevronDown, ChevronUp, Clock, DollarSign, FileWarning,
   Loader2, Mail, Receipt, RefreshCw, ExternalLink,
-  Check, X, Bot, ChevronRight
+  Check, X, Bot, ChevronRight, ListTodo
 } from 'lucide-react';
 import { useAuth } from '@/app/hooks/useAuth';
 import {
@@ -29,6 +29,8 @@ export default function MobileDashboard() {
   const [error, setError] = useState<string | null>(null);
   const [expandedSection, setExpandedSection] = useState<Section>(false);
   const [completingTaskId, setCompletingTaskId] = useState<string | null>(null);
+  const [tasksExpanded, setTasksExpanded] = useState(true);
+  const [calWeek, setCalWeek] = useState<0 | 1>(0);
 
   // ── Data Fetching (same API as desktop) ──────────────────
   const fetchOverview = useCallback(async (forceRefresh = false) => {
@@ -110,6 +112,58 @@ export default function MobileDashboard() {
   const todayEvents = calendarEvents.filter(ev => ev.start?.slice(0, 10) === todayStr);
   const tomorrowStr = (() => { const d = new Date(); d.setDate(d.getDate() + 1); return d.toISOString().split('T')[0]; })();
   const tomorrowEvents = calendarEvents.filter(ev => ev.start?.slice(0, 10) === tomorrowStr);
+
+  // ── Two-Week Calendar Data ──────────────────────────────
+  const PALETTE = [
+    '#c88c00', '#3b82f6', '#22c55e', '#a855f7',
+    '#ec4899', '#f59e0b', '#14b8a6', '#ef4444',
+    '#6366f1', '#84cc16', '#f97316', '#06b6d4',
+  ];
+  function jobColor(n: string): string {
+    let h = 0;
+    for (let i = 0; i < n.length; i++) h = h * 31 + n.charCodeAt(i);
+    return PALETTE[Math.abs(h) % PALETTE.length];
+  }
+
+  const weeks = (() => {
+    const now = new Date();
+    const day = now.getDay();
+    const diff = day === 0 ? -6 : 1 - day;
+    const monday = new Date(now);
+    monday.setDate(now.getDate() + diff);
+    monday.setHours(12, 0, 0, 0);
+    const dn = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
+    return [0, 1].map(w => ({
+      label: w === 0 ? 'This Week' : 'Next Week',
+      days: Array.from({ length: 7 }, (_, d) => {
+        const dt = new Date(monday);
+        dt.setDate(monday.getDate() + w * 7 + d);
+        return {
+          date: dt.toISOString().split('T')[0],
+          dayName: dn[d],
+          dayNum: dt.getDate(),
+          month: dt.toLocaleDateString('en-US', { month: 'short' }),
+          isWeekend: d >= 5,
+        };
+      }),
+    }));
+  })();
+
+  const tasksByDate: Record<string, typeof tasks> = {};
+  for (const t of tasks) {
+    const d = t.endDate;
+    if (!d) continue;
+    if (!tasksByDate[d]) tasksByDate[d] = [];
+    tasksByDate[d].push(t);
+  }
+
+  const calEventsByDate: Record<string, typeof calendarEvents> = {};
+  for (const ev of calendarEvents) {
+    const d = ev.start?.slice(0, 10);
+    if (!d) continue;
+    if (!calEventsByDate[d]) calEventsByDate[d] = [];
+    calEventsByDate[d].push(ev);
+  }
 
   // ── Toggle Section ───────────────────────────────────────
   const toggle = (s: Section) => setExpandedSection(expandedSection === s ? false : (s || false));
@@ -230,28 +284,63 @@ export default function MobileDashboard() {
           </ExpandablePanel>
         )}
 
-        {/* All Tasks */}
+        {/* All Tasks — always visible, collapsible */}
         {expandedSection === 'tasks' && (
-          <ExpandablePanel title={`All Tasks (${regularTasks.length})`} onClose={() => toggle('tasks')}>
-            {regularTasks.length === 0
-              ? <EmptyState text="No tasks" />
-              : regularTasks
-                  .sort((a, b) => (a.daysUntilDue ?? 999) - (b.daysUntilDue ?? 999))
-                  .map(task => (
-                    <TaskRow key={task.id} task={task} completing={completingTaskId === task.id} onComplete={completeTask} />
-                  ))
-            }
-            {waitingOnTasks.length > 0 && (
-              <>
-                <div style={{ padding: '10px 12px 6px', fontSize: 12, fontWeight: 600, color: '#c88c00', letterSpacing: '0.04em', borderTop: '2px solid #f0eeeb', marginTop: 4 }}>
-                  WAITING ON ({waitingOnTasks.length})
-                </div>
-                {waitingOnTasks.map(task => (
-                  <TaskRow key={task.id} task={task} completing={completingTaskId === task.id} onComplete={completeTask} isWaitingOn />
-                ))}
-              </>
+          <div style={{ background: '#f8f6f3', borderRadius: 8, marginBottom: 12, overflow: 'hidden', border: '1px solid rgba(200,140,0,0.08)' }}>
+            <button
+              onClick={() => toggle('tasks')}
+              style={{
+                width: '100%', display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+                padding: '10px 12px', borderBottom: tasksExpanded ? '1px solid #f0eeeb' : 'none',
+                background: 'none', border: 'none', borderBottomWidth: tasksExpanded ? 1 : 0,
+                borderBottomStyle: 'solid', borderBottomColor: '#f0eeeb', cursor: 'pointer',
+                WebkitTapHighlightColor: 'transparent',
+              }}
+            >
+              <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                <ListTodo size={14} style={{ color: '#c88c00' }} />
+                <span style={{ fontSize: 13, fontWeight: 600, color: '#c88c00', letterSpacing: '0.04em' }}>
+                  All Tasks ({regularTasks.length})
+                </span>
+              </div>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                <button
+                  onClick={(e) => { e.stopPropagation(); setTasksExpanded(!tasksExpanded); }}
+                  style={{ background: 'none', border: 'none', cursor: 'pointer', padding: 4, lineHeight: 0 }}
+                >
+                  {tasksExpanded ? <ChevronUp size={16} style={{ color: '#5a5550' }} /> : <ChevronDown size={16} style={{ color: '#5a5550' }} />}
+                </button>
+                <button
+                  onClick={(e) => { e.stopPropagation(); toggle('tasks'); }}
+                  style={{ background: 'none', border: 'none', cursor: 'pointer', padding: 4, lineHeight: 0 }}
+                >
+                  <X size={16} style={{ color: '#5a5550' }} />
+                </button>
+              </div>
+            </button>
+            {tasksExpanded && (
+              <div style={{ maxHeight: 400, overflowY: 'auto' }}>
+                {regularTasks.length === 0
+                  ? <EmptyState text="No tasks" />
+                  : regularTasks
+                      .sort((a, b) => (a.daysUntilDue ?? 999) - (b.daysUntilDue ?? 999))
+                      .map(task => (
+                        <TaskRow key={task.id} task={task} completing={completingTaskId === task.id} onComplete={completeTask} />
+                      ))
+                }
+                {waitingOnTasks.length > 0 && (
+                  <>
+                    <div style={{ padding: '10px 12px 6px', fontSize: 12, fontWeight: 600, color: '#c88c00', letterSpacing: '0.04em', borderTop: '2px solid #f0eeeb', marginTop: 4 }}>
+                      WAITING ON ({waitingOnTasks.length})
+                    </div>
+                    {waitingOnTasks.map(task => (
+                      <TaskRow key={task.id} task={task} completing={completingTaskId === task.id} onComplete={completeTask} isWaitingOn />
+                    ))}
+                  </>
+                )}
+              </div>
             )}
-          </ExpandablePanel>
+          </div>
         )}
 
         {/* Overdue Tasks */}
@@ -366,6 +455,89 @@ export default function MobileDashboard() {
             </div>
           </>
         )}
+
+        {/* ── TWO-WEEK CALENDAR ─────────────────────────── */}
+        <SectionHeader title="Calendar" />
+        <div style={{ background: '#f8f6f3', borderRadius: 8, marginBottom: 12, overflow: 'hidden' }}>
+          {/* Week tabs */}
+          <div style={{ display: 'flex', borderBottom: '1px solid #f0eeeb' }}>
+            {weeks.map((w, wi) => (
+              <button
+                key={wi}
+                onClick={() => setCalWeek(wi as 0 | 1)}
+                style={{
+                  flex: 1, padding: '8px 0', background: 'none', border: 'none',
+                  borderBottom: calWeek === wi ? '2px solid #c88c00' : '2px solid transparent',
+                  fontSize: 12, fontWeight: 600, cursor: 'pointer',
+                  color: calWeek === wi ? '#c88c00' : '#8a8078',
+                  WebkitTapHighlightColor: 'transparent',
+                }}
+              >
+                {w.label}
+              </button>
+            ))}
+          </div>
+          {/* Day columns — horizontal scroll */}
+          <div style={{ display: 'flex', overflowX: 'auto', WebkitOverflowScrolling: 'touch', scrollSnapType: 'x mandatory' }}>
+            {weeks[calWeek].days.map(day => {
+              const isToday = day.date === todayStr;
+              const dayTasks = tasksByDate[day.date] || [];
+              const dayEvents = calEventsByDate[day.date] || [];
+              const completedCount = dayTasks.filter(t => t.progress >= 1).length;
+              const activeTasks = dayTasks.filter(t => t.progress < 1);
+              return (
+                <div
+                  key={day.date}
+                  style={{
+                    minWidth: 120, flex: '0 0 auto', scrollSnapAlign: 'start',
+                    borderRight: '1px solid #f0eeeb', padding: '8px 6px',
+                    background: isToday ? 'rgba(200,140,0,0.06)' : day.isWeekend ? 'rgba(0,0,0,0.015)' : 'transparent',
+                  }}
+                >
+                  {/* Day header */}
+                  <div style={{ textAlign: 'center', marginBottom: 6 }}>
+                    <div style={{ fontSize: 10, fontWeight: 600, color: isToday ? '#c88c00' : '#8a8078', letterSpacing: '0.03em' }}>{day.dayName}</div>
+                    <div style={{
+                      fontSize: 16, fontWeight: 700, color: isToday ? '#c88c00' : '#3a3530', lineHeight: 1.3,
+                      ...(isToday ? { background: '#c88c00', color: '#fff', borderRadius: '50%', width: 26, height: 26, display: 'inline-flex', alignItems: 'center', justifyContent: 'center' } : {}),
+                    }}>
+                      {day.dayNum}
+                    </div>
+                  </div>
+                  {/* Google Calendar events */}
+                  {dayEvents.map(ev => (
+                    <div key={ev.id} style={{
+                      fontSize: 10, padding: '3px 5px', marginBottom: 3, borderRadius: 4,
+                      background: 'rgba(59,130,246,0.08)', borderLeft: '2px solid #3b82f6',
+                      color: '#2a2520', lineHeight: 1.25, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
+                    }}>
+                      {ev.allDay ? '📅' : formatEventTime(ev.start).replace(' ', '')} {ev.summary}
+                    </div>
+                  ))}
+                  {/* Tasks */}
+                  {activeTasks.map(t => (
+                    <div key={t.id} style={{
+                      fontSize: 10, padding: '3px 5px', marginBottom: 3, borderRadius: 4,
+                      background: `${jobColor(t.jobNumber)}10`,
+                      borderLeft: `2px solid ${jobColor(t.jobNumber)}`,
+                      color: '#2a2520', lineHeight: 1.25, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
+                    }}>
+                      {t.name}
+                    </div>
+                  ))}
+                  {completedCount > 0 && (
+                    <div style={{ fontSize: 10, color: '#8a8078', textAlign: 'center', marginTop: 2 }}>
+                      ✓ {completedCount} done
+                    </div>
+                  )}
+                  {dayTasks.length === 0 && dayEvents.length === 0 && (
+                    <div style={{ fontSize: 10, color: '#c4bfba', textAlign: 'center', marginTop: 8 }}>—</div>
+                  )}
+                </div>
+              );
+            })}
+          </div>
+        </div>
 
         {/* ── OVERDUE ALERT BANNER ──────────────────────── */}
         {overdueTasks.length > 0 && expandedSection !== 'overdue' && (
