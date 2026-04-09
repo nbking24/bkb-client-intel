@@ -529,7 +529,7 @@ function InlineAskAgent({ pmJobs, screen, hideToggle, defaultOpen }: { pmJobs: {
       {open && (
         <div style={{ borderTop: '1px solid rgba(200,140,0,0.08)' }}>
           {/* Mode Selector + Job Selector */}
-          <div style={{ padding: isTouch ? '8px 12px' : '6px 10px', borderBottom: '1px solid rgba(200,140,0,0.06)', display: 'flex', flexWrap: isMobile ? 'wrap' : 'nowrap', alignItems: 'center', gap: isTouch ? 8 : 6 }}>
+          <div style={{ padding: isTouch ? '8px 12px' : '8px 12px', borderBottom: '1px solid rgba(200,140,0,0.06)', display: 'flex', flexWrap: isMobile ? 'wrap' : 'nowrap', alignItems: 'center', gap: isTouch ? 8 : 8 }}>
             <div style={{ display: 'flex', borderRadius: 8, overflow: 'hidden', border: '1px solid rgba(200,140,0,0.15)', flexShrink: 0, ...(isMobile ? { width: '100%' } : {}) }}>
               {([
                 { key: 'general', label: 'Agent' },
@@ -540,8 +540,8 @@ function InlineAskAgent({ pmJobs, screen, hideToggle, defaultOpen }: { pmJobs: {
                   key={mode.key}
                   onClick={() => handleModeChange(mode.key)}
                   style={{
-                    padding: isTouch ? '8px 14px' : '4px 10px',
-                    fontSize: isTouch ? 13 : 10,
+                    padding: isTouch ? '8px 14px' : '6px 14px',
+                    fontSize: isTouch ? 13 : 12,
                     fontWeight: 600, border: 'none', cursor: 'pointer',
                     ...(isMobile ? { flex: 1 } : {}),
                     ...(idx > 0 ? { borderLeft: '1px solid rgba(200,140,0,0.15)' } : {}),
@@ -569,10 +569,10 @@ function InlineAskAgent({ pmJobs, screen, hideToggle, defaultOpen }: { pmJobs: {
           </div>
 
           {/* Messages */}
-          <div style={{ maxHeight: isMobile ? 400 : isTouch ? 360 : 300, overflowY: 'auto', padding: isTouch ? '8px 12px' : '6px 10px' }}>
+          <div style={{ maxHeight: isMobile ? 400 : isTouch ? 360 : 480, overflowY: 'auto', padding: isTouch ? '8px 12px' : '8px 12px' }}>
             {messages.length === 0 && !loading && (
-              <div style={{ padding: isTouch ? '12px 0' : '8px 0', textAlign: 'center' }}>
-                <p style={{ fontSize: isTouch ? 13 : 10, color: '#5a5550', marginBottom: 4 }}>
+              <div style={{ padding: isTouch ? '12px 0' : '16px 0', textAlign: 'center' }}>
+                <p style={{ fontSize: isTouch ? 13 : 13, color: '#5a5550', marginBottom: 4 }}>
                   {agentMode === 'general' && 'Ask about tasks, schedules, or anything on this job'}
                   {agentMode === 'change-order' && 'Describe the change â I\'ll ask questions and build the CO'}
                   {agentMode === 'specs' && 'Ask about approved specs for this job'}
@@ -594,7 +594,7 @@ function InlineAskAgent({ pmJobs, screen, hideToggle, defaultOpen }: { pmJobs: {
                     </div>
                   )}
                   <div style={{
-                    maxWidth: isMobile ? '90%' : '85%', padding: isTouch ? '8px 12px' : '5px 8px', borderRadius: isTouch ? 10 : 6, fontSize: isTouch ? 14 : 11, lineHeight: isTouch ? '20px' : '16px',
+                    maxWidth: isMobile ? '90%' : '85%', padding: isTouch ? '8px 12px' : '8px 12px', borderRadius: isTouch ? 10 : 8, fontSize: isTouch ? 14 : 13, lineHeight: isTouch ? '20px' : '20px',
                     ...(msg.role === 'user'
                       ? { background: '#1B3A5C', color: '#1a1a1a' }
                       : { background: '#f8f6f3', color: '#1a1a1a', border: '1px solid rgba(200,140,0,0.06)' }),
@@ -729,7 +729,7 @@ function InlineAskAgent({ pmJobs, screen, hideToggle, defaultOpen }: { pmJobs: {
           )}
 
           {/* Input */}
-          <form onSubmit={handleSubmit} style={{ display: 'flex', alignItems: 'center', gap: isTouch ? 8 : 4, padding: isTouch ? '8px 12px' : '6px 10px', borderTop: '1px solid rgba(200,140,0,0.06)' }}>
+          <form onSubmit={handleSubmit} style={{ display: 'flex', alignItems: 'center', gap: isTouch ? 8 : 8, padding: isTouch ? '8px 12px' : '10px 12px', borderTop: '1px solid rgba(200,140,0,0.06)' }}>
             <input ref={fileInputRef} type="file" accept="image/*" multiple onChange={handleImageAttach} style={{ display: 'none' }} />
             {agentMode === 'change-order' && (
               <button type="button" onClick={() => fileInputRef.current?.click()} title="Attach photos"
@@ -744,7 +744,7 @@ function InlineAskAgent({ pmJobs, screen, hideToggle, defaultOpen }: { pmJobs: {
             <textarea
               ref={inputRef}
               value={query}
-              onChange={e => { setQuery(e.target.value); e.target.style.height = 'auto'; e.target.style.height = Math.min(e.target.scrollHeight, isTouch ? 120 : 80) + 'px'; }}
+              onChange={e => { setQuery(e.target.value); e.target.style.height = 'auto'; e.target.style.height = Math.min(e.target.scrollHeight, isTouch ? 120 : 120) + 'px'; }}
               onKeyDown={e => { if (e.key === 'Enter' && !e.shiftKey && !isTouch) { e.preventDefault(); if (query.trim() && !loading) handleSubmit(e as any); } }}
               placeholder={agentMode === 'general'
                 ? (selectedJob ? `Ask about #${selectedJob.number} ${selectedJob.name}...` : 'Ask about tasks, schedules, or jobs...')
@@ -755,18 +755,18 @@ function InlineAskAgent({ pmJobs, screen, hideToggle, defaultOpen }: { pmJobs: {
               disabled={loading || uploading}
               style={{
                 flex: 1, background: '#f8f6f3', border: '1px solid rgba(200,140,0,0.1)',
-                borderRadius: isTouch ? 10 : 6, color: '#1a1a1a', fontSize: isTouch ? 16 : 11, padding: isTouch ? '10px 12px' : '6px 8px',
-                outline: 'none', resize: 'none', minHeight: isTouch ? 42 : 30, maxHeight: isTouch ? 120 : 80, overflowY: 'auto',
+                borderRadius: isTouch ? 10 : 8, color: '#1a1a1a', fontSize: isTouch ? 16 : 13, padding: isTouch ? '10px 12px' : '10px 12px',
+                outline: 'none', resize: 'none', minHeight: isTouch ? 42 : 44, maxHeight: isTouch ? 120 : 120, overflowY: 'auto',
                 fontFamily: 'inherit',
               }}
             />
             <button type="submit" disabled={!query.trim() || loading || uploading}
               style={{
-                width: isTouch ? 40 : 28, height: isTouch ? 40 : 28, borderRadius: isTouch ? 10 : 6, border: 'none', cursor: query.trim() && !loading ? 'pointer' : 'default',
+                width: isTouch ? 40 : 36, height: isTouch ? 40 : 36, borderRadius: isTouch ? 10 : 8, border: 'none', cursor: query.trim() && !loading ? 'pointer' : 'default',
                 background: query.trim() && !loading ? 'rgba(200,140,0,0.15)' : 'transparent',
                 display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0,
               }}>
-              <Send size={isTouch ? 18 : 13} style={{ color: query.trim() && !loading ? '#c88c00' : '#e8e5e0' }} />
+              <Send size={isTouch ? 18 : 16} style={{ color: query.trim() && !loading ? '#c88c00' : '#e8e5e0' }} />
             </button>
           </form>
         </div>
