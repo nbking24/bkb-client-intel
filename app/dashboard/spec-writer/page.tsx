@@ -956,7 +956,7 @@ function SpecWriterContent() {
       <div className="flex items-center gap-3">
         <Link
           href="/dashboard/precon"
-          className="p-2 rounded-lg hover:bg-[#222] transition-colors"
+          className="p-2 rounded-lg hover:bg-[#f0eeeb] transition-colors"
           style={{ color: '#8a8078' }}
         >
           <ArrowLeft size={18} />
@@ -975,7 +975,7 @@ function SpecWriterContent() {
       </div>
 
       {/* Tab Navigation */}
-      <div className="flex gap-1 rounded-lg p-1" style={{ background: '#111' }}>
+      <div className="flex gap-1 rounded-lg p-1" style={{ background: '#f0eeeb' }}>
         <div
           className="flex-1 text-center py-2 px-4 rounded-md text-sm font-medium cursor-default"
           style={{ background: '#ffffff', color: '#c88c00', border: '1px solid rgba(201,168,76,0.3)' }}
@@ -1011,7 +1011,7 @@ function SpecWriterContent() {
               placeholder="We are building a detached kitchen addition. Plumbing will be tied into the septic system through the exterior. Horizontal siding, asphalt roofing, hardwood flooring..."
               className="w-full rounded-lg px-3 py-3 text-sm resize-none"
               style={{
-                background: '#0d0d0d',
+                background: '#f8f6f3',
                 color: '#1a1a1a',
                 border: '1px solid rgba(200,140,0,0.2)',
                 lineHeight: '1.6',
@@ -1043,9 +1043,9 @@ function SpecWriterContent() {
 
             <button
               onClick={() => fileInputRef.current?.click()}
-              className="w-full rounded-lg px-4 py-6 text-sm flex flex-col items-center gap-2 transition-colors hover:bg-[#151515]"
+              className="w-full rounded-lg px-4 py-6 text-sm flex flex-col items-center gap-2 transition-colors hover:bg-[#e8e5e0]"
               style={{
-                background: '#0d0d0d',
+                background: '#f0eeeb',
                 border: '1px dashed rgba(200,140,0,0.25)',
                 color: '#8a8078',
               }}
@@ -1062,7 +1062,7 @@ function SpecWriterContent() {
                   <div
                     key={i}
                     className="flex items-center gap-2 rounded-lg px-3 py-1.5 text-xs"
-                    style={{ background: '#0d0d0d', border: '1px solid rgba(200,140,0,0.15)', color: '#d4ccc4' }}
+                    style={{ background: '#f0eeeb', border: '1px solid rgba(200,140,0,0.15)', color: '#5a5550' }}
                   >
                     {f.extracting ? (
                       <Loader2 size={10} className="animate-spin" style={{ color: '#c88c00' }} />
@@ -1094,7 +1094,7 @@ function SpecWriterContent() {
               onClick={handleQuickSpec}
               disabled={!inputText.trim() || loading || uploadedFiles.some(f => f.extracting)}
               className="flex items-center justify-center gap-2 px-4 py-3 rounded-lg text-sm font-medium transition-colors disabled:opacity-40"
-              style={{ background: '#c88c00', color: '#0d0d0d' }}
+              style={{ background: '#c88c00', color: '#ffffff' }}
             >
               {loading && specMode === 'quick' ? (
                 <Loader2 size={16} className="animate-spin" />
@@ -1158,7 +1158,7 @@ function SpecWriterContent() {
             >
               <button
                 onClick={() => toggleCategory(catKey)}
-                className="w-full text-left px-4 py-2.5 flex items-center gap-2 hover:bg-[#222] transition-colors"
+                className="w-full text-left px-4 py-2.5 flex items-center gap-2 hover:bg-[#f0eeeb] transition-colors"
               >
                 {expandedCategories[catKey] ? (
                   <ChevronDown size={14} style={{ color: '#8a8078' }} />
@@ -1186,8 +1186,8 @@ function SpecWriterContent() {
                             onClick={() => setAnswers((prev) => ({ ...prev, [q.id]: opt }))}
                             className="px-3 py-1.5 rounded-full text-xs transition-colors"
                             style={{
-                              background: answers[q.id] === opt ? 'rgba(201,168,76,0.2)' : '#0d0d0d',
-                              color: answers[q.id] === opt ? '#c88c00' : '#d4ccc4',
+                              background: answers[q.id] === opt ? 'rgba(201,168,76,0.2)' : '#f0eeeb',
+                              color: answers[q.id] === opt ? '#c88c00' : '#5a5550',
                               border: `1px solid ${answers[q.id] === opt ? '#c88c00' : 'rgba(200,140,0,0.15)'}`,
                             }}
                           >
@@ -1205,7 +1205,7 @@ function SpecWriterContent() {
                           onChange={(e) => setAnswers((prev) => ({ ...prev, [q.id]: e.target.value }))}
                           className="w-full rounded-lg px-3 py-2 text-xs"
                           style={{
-                            background: '#0d0d0d',
+                            background: '#f8f6f3',
                             color: '#1a1a1a',
                             border: '1px solid rgba(200,140,0,0.15)',
                           }}
@@ -1231,7 +1231,7 @@ function SpecWriterContent() {
               onClick={handleGenerateFromQuestions}
               disabled={loading}
               className="flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-medium disabled:opacity-40"
-              style={{ background: '#c88c00', color: '#0d0d0d' }}
+              style={{ background: '#c88c00', color: '#ffffff' }}
             >
               {loading ? <Loader2 size={14} className="animate-spin" /> : <ArrowRight size={14} />}
               Generate Specification
@@ -1304,8 +1304,8 @@ function SpecWriterContent() {
             <pre
               className="rounded-lg p-4 text-xs overflow-x-auto whitespace-pre-wrap"
               style={{
-                background: '#0d0d0d',
-                color: '#d4ccc4',
+                background: '#f8f6f3',
+                color: '#1a1a1a',
                 border: '1px solid rgba(200,140,0,0.08)',
                 lineHeight: '1.7',
                 fontFamily: '"SF Mono", "Fira Code", "Fira Mono", Menlo, monospace',

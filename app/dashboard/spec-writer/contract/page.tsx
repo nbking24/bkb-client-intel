@@ -471,7 +471,7 @@ export default function ContractSpecWriter() {
       <div className="flex items-center gap-3">
         <Link
           href="/dashboard/precon"
-          className="p-2 rounded-lg hover:bg-[#222] transition-colors"
+          className="p-2 rounded-lg hover:bg-[#f0eeeb] transition-colors"
           style={{ color: '#8a8078' }}
         >
           <ArrowLeft size={18} />
@@ -548,7 +548,7 @@ export default function ContractSpecWriter() {
                 placeholder="e.g. 22P5qEW5VPq5"
                 className="flex-1 rounded-lg px-3 py-2 text-sm"
                 style={{
-                  background: '#0d0d0d',
+                  background: '#f8f6f3',
                   border: '1px solid rgba(200,140,0,0.15)',
                   color: '#1a1a1a',
                 }}
@@ -557,7 +557,7 @@ export default function ContractSpecWriter() {
                 onClick={loadBudget}
                 disabled={isLoading || !jobIdInput.trim()}
                 className="px-4 py-2 rounded-lg text-sm font-medium flex items-center gap-2 disabled:opacity-50"
-                style={{ background: '#c88c00', color: '#0d0d0d' }}
+                style={{ background: '#c88c00', color: '#ffffff' }}
               >
                 {isLoading ? <Loader2 size={16} className="animate-spin" /> : <Search size={16} />}
                 Load Budget
@@ -606,7 +606,7 @@ export default function ContractSpecWriter() {
                     {/* Section header (area) */}
                     <button
                       onClick={() => toggleSection(section.id)}
-                      className="w-full flex items-center gap-2 py-1.5 px-2 rounded hover:bg-[#222] transition-colors"
+                      className="w-full flex items-center gap-2 py-1.5 px-2 rounded hover:bg-[#f0eeeb] transition-colors"
                     >
                       {expandedSections.has(section.id) ? (
                         <ChevronDown size={14} style={{ color: '#c88c00' }} />
@@ -627,7 +627,7 @@ export default function ContractSpecWriter() {
                         {section.costGroups.map((group) => (
                           <div key={group.id}>
                             <label
-                              className="flex items-center gap-2 py-1 px-2 rounded cursor-pointer hover:bg-[#222] transition-colors"
+                              className="flex items-center gap-2 py-1 px-2 rounded cursor-pointer hover:bg-[#f0eeeb] transition-colors"
                             >
                               <input
                                 type="checkbox"
@@ -706,7 +706,7 @@ export default function ContractSpecWriter() {
               onClick={() => setStep('scope-entry')}
               disabled={selectedGroups.size === 0}
               className="ml-auto px-4 py-2 rounded-lg text-sm font-medium flex items-center gap-2 disabled:opacity-50"
-              style={{ background: '#c88c00', color: '#0d0d0d' }}
+              style={{ background: '#c88c00', color: '#ffffff' }}
             >
               Continue
               <ArrowRight size={16} />
@@ -738,7 +738,7 @@ export default function ContractSpecWriter() {
               placeholder="We are building a 4-season room addition on the rear of the home. The project includes new foundation, framing, roofing tied into existing, windows on 3 walls, HVAC extension, electrical..."
               className="w-full rounded-lg px-3 py-3 text-sm resize-none"
               style={{
-                background: '#0d0d0d',
+                background: '#f8f6f3',
                 border: '1px solid rgba(200,140,0,0.15)',
                 color: '#1a1a1a',
               }}
@@ -785,7 +785,7 @@ export default function ContractSpecWriter() {
                   <div
                     key={i}
                     className="flex items-center gap-2 px-2 py-1.5 rounded"
-                    style={{ background: '#0d0d0d' }}
+                    style={{ background: '#f8f6f3' }}
                   >
                     <Paperclip size={12} style={{ color: '#c88c00' }} />
                     <span className="text-xs flex-1" style={{ color: '#1a1a1a' }}>
@@ -824,7 +824,7 @@ export default function ContractSpecWriter() {
               onClick={startQnA}
               disabled={!projectScope.trim()}
               className="ml-auto px-4 py-2 rounded-lg text-sm font-medium flex items-center gap-2 disabled:opacity-50"
-              style={{ background: '#c88c00', color: '#0d0d0d' }}
+              style={{ background: '#c88c00', color: '#ffffff' }}
             >
               Start Writing Specs
               <ArrowRight size={16} />
@@ -844,7 +844,7 @@ export default function ContractSpecWriter() {
               <div className="flex items-center gap-3">
                 <div
                   className="flex-1 h-1.5 rounded-full overflow-hidden"
-                  style={{ background: '#222' }}
+                  style={{ background: '#f0eeeb' }}
                 >
                   <div
                     className="h-full rounded-full transition-all"
@@ -918,7 +918,7 @@ export default function ContractSpecWriter() {
                         <span
                           key={ci.id}
                           className="text-xs px-2 py-0.5 rounded"
-                          style={{ background: '#222', color: '#1a1a1a' }}
+                          style={{ background: '#f0eeeb', color: '#1a1a1a' }}
                         >
                           {ci.name}
                         </span>
@@ -982,7 +982,7 @@ export default function ContractSpecWriter() {
                                 background:
                                   currentAnswer === opt
                                     ? 'rgba(201,168,76,0.2)'
-                                    : '#222',
+                                    : '#f0eeeb',
                                 border:
                                   currentAnswer === opt
                                     ? '1px solid #c88c00'
@@ -1012,7 +1012,7 @@ export default function ContractSpecWriter() {
                               }}
                               className="flex-1 rounded-lg px-3 py-1.5 text-xs"
                               style={{
-                                background: '#0d0d0d',
+                                background: '#f8f6f3',
                                 border: '1px solid rgba(200,140,0,0.15)',
                                 color: '#1a1a1a',
                               }}
@@ -1024,7 +1024,7 @@ export default function ContractSpecWriter() {
                                 }
                               }}
                               className="px-2 py-1 rounded-lg text-xs"
-                              style={{ background: '#222', color: '#c88c00' }}
+                              style={{ background: '#f0eeeb', color: '#c88c00' }}
                             >
                               Set
                             </button>
@@ -1056,7 +1056,7 @@ export default function ContractSpecWriter() {
                   onClick={nextCategory}
                   disabled={isLoading}
                   className="ml-auto px-4 py-2 rounded-lg text-sm font-medium flex items-center gap-2 disabled:opacity-50"
-                  style={{ background: '#c88c00', color: '#0d0d0d' }}
+                  style={{ background: '#c88c00', color: '#ffffff' }}
                 >
                   {currentGroupIndex + 1 >= flatGroups.length ? 'Generate All Specs' : 'Next Section'}
                   <ArrowRight size={16} />
@@ -1126,7 +1126,7 @@ export default function ContractSpecWriter() {
                       rows={12}
                       className="w-full rounded-lg px-3 py-2 text-xs font-mono resize-y"
                       style={{
-                        background: '#0d0d0d',
+                        background: '#f8f6f3',
                         border: '1px solid rgba(200,140,0,0.15)',
                         color: '#1a1a1a',
                       }}
@@ -1151,7 +1151,7 @@ export default function ContractSpecWriter() {
                           setEditingSpec(null);
                         }}
                         className="px-3 py-1.5 rounded text-xs font-medium flex items-center gap-1"
-                        style={{ background: '#c88c00', color: '#0d0d0d' }}
+                        style={{ background: '#c88c00', color: '#ffffff' }}
                       >
                         <Check size={12} /> Save Edit
                       </button>
@@ -1197,7 +1197,7 @@ export default function ContractSpecWriter() {
                         className="ml-auto px-3 py-1.5 rounded text-xs font-medium flex items-center gap-1 disabled:opacity-50"
                         style={{
                           background: isSaved ? 'rgba(34,197,94,0.15)' : '#c88c00',
-                          color: isSaved ? '#22c55e' : '#0d0d0d',
+                          color: isSaved ? '#22c55e' : '#ffffff',
                         }}
                       >
                         {isSaving ? (
@@ -1229,7 +1229,7 @@ export default function ContractSpecWriter() {
               <button
                 onClick={() => setStep('summary')}
                 className="ml-auto px-4 py-2 rounded-lg text-sm font-medium flex items-center gap-2"
-                style={{ background: '#c88c00', color: '#0d0d0d' }}
+                style={{ background: '#c88c00', color: '#ffffff' }}
               >
                 View Summary
                 <ArrowRight size={16} />
@@ -1267,7 +1267,7 @@ export default function ContractSpecWriter() {
                   <div
                     key={group.id}
                     className="flex items-center gap-3 px-3 py-2 rounded"
-                    style={{ background: '#0d0d0d' }}
+                    style={{ background: '#f8f6f3' }}
                   >
                     {isSaved ? (
                       <CheckCircle size={16} className="text-green-400 shrink-0" />
@@ -1317,7 +1317,7 @@ export default function ContractSpecWriter() {
               target="_blank"
               rel="noopener noreferrer"
               className="ml-auto px-4 py-2 rounded-lg text-sm font-medium flex items-center gap-2"
-              style={{ background: '#c88c00', color: '#0d0d0d' }}
+              style={{ background: '#c88c00', color: '#ffffff' }}
             >
               Open in JobTread
               <ArrowRight size={16} />
