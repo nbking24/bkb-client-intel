@@ -84,21 +84,21 @@ function StepIndicator({ current, steps }: { current: number; steps: string[] })
             <div
               className="w-7 h-7 rounded-full flex items-center justify-center text-xs font-bold"
               style={{
-                background: done ? '#C9A84C' : active ? 'rgba(201,168,76,0.2)' : '#1a1a1a',
-                color: done ? '#0d0d0d' : active ? '#C9A84C' : '#8a8078',
-                border: `1px solid ${done || active ? '#C9A84C' : 'rgba(205,162,116,0.15)'}`,
+                background: done ? '#c88c00' : active ? 'rgba(201,168,76,0.2)' : '#ffffff',
+                color: done ? '#0d0d0d' : active ? '#c88c00' : '#8a8078',
+                border: `1px solid ${done || active ? '#c88c00' : 'rgba(200,140,0,0.15)'}`,
               }}
             >
               {done ? <Check size={12} /> : i + 1}
             </div>
             <span
               className="text-xs font-medium hidden sm:inline"
-              style={{ color: active ? '#C9A84C' : '#8a8078' }}
+              style={{ color: active ? '#c88c00' : '#8a8078' }}
             >
               {label}
             </span>
             {i < steps.length - 1 && (
-              <div className="w-8 h-px" style={{ background: done ? '#C9A84C' : 'rgba(205,162,116,0.15)' }} />
+              <div className="w-8 h-px" style={{ background: done ? '#c88c00' : 'rgba(200,140,0,0.15)' }} />
             )}
           </div>
         );
@@ -265,7 +265,7 @@ function ScheduleSetupContent() {
         <div>
           <h1
             className="text-xl font-bold"
-            style={{ fontFamily: 'Georgia, serif', color: '#C9A84C' }}
+            style={{ fontFamily: 'Georgia, serif', color: '#c88c00' }}
           >
             Schedule Setup Wizard
           </h1>
@@ -297,9 +297,9 @@ function ScheduleSetupContent() {
         <div className="space-y-4">
           <div
             className="rounded-lg p-4"
-            style={{ background: '#1a1a1a', border: '1px solid rgba(205,162,116,0.1)' }}
+            style={{ background: '#ffffff', border: '1px solid rgba(200,140,0,0.1)' }}
           >
-            <label className="block text-sm font-semibold mb-2" style={{ color: '#e8e0d8' }}>
+            <label className="block text-sm font-semibold mb-2" style={{ color: '#1a1a1a' }}>
               Select Project
             </label>
             <select
@@ -308,8 +308,8 @@ function ScheduleSetupContent() {
               className="w-full rounded-lg px-3 py-2 text-sm"
               style={{
                 background: '#0d0d0d',
-                color: '#e8e0d8',
-                border: '1px solid rgba(205,162,116,0.2)',
+                color: '#1a1a1a',
+                border: '1px solid rgba(200,140,0,0.2)',
               }}
             >
               <option value="">— Choose a project —</option>
@@ -323,9 +323,9 @@ function ScheduleSetupContent() {
 
           <div
             className="rounded-lg p-4"
-            style={{ background: '#1a1a1a', border: '1px solid rgba(205,162,116,0.1)' }}
+            style={{ background: '#ffffff', border: '1px solid rgba(200,140,0,0.1)' }}
           >
-            <label className="block text-sm font-semibold mb-1" style={{ color: '#e8e0d8' }}>
+            <label className="block text-sm font-semibold mb-1" style={{ color: '#1a1a1a' }}>
               Project Scope
             </label>
             <p className="text-xs mb-3" style={{ color: '#8a8078' }}>
@@ -341,15 +341,15 @@ function ScheduleSetupContent() {
                     className="text-left rounded-lg px-3 py-2.5 transition-colors relative"
                     style={{
                       background: isSelected ? 'rgba(201,168,76,0.15)' : '#0d0d0d',
-                      border: `1px solid ${isSelected ? '#C9A84C' : 'rgba(205,162,116,0.1)'}`,
+                      border: `1px solid ${isSelected ? '#c88c00' : 'rgba(200,140,0,0.1)'}`,
                     }}
                   >
                     {isSelected && (
                       <div className="absolute top-2 right-2">
-                        <Check size={14} style={{ color: '#C9A84C' }} />
+                        <Check size={14} style={{ color: '#c88c00' }} />
                       </div>
                     )}
-                    <div className="text-sm font-medium" style={{ color: isSelected ? '#C9A84C' : '#e8e0d8' }}>
+                    <div className="text-sm font-medium" style={{ color: isSelected ? '#c88c00' : '#1a1a1a' }}>
                       {s.label}
                     </div>
                     <div className="text-xs mt-0.5" style={{ color: '#8a8078' }}>{s.desc}</div>
@@ -364,7 +364,7 @@ function ScheduleSetupContent() {
               onClick={handleScopeNext}
               disabled={!selectedJobId || selectedScopes.length === 0 || loading}
               className="flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-medium disabled:opacity-40"
-              style={{ background: '#C9A84C', color: '#0d0d0d' }}
+              style={{ background: '#c88c00', color: '#0d0d0d' }}
             >
               {loading ? <Loader2 size={14} className="animate-spin" /> : <ArrowRight size={14} />}
               Next: Survey
@@ -380,9 +380,9 @@ function ScheduleSetupContent() {
         <div className="space-y-4">
           <div
             className="rounded-lg p-4"
-            style={{ background: '#1a1a1a', border: '1px solid rgba(205,162,116,0.1)' }}
+            style={{ background: '#ffffff', border: '1px solid rgba(200,140,0,0.1)' }}
           >
-            <h3 className="text-sm font-semibold mb-1" style={{ color: '#e8e0d8' }}>
+            <h3 className="text-sm font-semibold mb-1" style={{ color: '#1a1a1a' }}>
               {selectedJobName}
             </h3>
             <p className="text-xs mb-4" style={{ color: '#8a8078' }}>
@@ -399,7 +399,7 @@ function ScheduleSetupContent() {
                       onClick={() => setAnswers((prev) => ({ ...prev, [q.id]: !prev[q.id] }))}
                       className="w-10 h-5 rounded-full relative transition-colors"
                       style={{
-                        background: answers[q.id] ? '#C9A84C' : '#333',
+                        background: answers[q.id] ? '#c88c00' : '#333',
                       }}
                     >
                       <div
@@ -420,7 +420,7 @@ function ScheduleSetupContent() {
             <button
               onClick={() => setStep(0)}
               className="flex items-center gap-2 px-4 py-2 rounded-lg text-sm"
-              style={{ color: '#8a8078', border: '1px solid rgba(205,162,116,0.15)' }}
+              style={{ color: '#8a8078', border: '1px solid rgba(200,140,0,0.15)' }}
             >
               <ArrowLeft size={14} /> Back
             </button>
@@ -428,7 +428,7 @@ function ScheduleSetupContent() {
               onClick={handleSurveyNext}
               disabled={loading}
               className="flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-medium disabled:opacity-40"
-              style={{ background: '#C9A84C', color: '#0d0d0d' }}
+              style={{ background: '#c88c00', color: '#0d0d0d' }}
             >
               {loading ? <Loader2 size={14} className="animate-spin" /> : <Eye size={14} />}
               Preview Changes
@@ -455,7 +455,7 @@ function ScheduleSetupContent() {
                 <div
                   key={c.label}
                   className="rounded-lg p-3"
-                  style={{ background: '#1a1a1a', border: '1px solid rgba(205,162,116,0.1)' }}
+                  style={{ background: '#ffffff', border: '1px solid rgba(200,140,0,0.1)' }}
                 >
                   <div className="flex items-center gap-1.5 mb-1">
                     <Icon size={12} style={{ color: c.color }} />
@@ -469,7 +469,7 @@ function ScheduleSetupContent() {
 
           <div
             className="rounded-lg p-3 text-xs"
-            style={{ background: 'rgba(201,168,76,0.06)', border: '1px solid rgba(201,168,76,0.15)', color: '#C9A84C' }}
+            style={{ background: 'rgba(201,168,76,0.06)', border: '1px solid rgba(201,168,76,0.15)', color: '#c88c00' }}
           >
             <strong>{preview.summary.existingTasksKept}</strong> existing tasks will be kept as-is.
             Review the changes below, then click &quot;Apply&quot; to standardize.
@@ -588,7 +588,7 @@ function ScheduleSetupContent() {
             <button
               onClick={() => setStep(1)}
               className="flex items-center gap-2 px-4 py-2 rounded-lg text-sm"
-              style={{ color: '#8a8078', border: '1px solid rgba(205,162,116,0.15)' }}
+              style={{ color: '#8a8078', border: '1px solid rgba(200,140,0,0.15)' }}
             >
               <ArrowLeft size={14} /> Back
             </button>
@@ -596,7 +596,7 @@ function ScheduleSetupContent() {
               onClick={handleApply}
               disabled={loading}
               className="flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-medium disabled:opacity-40"
-              style={{ background: '#C9A84C', color: '#0d0d0d' }}
+              style={{ background: '#c88c00', color: '#0d0d0d' }}
             >
               {loading ? <Loader2 size={14} className="animate-spin" /> : <Play size={14} />}
               Apply Standardization
@@ -612,10 +612,10 @@ function ScheduleSetupContent() {
         <div className="space-y-4">
           <div
             className="rounded-lg p-6 text-center"
-            style={{ background: '#1a1a1a', border: '1px solid rgba(34,197,94,0.3)' }}
+            style={{ background: '#ffffff', border: '1px solid rgba(34,197,94,0.3)' }}
           >
             <CheckCircle2 size={40} style={{ color: '#22c55e' }} className="mx-auto mb-3" />
-            <h2 className="text-lg font-bold mb-1" style={{ color: '#e8e0d8' }}>
+            <h2 className="text-lg font-bold mb-1" style={{ color: '#1a1a1a' }}>
               Schedule Standardized!
             </h2>
             <p className="text-sm" style={{ color: '#8a8078' }}>
@@ -633,7 +633,7 @@ function ScheduleSetupContent() {
               <div
                 key={c.label}
                 className="rounded-lg p-3 text-center"
-                style={{ background: '#1a1a1a', border: '1px solid rgba(205,162,116,0.1)' }}
+                style={{ background: '#ffffff', border: '1px solid rgba(200,140,0,0.1)' }}
               >
                 <div className="text-xl font-bold" style={{ color: c.color }}>{c.value}</div>
                 <div className="text-[10px]" style={{ color: '#8a8078' }}>{c.label}</div>
@@ -659,7 +659,7 @@ function ScheduleSetupContent() {
             <Link
               href="/dashboard/precon"
               className="flex items-center gap-2 px-4 py-2 rounded-lg text-sm"
-              style={{ color: '#8a8078', border: '1px solid rgba(205,162,116,0.15)' }}
+              style={{ color: '#8a8078', border: '1px solid rgba(200,140,0,0.15)' }}
             >
               <ArrowLeft size={14} /> Back to Dashboard
             </Link>
@@ -672,7 +672,7 @@ function ScheduleSetupContent() {
                 setApplyResults(null);
               }}
               className="flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-medium"
-              style={{ background: 'rgba(201,168,76,0.15)', color: '#C9A84C', border: '1px solid rgba(201,168,76,0.3)' }}
+              style={{ background: 'rgba(201,168,76,0.15)', color: '#c88c00', border: '1px solid rgba(201,168,76,0.3)' }}
             >
               <RotateCcw size={14} /> Standardize Another
             </button>
@@ -684,10 +684,10 @@ function ScheduleSetupContent() {
       {loading && (
         <div
           className="fixed bottom-4 right-4 rounded-lg px-4 py-3 flex items-center gap-3 shadow-lg"
-          style={{ background: '#1a1a1a', border: '1px solid rgba(201,168,76,0.3)', zIndex: 50 }}
+          style={{ background: '#ffffff', border: '1px solid rgba(201,168,76,0.3)', zIndex: 50 }}
         >
-          <Loader2 size={16} className="animate-spin" style={{ color: '#C9A84C' }} />
-          <span className="text-sm" style={{ color: '#C9A84C' }}>
+          <Loader2 size={16} className="animate-spin" style={{ color: '#c88c00' }} />
+          <span className="text-sm" style={{ color: '#c88c00' }}>
             {step === 2 ? 'Applying changes to JobTread...' : 'Loading...'}
           </span>
         </div>
@@ -703,7 +703,7 @@ export default function ScheduleSetupPage() {
   return (
     <Suspense fallback={
       <div className="max-w-3xl mx-auto p-8 text-center">
-        <Loader2 size={24} className="animate-spin mx-auto" style={{ color: '#C9A84C' }} />
+        <Loader2 size={24} className="animate-spin mx-auto" style={{ color: '#c88c00' }} />
         <p className="text-sm mt-2" style={{ color: '#8a8078' }}>Loading wizard...</p>
       </div>
     }>
@@ -733,7 +733,7 @@ function PlanSection({
   return (
     <div
       className="rounded-lg overflow-hidden"
-      style={{ background: '#1a1a1a', border: '1px solid rgba(205,162,116,0.1)' }}
+      style={{ background: '#ffffff', border: '1px solid rgba(200,140,0,0.1)' }}
     >
       <button
         onClick={onToggle}
@@ -748,7 +748,7 @@ function PlanSection({
         <span className="text-xs font-semibold" style={{ color }}>{title}</span>
       </button>
       {expanded && (
-        <div className="px-4 pb-3" style={{ borderTop: '1px solid rgba(205,162,116,0.06)' }}>
+        <div className="px-4 pb-3" style={{ borderTop: '1px solid rgba(200,140,0,0.06)' }}>
           {children}
         </div>
       )}

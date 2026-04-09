@@ -120,7 +120,7 @@ function SummaryCards({ report }: { report: AgentReport }) {
   const stalled = (report.projects || []).filter(p => p.status === 'stalled' || p.status === 'blocked').length;
 
   const cards = [
-    { label: 'Projects', value: report.projectCount, color: '#C9A84C', icon: BarChart3 },
+    { label: 'Projects', value: report.projectCount, color: '#c88c00', icon: BarChart3 },
     { label: 'On Track', value: onTrack, color: '#22c55e', icon: CheckCircle2 },
     { label: 'At Risk', value: atRisk, color: '#eab308', icon: AlertTriangle },
     { label: 'Stalled', value: stalled, color: '#f97316', icon: Clock },
@@ -135,7 +135,7 @@ function SummaryCards({ report }: { report: AgentReport }) {
           <div
             key={c.label}
             className="rounded-lg p-3"
-            style={{ background: '#1a1a1a', border: '1px solid rgba(205,162,116,0.1)' }}
+            style={{ background: '#ffffff', border: '1px solid rgba(200,140,0,0.1)' }}
           >
             <div className="flex items-center gap-2 mb-1">
               <Icon size={14} style={{ color: c.color }} />
@@ -159,9 +159,9 @@ function TopPriorities({ priorities }: { priorities: string[] }) {
   return (
     <div
       className="rounded-lg p-4"
-      style={{ background: '#1a1a1a', border: '1px solid rgba(205,162,116,0.1)' }}
+      style={{ background: '#ffffff', border: '1px solid rgba(200,140,0,0.1)' }}
     >
-      <h3 className="text-sm font-semibold mb-3 flex items-center gap-2" style={{ color: '#C9A84C' }}>
+      <h3 className="text-sm font-semibold mb-3 flex items-center gap-2" style={{ color: '#c88c00' }}>
         <Zap size={14} />
         Agent Top Priorities
       </h3>
@@ -170,7 +170,7 @@ function TopPriorities({ priorities }: { priorities: string[] }) {
           <div key={i} className="flex gap-3 text-sm">
             <span
               className="flex-shrink-0 w-5 h-5 rounded-full flex items-center justify-center text-xs font-bold"
-              style={{ background: 'rgba(201,168,76,0.2)', color: '#C9A84C' }}
+              style={{ background: 'rgba(201,168,76,0.2)', color: '#c88c00' }}
             >
               {i + 1}
             </span>
@@ -251,7 +251,7 @@ function EmailDraftSection({
           style={{
             background: 'rgba(0,0,0,0.3)',
             color: '#d4ccc4',
-            border: '1px solid rgba(205,162,116,0.06)',
+            border: '1px solid rgba(200,140,0,0.06)',
           }}
         >
           {email.body}
@@ -280,7 +280,7 @@ function ProjectCard({
   return (
     <div
       className="rounded-lg overflow-hidden"
-      style={{ background: '#1a1a1a', border: `1px solid ${config.color}30` }}
+      style={{ background: '#ffffff', border: `1px solid ${config.color}30` }}
     >
       <button
         onClick={() => setExpanded(!expanded)}
@@ -299,7 +299,7 @@ function ProjectCard({
             <Link
               href={`/dashboard/precon/${project.jobId}`}
               className="font-semibold hover:underline"
-              style={{ color: '#e8e0d8' }}
+              style={{ color: '#1a1a1a' }}
               onClick={(e) => e.stopPropagation()}
             >
               {project.jobName}
@@ -325,7 +325,7 @@ function ProjectCard({
               <CalendarDays size={11} />
               {project.nextMeeting || 'None scheduled'}
             </span>
-            <span className="flex items-center gap-1" style={{ color: '#C9A84C' }}>
+            <span className="flex items-center gap-1" style={{ color: '#c88c00' }}>
               <Users size={11} />
               {project.nextStepAssignee}
             </span>
@@ -346,17 +346,17 @@ function ProjectCard({
         className="px-4 py-2 text-sm flex items-start gap-2"
         style={{
           background: 'rgba(201,168,76,0.06)',
-          borderTop: '1px solid rgba(205,162,116,0.08)',
+          borderTop: '1px solid rgba(200,140,0,0.08)',
         }}
       >
-        <span className="text-xs font-semibold flex-shrink-0 mt-0.5" style={{ color: '#C9A84C' }}>
+        <span className="text-xs font-semibold flex-shrink-0 mt-0.5" style={{ color: '#c88c00' }}>
           NEXT →
         </span>
         <span style={{ color: '#d4ccc4' }}>{project.nextStep}</span>
       </div>
 
       {expanded && (
-        <div className="px-4 py-3 space-y-3" style={{ borderTop: '1px solid rgba(205,162,116,0.08)' }}>
+        <div className="px-4 py-3 space-y-3" style={{ borderTop: '1px solid rgba(200,140,0,0.08)' }}>
           {project.alerts.length > 0 && (
             <div>
               <h4 className="text-xs font-semibold mb-1.5" style={{ color: '#ef4444' }}>
@@ -374,7 +374,7 @@ function ProjectCard({
           )}
           {project.recommendations.length > 0 && (
             <div>
-              <h4 className="text-xs font-semibold mb-1.5" style={{ color: '#C9A84C' }}>
+              <h4 className="text-xs font-semibold mb-1.5" style={{ color: '#c88c00' }}>
                 Agent Recommendations
               </h4>
               <div className="space-y-2">
@@ -386,7 +386,7 @@ function ProjectCard({
                       className="rounded-md p-2.5"
                       style={{
                         background: 'rgba(26,26,26,0.8)',
-                        border: '1px solid rgba(205,162,116,0.08)',
+                        border: '1px solid rgba(200,140,0,0.08)',
                       }}
                     >
                       <div className="flex items-center gap-2 mb-1">
@@ -396,12 +396,12 @@ function ProjectCard({
                         >
                           {rec.priority}
                         </span>
-                        <span className="text-xs font-semibold" style={{ color: '#e8e0d8' }}>
+                        <span className="text-xs font-semibold" style={{ color: '#1a1a1a' }}>
                           {rec.action}
                         </span>
                         <span
                           className="text-[10px] px-1.5 py-0.5 rounded ml-auto"
-                          style={{ background: 'rgba(201,168,76,0.1)', color: '#C9A84C' }}
+                          style={{ background: 'rgba(201,168,76,0.1)', color: '#c88c00' }}
                         >
                           {rec.actionType}
                         </span>
@@ -410,7 +410,7 @@ function ProjectCard({
                         {rec.description}
                       </p>
                       {/* Ignore / Done buttons */}
-                      <div className="flex items-center gap-2 mt-2 pt-1.5" style={{ borderTop: '1px solid rgba(205,162,116,0.06)' }}>
+                      <div className="flex items-center gap-2 mt-2 pt-1.5" style={{ borderTop: '1px solid rgba(200,140,0,0.06)' }}>
                         <button
                           onClick={(e) => {
                             e.stopPropagation();
@@ -469,7 +469,7 @@ function ProjectCard({
             <EmailDraftSection
               title="Weekly Client Update"
               icon={FileText}
-              iconColor="#C9A84C"
+              iconColor="#c88c00"
               email={project.weeklyUpdateEmail}
               onCopy={() =>
                 onCopyEmail(project.weeklyUpdateEmail!.subject, project.weeklyUpdateEmail!.body)
@@ -504,9 +504,9 @@ function ScheduleCompliancePanel({
     return (
       <div
         className="rounded-lg p-4 flex items-center gap-3"
-        style={{ background: '#1a1a1a', border: '1px solid rgba(205,162,116,0.1)' }}
+        style={{ background: '#ffffff', border: '1px solid rgba(200,140,0,0.1)' }}
       >
-        <Loader2 size={16} className="animate-spin" style={{ color: '#C9A84C' }} />
+        <Loader2 size={16} className="animate-spin" style={{ color: '#c88c00' }} />
         <span className="text-sm" style={{ color: '#8a8078' }}>Loading schedule compliance...</span>
       </div>
     );
@@ -522,7 +522,7 @@ function ScheduleCompliancePanel({
   return (
     <div
       className="rounded-lg overflow-hidden"
-      style={{ background: '#1a1a1a', border: '1px solid rgba(205,162,116,0.1)' }}
+      style={{ background: '#ffffff', border: '1px solid rgba(200,140,0,0.1)' }}
     >
       <button
         onClick={() => setExpanded(!expanded)}
@@ -534,8 +534,8 @@ function ScheduleCompliancePanel({
           ) : (
             <ChevronRight size={16} style={{ color: '#8a8078' }} />
           )}
-          <Shield size={14} style={{ color: '#C9A84C' }} />
-          <h3 className="text-sm font-semibold" style={{ color: '#C9A84C' }}>
+          <Shield size={14} style={{ color: '#c88c00' }} />
+          <h3 className="text-sm font-semibold" style={{ color: '#c88c00' }}>
             Schedule Compliance
           </h3>
           {allCompliant && (
@@ -547,15 +547,15 @@ function ScheduleCompliancePanel({
       </button>
 
       {expanded && (
-        <div className="px-4 py-3 space-y-3" style={{ borderTop: '1px solid rgba(205,162,116,0.08)' }}>
+        <div className="px-4 py-3 space-y-3" style={{ borderTop: '1px solid rgba(200,140,0,0.08)' }}>
           {/* Summary stats */}
           <div className="grid grid-cols-3 gap-2">
             <div
               className="rounded p-2 text-center"
-              style={{ background: 'rgba(26,26,26,0.6)', border: '1px solid rgba(205,162,116,0.1)' }}
+              style={{ background: 'rgba(26,26,26,0.6)', border: '1px solid rgba(200,140,0,0.1)' }}
             >
               <div className="text-xs" style={{ color: '#8a8078' }}>Scanned</div>
-              <div className="text-lg font-bold" style={{ color: '#C9A84C' }}>
+              <div className="text-lg font-bold" style={{ color: '#c88c00' }}>
                 {totalScanned}
               </div>
             </div>
@@ -653,7 +653,7 @@ function ScheduleCompliancePanel({
             className="w-full flex items-center justify-center gap-2 px-3 py-2 rounded text-xs font-medium hover:opacity-80 transition-opacity"
             style={{
               background: 'rgba(201,168,76,0.1)',
-              color: '#C9A84C',
+              color: '#c88c00',
               border: '1px solid rgba(201,168,76,0.2)',
             }}
           >
@@ -899,7 +899,7 @@ export default function PreConDashboard() {
         <div>
           <h1
             className="text-2xl font-bold"
-            style={{ fontFamily: 'Georgia, serif', color: '#C9A84C' }}
+            style={{ fontFamily: 'Georgia, serif', color: '#c88c00' }}
           >
             Design Manager Agent
           </h1>
@@ -909,7 +909,7 @@ export default function PreConDashboard() {
               <span>
                 {' '}· Last run: {formatTimestamp(report.generatedAt)}
                 {report._fromCache && (
-                  <span style={{ color: '#C9A84C' }}> (cached)</span>
+                  <span style={{ color: '#c88c00' }}> (cached)</span>
                 )}
               </span>
             )}
@@ -922,7 +922,7 @@ export default function PreConDashboard() {
             className="flex items-center gap-2 px-3 py-2 rounded-lg text-xs font-medium hover:opacity-90 transition-opacity"
             style={{
               background: 'rgba(201,168,76,0.08)',
-              color: '#C9A84C',
+              color: '#c88c00',
               border: '1px solid rgba(201,168,76,0.2)',
             }}
           >
@@ -952,7 +952,7 @@ export default function PreConDashboard() {
             className="flex items-center gap-2 px-3 py-2 rounded-lg text-xs font-medium hover:opacity-90 transition-opacity disabled:opacity-50"
             style={{
               background: 'rgba(201,168,76,0.15)',
-              color: '#C9A84C',
+              color: '#c88c00',
               border: '1px solid rgba(201,168,76,0.3)',
             }}
           >
@@ -972,11 +972,11 @@ export default function PreConDashboard() {
           />
       {loading ? (
         <div className="flex flex-col items-center justify-center py-16 gap-3">
-          <Loader2 size={28} className="animate-spin" style={{ color: '#C9A84C' }} />
+          <Loader2 size={28} className="animate-spin" style={{ color: '#c88c00' }} />
           <p className="text-sm" style={{ color: '#8a8078' }}>Loading dashboard...</p>
         </div>
       ) : error && !report ? (
-        <div className="p-6 rounded-xl text-center" style={{ background: '#242424' }}>
+        <div className="p-6 rounded-xl text-center" style={{ background: '#f8f6f3' }}>
           <p className="text-sm" style={{ color: '#ef4444' }}>Agent error: {error}</p>
           <p className="text-xs mt-1" style={{ color: '#8a8078' }}>
             No cached data available. Click &quot;Run Agent Now&quot; to generate a fresh report.
@@ -984,7 +984,7 @@ export default function PreConDashboard() {
           <button
             onClick={handleRefresh}
             className="text-xs mt-2 underline"
-            style={{ color: '#C9A84C' }}
+            style={{ color: '#c88c00' }}
           >
             Run Agent Now
           </button>
@@ -995,7 +995,7 @@ export default function PreConDashboard() {
 
           <div
             className="rounded-lg p-4"
-            style={{ background: '#1a1a1a', border: '1px solid rgba(205,162,116,0.1)' }}
+            style={{ background: '#ffffff', border: '1px solid rgba(200,140,0,0.1)' }}
           >
             <p className="text-sm leading-relaxed" style={{ color: '#d4ccc4' }}>
               {report.summary}
@@ -1018,15 +1018,15 @@ export default function PreConDashboard() {
               placeholder="Search projects by name, number, or client..."
               className="w-full rounded-lg pl-9 pr-9 py-2.5 text-sm outline-none placeholder:text-[#5a5550]"
               style={{
-                background: '#1a1a1a',
-                border: '1px solid rgba(205,162,116,0.15)',
-                color: '#e8e0d8',
+                background: '#ffffff',
+                border: '1px solid rgba(200,140,0,0.15)',
+                color: '#1a1a1a',
               }}
               onFocus={(e) => {
                 e.currentTarget.style.borderColor = 'rgba(201,168,76,0.4)';
               }}
               onBlur={(e) => {
-                e.currentTarget.style.borderColor = 'rgba(205,162,116,0.15)';
+                e.currentTarget.style.borderColor = 'rgba(200,140,0,0.15)';
               }}
             />
             {searchQuery && (
@@ -1055,7 +1055,7 @@ export default function PreConDashboard() {
               <button
                 onClick={() => setInDesignOpen(!inDesignOpen)}
                 className="w-full text-left text-sm font-semibold mb-3 flex items-center gap-2 hover:opacity-80 transition-opacity"
-                style={{ color: '#C9A84C' }}
+                style={{ color: '#c88c00' }}
               >
                 {inDesignOpen ? <ChevronDown size={14} /> : <ChevronRight size={14} />}
                 <Clock size={14} />
@@ -1119,13 +1119,13 @@ export default function PreConDashboard() {
         <div
           className="fixed bottom-4 right-4 rounded-lg px-4 py-3 flex items-center gap-3 shadow-lg"
           style={{
-            background: '#1a1a1a',
+            background: '#ffffff',
             border: '1px solid rgba(201,168,76,0.3)',
             zIndex: 50,
           }}
         >
-          <Loader2 size={16} className="animate-spin" style={{ color: '#C9A84C' }} />
-          <span className="text-sm" style={{ color: '#C9A84C' }}>
+          <Loader2 size={16} className="animate-spin" style={{ color: '#c88c00' }} />
+          <span className="text-sm" style={{ color: '#c88c00' }}>
             Agent is analyzing projects... this may take 30-60 seconds
           </span>
         </div>
@@ -1136,7 +1136,7 @@ export default function PreConDashboard() {
         <div
           className="fixed bottom-4 left-1/2 -translate-x-1/2 rounded-lg px-4 py-2.5 shadow-lg flex items-center gap-2 animate-in fade-in slide-in-from-bottom-2"
           style={{
-            background: '#2a2a2a',
+            background: '#f0eeeb',
             border: '1px solid rgba(201,168,76,0.3)',
             zIndex: 60,
           }}

@@ -87,7 +87,7 @@ export default function DashboardChat({ userId }: { userId: string }) {
       <button
         onClick={() => setIsOpen(true)}
         className="fixed bottom-4 right-4 md:bottom-6 md:right-6 z-50 flex items-center gap-2 px-4 py-3 rounded-full shadow-lg transition-all hover:scale-105 active:scale-95"
-        style={{ background: '#CDA274', color: '#1a1a1a' }}
+        style={{ background: '#c88c00', color: '#ffffff' }}
       >
         <MessageSquare size={18} />
         <span className="text-sm font-semibold hidden md:inline">Ask Assistant</span>
@@ -102,8 +102,8 @@ export default function DashboardChat({ userId }: { userId: string }) {
       style={{
         height: '100dvh',
         maxHeight: '100dvh',
-        background: '#1a1a1a',
-        border: '1px solid rgba(205,162,116,0.15)',
+        background: '#ffffff',
+        border: '1px solid rgba(200,140,0,0.15)',
       }}
     >
       {/* Adjust height for md screens */}
@@ -112,11 +112,11 @@ export default function DashboardChat({ userId }: { userId: string }) {
         {/* Header */}
         <div
           className="flex items-center justify-between px-4 py-3 flex-shrink-0"
-          style={{ background: '#242424', borderBottom: '1px solid rgba(205,162,116,0.12)' }}
+          style={{ background: '#f8f6f3', borderBottom: '1px solid rgba(200,140,0,0.12)' }}
         >
           <div className="flex items-center gap-2">
-            <MessageSquare size={16} style={{ color: '#CDA274' }} />
-            <span className="text-sm font-semibold" style={{ color: '#e8e0d8' }}>Dashboard Assistant</span>
+            <MessageSquare size={16} style={{ color: '#c88c00' }} />
+            <span className="text-sm font-semibold" style={{ color: '#1a1a1a' }}>Dashboard Assistant</span>
           </div>
           <button
             onClick={() => setIsOpen(false)}
@@ -130,7 +130,7 @@ export default function DashboardChat({ userId }: { userId: string }) {
         <div className="flex-1 overflow-y-auto px-4 py-3 space-y-3" style={{ minHeight: 0 }}>
           {messages.length === 0 && (
             <div className="text-center py-8">
-              <MessageSquare size={24} className="mx-auto mb-3" style={{ color: '#CDA274', opacity: 0.5 }} />
+              <MessageSquare size={24} className="mx-auto mb-3" style={{ color: '#c88c00', opacity: 0.5 }} />
               <p className="text-sm" style={{ color: '#8a8078' }}>Ask me anything about your projects, emails, schedule, or tasks.</p>
               <div className="mt-4 space-y-2">
                 {[
@@ -143,7 +143,7 @@ export default function DashboardChat({ userId }: { userId: string }) {
                     key={i}
                     onClick={() => sendDirect(suggestion)}
                     className="block w-full text-left text-xs px-3 py-2 rounded-lg hover:bg-white/[0.05] active:bg-white/[0.08]"
-                    style={{ color: '#a09890', border: '1px solid rgba(205,162,116,0.08)' }}
+                    style={{ color: '#a09890', border: '1px solid rgba(200,140,0,0.08)' }}
                   >
                     {suggestion}
                   </button>
@@ -161,8 +161,8 @@ export default function DashboardChat({ userId }: { userId: string }) {
                 className="max-w-[85%] px-3 py-2 rounded-xl text-sm whitespace-pre-wrap"
                 style={
                   msg.role === 'user'
-                    ? { background: '#CDA274', color: '#1a1a1a' }
-                    : { background: '#242424', color: '#e8e0d8', border: '1px solid rgba(205,162,116,0.08)' }
+                    ? { background: '#c88c00', color: '#ffffff' }
+                    : { background: '#f8f6f3', color: '#1a1a1a', border: '1px solid rgba(200,140,0,0.08)' }
                 }
               >
                 {msg.content}
@@ -172,8 +172,8 @@ export default function DashboardChat({ userId }: { userId: string }) {
 
           {loading && (
             <div className="flex justify-start">
-              <div className="px-3 py-2 rounded-xl" style={{ background: '#242424' }}>
-                <Loader2 size={14} className="animate-spin" style={{ color: '#CDA274' }} />
+              <div className="px-3 py-2 rounded-xl" style={{ background: '#f8f6f3' }}>
+                <Loader2 size={14} className="animate-spin" style={{ color: '#c88c00' }} />
               </div>
             </div>
           )}
@@ -183,7 +183,7 @@ export default function DashboardChat({ userId }: { userId: string }) {
         {/* Input */}
         <div
           className="flex items-center gap-2 px-3 py-3 flex-shrink-0"
-          style={{ background: '#242424', borderTop: '1px solid rgba(205,162,116,0.12)' }}
+          style={{ background: '#f8f6f3', borderTop: '1px solid rgba(200,140,0,0.12)' }}
         >
           <input
             ref={inputRef}
@@ -193,14 +193,14 @@ export default function DashboardChat({ userId }: { userId: string }) {
             onKeyDown={e => e.key === 'Enter' && sendMessage()}
             placeholder="Ask about projects, emails, schedule..."
             className="flex-1 px-3 py-2.5 rounded-lg text-sm outline-none"
-            style={{ background: '#1a1a1a', border: '1px solid rgba(205,162,116,0.12)', color: '#e8e0d8' }}
+            style={{ background: '#ffffff', border: '1px solid rgba(200,140,0,0.12)', color: '#1a1a1a' }}
             disabled={loading}
           />
           <button
             onClick={sendMessage}
             disabled={!input.trim() || loading}
             className="p-2.5 rounded-lg disabled:opacity-30 hover:bg-white/10 active:bg-white/20"
-            style={{ color: '#CDA274' }}
+            style={{ color: '#c88c00' }}
           >
             <Send size={16} />
           </button>

@@ -225,25 +225,25 @@ export default function AskAgentPanel({
           ${isOpen ? 'translate-x-0' : 'translate-x-full'}
         `}
         style={{
-          background: '#1a1a1a',
-          borderLeft: '1px solid rgba(205,162,116,0.15)',
+          background: '#ffffff',
+          borderLeft: '1px solid rgba(200,140,0,0.15)',
           boxShadow: isOpen ? '-4px 0 24px rgba(0,0,0,0.4)' : 'none',
         }}
       >
         {/* Header */}
         <div
           className="flex items-center justify-between px-4 py-3 flex-shrink-0"
-          style={{ background: '#242424', borderBottom: '1px solid rgba(205,162,116,0.12)' }}
+          style={{ background: '#f8f6f3', borderBottom: '1px solid rgba(200,140,0,0.12)' }}
         >
           <div className="flex items-center gap-2">
-            <Bot size={18} style={{ color: '#CDA274' }} />
-            <span className="text-sm font-semibold" style={{ color: '#e8e0d8' }}>
+            <Bot size={18} style={{ color: '#c88c00' }} />
+            <span className="text-sm font-semibold" style={{ color: '#1a1a1a' }}>
               Ask Agent
             </span>
             {lastAgent && (
               <span
                 className="text-xs px-2 py-0.5 rounded-full"
-                style={{ background: 'rgba(205,162,116,0.1)', color: '#CDA274' }}
+                style={{ background: 'rgba(200,140,0,0.1)', color: '#c88c00' }}
               >
                 {lastAgent}
               </span>
@@ -272,14 +272,14 @@ export default function AskAgentPanel({
         {!isFieldStaff && (
         <div
           className="px-4 py-2 flex-shrink-0 flex gap-2"
-          style={{ borderBottom: '1px solid rgba(205,162,116,0.08)' }}
+          style={{ borderBottom: '1px solid rgba(200,140,0,0.08)' }}
         >
           <button
             onClick={() => switchAgent('know-it-all')}
             className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium transition-all flex-1 justify-center"
             style={agentMode === 'know-it-all'
-              ? { background: 'rgba(201,168,76,0.15)', color: '#C9A84C', border: '1px solid rgba(201,168,76,0.4)' }
-              : { background: '#242424', color: '#8a8078', border: '1px solid rgba(205,162,116,0.12)' }
+              ? { background: 'rgba(201,168,76,0.15)', color: '#c88c00', border: '1px solid rgba(201,168,76,0.4)' }
+              : { background: '#f8f6f3', color: '#8a8078', border: '1px solid rgba(200,140,0,0.12)' }
             }
           >
             <Brain size={13} /> Know-it-All
@@ -288,8 +288,8 @@ export default function AskAgentPanel({
             onClick={() => switchAgent('project-details')}
             className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium transition-all flex-1 justify-center"
             style={agentMode === 'project-details'
-              ? { background: 'rgba(201,168,76,0.15)', color: '#C9A84C', border: '1px solid rgba(201,168,76,0.4)' }
-              : { background: '#242424', color: '#8a8078', border: '1px solid rgba(205,162,116,0.12)' }
+              ? { background: 'rgba(201,168,76,0.15)', color: '#c88c00', border: '1px solid rgba(201,168,76,0.4)' }
+              : { background: '#f8f6f3', color: '#8a8078', border: '1px solid rgba(200,140,0,0.12)' }
             }
           >
             <FileSearch size={13} /> Approved Specs
@@ -300,7 +300,7 @@ export default function AskAgentPanel({
         {/* Job selector */}
         <div
           className="px-4 py-2 flex-shrink-0 job-dropdown-container"
-          style={{ borderBottom: '1px solid rgba(205,162,116,0.08)' }}
+          style={{ borderBottom: '1px solid rgba(200,140,0,0.08)' }}
         >
           <div className="relative">
             <button
@@ -310,9 +310,9 @@ export default function AskAgentPanel({
               }}
               className="w-full flex items-center justify-between px-3 py-2 rounded-lg text-sm"
               style={{
-                background: '#141414',
-                border: '1px solid rgba(205,162,116,0.12)',
-                color: selectedJob ? '#e8e0d8' : '#8a8078',
+                background: '#ffffff',
+                border: '1px solid rgba(200,140,0,0.12)',
+                color: selectedJob ? '#1a1a1a' : '#8a8078',
               }}
             >
               <span className="truncate">
@@ -327,13 +327,13 @@ export default function AskAgentPanel({
               <div
                 className="absolute top-full left-0 right-0 mt-1 rounded-lg overflow-hidden shadow-xl z-10"
                 style={{
-                  background: '#242424',
-                  border: '1px solid rgba(205,162,116,0.15)',
+                  background: '#f8f6f3',
+                  border: '1px solid rgba(200,140,0,0.15)',
                   maxHeight: '240px',
                 }}
               >
-                <div className="p-2" style={{ borderBottom: '1px solid rgba(205,162,116,0.08)' }}>
-                  <div className="flex items-center gap-2 px-2 py-1.5 rounded-lg" style={{ background: '#1a1a1a' }}>
+                <div className="p-2" style={{ borderBottom: '1px solid rgba(200,140,0,0.08)' }}>
+                  <div className="flex items-center gap-2 px-2 py-1.5 rounded-lg" style={{ background: '#ffffff' }}>
                     <Search size={12} style={{ color: '#8a8078' }} />
                     <input
                       ref={jobSearchRef}
@@ -342,7 +342,7 @@ export default function AskAgentPanel({
                       onChange={(e) => setJobSearch(e.target.value)}
                       placeholder="Search jobs..."
                       className="flex-1 bg-transparent text-sm outline-none"
-                      style={{ color: '#e8e0d8' }}
+                      style={{ color: '#1a1a1a' }}
                     />
                   </div>
                 </div>
@@ -353,8 +353,8 @@ export default function AskAgentPanel({
                       setJobDropdownOpen(false);
                       setJobSearch('');
                     }}
-                    className="w-full text-left px-3 py-2 text-sm hover:bg-white/5"
-                    style={{ color: !selectedJob ? '#CDA274' : '#8a8078' }}
+                    className="w-full text-left px-3 py-2 text-sm hover:bg-black/5"
+                    style={{ color: !selectedJob ? '#c88c00' : '#8a8078' }}
                   >
                     All projects
                   </button>
@@ -366,9 +366,9 @@ export default function AskAgentPanel({
                         setJobDropdownOpen(false);
                         setJobSearch('');
                       }}
-                      className="w-full text-left px-3 py-2 text-sm hover:bg-white/5 truncate"
+                      className="w-full text-left px-3 py-2 text-sm hover:bg-black/5 truncate"
                       style={{
-                        color: selectedJob?.id === j.id ? '#CDA274' : '#e8e0d8',
+                        color: selectedJob?.id === j.id ? '#c88c00' : '#1a1a1a',
                       }}
                     >
                       {j.name}{' '}
@@ -386,10 +386,10 @@ export default function AskAgentPanel({
           {messages.length === 0 && (
             <div className="text-center py-8">
               {agentMode === 'know-it-all'
-                ? <Brain size={28} className="mx-auto mb-3" style={{ color: '#CDA274', opacity: 0.4 }} />
-                : <FileSearch size={28} className="mx-auto mb-3" style={{ color: '#CDA274', opacity: 0.4 }} />
+                ? <Brain size={28} className="mx-auto mb-3" style={{ color: '#c88c00', opacity: 0.4 }} />
+                : <FileSearch size={28} className="mx-auto mb-3" style={{ color: '#c88c00', opacity: 0.4 }} />
               }
-              <p className="text-sm mb-1" style={{ color: '#e8e0d8' }}>
+              <p className="text-sm mb-1" style={{ color: '#1a1a1a' }}>
                 {agentMode === 'know-it-all' ? 'Ask me anything' : 'Approved Specs Only'}
               </p>
               <p className="text-xs mb-4" style={{ color: '#8a8078' }}>
@@ -405,7 +405,7 @@ export default function AskAgentPanel({
                     className="block w-full text-left text-xs px-3 py-2 rounded-lg hover:bg-white/[0.05]"
                     style={{
                       color: '#a09890',
-                      border: '1px solid rgba(205,162,116,0.08)',
+                      border: '1px solid rgba(200,140,0,0.08)',
                     }}
                   >
                     {s}
@@ -425,11 +425,11 @@ export default function AskAgentPanel({
                   className="px-3 py-2 rounded-xl text-sm"
                   style={
                     msg.role === 'user'
-                      ? { background: '#CDA274', color: '#1a1a1a' }
+                      ? { background: '#c88c00', color: '#ffffff' }
                       : {
-                          background: '#242424',
-                          color: '#e8e0d8',
-                          border: '1px solid rgba(205,162,116,0.08)',
+                          background: '#f8f6f3',
+                          color: '#1a1a1a',
+                          border: '1px solid rgba(200,140,0,0.08)',
                         }
                   }
                 >
@@ -450,12 +450,12 @@ export default function AskAgentPanel({
             <div className="flex justify-start">
               <div
                 className="px-3 py-2 rounded-xl flex items-center gap-2"
-                style={{ background: '#242424' }}
+                style={{ background: '#f8f6f3' }}
               >
                 <Loader2
                   size={14}
                   className="animate-spin"
-                  style={{ color: '#CDA274' }}
+                  style={{ color: '#c88c00' }}
                 />
                 <span className="text-xs" style={{ color: '#8a8078' }}>
                   {agentMode === 'project-details' ? 'Reading approved specs...' : 'Thinking...'}
@@ -470,15 +470,15 @@ export default function AskAgentPanel({
         <div
           className="px-3 py-3 flex-shrink-0"
           style={{
-            background: '#242424',
-            borderTop: '1px solid rgba(205,162,116,0.12)',
+            background: '#f8f6f3',
+            borderTop: '1px solid rgba(200,140,0,0.12)',
           }}
         >
           <div
             className="flex items-end gap-2 rounded-lg px-3 py-2"
             style={{
-              background: '#1a1a1a',
-              border: '1px solid rgba(205,162,116,0.12)',
+              background: '#ffffff',
+              border: '1px solid rgba(200,140,0,0.12)',
             }}
           >
             <textarea
@@ -492,7 +492,7 @@ export default function AskAgentPanel({
               rows={1}
               className="flex-1 bg-transparent text-sm outline-none resize-none"
               style={{
-                color: '#e8e0d8',
+                color: '#1a1a1a',
                 maxHeight: '120px',
               }}
               disabled={loading}
@@ -501,7 +501,7 @@ export default function AskAgentPanel({
               onClick={() => sendMessage()}
               disabled={!input.trim() || loading}
               className="p-1.5 rounded-lg disabled:opacity-30 hover:bg-white/10"
-              style={{ color: '#CDA274' }}
+              style={{ color: '#c88c00' }}
             >
               <Send size={16} />
             </button>

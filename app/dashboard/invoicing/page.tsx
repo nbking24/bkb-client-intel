@@ -170,8 +170,8 @@ const HEALTH_COLORS: Record<InvoicingHealth, { bg: string; text: string; dot: st
 };
 
 const CARD_STYLE = {
-  background: '#242424',
-  border: '1px solid rgba(205,162,116,0.08)',
+  background: '#f8f6f3',
+  border: '1px solid rgba(200,140,0,0.08)',
   borderRadius: '12px',
 };
 
@@ -260,13 +260,13 @@ function SectionHeader({
       onClick={onToggle}
       className="w-full flex items-center gap-3 py-3 px-1 text-left hover:opacity-80 transition-opacity"
     >
-      <Icon size={18} style={{ color: '#CDA274' }} />
-      <span className="text-base font-semibold" style={{ color: '#e8e0d8' }}>
+      <Icon size={18} style={{ color: '#c88c00' }} />
+      <span className="text-base font-semibold" style={{ color: '#1a1a1a' }}>
         {title}
       </span>
       <span
         className="px-2 py-0.5 rounded-full text-xs font-medium"
-        style={{ background: 'rgba(205,162,116,0.1)', color: '#CDA274' }}
+        style={{ background: 'rgba(200,140,0,0.1)', color: '#c88c00' }}
       >
         {count}
       </span>
@@ -336,7 +336,7 @@ function CreateTaskRow({ jobId, draft }: { jobId: string; draft: DraftInvoiceInf
         <button
           onClick={handleCreate}
           className="flex items-center gap-0.5 px-1.5 py-0.5 rounded text-[10px] font-medium ml-auto flex-shrink-0 transition-colors"
-          style={{ background: '#3b3028', color: '#e8e0d8', border: '1px solid #4a3f35' }}
+          style={{ background: '#3b3028', color: '#1a1a1a', border: '1px solid #4a3f35' }}
           onMouseEnter={(e) => { e.currentTarget.style.background = '#4a3f35'; }}
           onMouseLeave={(e) => { e.currentTarget.style.background = '#3b3028'; }}
         >
@@ -377,7 +377,7 @@ function InvoiceDetails({ drafts, released }: { drafts: DraftInvoiceInfo[]; rele
       <button
         onClick={() => setExpanded(!expanded)}
         className="flex items-center gap-1 text-[11px] hover:opacity-80 transition-opacity"
-        style={{ color: '#CDA274' }}
+        style={{ color: '#c88c00' }}
       >
         {expanded ? <ChevronDown size={10} /> : <Plus size={10} />}
         <FileText size={10} />
@@ -388,7 +388,7 @@ function InvoiceDetails({ drafts, released }: { drafts: DraftInvoiceInfo[]; rele
           {hasDrafts && drafts.map((d) => (
             <div key={d.documentId} className="text-[11px] flex justify-between" style={{ color: '#8a8078' }}>
               <span className="truncate mr-2">
-                <span className="inline-block w-[38px] text-[10px] rounded px-1 mr-1" style={{ background: '#3a322b', color: '#CDA274' }}>Draft</span>
+                <span className="inline-block w-[38px] text-[10px] rounded px-1 mr-1" style={{ background: '#3a322b', color: '#c88c00' }}>Draft</span>
                 {d.documentSubject || d.documentName}
               </span>
               <span className="flex-shrink-0">{formatCurrency(d.amount)}</span>
@@ -459,7 +459,7 @@ function ContractJobCard({ job, onInvoiceCreated, arHeld, arToggling, onToggleAr
     <div className="px-3 py-2.5 rounded-lg" style={CARD_STYLE}>
       {/* Header row: name + badge + key stats inline */}
       <div className="flex items-center gap-2 mb-1.5">
-        <span className="text-sm font-semibold truncate flex-1 min-w-0" style={{ color: '#e8e0d8' }}>
+        <span className="text-sm font-semibold truncate flex-1 min-w-0" style={{ color: '#1a1a1a' }}>
           {job.jobName}
         </span>
         <HealthBadge health={job.health} />
@@ -477,12 +477,12 @@ function ContractJobCard({ job, onInvoiceCreated, arHeld, arToggling, onToggleAr
       </div>
 
       {/* Compact progress bar — invoiced % of contract */}
-      <div className="h-1.5 rounded-full overflow-hidden mb-2" style={{ background: '#1a1a1a' }}>
+      <div className="h-1.5 rounded-full overflow-hidden mb-2" style={{ background: '#ffffff' }}>
         <div
           className="h-full rounded-full"
           style={{
             width: `${Math.min(100, Math.round(job.invoicedPercent))}%`,
-            background: 'linear-gradient(90deg, #CDA274, #C9A84C)',
+            background: 'linear-gradient(90deg, #c88c00, #c88c00)',
           }}
         />
       </div>
@@ -491,7 +491,7 @@ function ContractJobCard({ job, onInvoiceCreated, arHeld, arToggling, onToggleAr
       {(job.appliedCOsCount ?? 0) > 0 && (
         <div className="text-[11px] mb-1" style={{ color: '#8a8078' }}>
           <span>Contract: </span>
-          <span style={{ color: '#e8e0d8' }}>{formatCurrency(job.totalContractValue)}</span>
+          <span style={{ color: '#1a1a1a' }}>{formatCurrency(job.totalContractValue)}</span>
           <span style={{ margin: '0 4px' }}>+</span>
           <span>Approved COs: </span>
           <span style={{ color: '#22c55e' }}>{formatCurrency(job.approvedCOValue ?? 0)}</span>
@@ -510,12 +510,12 @@ function ContractJobCard({ job, onInvoiceCreated, arHeld, arToggling, onToggleAr
       {/* Inline stats row */}
       <div className="flex items-center gap-3 text-[11px] mb-1.5">
         <span style={{ color: '#8a8078' }}>
-          Billable: <span style={{ color: job.uninvoicedBillableAmount > 200 ? '#f97316' : '#e8e0d8' }}>
+          Billable: <span style={{ color: job.uninvoicedBillableAmount > 200 ? '#f97316' : '#1a1a1a' }}>
             {formatCurrency(job.uninvoicedBillableAmount ?? 0)}
           </span>
         </span>
         <span style={{ color: '#8a8078' }}>
-          Labor: <span style={{ color: job.unbilledLaborHours > 1 ? '#f97316' : '#e8e0d8' }}>
+          Labor: <span style={{ color: job.unbilledLaborHours > 1 ? '#f97316' : '#1a1a1a' }}>
             {job.unbilledLaborHours ?? 0}h
           </span>
         </span>
@@ -567,7 +567,7 @@ function ContractJobCard({ job, onInvoiceCreated, arHeld, arToggling, onToggleAr
               style={{
                 background: arHeld ? 'rgba(239,68,68,0.08)' : 'rgba(34,197,94,0.06)',
                 color: arHeld ? '#f87171' : '#6a6058',
-                border: `1px solid ${arHeld ? 'rgba(239,68,68,0.15)' : 'rgba(205,162,116,0.1)'}`,
+                border: `1px solid ${arHeld ? 'rgba(239,68,68,0.15)' : 'rgba(200,140,0,0.1)'}`,
                 cursor: arToggling ? 'wait' : 'pointer',
                 opacity: arToggling ? 0.5 : 1,
               }}
@@ -602,7 +602,7 @@ function ContractJobCard({ job, onInvoiceCreated, arHeld, arToggling, onToggleAr
 
       {/* Create Billable Draft Invoice Button — only for jobs with uninvoiced CC23 items or hours */}
       {hasBillableWork && (
-        <div className="mt-2 pt-2" style={{ borderTop: '1px solid rgba(205,162,116,0.08)' }}>
+        <div className="mt-2 pt-2" style={{ borderTop: '1px solid rgba(200,140,0,0.08)' }}>
           {billableResult ? (
             <div
               className="flex items-center gap-2 text-xs py-1.5 px-2 rounded-lg"
@@ -620,12 +620,12 @@ function ContractJobCard({ job, onInvoiceCreated, arHeld, arToggling, onToggleAr
               disabled={creatingBillable}
               className="flex items-center gap-2 text-xs font-medium py-1.5 px-3 rounded-lg transition-colors w-full justify-center"
               style={{
-                background: creatingBillable ? 'rgba(205,162,116,0.08)' : 'rgba(205,162,116,0.15)',
-                color: '#CDA274',
+                background: creatingBillable ? 'rgba(200,140,0,0.08)' : 'rgba(200,140,0,0.15)',
+                color: '#c88c00',
                 cursor: creatingBillable ? 'wait' : 'pointer',
               }}
-              onMouseEnter={(e) => !creatingBillable && (e.currentTarget.style.background = 'rgba(205,162,116,0.25)')}
-              onMouseLeave={(e) => !creatingBillable && (e.currentTarget.style.background = 'rgba(205,162,116,0.15)')}
+              onMouseEnter={(e) => !creatingBillable && (e.currentTarget.style.background = 'rgba(200,140,0,0.25)')}
+              onMouseLeave={(e) => !creatingBillable && (e.currentTarget.style.background = 'rgba(200,140,0,0.15)')}
             >
               {creatingBillable ? (
                 <>
@@ -708,7 +708,7 @@ function CostPlusJobCard({ job, onInvoiceCreated, arHeld, arToggling, onToggleAr
     <div className="px-3 py-2.5 rounded-lg" style={CARD_STYLE}>
       {/* Header row */}
       <div className="flex items-center gap-2 mb-1.5">
-        <span className="text-sm font-semibold truncate flex-1 min-w-0" style={{ color: '#e8e0d8' }}>
+        <span className="text-sm font-semibold truncate flex-1 min-w-0" style={{ color: '#1a1a1a' }}>
           {job.jobName}
         </span>
         <HealthBadge health={job.health} />
@@ -726,7 +726,7 @@ function CostPlusJobCard({ job, onInvoiceCreated, arHeld, arToggling, onToggleAr
       </div>
 
       {/* Compact cadence bar */}
-      <div className="h-1.5 rounded-full overflow-hidden mb-2" style={{ background: '#1a1a1a' }}>
+      <div className="h-1.5 rounded-full overflow-hidden mb-2" style={{ background: '#ffffff' }}>
         <div
           className="h-full rounded-full"
           style={{
@@ -739,13 +739,13 @@ function CostPlusJobCard({ job, onInvoiceCreated, arHeld, arToggling, onToggleAr
       {/* Inline stats */}
       <div className="flex items-center gap-3 text-[11px] mb-1">
         <span style={{ color: '#8a8078' }}>
-          Unbilled: <span style={{ color: job.unbilledAmount > 0 ? '#eab308' : '#e8e0d8' }}>{formatCurrency(job.unbilledAmount)}</span>
+          Unbilled: <span style={{ color: job.unbilledAmount > 0 ? '#eab308' : '#1a1a1a' }}>{formatCurrency(job.unbilledAmount)}</span>
         </span>
         <span style={{ color: '#8a8078' }}>
-          Hours: <span style={{ color: job.unbilledHours > 0 ? '#eab308' : '#e8e0d8' }}>{job.unbilledHours}h</span>
+          Hours: <span style={{ color: job.unbilledHours > 0 ? '#eab308' : '#1a1a1a' }}>{job.unbilledHours}h</span>
         </span>
         <span style={{ color: '#8a8078' }}>
-          Billed: <span style={{ color: '#e8e0d8' }}>{formatCurrency(job.totalInvoiced)}</span>
+          Billed: <span style={{ color: '#1a1a1a' }}>{formatCurrency(job.totalInvoiced)}</span>
         </span>
       </div>
 
@@ -765,7 +765,7 @@ function CostPlusJobCard({ job, onInvoiceCreated, arHeld, arToggling, onToggleAr
           style={{
             background: arHeld ? 'rgba(239,68,68,0.08)' : 'rgba(34,197,94,0.06)',
             color: arHeld ? '#f87171' : '#6a6058',
-            border: `1px solid ${arHeld ? 'rgba(239,68,68,0.15)' : 'rgba(205,162,116,0.1)'}`,
+            border: `1px solid ${arHeld ? 'rgba(239,68,68,0.15)' : 'rgba(200,140,0,0.1)'}`,
             cursor: arToggling ? 'wait' : 'pointer',
             opacity: arToggling ? 0.5 : 1,
           }}
@@ -784,7 +784,7 @@ function CostPlusJobCard({ job, onInvoiceCreated, arHeld, arToggling, onToggleAr
 
       {/* Create Draft Invoice Button — only for jobs with unbilled work */}
       {hasUnbilledWork && (
-        <div className="mt-2 pt-2" style={{ borderTop: '1px solid rgba(205,162,116,0.08)' }}>
+        <div className="mt-2 pt-2" style={{ borderTop: '1px solid rgba(200,140,0,0.08)' }}>
           {createResult ? (
             <div
               className="flex items-center gap-2 text-xs py-1.5 px-2 rounded-lg"
@@ -802,12 +802,12 @@ function CostPlusJobCard({ job, onInvoiceCreated, arHeld, arToggling, onToggleAr
               disabled={creating}
               className="flex items-center gap-2 text-xs font-medium py-1.5 px-3 rounded-lg transition-colors w-full justify-center"
               style={{
-                background: creating ? 'rgba(205,162,116,0.08)' : 'rgba(205,162,116,0.15)',
-                color: '#CDA274',
+                background: creating ? 'rgba(200,140,0,0.08)' : 'rgba(200,140,0,0.15)',
+                color: '#c88c00',
                 cursor: creating ? 'wait' : 'pointer',
               }}
-              onMouseEnter={(e) => !creating && (e.currentTarget.style.background = 'rgba(205,162,116,0.25)')}
-              onMouseLeave={(e) => !creating && (e.currentTarget.style.background = 'rgba(205,162,116,0.15)')}
+              onMouseEnter={(e) => !creating && (e.currentTarget.style.background = 'rgba(200,140,0,0.25)')}
+              onMouseLeave={(e) => !creating && (e.currentTarget.style.background = 'rgba(200,140,0,0.15)')}
             >
               {creating ? (
                 <>
@@ -845,7 +845,7 @@ function BillableItemsCard({ summary }: { summary: BillableItemsSummary }) {
       >
         <div className="flex-1 min-w-0">
           <div className="flex items-center gap-2">
-            <span className="text-sm font-semibold truncate" style={{ color: '#e8e0d8' }}>
+            <span className="text-sm font-semibold truncate" style={{ color: '#1a1a1a' }}>
               {summary.jobName}
             </span>
             <span
@@ -866,10 +866,10 @@ function BillableItemsCard({ summary }: { summary: BillableItemsSummary }) {
         <div className="mt-3 space-y-2">
           {summary.uninvoicedItems.length > 0 && (
             <div>
-              <div className="text-xs font-medium mb-1" style={{ color: '#CDA274' }}>Uninvoiced Items</div>
+              <div className="text-xs font-medium mb-1" style={{ color: '#c88c00' }}>Uninvoiced Items</div>
               {summary.uninvoicedItems.map((item) => (
-                <div key={item.costItemId} className="flex justify-between text-xs py-1" style={{ borderBottom: '1px solid rgba(205,162,116,0.06)' }}>
-                  <span style={{ color: '#e8e0d8' }}>{item.name}</span>
+                <div key={item.costItemId} className="flex justify-between text-xs py-1" style={{ borderBottom: '1px solid rgba(200,140,0,0.06)' }}>
+                  <span style={{ color: '#1a1a1a' }}>{item.name}</span>
                   <span style={{ color: '#eab308' }}>{formatCurrency(item.totalPrice)}</span>
                 </div>
               ))}
@@ -877,10 +877,10 @@ function BillableItemsCard({ summary }: { summary: BillableItemsSummary }) {
           )}
           {summary.uninvoicedHours.length > 0 && (
             <div>
-              <div className="text-xs font-medium mb-1" style={{ color: '#CDA274' }}>Uninvoiced Hours</div>
+              <div className="text-xs font-medium mb-1" style={{ color: '#c88c00' }}>Uninvoiced Hours</div>
               {summary.uninvoicedHours.map((entry) => (
-                <div key={entry.timeEntryId} className="flex justify-between text-xs py-1" style={{ borderBottom: '1px solid rgba(205,162,116,0.06)' }}>
-                  <span style={{ color: '#e8e0d8' }}>{entry.userName} — {entry.hours}h</span>
+                <div key={entry.timeEntryId} className="flex justify-between text-xs py-1" style={{ borderBottom: '1px solid rgba(200,140,0,0.06)' }}>
+                  <span style={{ color: '#1a1a1a' }}>{entry.userName} — {entry.hours}h</span>
                   <span style={{ color: '#8a8078' }}>{entry.date}</span>
                 </div>
               ))}
@@ -944,10 +944,10 @@ function AgentSection({ report }: { report: InvoicingReport }) {
       {report.agentSummary && (
         <div className="p-4 rounded-xl" style={{ ...CARD_STYLE, border: '1px solid rgba(201,168,76,0.2)' }}>
           <div className="flex items-center gap-2 mb-2">
-            <TrendingUp size={16} style={{ color: '#C9A84C' }} />
-            <span className="text-sm font-semibold" style={{ color: '#C9A84C' }}>Agent Summary</span>
+            <TrendingUp size={16} style={{ color: '#c88c00' }} />
+            <span className="text-sm font-semibold" style={{ color: '#c88c00' }}>Agent Summary</span>
           </div>
-          <p className="text-sm" style={{ color: '#e8e0d8', lineHeight: 1.6 }}>
+          <p className="text-sm" style={{ color: '#1a1a1a', lineHeight: 1.6 }}>
             {report.agentSummary}
           </p>
         </div>
@@ -967,7 +967,7 @@ function AgentSection({ report }: { report: InvoicingReport }) {
                 >
                   {i + 1}
                 </span>
-                <span className="text-sm font-medium" style={{ color: '#e8e0d8' }}>{rec.action}</span>
+                <span className="text-sm font-medium" style={{ color: '#1a1a1a' }}>{rec.action}</span>
               </div>
               <p className="text-xs ml-7" style={{ color: '#8a8078' }}>{rec.description}</p>
             </div>
@@ -1148,7 +1148,7 @@ export default function InvoicingDashboard() {
           <button
             onClick={() => fetchReport()}
             className="mt-3 px-4 py-2 rounded-lg text-sm"
-            style={{ background: 'rgba(205,162,116,0.1)', color: '#CDA274' }}
+            style={{ background: 'rgba(200,140,0,0.1)', color: '#c88c00' }}
           >
             Retry
           </button>
@@ -1166,7 +1166,7 @@ export default function InvoicingDashboard() {
       {/* Header */}
       <div className="flex items-center justify-between">
         <div>
-          <h1 className="text-xl font-bold" style={{ color: '#e8e0d8' }}>
+          <h1 className="text-xl font-bold" style={{ color: '#1a1a1a' }}>
             Invoicing Health
           </h1>
           <p className="text-xs mt-1" style={{ color: '#8a8078' }}>
@@ -1180,8 +1180,8 @@ export default function InvoicingDashboard() {
         <button
           onClick={() => fetchReport(true)}
           disabled={refreshing}
-          className="flex items-center gap-2 px-3 py-2 rounded-lg text-sm transition-colors hover:bg-white/5"
-          style={{ border: '1px solid rgba(205,162,116,0.2)', color: '#CDA274' }}
+          className="flex items-center gap-2 px-3 py-2 rounded-lg text-sm transition-colors hover:bg-black/5"
+          style={{ border: '1px solid rgba(200,140,0,0.2)', color: '#c88c00' }}
         >
           <RefreshCw size={14} className={refreshing ? 'animate-spin' : ''} />
           {refreshing ? 'Running fresh analysis...' : 'Refresh'}
@@ -1195,7 +1195,7 @@ export default function InvoicingDashboard() {
           label="Open Jobs"
           value={summary.totalOpenJobs}
           subtext={`${summary.contractJobs} contract, ${summary.costPlusJobs} cost-plus`}
-          color="#CDA274"
+          color="#c88c00"
         />
         <StatCard
           icon={AlertTriangle}
@@ -1292,7 +1292,7 @@ export default function InvoicingDashboard() {
         return (
           <div
             className="rounded-lg overflow-hidden"
-            style={{ background: '#242424', border: '1px solid rgba(234,179,8,0.15)' }}
+            style={{ background: '#f8f6f3', border: '1px solid rgba(234,179,8,0.15)' }}
           >
             {/* Clickable header */}
             <button
@@ -1312,7 +1312,7 @@ export default function InvoicingDashboard() {
                 </span>
               </div>
               <div className="flex items-center gap-3">
-                <span className="text-lg font-bold" style={{ color: '#e8e0d8' }}>
+                <span className="text-lg font-bold" style={{ color: '#1a1a1a' }}>
                   {formatCurrency(totalOwed)}
                 </span>
                 {openInvoicesExpanded
@@ -1323,7 +1323,7 @@ export default function InvoicingDashboard() {
             </button>
 
             {/* Aging breakdown bar + AR reminders strip */}
-            <div className="px-4 pb-2 pt-1" style={{ borderTop: '1px solid rgba(205,162,116,0.06)' }}>
+            <div className="px-4 pb-2 pt-1" style={{ borderTop: '1px solid rgba(200,140,0,0.06)' }}>
               {/* Aging buckets */}
               <div className="flex items-center gap-3 text-[10px]">
                 <div className="flex items-center gap-1">
@@ -1349,7 +1349,7 @@ export default function InvoicingDashboard() {
               </div>
               {/* Aging bar visualization */}
               {totalOwed > 0 && (
-                <div className="flex h-[4px] rounded-full overflow-hidden mt-1.5 mb-1" style={{ background: '#1a1a1a' }}>
+                <div className="flex h-[4px] rounded-full overflow-hidden mt-1.5 mb-1" style={{ background: '#ffffff' }}>
                   {aging.current.amount > 0 && (
                     <div style={{ width: `${(aging.current.amount / totalOwed) * 100}%`, background: '#22c55e' }} />
                   )}
@@ -1387,7 +1387,7 @@ export default function InvoicingDashboard() {
 
             {/* Expanded invoice list */}
             {openInvoicesExpanded && (
-              <div className="px-4 pb-3" style={{ borderTop: '1px solid rgba(205,162,116,0.06)' }}>
+              <div className="px-4 pb-3" style={{ borderTop: '1px solid rgba(200,140,0,0.06)' }}>
                 {/* Column headers */}
                 <div className="flex items-center gap-2 py-2 text-[10px] font-medium" style={{ color: '#6a6058' }}>
                   <span className="w-[60px]">Invoice</span>
@@ -1406,16 +1406,16 @@ export default function InvoicingDashboard() {
                     <div
                       key={inv.documentId}
                       className="flex items-center gap-2 py-1.5"
-                      style={{ borderBottom: '1px solid rgba(205,162,116,0.04)' }}
+                      style={{ borderBottom: '1px solid rgba(200,140,0,0.04)' }}
                     >
                       {/* Invoice # */}
-                      <span className="w-[60px] text-[11px] font-mono" style={{ color: '#CDA274' }}>
+                      <span className="w-[60px] text-[11px] font-mono" style={{ color: '#c88c00' }}>
                         #{inv.documentNumber}
                       </span>
 
                       {/* Job + Client */}
                       <div className="flex-1 min-w-0">
-                        <p className="text-[11px] truncate" style={{ color: '#e8e0d8', margin: 0 }}>
+                        <p className="text-[11px] truncate" style={{ color: '#1a1a1a', margin: 0 }}>
                           {inv.jobName}
                         </p>
                         <p className="text-[9px] truncate" style={{ color: '#6a6058', margin: 0 }}>
@@ -1424,7 +1424,7 @@ export default function InvoicingDashboard() {
                       </div>
 
                       {/* Amount */}
-                      <span className="w-[80px] text-right text-[12px] font-semibold" style={{ color: '#e8e0d8' }}>
+                      <span className="w-[80px] text-right text-[12px] font-semibold" style={{ color: '#1a1a1a' }}>
                         {formatCurrency(inv.amount)}
                       </span>
 
@@ -1463,7 +1463,7 @@ export default function InvoicingDashboard() {
                 })}
 
                 {/* Footer totals */}
-                <div className="flex items-center justify-between pt-2 mt-1" style={{ borderTop: '1px solid rgba(205,162,116,0.08)' }}>
+                <div className="flex items-center justify-between pt-2 mt-1" style={{ borderTop: '1px solid rgba(200,140,0,0.08)' }}>
                   <span className="text-[10px]" style={{ color: '#6a6058' }}>
                     {allPending.filter(inv => inv.daysPending > 30).length} invoices over 30 days
                   </span>
@@ -1490,9 +1490,9 @@ export default function InvoicingDashboard() {
           onChange={(e) => setSearchQuery(e.target.value)}
           className="w-full pl-9 pr-8 py-2 rounded-lg text-sm outline-none"
           style={{
-            background: '#1a1a1a',
-            border: '1px solid rgba(205,162,116,0.15)',
-            color: '#e8e0d8',
+            background: '#ffffff',
+            border: '1px solid rgba(200,140,0,0.15)',
+            color: '#1a1a1a',
           }}
         />
         {searchQuery && (

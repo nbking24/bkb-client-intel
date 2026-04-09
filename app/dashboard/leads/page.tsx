@@ -93,7 +93,7 @@ const STAGE_COLORS: Record<string, string> = {
   'Discovery Scheduled': '#60a5fa',
   'No Show': '#ef4444',
   'Nurture': '#a78bfa',
-  'Estimating': '#CDA274',
+  'Estimating': '#c88c00',
   'In Design': '#4ade80',
   'Ready': '#34d399',
   'In Production': '#2dd4bf',
@@ -116,7 +116,7 @@ function StyledSelect({ value, onChange, options, placeholder }: {
       <select
         value={value} onChange={(e) => onChange(e.target.value)}
         className="w-full appearance-none rounded-lg px-3 py-2.5 text-sm outline-none cursor-pointer"
-        style={{ background: '#141414', border: '1px solid rgba(205,162,116,0.15)', color: value ? '#e8e0d8' : '#6a6058' }}
+        style={{ background: '#ffffff', border: '1px solid rgba(200,140,0,0.15)', color: value ? '#1a1a1a' : '#6a6058' }}
       >
         <option value="">{placeholder}</option>
         {options.map((o) => <option key={o} value={o}>{o}</option>)}
@@ -134,7 +134,7 @@ function StyledInput({ value, onChange, placeholder, type = 'text', required = f
     <input
       type={type} value={value} onChange={(e) => onChange(e.target.value)} placeholder={placeholder}
       className="w-full rounded-lg px-3 py-2.5 text-sm outline-none"
-      style={{ background: '#141414', border: `1px solid ${required && !value ? 'rgba(220,80,80,0.4)' : 'rgba(205,162,116,0.15)'}`, color: '#e8e0d8' }}
+      style={{ background: '#ffffff', border: `1px solid ${required && !value ? 'rgba(220,80,80,0.4)' : 'rgba(200,140,0,0.15)'}`, color: '#1a1a1a' }}
     />
   );
 }
@@ -147,13 +147,13 @@ function SectionHeader({ number, title, icon: Icon, complete }: {
     <div className="flex items-center gap-3 mb-3">
       <div
         className="w-7 h-7 rounded-full flex items-center justify-center flex-shrink-0 transition-all"
-        style={{ background: complete ? '#CDA274' : 'rgba(205,162,116,0.12)', color: complete ? '#1a1a1a' : '#8a8078' }}
+        style={{ background: complete ? '#c88c00' : 'rgba(200,140,0,0.12)', color: complete ? '#ffffff' : '#8a8078' }}
       >
         {complete ? <Check size={14} strokeWidth={3} /> : <span className="text-xs font-bold">{number}</span>}
       </div>
       <div className="flex items-center gap-2">
-        <Icon size={16} style={{ color: complete ? '#CDA274' : '#8a8078' }} />
-        <span className="text-sm font-semibold" style={{ color: complete ? '#CDA274' : '#e8e0d8' }}>{title}</span>
+        <Icon size={16} style={{ color: complete ? '#c88c00' : '#8a8078' }} />
+        <span className="text-sm font-semibold" style={{ color: complete ? '#c88c00' : '#1a1a1a' }}>{title}</span>
       </div>
     </div>
   );
@@ -171,13 +171,13 @@ function KpiCard({ label, value, icon: Icon, accent, sub, change, prior }: {
   const changeArrow = isPositive ? '↑' : (change ?? 0) < 0 ? '↓' : '→';
 
   return (
-    <div className="rounded-lg p-4" style={{ background: '#242424', border: '1px solid rgba(205,162,116,0.08)' }}>
+    <div className="rounded-lg p-4" style={{ background: '#f8f6f3', border: '1px solid rgba(200,140,0,0.08)' }}>
       <div className="flex items-center gap-2 mb-2">
         <Icon size={14} style={{ color: accent || '#8a8078' }} />
         <span className="text-xs uppercase tracking-wider" style={{ color: '#8a8078' }}>{label}</span>
       </div>
       <div className="flex items-end gap-2">
-        <div className="text-2xl font-bold" style={{ color: accent || '#e8e0d8' }}>{value}</div>
+        <div className="text-2xl font-bold" style={{ color: accent || '#1a1a1a' }}>{value}</div>
         {showChange && (
           <span className="text-xs font-semibold mb-1 px-1.5 py-0.5 rounded" style={{
             background: isNeutral ? 'rgba(138,128,120,0.1)' : isPositive ? 'rgba(74,222,128,0.1)' : 'rgba(248,113,113,0.1)',
@@ -198,21 +198,21 @@ function KpiCard({ label, value, icon: Icon, accent, sub, change, prior }: {
 /* ── Funnel Bar Chart ── */
 function FunnelChart({ data }: { data: { label: string; value: number }[] }) {
   const max = Math.max(...data.map(d => d.value), 1);
-  const colors = ['#8a8078', '#60a5fa', '#a78bfa', '#CDA274', '#4ade80'];
+  const colors = ['#8a8078', '#60a5fa', '#a78bfa', '#c88c00', '#4ade80'];
   return (
     <div className="space-y-2.5">
       {data.map((d, i) => (
         <div key={d.label}>
           <div className="flex items-center justify-between mb-1">
-            <span className="text-xs" style={{ color: '#e8e0d8' }}>{d.label}</span>
-            <span className="text-xs font-bold" style={{ color: colors[i] || '#CDA274' }}>{d.value}</span>
+            <span className="text-xs" style={{ color: '#1a1a1a' }}>{d.label}</span>
+            <span className="text-xs font-bold" style={{ color: colors[i] || '#c88c00' }}>{d.value}</span>
           </div>
-          <div className="h-5 rounded-md overflow-hidden" style={{ background: 'rgba(205,162,116,0.06)' }}>
+          <div className="h-5 rounded-md overflow-hidden" style={{ background: 'rgba(200,140,0,0.06)' }}>
             <div
               className="h-full rounded-md transition-all duration-700"
               style={{
                 width: `${Math.max((d.value / max) * 100, 2)}%`,
-                background: `linear-gradient(90deg, ${colors[i] || '#CDA274'}, ${colors[i] || '#CDA274'}88)`,
+                background: `linear-gradient(90deg, ${colors[i] || '#c88c00'}, ${colors[i] || '#c88c00'}88)`,
               }}
             />
           </div>
@@ -276,7 +276,7 @@ function SourceChart({ data }: { data: SourceItem[] }) {
     'Google': '#4285F4', 'Referral': '#4ade80', 'Website': '#60a5fa',
     'Social Media': '#a78bfa', 'Sign/Vehicle': '#fbbf24', 'Repeat Client': '#34d399',
     'Magazine/News': '#f472b6', 'Houzz': '#2dd4bf', 'Drive-By': '#fb923c',
-    'In-Person': '#CDA274', 'Bucks Beautiful / Garden Tour': '#c084fc',
+    'In-Person': '#c88c00', 'Bucks Beautiful / Garden Tour': '#c084fc',
     'NARI': '#22d3ee', 'ChatBot': '#818cf8', 'Other': '#8a8078', 'Unknown': '#4a4540',
   };
   const shown = data.filter(d => d.source !== 'Unknown').slice(0, 8);
@@ -290,10 +290,10 @@ function SourceChart({ data }: { data: SourceItem[] }) {
         return (
           <div key={d.source}>
             <div className="flex items-center justify-between mb-0.5">
-              <span className="text-xs" style={{ color: '#e8e0d8' }}>{d.source}</span>
+              <span className="text-xs" style={{ color: '#1a1a1a' }}>{d.source}</span>
               <span className="text-xs font-bold" style={{ color }}>{d.count} <span style={{ color: '#6a6058', fontWeight: 'normal' }}>({pct}%)</span></span>
             </div>
-            <div className="h-4 rounded-md overflow-hidden" style={{ background: 'rgba(205,162,116,0.06)' }}>
+            <div className="h-4 rounded-md overflow-hidden" style={{ background: 'rgba(200,140,0,0.06)' }}>
               <div
                 className="h-full rounded-md transition-all duration-700"
                 style={{ width: `${Math.max(pct, 3)}%`, background: `linear-gradient(90deg, ${color}, ${color}88)` }}
@@ -453,7 +453,7 @@ export default function LeadsPage() {
       {/* Page Header */}
       <div className="flex items-center justify-between mb-6">
         <div>
-          <h1 className="text-xl font-semibold" style={{ color: '#CDA274', fontFamily: 'Georgia, serif' }}>
+          <h1 className="text-xl font-semibold" style={{ color: '#c88c00', fontFamily: 'Georgia, serif' }}>
             Leads
           </h1>
           <p className="text-sm mt-1" style={{ color: '#8a8078' }}>
@@ -464,7 +464,7 @@ export default function LeadsPage() {
           onClick={loadKpis}
           disabled={kpiLoading}
           className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs transition-all"
-          style={{ background: '#242424', border: '1px solid rgba(205,162,116,0.12)', color: '#8a8078' }}
+          style={{ background: '#f8f6f3', border: '1px solid rgba(200,140,0,0.12)', color: '#8a8078' }}
         >
           <RefreshCw size={12} className={kpiLoading ? 'animate-spin' : ''} />
           Refresh
@@ -514,7 +514,7 @@ export default function LeadsPage() {
               label="Conversion Rate"
               value={`${kpis.conversionRate12m}%`}
               icon={Target}
-              accent="#CDA274"
+              accent="#c88c00"
               change={kpis.conversionRateChange}
               prior={`${kpis.conversionRatePrior}%`}
               sub={`${kpis.totalPipeline} open in pipeline`}
@@ -524,30 +524,30 @@ export default function LeadsPage() {
           {/* Charts Row */}
           <div className="grid grid-cols-1 lg:grid-cols-3 gap-4 mb-6">
             {/* Funnel Chart */}
-            <div className="rounded-xl p-4" style={{ background: '#1a1a1a', border: '1px solid rgba(205,162,116,0.12)' }}>
+            <div className="rounded-xl p-4" style={{ background: '#ffffff', border: '1px solid rgba(200,140,0,0.12)' }}>
               <div className="flex items-center gap-2 mb-4">
-                <TrendingUp size={14} style={{ color: '#CDA274' }} />
-                <span className="text-sm font-semibold" style={{ color: '#e8e0d8' }}>Lead Funnel</span>
+                <TrendingUp size={14} style={{ color: '#c88c00' }} />
+                <span className="text-sm font-semibold" style={{ color: '#1a1a1a' }}>Lead Funnel</span>
                 <span className="text-xs ml-auto" style={{ color: '#6a6058' }}>Last 12 months</span>
               </div>
               <FunnelChart data={kpiData!.funnel} />
             </div>
 
             {/* Monthly Trend */}
-            <div className="rounded-xl p-4" style={{ background: '#1a1a1a', border: '1px solid rgba(205,162,116,0.12)' }}>
+            <div className="rounded-xl p-4" style={{ background: '#ffffff', border: '1px solid rgba(200,140,0,0.12)' }}>
               <div className="flex items-center gap-2 mb-4">
-                <BarChart3 size={14} style={{ color: '#CDA274' }} />
-                <span className="text-sm font-semibold" style={{ color: '#e8e0d8' }}>Monthly Trend</span>
+                <BarChart3 size={14} style={{ color: '#c88c00' }} />
+                <span className="text-sm font-semibold" style={{ color: '#1a1a1a' }}>Monthly Trend</span>
                 <span className="text-xs ml-auto" style={{ color: '#6a6058' }}>12 months</span>
               </div>
               <MonthlyTrendChart data={kpiData!.monthlyTrend} />
             </div>
 
             {/* Lead Source Breakdown */}
-            <div className="rounded-xl p-4" style={{ background: '#1a1a1a', border: '1px solid rgba(205,162,116,0.12)' }}>
+            <div className="rounded-xl p-4" style={{ background: '#ffffff', border: '1px solid rgba(200,140,0,0.12)' }}>
               <div className="flex items-center gap-2 mb-4">
-                <BarChart3 size={14} style={{ color: '#CDA274' }} />
-                <span className="text-sm font-semibold" style={{ color: '#e8e0d8' }}>Lead Sources</span>
+                <BarChart3 size={14} style={{ color: '#c88c00' }} />
+                <span className="text-sm font-semibold" style={{ color: '#1a1a1a' }}>Lead Sources</span>
                 <span className="text-xs ml-auto" style={{ color: '#6a6058' }}>12 months</span>
               </div>
               {kpiData!.sourceBreakdown && kpiData!.sourceBreakdown.length > 0 ? (
@@ -564,10 +564,10 @@ export default function LeadsPage() {
 
       {/* ═══ Pending New Leads ═══ */}
       {kpiData && kpiData.pendingNewLeads && kpiData.pendingNewLeads.length > 0 && (
-        <div className="rounded-xl overflow-hidden mb-6" style={{ background: '#1a1a1a', border: '1px solid rgba(205,162,116,0.12)' }}>
-          <div className="flex items-center gap-2 px-5 py-3" style={{ background: '#242424', borderBottom: '1px solid rgba(205,162,116,0.08)' }}>
+        <div className="rounded-xl overflow-hidden mb-6" style={{ background: '#ffffff', border: '1px solid rgba(200,140,0,0.12)' }}>
+          <div className="flex items-center gap-2 px-5 py-3" style={{ background: '#f8f6f3', borderBottom: '1px solid rgba(200,140,0,0.08)' }}>
             <AlertTriangle size={14} style={{ color: '#f59e0b' }} />
-            <span className="text-sm font-semibold" style={{ color: '#e8e0d8' }}>Pending New Leads</span>
+            <span className="text-sm font-semibold" style={{ color: '#1a1a1a' }}>Pending New Leads</span>
             <span className="text-xs px-2 py-0.5 rounded-full ml-1" style={{ background: 'rgba(245,158,11,0.15)', color: '#f59e0b' }}>
               {kpiData.pendingNewLeads.length} awaiting contact
             </span>
@@ -575,13 +575,13 @@ export default function LeadsPage() {
               Needs discovery call scheduled
             </span>
           </div>
-          <div className="divide-y" style={{ borderColor: 'rgba(205,162,116,0.06)' }}>
+          <div className="divide-y" style={{ borderColor: 'rgba(200,140,0,0.06)' }}>
             {kpiData.pendingNewLeads.map((lead) => (
               <div key={lead.id} className="px-5 py-3 flex items-start gap-4">
                 {/* Lead Info */}
                 <div className="flex-1 min-w-0">
                   <div className="flex items-center gap-2 mb-1">
-                    <span className="text-sm font-semibold" style={{ color: '#e8e0d8' }}>
+                    <span className="text-sm font-semibold" style={{ color: '#1a1a1a' }}>
                       {lead.contactName || lead.name}
                     </span>
                     {lead.daysPending > 3 && (
@@ -593,7 +593,7 @@ export default function LeadsPage() {
                       </span>
                     )}
                     {lead.source && (
-                      <span className="text-[10px] px-1.5 py-0.5 rounded" style={{ background: 'rgba(205,162,116,0.1)', color: '#8a8078' }}>
+                      <span className="text-[10px] px-1.5 py-0.5 rounded" style={{ background: 'rgba(200,140,0,0.1)', color: '#8a8078' }}>
                         {lead.source}
                       </span>
                     )}
@@ -614,7 +614,7 @@ export default function LeadsPage() {
                   {lead.tags && lead.tags.length > 0 && (
                     <div className="flex flex-wrap gap-1 mt-1.5">
                       {lead.tags.filter((t: string) => t !== 'Dashboard Lead').slice(0, 4).map((tag: string) => (
-                        <span key={tag} className="text-[10px] px-1.5 py-0.5 rounded" style={{ background: 'rgba(205,162,116,0.08)', color: '#6a6058' }}>
+                        <span key={tag} className="text-[10px] px-1.5 py-0.5 rounded" style={{ background: 'rgba(200,140,0,0.08)', color: '#6a6058' }}>
                           {tag}
                         </span>
                       ))}
@@ -639,7 +639,7 @@ export default function LeadsPage() {
                       <button
                         onClick={() => setSpamConfirm(null)}
                         className="px-2 py-1 rounded text-xs transition-all"
-                        style={{ background: '#242424', color: '#8a8078', border: '1px solid rgba(205,162,116,0.12)' }}
+                        style={{ background: '#f8f6f3', color: '#8a8078', border: '1px solid rgba(200,140,0,0.12)' }}
                       >
                         No
                       </button>
@@ -668,7 +668,7 @@ export default function LeadsPage() {
         <div className="lg:col-span-3">
           <div
             className="rounded-xl overflow-hidden"
-            style={{ background: '#1a1a1a', border: '1px solid rgba(205,162,116,0.12)' }}
+            style={{ background: '#ffffff', border: '1px solid rgba(200,140,0,0.12)' }}
           >
             {/* Form header — clickable toggle */}
             <button
@@ -677,14 +677,14 @@ export default function LeadsPage() {
                 if (!formExpanded) setTimeout(() => firstNameRef.current?.focus(), 200);
               }}
               className="w-full flex items-center gap-2 px-5 py-3 cursor-pointer"
-              style={{ background: '#242424', borderBottom: formExpanded ? '1px solid rgba(205,162,116,0.08)' : 'none' }}
+              style={{ background: '#f8f6f3', borderBottom: formExpanded ? '1px solid rgba(200,140,0,0.08)' : 'none' }}
             >
-              <UserPlus size={16} style={{ color: '#CDA274' }} />
-              <span className="text-sm font-semibold" style={{ color: '#e8e0d8' }}>New Lead</span>
+              <UserPlus size={16} style={{ color: '#c88c00' }} />
+              <span className="text-sm font-semibold" style={{ color: '#1a1a1a' }}>New Lead</span>
               {!submitted && formExpanded && (
                 <div className="flex gap-1.5 ml-auto mr-2">
                   {[section1Complete, section2Complete, section3Complete].map((done, i) => (
-                    <div key={i} className="w-2 h-2 rounded-full transition-all" style={{ background: done ? '#CDA274' : 'rgba(205,162,116,0.15)' }} />
+                    <div key={i} className="w-2 h-2 rounded-full transition-all" style={{ background: done ? '#c88c00' : 'rgba(200,140,0,0.15)' }} />
                   ))}
                 </div>
               )}
@@ -705,24 +705,24 @@ export default function LeadsPage() {
             <div className="px-5 py-5 space-y-5">
               {submitted && result ? (
                 <div className="text-center py-8">
-                  <CheckCircle2 size={48} className="mx-auto mb-4" style={{ color: '#CDA274' }} />
-                  <h3 className="text-lg font-semibold mb-2" style={{ color: '#e8e0d8' }}>Lead Created!</h3>
+                  <CheckCircle2 size={48} className="mx-auto mb-4" style={{ color: '#c88c00' }} />
+                  <h3 className="text-lg font-semibold mb-2" style={{ color: '#1a1a1a' }}>Lead Created!</h3>
                   <p className="text-sm mb-4" style={{ color: '#8a8078' }}>
                     {form.firstName} {form.lastName} has been added to the pipeline.
                   </p>
                   <div
                     className="rounded-lg px-4 py-3 text-left text-sm space-y-1.5 mb-6 mx-auto max-w-sm"
-                    style={{ background: '#242424', border: '1px solid rgba(205,162,116,0.12)' }}
+                    style={{ background: '#f8f6f3', border: '1px solid rgba(200,140,0,0.12)' }}
                   >
-                    <div style={{ color: '#8a8078' }}>Stage: <span style={{ color: '#CDA274' }}>{result.stage}</span></div>
+                    <div style={{ color: '#8a8078' }}>Stage: <span style={{ color: '#c88c00' }}>{result.stage}</span></div>
                     {result.appointmentId && (
-                      <div style={{ color: '#8a8078' }}>Appointment: <span style={{ color: '#e8e0d8' }}>{form.appointmentDate} at {formatTime(form.appointmentTime)}</span></div>
+                      <div style={{ color: '#8a8078' }}>Appointment: <span style={{ color: '#1a1a1a' }}>{form.appointmentDate} at {formatTime(form.appointmentTime)}</span></div>
                     )}
                     {result.jtJobCreated && (
                       <div style={{ color: '#8a8078' }}>JobTread: <span style={{ color: '#4ade80' }}>Job auto-created</span></div>
                     )}
                   </div>
-                  <button onClick={resetForm} className="px-6 py-2.5 rounded-lg text-sm font-medium" style={{ background: '#CDA274', color: '#1a1a1a' }}>
+                  <button onClick={resetForm} className="px-6 py-2.5 rounded-lg text-sm font-medium" style={{ background: '#c88c00', color: '#ffffff' }}>
                     Add Another Lead
                   </button>
                 </div>
@@ -737,7 +737,7 @@ export default function LeadsPage() {
                           <label className="text-xs mb-1 block" style={{ color: '#8a8078' }}>First Name <span style={{ color: '#ef4444' }}>*</span></label>
                           <input ref={firstNameRef} type="text" value={form.firstName} onChange={(e) => update('firstName', e.target.value)} placeholder="Jane"
                             className="w-full rounded-lg px-3 py-2.5 text-sm outline-none"
-                            style={{ background: '#141414', border: `1px solid ${!form.firstName && error ? 'rgba(220,80,80,0.4)' : 'rgba(205,162,116,0.15)'}`, color: '#e8e0d8' }}
+                            style={{ background: '#ffffff', border: `1px solid ${!form.firstName && error ? 'rgba(220,80,80,0.4)' : 'rgba(200,140,0,0.15)'}`, color: '#1a1a1a' }}
                           />
                         </div>
                         <div>
@@ -786,7 +786,7 @@ export default function LeadsPage() {
                         <textarea value={form.description} onChange={(e) => update('description', e.target.value)}
                           placeholder="What are they looking to do? Any details from the call..." rows={3}
                           className="w-full rounded-lg px-3 py-2.5 text-sm outline-none resize-none"
-                          style={{ background: '#141414', border: '1px solid rgba(205,162,116,0.15)', color: '#e8e0d8' }}
+                          style={{ background: '#ffffff', border: '1px solid rgba(200,140,0,0.15)', color: '#1a1a1a' }}
                         />
                       </div>
                     </div>
@@ -811,23 +811,23 @@ export default function LeadsPage() {
                               else if (!form.appointmentDate) { update('appointmentDate', defaultDate); }
                             }}
                               className="w-full flex items-center gap-3 px-3 py-3 rounded-lg text-left transition-all"
-                              style={{ background: selected ? 'rgba(205,162,116,0.1)' : '#242424', border: `1px solid ${selected ? 'rgba(205,162,116,0.4)' : 'rgba(205,162,116,0.08)'}` }}
+                              style={{ background: selected ? 'rgba(200,140,0,0.1)' : '#f8f6f3', border: `1px solid ${selected ? 'rgba(200,140,0,0.4)' : 'rgba(200,140,0,0.08)'}` }}
                             >
-                              <Icon size={16} style={{ color: selected ? '#CDA274' : '#6a6058' }} />
+                              <Icon size={16} style={{ color: selected ? '#c88c00' : '#6a6058' }} />
                               <div className="flex-1 min-w-0">
-                                <div className="text-sm font-medium" style={{ color: selected ? '#CDA274' : '#e8e0d8' }}>{opt.label}</div>
+                                <div className="text-sm font-medium" style={{ color: selected ? '#c88c00' : '#1a1a1a' }}>{opt.label}</div>
                                 <div className="text-xs" style={{ color: '#6a6058' }}>{opt.sublabel}</div>
                               </div>
-                              {selected && <Check size={16} style={{ color: '#CDA274' }} />}
+                              {selected && <Check size={16} style={{ color: '#c88c00' }} />}
                             </button>
                           );
                         })}
                       </div>
                       {form.nextStep !== 'none' && (
-                        <div className="rounded-lg p-3 space-y-3" style={{ background: '#242424', border: '1px solid rgba(205,162,116,0.08)' }}>
+                        <div className="rounded-lg p-3 space-y-3" style={{ background: '#f8f6f3', border: '1px solid rgba(200,140,0,0.08)' }}>
                           <div className="flex items-center gap-2 mb-2">
-                            <Clock size={14} style={{ color: '#CDA274' }} />
-                            <span className="text-xs font-medium" style={{ color: '#CDA274' }}>
+                            <Clock size={14} style={{ color: '#c88c00' }} />
+                            <span className="text-xs font-medium" style={{ color: '#c88c00' }}>
                               {form.nextStep === 'discovery_call' ? 'Discovery Call' : 'On-Site Visit'} — Nathan&apos;s Calendar
                             </span>
                           </div>
@@ -837,14 +837,14 @@ export default function LeadsPage() {
                               <input type="date" value={form.appointmentDate} onChange={(e) => update('appointmentDate', e.target.value)}
                                 min={new Date().toISOString().split('T')[0]}
                                 className="w-full rounded-lg px-3 py-2.5 text-sm outline-none"
-                                style={{ background: '#141414', border: '1px solid rgba(205,162,116,0.15)', color: '#e8e0d8', colorScheme: 'dark' }}
+                                style={{ background: '#ffffff', border: '1px solid rgba(200,140,0,0.15)', color: '#1a1a1a', colorScheme: 'dark' }}
                               />
                             </div>
                             <div>
                               <label className="text-xs mb-1 block" style={{ color: '#8a8078' }}>Time</label>
                               <select value={form.appointmentTime} onChange={(e) => update('appointmentTime', e.target.value)}
                                 className="w-full appearance-none rounded-lg px-3 py-2.5 text-sm outline-none cursor-pointer"
-                                style={{ background: '#141414', border: '1px solid rgba(205,162,116,0.15)', color: form.appointmentTime ? '#e8e0d8' : '#6a6058' }}
+                                style={{ background: '#ffffff', border: '1px solid rgba(200,140,0,0.15)', color: form.appointmentTime ? '#1a1a1a' : '#6a6058' }}
                               >
                                 <option value="">Select time...</option>
                                 {timeSlots.map((t) => <option key={t} value={t}>{formatTime(t)}</option>)}
@@ -865,7 +865,7 @@ export default function LeadsPage() {
                     )}
                     <button onClick={handleSubmit} disabled={submitting || !section1Complete}
                       className="w-full flex items-center justify-center gap-2 px-4 py-3 rounded-lg text-sm font-semibold transition-all disabled:opacity-40"
-                      style={{ background: section1Complete ? '#CDA274' : 'rgba(205,162,116,0.3)', color: '#1a1a1a' }}
+                      style={{ background: section1Complete ? '#c88c00' : 'rgba(200,140,0,0.3)', color: '#ffffff' }}
                     >
                       {submitting ? <><Loader2 size={16} className="animate-spin" /> Creating Lead...</> : <><UserPlus size={16} /> Create Lead{form.nextStep !== 'none' && ' & Schedule'}</>}
                     </button>
@@ -886,18 +886,18 @@ export default function LeadsPage() {
         <div className="lg:col-span-2 space-y-4">
 
           {/* Pipeline Breakdown */}
-          <div className="rounded-xl overflow-hidden" style={{ background: '#1a1a1a', border: '1px solid rgba(205,162,116,0.12)' }}>
-            <div className="flex items-center gap-2 px-4 py-3" style={{ background: '#242424', borderBottom: '1px solid rgba(205,162,116,0.08)' }}>
-              <BarChart3 size={14} style={{ color: '#CDA274' }} />
-              <span className="text-sm font-semibold" style={{ color: '#e8e0d8' }}>Sales Pipeline</span>
+          <div className="rounded-xl overflow-hidden" style={{ background: '#ffffff', border: '1px solid rgba(200,140,0,0.12)' }}>
+            <div className="flex items-center gap-2 px-4 py-3" style={{ background: '#f8f6f3', borderBottom: '1px solid rgba(200,140,0,0.08)' }}>
+              <BarChart3 size={14} style={{ color: '#c88c00' }} />
+              <span className="text-sm font-semibold" style={{ color: '#1a1a1a' }}>Sales Pipeline</span>
               {kpis && <span className="text-xs ml-auto" style={{ color: '#6a6058' }}>{kpis.totalPipeline} open</span>}
             </div>
             <div className="px-4 py-3 space-y-2.5">
               {kpiData ? kpiData.pipelineBreakdown.map((row) => (
                 <div key={row.stage} className="flex items-center gap-3">
                   <div className="w-2 h-2 rounded-full flex-shrink-0" style={{ background: STAGE_COLORS[row.stage] || '#8a8078' }} />
-                  <span className="text-sm flex-1" style={{ color: '#e8e0d8' }}>{row.stage}</span>
-                  <span className="text-sm font-bold" style={{ color: STAGE_COLORS[row.stage] || '#CDA274' }}>{row.count}</span>
+                  <span className="text-sm flex-1" style={{ color: '#1a1a1a' }}>{row.stage}</span>
+                  <span className="text-sm font-bold" style={{ color: STAGE_COLORS[row.stage] || '#c88c00' }}>{row.count}</span>
                 </div>
               )) : (
                 <div className="py-4 text-center text-xs" style={{ color: '#6a6058' }}>Loading...</div>
@@ -906,17 +906,17 @@ export default function LeadsPage() {
           </div>
 
           {/* Recent Leads */}
-          <div className="rounded-xl overflow-hidden" style={{ background: '#1a1a1a', border: '1px solid rgba(205,162,116,0.12)' }}>
-            <div className="flex items-center gap-2 px-4 py-3" style={{ background: '#242424', borderBottom: '1px solid rgba(205,162,116,0.08)' }}>
-              <Users size={14} style={{ color: '#CDA274' }} />
-              <span className="text-sm font-semibold" style={{ color: '#e8e0d8' }}>Recent Leads</span>
+          <div className="rounded-xl overflow-hidden" style={{ background: '#ffffff', border: '1px solid rgba(200,140,0,0.12)' }}>
+            <div className="flex items-center gap-2 px-4 py-3" style={{ background: '#f8f6f3', borderBottom: '1px solid rgba(200,140,0,0.08)' }}>
+              <Users size={14} style={{ color: '#c88c00' }} />
+              <span className="text-sm font-semibold" style={{ color: '#1a1a1a' }}>Recent Leads</span>
             </div>
-            <div className="divide-y" style={{ borderColor: 'rgba(205,162,116,0.06)' }}>
+            <div className="divide-y" style={{ borderColor: 'rgba(200,140,0,0.06)' }}>
               {kpiData && kpiData.recentLeads.length > 0 ? kpiData.recentLeads.slice(0, 8).map((lead) => (
                 <div key={lead.id} className="px-4 py-2.5 flex items-center gap-3">
                   <div className="w-1.5 h-1.5 rounded-full flex-shrink-0" style={{ background: STAGE_COLORS[lead.stage] || '#8a8078' }} />
                   <div className="flex-1 min-w-0">
-                    <div className="text-sm truncate" style={{ color: '#e8e0d8' }}>{lead.name}</div>
+                    <div className="text-sm truncate" style={{ color: '#1a1a1a' }}>{lead.name}</div>
                     <div className="text-xs" style={{ color: STAGE_COLORS[lead.stage] || '#6a6058' }}>{lead.stage}</div>
                   </div>
                   <div className="text-right flex-shrink-0">
@@ -928,7 +928,7 @@ export default function LeadsPage() {
                 </div>
               )) : (
                 <div className="px-4 py-8 text-center">
-                  <Users size={32} className="mx-auto mb-3" style={{ color: 'rgba(205,162,116,0.2)' }} />
+                  <Users size={32} className="mx-auto mb-3" style={{ color: 'rgba(200,140,0,0.2)' }} />
                   <p className="text-sm" style={{ color: '#8a8078' }}>No recent leads</p>
                 </div>
               )}

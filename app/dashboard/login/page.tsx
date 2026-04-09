@@ -146,17 +146,17 @@ export default function DashboardLoginPage() {
   };
 
   const inputStyle = {
-    background: '#242424',
-    border: '1px solid rgba(205,162,116,0.12)',
-    color: '#e8e0d8',
+    background: '#f8f6f3',
+    border: '1px solid rgba(200,140,0,0.12)',
+    color: '#1a1a1a',
   };
 
   // Step 1: Select User
   if (step === 'select-user') {
     return (
-      <div className="min-h-screen flex flex-col items-center justify-center p-4" style={{ background: '#141414' }}>
+      <div className="min-h-screen flex flex-col items-center justify-center p-4" style={{ background: '#ffffff' }}>
         <img src="https://www.brettkingbuilder.com/wp-content/uploads/2021/08/logowhite.png" alt="BKB" className="h-16 w-auto mb-6" />
-        <h1 className="text-xl mb-1" style={{ color: '#CDA274', fontFamily: 'Georgia, serif' }}>Operations Platform</h1>
+        <h1 className="text-xl mb-1" style={{ color: '#c88c00', fontFamily: 'Georgia, serif' }}>Operations Platform</h1>
         <p className="text-sm mb-8" style={{ color: '#8a8078' }}>Who are you?</p>
         <div className="w-full max-w-sm space-y-3">
           {LOGIN_USERS.map(user => (
@@ -165,18 +165,18 @@ export default function DashboardLoginPage() {
               onClick={() => selectUser(user)}
               disabled={busy}
               className="w-full flex items-center gap-4 px-4 py-3.5 rounded-lg transition-all disabled:opacity-50"
-              style={{ background: '#242424', border: '1px solid rgba(205,162,116,0.12)' }}
-              onMouseEnter={e => (e.currentTarget.style.borderColor = 'rgba(205,162,116,0.4)')}
-              onMouseLeave={e => (e.currentTarget.style.borderColor = 'rgba(205,162,116,0.12)')}
+              style={{ background: '#f8f6f3', border: '1px solid rgba(200,140,0,0.12)' }}
+              onMouseEnter={e => (e.currentTarget.style.borderColor = 'rgba(200,140,0,0.4)')}
+              onMouseLeave={e => (e.currentTarget.style.borderColor = 'rgba(200,140,0,0.12)')}
             >
               <div
                 className="w-10 h-10 rounded-full flex items-center justify-center text-sm font-bold flex-shrink-0"
-                style={{ background: '#CDA274', color: '#1a1a1a' }}
+                style={{ background: '#c88c00', color: '#ffffff' }}
               >
                 {user.initials}
               </div>
               <div className="text-left">
-                <div className="font-medium" style={{ color: '#e8e0d8' }}>{user.name}</div>
+                <div className="font-medium" style={{ color: '#1a1a1a' }}>{user.name}</div>
                 <div className="text-xs" style={{ color: '#8a8078' }}>{user.role}</div>
               </div>
             </button>
@@ -191,9 +191,9 @@ export default function DashboardLoginPage() {
   // Step 2: Enter existing PIN
   if (step === 'enter-pin' && selectedUser) {
     return (
-      <div className="min-h-screen flex flex-col items-center justify-center p-4" style={{ background: '#141414' }}>
+      <div className="min-h-screen flex flex-col items-center justify-center p-4" style={{ background: '#ffffff' }}>
         <img src="https://www.brettkingbuilder.com/wp-content/uploads/2021/08/logowhite.png" alt="BKB" className="h-16 w-auto mb-6" />
-        <h1 className="text-xl mb-1" style={{ color: '#CDA274', fontFamily: 'Georgia, serif' }}>Welcome back, {selectedUser.name.split(' ')[0]}</h1>
+        <h1 className="text-xl mb-1" style={{ color: '#c88c00', fontFamily: 'Georgia, serif' }}>Welcome back, {selectedUser.name.split(' ')[0]}</h1>
         <p className="text-sm mb-8" style={{ color: '#8a8078' }}>Enter your PIN</p>
         <div className="w-full max-w-xs space-y-4">
           <input
@@ -213,14 +213,14 @@ export default function DashboardLoginPage() {
             onClick={submitPin}
             disabled={!pin.trim() || busy}
             className="w-full py-4 rounded-lg font-semibold disabled:opacity-30"
-            style={{ background: '#CDA274', color: '#1a1a1a' }}
+            style={{ background: '#c88c00', color: '#ffffff' }}
           >
             {busy ? 'Signing in...' : 'Sign In'}
           </button>
           <button
             onClick={() => { setPin(''); setErr(''); setStep('forgot-pin'); }}
             className="w-full py-2 text-sm rounded-lg"
-            style={{ color: '#CDA274' }}
+            style={{ color: '#c88c00' }}
           >
             Forgot PIN?
           </button>
@@ -239,9 +239,9 @@ export default function DashboardLoginPage() {
   // Step 2b: Forgot PIN — enter master PIN to reset
   if (step === 'forgot-pin' && selectedUser) {
     return (
-      <div className="min-h-screen flex flex-col items-center justify-center p-4" style={{ background: '#141414' }}>
+      <div className="min-h-screen flex flex-col items-center justify-center p-4" style={{ background: '#ffffff' }}>
         <img src="https://www.brettkingbuilder.com/wp-content/uploads/2021/08/logowhite.png" alt="BKB" className="h-16 w-auto mb-6" />
-        <h1 className="text-xl mb-1" style={{ color: '#CDA274', fontFamily: 'Georgia, serif' }}>Reset PIN</h1>
+        <h1 className="text-xl mb-1" style={{ color: '#c88c00', fontFamily: 'Georgia, serif' }}>Reset PIN</h1>
         <p className="text-sm mb-8" style={{ color: '#8a8078' }}>Ask Nathan for the master PIN to reset yours</p>
         <div className="w-full max-w-xs space-y-4">
           <input
@@ -261,7 +261,7 @@ export default function DashboardLoginPage() {
             onClick={resetPinWithMaster}
             disabled={!pin.trim() || busy}
             className="w-full py-4 rounded-lg font-semibold disabled:opacity-30"
-            style={{ background: '#CDA274', color: '#1a1a1a' }}
+            style={{ background: '#c88c00', color: '#ffffff' }}
           >
             {busy ? 'Verifying...' : 'Reset My PIN'}
           </button>
@@ -280,9 +280,9 @@ export default function DashboardLoginPage() {
   // Step 3: Create new PIN
   if (step === 'create-pin' && selectedUser) {
     return (
-      <div className="min-h-screen flex flex-col items-center justify-center p-4" style={{ background: '#141414' }}>
+      <div className="min-h-screen flex flex-col items-center justify-center p-4" style={{ background: '#ffffff' }}>
         <img src="https://www.brettkingbuilder.com/wp-content/uploads/2021/08/logowhite.png" alt="BKB" className="h-16 w-auto mb-6" />
-        <h1 className="text-xl mb-1" style={{ color: '#CDA274', fontFamily: 'Georgia, serif' }}>Hi, {selectedUser.name.split(' ')[0]}!</h1>
+        <h1 className="text-xl mb-1" style={{ color: '#c88c00', fontFamily: 'Georgia, serif' }}>Hi, {selectedUser.name.split(' ')[0]}!</h1>
         <p className="text-sm mb-8" style={{ color: '#8a8078' }}>Create a PIN to secure your account</p>
         <div className="w-full max-w-xs space-y-4">
           <input
@@ -302,7 +302,7 @@ export default function DashboardLoginPage() {
             onClick={submitNewPin}
             disabled={!newPin || newPin.length < 4}
             className="w-full py-4 rounded-lg font-semibold disabled:opacity-30"
-            style={{ background: '#CDA274', color: '#1a1a1a' }}
+            style={{ background: '#c88c00', color: '#ffffff' }}
           >
             Next
           </button>
@@ -321,9 +321,9 @@ export default function DashboardLoginPage() {
   // Step 4: Confirm new PIN
   if (step === 'confirm-pin' && selectedUser) {
     return (
-      <div className="min-h-screen flex flex-col items-center justify-center p-4" style={{ background: '#141414' }}>
+      <div className="min-h-screen flex flex-col items-center justify-center p-4" style={{ background: '#ffffff' }}>
         <img src="https://www.brettkingbuilder.com/wp-content/uploads/2021/08/logowhite.png" alt="BKB" className="h-16 w-auto mb-6" />
-        <h1 className="text-xl mb-1" style={{ color: '#CDA274', fontFamily: 'Georgia, serif' }}>Confirm your PIN</h1>
+        <h1 className="text-xl mb-1" style={{ color: '#c88c00', fontFamily: 'Georgia, serif' }}>Confirm your PIN</h1>
         <p className="text-sm mb-8" style={{ color: '#8a8078' }}>Enter it one more time</p>
         <div className="w-full max-w-xs space-y-4">
           <input
@@ -343,7 +343,7 @@ export default function DashboardLoginPage() {
             onClick={confirmAndSavePin}
             disabled={!confirmPin || busy}
             className="w-full py-4 rounded-lg font-semibold disabled:opacity-30"
-            style={{ background: '#CDA274', color: '#1a1a1a' }}
+            style={{ background: '#c88c00', color: '#ffffff' }}
           >
             {busy ? 'Setting up...' : 'Create PIN & Sign In'}
           </button>

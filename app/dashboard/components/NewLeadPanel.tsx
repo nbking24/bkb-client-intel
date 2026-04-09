@@ -71,9 +71,9 @@ function StyledSelect({
         onChange={(e) => onChange(e.target.value)}
         className="w-full appearance-none rounded-lg px-3 py-2.5 text-sm outline-none cursor-pointer"
         style={{
-          background: '#141414',
-          border: '1px solid rgba(205,162,116,0.15)',
-          color: value ? '#e8e0d8' : '#6a6058',
+          background: '#ffffff',
+          border: '1px solid rgba(200,140,0,0.15)',
+          color: value ? '#1a1a1a' : '#6a6058',
         }}
       >
         <option value="">{placeholder}</option>
@@ -114,9 +114,9 @@ function StyledInput({
       placeholder={placeholder}
       className="w-full rounded-lg px-3 py-2.5 text-sm outline-none"
       style={{
-        background: '#141414',
-        border: `1px solid ${required && !value ? 'rgba(220,80,80,0.4)' : 'rgba(205,162,116,0.15)'}`,
-        color: '#e8e0d8',
+        background: '#ffffff',
+        border: `1px solid ${required && !value ? 'rgba(220,80,80,0.4)' : 'rgba(200,140,0,0.15)'}`,
+        color: '#1a1a1a',
       }}
     />
   );
@@ -139,17 +139,17 @@ function SectionHeader({
       <div
         className="w-7 h-7 rounded-full flex items-center justify-center flex-shrink-0 transition-all"
         style={{
-          background: complete ? '#CDA274' : 'rgba(205,162,116,0.12)',
-          color: complete ? '#1a1a1a' : '#8a8078',
+          background: complete ? '#c88c00' : 'rgba(200,140,0,0.12)',
+          color: complete ? '#ffffff' : '#8a8078',
         }}
       >
         {complete ? <Check size={14} strokeWidth={3} /> : <span className="text-xs font-bold">{number}</span>}
       </div>
       <div className="flex items-center gap-2">
-        <Icon size={16} style={{ color: complete ? '#CDA274' : '#8a8078' }} />
+        <Icon size={16} style={{ color: complete ? '#c88c00' : '#8a8078' }} />
         <span
           className="text-sm font-semibold"
-          style={{ color: complete ? '#CDA274' : '#e8e0d8' }}
+          style={{ color: complete ? '#c88c00' : '#1a1a1a' }}
         >
           {title}
         </span>
@@ -276,19 +276,19 @@ export default function NewLeadPanel({
           ${isOpen ? 'translate-x-0' : 'translate-x-full'}
         `}
         style={{
-          background: '#1a1a1a',
-          borderLeft: '1px solid rgba(205,162,116,0.15)',
+          background: '#ffffff',
+          borderLeft: '1px solid rgba(200,140,0,0.15)',
           boxShadow: isOpen ? '-4px 0 24px rgba(0,0,0,0.4)' : 'none',
         }}
       >
         {/* Header */}
         <div
           className="flex items-center justify-between px-4 py-3 flex-shrink-0"
-          style={{ background: '#242424', borderBottom: '1px solid rgba(205,162,116,0.12)' }}
+          style={{ background: '#f8f6f3', borderBottom: '1px solid rgba(200,140,0,0.12)' }}
         >
           <div className="flex items-center gap-2">
-            <UserPlus size={18} style={{ color: '#CDA274' }} />
-            <span className="text-sm font-semibold" style={{ color: '#e8e0d8' }}>
+            <UserPlus size={18} style={{ color: '#c88c00' }} />
+            <span className="text-sm font-semibold" style={{ color: '#1a1a1a' }}>
               New Lead
             </span>
           </div>
@@ -299,13 +299,13 @@ export default function NewLeadPanel({
 
         {/* Progress indicator */}
         {!submitted && (
-          <div className="px-4 py-2 flex gap-2 flex-shrink-0" style={{ borderBottom: '1px solid rgba(205,162,116,0.08)' }}>
+          <div className="px-4 py-2 flex gap-2 flex-shrink-0" style={{ borderBottom: '1px solid rgba(200,140,0,0.08)' }}>
             {[section1Complete, section2Complete, section3Complete].map((done, i) => (
               <div
                 key={i}
                 className="flex-1 h-1.5 rounded-full transition-all"
                 style={{
-                  background: done ? '#CDA274' : 'rgba(205,162,116,0.12)',
+                  background: done ? '#c88c00' : 'rgba(200,140,0,0.12)',
                 }}
               />
             ))}
@@ -317,8 +317,8 @@ export default function NewLeadPanel({
           {submitted && result ? (
             /* ── Success State ── */
             <div className="text-center py-12">
-              <CheckCircle2 size={48} className="mx-auto mb-4" style={{ color: '#CDA274' }} />
-              <h3 className="text-lg font-semibold mb-2" style={{ color: '#e8e0d8' }}>
+              <CheckCircle2 size={48} className="mx-auto mb-4" style={{ color: '#c88c00' }} />
+              <h3 className="text-lg font-semibold mb-2" style={{ color: '#1a1a1a' }}>
                 Lead Created!
               </h3>
               <p className="text-sm mb-4" style={{ color: '#8a8078' }}>
@@ -326,14 +326,14 @@ export default function NewLeadPanel({
               </p>
               <div
                 className="rounded-lg px-4 py-3 text-left text-sm space-y-1.5 mb-6"
-                style={{ background: '#242424', border: '1px solid rgba(205,162,116,0.12)' }}
+                style={{ background: '#f8f6f3', border: '1px solid rgba(200,140,0,0.12)' }}
               >
                 <div style={{ color: '#8a8078' }}>
-                  Stage: <span style={{ color: '#CDA274' }}>{result.stage}</span>
+                  Stage: <span style={{ color: '#c88c00' }}>{result.stage}</span>
                 </div>
                 {result.appointmentId && (
                   <div style={{ color: '#8a8078' }}>
-                    Appointment: <span style={{ color: '#e8e0d8' }}>
+                    Appointment: <span style={{ color: '#1a1a1a' }}>
                       {form.appointmentDate} at {formatTime(form.appointmentTime)}
                     </span>
                   </div>
@@ -353,14 +353,14 @@ export default function NewLeadPanel({
                     setTimeout(() => firstNameRef.current?.focus(), 100);
                   }}
                   className="flex-1 px-4 py-2.5 rounded-lg text-sm font-medium"
-                  style={{ background: '#CDA274', color: '#1a1a1a' }}
+                  style={{ background: '#c88c00', color: '#ffffff' }}
                 >
                   Add Another Lead
                 </button>
                 <button
                   onClick={onClose}
                   className="flex-1 px-4 py-2.5 rounded-lg text-sm font-medium"
-                  style={{ background: '#242424', color: '#e8e0d8', border: '1px solid rgba(205,162,116,0.15)' }}
+                  style={{ background: '#f8f6f3', color: '#1a1a1a', border: '1px solid rgba(200,140,0,0.15)' }}
                 >
                   Done
                 </button>
@@ -385,9 +385,9 @@ export default function NewLeadPanel({
                         placeholder="Jane"
                         className="w-full rounded-lg px-3 py-2.5 text-sm outline-none"
                         style={{
-                          background: '#141414',
-                          border: `1px solid ${!form.firstName && error ? 'rgba(220,80,80,0.4)' : 'rgba(205,162,116,0.15)'}`,
-                          color: '#e8e0d8',
+                          background: '#ffffff',
+                          border: `1px solid ${!form.firstName && error ? 'rgba(220,80,80,0.4)' : 'rgba(200,140,0,0.15)'}`,
+                          color: '#1a1a1a',
                         }}
                       />
                     </div>
@@ -491,9 +491,9 @@ export default function NewLeadPanel({
                       rows={3}
                       className="w-full rounded-lg px-3 py-2.5 text-sm outline-none resize-none"
                       style={{
-                        background: '#141414',
-                        border: '1px solid rgba(205,162,116,0.15)',
-                        color: '#e8e0d8',
+                        background: '#ffffff',
+                        border: '1px solid rgba(200,140,0,0.15)',
+                        color: '#1a1a1a',
                       }}
                     />
                   </div>
@@ -542,20 +542,20 @@ export default function NewLeadPanel({
                           }}
                           className="w-full flex items-center gap-3 px-3 py-3 rounded-lg text-left transition-all"
                           style={{
-                            background: selected ? 'rgba(205,162,116,0.1)' : '#242424',
-                            border: `1px solid ${selected ? 'rgba(205,162,116,0.4)' : 'rgba(205,162,116,0.08)'}`,
+                            background: selected ? 'rgba(200,140,0,0.1)' : '#f8f6f3',
+                            border: `1px solid ${selected ? 'rgba(200,140,0,0.4)' : 'rgba(200,140,0,0.08)'}`,
                           }}
                         >
-                          <Icon size={16} style={{ color: selected ? '#CDA274' : '#6a6058' }} />
+                          <Icon size={16} style={{ color: selected ? '#c88c00' : '#6a6058' }} />
                           <div className="flex-1 min-w-0">
-                            <div className="text-sm font-medium" style={{ color: selected ? '#CDA274' : '#e8e0d8' }}>
+                            <div className="text-sm font-medium" style={{ color: selected ? '#c88c00' : '#1a1a1a' }}>
                               {opt.label}
                             </div>
                             <div className="text-xs" style={{ color: '#6a6058' }}>
                               {opt.sublabel}
                             </div>
                           </div>
-                          {selected && <Check size={16} style={{ color: '#CDA274' }} />}
+                          {selected && <Check size={16} style={{ color: '#c88c00' }} />}
                         </button>
                       );
                     })}
@@ -565,11 +565,11 @@ export default function NewLeadPanel({
                   {form.nextStep !== 'none' && (
                     <div
                       className="rounded-lg p-3 space-y-3"
-                      style={{ background: '#242424', border: '1px solid rgba(205,162,116,0.08)' }}
+                      style={{ background: '#f8f6f3', border: '1px solid rgba(200,140,0,0.08)' }}
                     >
                       <div className="flex items-center gap-2 mb-2">
-                        <Clock size={14} style={{ color: '#CDA274' }} />
-                        <span className="text-xs font-medium" style={{ color: '#CDA274' }}>
+                        <Clock size={14} style={{ color: '#c88c00' }} />
+                        <span className="text-xs font-medium" style={{ color: '#c88c00' }}>
                           {form.nextStep === 'discovery_call' ? 'Discovery Call' : 'On-Site Visit'} — Nathan&apos;s Calendar
                         </span>
                       </div>
@@ -583,9 +583,9 @@ export default function NewLeadPanel({
                             min={new Date().toISOString().split('T')[0]}
                             className="w-full rounded-lg px-3 py-2.5 text-sm outline-none"
                             style={{
-                              background: '#141414',
-                              border: '1px solid rgba(205,162,116,0.15)',
-                              color: '#e8e0d8',
+                              background: '#ffffff',
+                              border: '1px solid rgba(200,140,0,0.15)',
+                              color: '#1a1a1a',
                               colorScheme: 'dark',
                             }}
                           />
@@ -597,9 +597,9 @@ export default function NewLeadPanel({
                             onChange={(e) => update('appointmentTime', e.target.value)}
                             className="w-full appearance-none rounded-lg px-3 py-2.5 text-sm outline-none cursor-pointer"
                             style={{
-                              background: '#141414',
-                              border: '1px solid rgba(205,162,116,0.15)',
-                              color: form.appointmentTime ? '#e8e0d8' : '#6a6058',
+                              background: '#ffffff',
+                              border: '1px solid rgba(200,140,0,0.15)',
+                              color: form.appointmentTime ? '#1a1a1a' : '#6a6058',
                             }}
                           >
                             <option value="">Select time...</option>
@@ -627,8 +627,8 @@ export default function NewLeadPanel({
           <div
             className="px-4 py-3 flex-shrink-0 space-y-2"
             style={{
-              background: '#242424',
-              borderTop: '1px solid rgba(205,162,116,0.12)',
+              background: '#f8f6f3',
+              borderTop: '1px solid rgba(200,140,0,0.12)',
             }}
           >
             {error && (
@@ -642,8 +642,8 @@ export default function NewLeadPanel({
               disabled={submitting || !section1Complete}
               className="w-full flex items-center justify-center gap-2 px-4 py-3 rounded-lg text-sm font-semibold transition-all disabled:opacity-40"
               style={{
-                background: section1Complete ? '#CDA274' : 'rgba(205,162,116,0.3)',
-                color: '#1a1a1a',
+                background: section1Complete ? '#c88c00' : 'rgba(200,140,0,0.3)',
+                color: '#ffffff',
               }}
             >
               {submitting ? (

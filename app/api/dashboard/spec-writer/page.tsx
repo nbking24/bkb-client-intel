@@ -864,7 +864,7 @@ function SpecWriterContent() {
         <div>
           <h1
             className="text-xl font-bold"
-            style={{ fontFamily: 'Georgia, serif', color: '#C9A84C' }}
+            style={{ fontFamily: 'Georgia, serif', color: '#c88c00' }}
           >
             Spec Writer
           </h1>
@@ -882,9 +882,9 @@ function SpecWriterContent() {
           {/* Text Input */}
           <div
             className="rounded-lg p-4"
-            style={{ background: '#1a1a1a', border: '1px solid rgba(205,162,116,0.1)' }}
+            style={{ background: '#ffffff', border: '1px solid rgba(200,140,0,0.1)' }}
           >
-            <label className="block text-sm font-semibold mb-2" style={{ color: '#e8e0d8' }}>
+            <label className="block text-sm font-semibold mb-2" style={{ color: '#1a1a1a' }}>
               Describe the Project Scope
             </label>
             <textarea
@@ -895,8 +895,8 @@ function SpecWriterContent() {
               className="w-full rounded-lg px-3 py-3 text-sm resize-none"
               style={{
                 background: '#0d0d0d',
-                color: '#e8e0d8',
-                border: '1px solid rgba(205,162,116,0.2)',
+                color: '#1a1a1a',
+                border: '1px solid rgba(200,140,0,0.2)',
                 lineHeight: '1.6',
               }}
             />
@@ -908,9 +908,9 @@ function SpecWriterContent() {
           {/* File Upload */}
           <div
             className="rounded-lg p-4"
-            style={{ background: '#1a1a1a', border: '1px solid rgba(205,162,116,0.1)' }}
+            style={{ background: '#ffffff', border: '1px solid rgba(200,140,0,0.1)' }}
           >
-            <label className="block text-sm font-semibold mb-2" style={{ color: '#e8e0d8' }}>
+            <label className="block text-sm font-semibold mb-2" style={{ color: '#1a1a1a' }}>
               Attachments
               <span className="font-normal ml-2" style={{ color: '#8a8078' }}>(optional)</span>
             </label>
@@ -929,11 +929,11 @@ function SpecWriterContent() {
               className="w-full rounded-lg px-4 py-6 text-sm flex flex-col items-center gap-2 transition-colors hover:bg-[#151515]"
               style={{
                 background: '#0d0d0d',
-                border: '1px dashed rgba(205,162,116,0.25)',
+                border: '1px dashed rgba(200,140,0,0.25)',
                 color: '#8a8078',
               }}
             >
-              <Upload size={20} style={{ color: '#C9A84C' }} />
+              <Upload size={20} style={{ color: '#c88c00' }} />
               <span>Click to upload plans, estimates, or notes</span>
               <span className="text-xs" style={{ color: '#666' }}>PDF, Word, Excel, Images</span>
             </button>
@@ -945,9 +945,9 @@ function SpecWriterContent() {
                   <div
                     key={i}
                     className="flex items-center gap-2 rounded-lg px-3 py-1.5 text-xs"
-                    style={{ background: '#0d0d0d', border: '1px solid rgba(205,162,116,0.15)', color: '#d4ccc4' }}
+                    style={{ background: '#0d0d0d', border: '1px solid rgba(200,140,0,0.15)', color: '#d4ccc4' }}
                   >
-                    <Paperclip size={10} style={{ color: '#C9A84C' }} />
+                    <Paperclip size={10} style={{ color: '#c88c00' }} />
                     <span>{f.name}</span>
                     <span style={{ color: '#8a8078' }}>({formatSize(f.size)})</span>
                     <button
@@ -969,7 +969,7 @@ function SpecWriterContent() {
               onClick={handleQuickSpec}
               disabled={!inputText.trim() || loading}
               className="flex items-center justify-center gap-2 px-4 py-3 rounded-lg text-sm font-medium transition-colors disabled:opacity-40"
-              style={{ background: '#C9A84C', color: '#0d0d0d' }}
+              style={{ background: '#c88c00', color: '#0d0d0d' }}
             >
               {loading && specMode === 'quick' ? (
                 <Loader2 size={16} className="animate-spin" />
@@ -984,7 +984,7 @@ function SpecWriterContent() {
               className="flex items-center justify-center gap-2 px-4 py-3 rounded-lg text-sm font-medium transition-colors disabled:opacity-40"
               style={{
                 background: 'rgba(201,168,76,0.15)',
-                color: '#C9A84C',
+                color: '#c88c00',
                 border: '1px solid rgba(201,168,76,0.3)',
               }}
             >
@@ -1001,10 +1001,10 @@ function SpecWriterContent() {
             className="rounded-lg px-4 py-3 text-xs flex items-start gap-2"
             style={{ background: 'rgba(201,168,76,0.06)', border: '1px solid rgba(201,168,76,0.12)', color: '#8a8078' }}
           >
-            <FileText size={14} className="flex-shrink-0 mt-0.5" style={{ color: '#C9A84C' }} />
+            <FileText size={14} className="flex-shrink-0 mt-0.5" style={{ color: '#c88c00' }} />
             <div>
-              <strong style={{ color: '#C9A84C' }}>Quick Spec</strong> generates immediately from your description.{' '}
-              <strong style={{ color: '#C9A84C' }}>Detailed Spec</strong> asks follow-up questions about materials, brands, and finishes before generating.
+              <strong style={{ color: '#c88c00' }}>Quick Spec</strong> generates immediately from your description.{' '}
+              <strong style={{ color: '#c88c00' }}>Detailed Spec</strong> asks follow-up questions about materials, brands, and finishes before generating.
             </div>
           </div>
         </div>
@@ -1018,7 +1018,7 @@ function SpecWriterContent() {
           {/* Info bar */}
           <div
             className="rounded-lg px-4 py-3 text-xs flex items-center gap-2"
-            style={{ background: 'rgba(201,168,76,0.06)', border: '1px solid rgba(201,168,76,0.12)', color: '#C9A84C' }}
+            style={{ background: 'rgba(201,168,76,0.06)', border: '1px solid rgba(201,168,76,0.12)', color: '#c88c00' }}
           >
             <PenTool size={14} />
             Answer these questions to refine the specification. Select an option or type your own.
@@ -1029,7 +1029,7 @@ function SpecWriterContent() {
             <div
               key={catKey}
               className="rounded-lg overflow-hidden"
-              style={{ background: '#1a1a1a', border: '1px solid rgba(205,162,116,0.1)' }}
+              style={{ background: '#ffffff', border: '1px solid rgba(200,140,0,0.1)' }}
             >
               <button
                 onClick={() => toggleCategory(catKey)}
@@ -1040,17 +1040,17 @@ function SpecWriterContent() {
                 ) : (
                   <ChevronRight size={14} style={{ color: '#8a8078' }} />
                 )}
-                <span className="text-xs font-semibold" style={{ color: '#C9A84C' }}>{catKey}</span>
+                <span className="text-xs font-semibold" style={{ color: '#c88c00' }}>{catKey}</span>
                 <span className="text-xs" style={{ color: '#8a8078' }}>
                   ({catQuestions.filter((q) => answers[q.id]).length}/{catQuestions.length} answered)
                 </span>
               </button>
 
               {expandedCategories[catKey] && (
-                <div className="px-4 pb-4 space-y-4" style={{ borderTop: '1px solid rgba(205,162,116,0.06)' }}>
+                <div className="px-4 pb-4 space-y-4" style={{ borderTop: '1px solid rgba(200,140,0,0.06)' }}>
                   {catQuestions.map((q) => (
                     <div key={q.id} className="pt-3">
-                      <label className="block text-sm mb-2" style={{ color: '#e8e0d8' }}>
+                      <label className="block text-sm mb-2" style={{ color: '#1a1a1a' }}>
                         {q.question}
                       </label>
                       {/* Quick select pills */}
@@ -1062,8 +1062,8 @@ function SpecWriterContent() {
                             className="px-3 py-1.5 rounded-full text-xs transition-colors"
                             style={{
                               background: answers[q.id] === opt ? 'rgba(201,168,76,0.2)' : '#0d0d0d',
-                              color: answers[q.id] === opt ? '#C9A84C' : '#d4ccc4',
-                              border: `1px solid ${answers[q.id] === opt ? '#C9A84C' : 'rgba(205,162,116,0.15)'}`,
+                              color: answers[q.id] === opt ? '#c88c00' : '#d4ccc4',
+                              border: `1px solid ${answers[q.id] === opt ? '#c88c00' : 'rgba(200,140,0,0.15)'}`,
                             }}
                           >
                             {answers[q.id] === opt && <Check size={10} className="inline mr-1" />}
@@ -1081,8 +1081,8 @@ function SpecWriterContent() {
                           className="w-full rounded-lg px-3 py-2 text-xs"
                           style={{
                             background: '#0d0d0d',
-                            color: '#e8e0d8',
-                            border: '1px solid rgba(205,162,116,0.15)',
+                            color: '#1a1a1a',
+                            border: '1px solid rgba(200,140,0,0.15)',
                           }}
                         />
                       )}
@@ -1098,7 +1098,7 @@ function SpecWriterContent() {
             <button
               onClick={() => setStep('input')}
               className="flex items-center gap-2 px-4 py-2 rounded-lg text-sm"
-              style={{ color: '#8a8078', border: '1px solid rgba(205,162,116,0.15)' }}
+              style={{ color: '#8a8078', border: '1px solid rgba(200,140,0,0.15)' }}
             >
               <ArrowLeft size={14} /> Back
             </button>
@@ -1106,7 +1106,7 @@ function SpecWriterContent() {
               onClick={handleGenerateFromQuestions}
               disabled={loading}
               className="flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-medium disabled:opacity-40"
-              style={{ background: '#C9A84C', color: '#0d0d0d' }}
+              style={{ background: '#c88c00', color: '#0d0d0d' }}
             >
               {loading ? <Loader2 size={14} className="animate-spin" /> : <ArrowRight size={14} />}
               Generate Specification
@@ -1126,7 +1126,7 @@ function SpecWriterContent() {
               className="px-2.5 py-1 rounded-full text-xs font-medium"
               style={{
                 background: specMode === 'quick' ? 'rgba(201,168,76,0.15)' : 'rgba(59,130,246,0.15)',
-                color: specMode === 'quick' ? '#C9A84C' : '#3b82f6',
+                color: specMode === 'quick' ? '#c88c00' : '#3b82f6',
                 border: `1px solid ${specMode === 'quick' ? 'rgba(201,168,76,0.3)' : 'rgba(59,130,246,0.3)'}`,
               }}
             >
@@ -1141,10 +1141,10 @@ function SpecWriterContent() {
           {/* Spec output */}
           <div
             className="rounded-lg p-4"
-            style={{ background: '#1a1a1a', border: '1px solid rgba(205,162,116,0.1)' }}
+            style={{ background: '#ffffff', border: '1px solid rgba(200,140,0,0.1)' }}
           >
             <div className="flex items-center justify-between mb-3">
-              <h3 className="text-sm font-semibold" style={{ color: '#e8e0d8' }}>
+              <h3 className="text-sm font-semibold" style={{ color: '#1a1a1a' }}>
                 Generated Specification
               </h3>
               <div className="flex items-center gap-2">
@@ -1153,7 +1153,7 @@ function SpecWriterContent() {
                   className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs transition-colors"
                   style={{
                     background: copied ? 'rgba(34,197,94,0.15)' : 'rgba(201,168,76,0.1)',
-                    color: copied ? '#22c55e' : '#C9A84C',
+                    color: copied ? '#22c55e' : '#c88c00',
                     border: `1px solid ${copied ? 'rgba(34,197,94,0.3)' : 'rgba(201,168,76,0.2)'}`,
                   }}
                 >
@@ -1165,7 +1165,7 @@ function SpecWriterContent() {
                   className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs transition-colors"
                   style={{
                     background: 'rgba(201,168,76,0.1)',
-                    color: '#C9A84C',
+                    color: '#c88c00',
                     border: '1px solid rgba(201,168,76,0.2)',
                   }}
                 >
@@ -1181,7 +1181,7 @@ function SpecWriterContent() {
               style={{
                 background: '#0d0d0d',
                 color: '#d4ccc4',
-                border: '1px solid rgba(205,162,116,0.08)',
+                border: '1px solid rgba(200,140,0,0.08)',
                 lineHeight: '1.7',
                 fontFamily: '"SF Mono", "Fira Code", "Fira Mono", Menlo, monospace',
               }}
@@ -1195,7 +1195,7 @@ function SpecWriterContent() {
             <button
               onClick={handleStartOver}
               className="flex items-center gap-2 px-4 py-2 rounded-lg text-sm"
-              style={{ color: '#8a8078', border: '1px solid rgba(205,162,116,0.15)' }}
+              style={{ color: '#8a8078', border: '1px solid rgba(200,140,0,0.15)' }}
             >
               <RefreshCw size={14} /> Start Over
             </button>
@@ -1206,7 +1206,7 @@ function SpecWriterContent() {
                 className="flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-medium disabled:opacity-40"
                 style={{
                   background: 'rgba(201,168,76,0.15)',
-                  color: '#C9A84C',
+                  color: '#c88c00',
                   border: '1px solid rgba(201,168,76,0.3)',
                 }}
               >
@@ -1220,7 +1220,7 @@ function SpecWriterContent() {
                 className="flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-medium"
                 style={{
                   background: 'rgba(201,168,76,0.15)',
-                  color: '#C9A84C',
+                  color: '#c88c00',
                   border: '1px solid rgba(201,168,76,0.3)',
                 }}
               >
@@ -1235,10 +1235,10 @@ function SpecWriterContent() {
       {(loading || isGeneratingQuestions) && (
         <div
           className="fixed bottom-4 right-4 rounded-lg px-4 py-3 flex items-center gap-3 shadow-lg"
-          style={{ background: '#1a1a1a', border: '1px solid rgba(201,168,76,0.3)', zIndex: 50 }}
+          style={{ background: '#ffffff', border: '1px solid rgba(201,168,76,0.3)', zIndex: 50 }}
         >
-          <Loader2 size={16} className="animate-spin" style={{ color: '#C9A84C' }} />
-          <span className="text-sm" style={{ color: '#C9A84C' }}>
+          <Loader2 size={16} className="animate-spin" style={{ color: '#c88c00' }} />
+          <span className="text-sm" style={{ color: '#c88c00' }}>
             {isGeneratingQuestions ? 'AI is analyzing your project...' : 'Generating specification...'}
           </span>
         </div>
@@ -1255,7 +1255,7 @@ export default function SpecWriterPage() {
     <Suspense
       fallback={
         <div className="max-w-3xl mx-auto p-8 text-center">
-          <Loader2 size={24} className="animate-spin mx-auto" style={{ color: '#C9A84C' }} />
+          <Loader2 size={24} className="animate-spin mx-auto" style={{ color: '#c88c00' }} />
           <p className="text-sm mt-2" style={{ color: '#8a8078' }}>
             Loading Spec Writer...
           </p>

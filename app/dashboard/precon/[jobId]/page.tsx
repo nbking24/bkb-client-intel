@@ -250,7 +250,7 @@ function TaskRow({
     <div>
       <div
         className="flex items-center gap-3 px-4 py-2.5 hover:bg-white/[0.02] transition-colors"
-        style={{ borderBottom: '1px solid rgba(205,162,116,0.06)' }}
+        style={{ borderBottom: '1px solid rgba(200,140,0,0.06)' }}
       >
         <button
           onClick={toggleComplete}
@@ -269,7 +269,7 @@ function TaskRow({
           <p
             className="text-sm truncate"
             style={{
-              color: isComplete ? '#6b7280' : '#e8e0d8',
+              color: isComplete ? '#6b7280' : '#1a1a1a',
               textDecoration: isComplete ? 'line-through' : 'none',
             }}
           >
@@ -289,7 +289,7 @@ function TaskRow({
           className="flex items-center gap-2 px-4 py-1.5 text-xs"
           style={{
             background: auditFlag.confidence === 'high' ? 'rgba(239,68,68,0.08)' : 'rgba(245,158,11,0.08)',
-            borderBottom: '1px solid rgba(205,162,116,0.06)',
+            borderBottom: '1px solid rgba(200,140,0,0.06)',
           }}
         >
           <ArrowRightLeft size={12} style={{ color: auditFlag.confidence === 'high' ? '#ef4444' : '#f59e0b' }} />
@@ -458,8 +458,8 @@ function PhaseAccordion({
     <div
       className="rounded-xl overflow-hidden"
       style={{
-        background: '#242424',
-        border: `1px solid ${isActivePhase && phaseStatus === 'active' ? 'rgba(201,168,76,0.3)' : 'rgba(205,162,116,0.12)'}`,
+        background: '#f8f6f3',
+        border: `1px solid ${isActivePhase && phaseStatus === 'active' ? 'rgba(201,168,76,0.3)' : 'rgba(200,140,0,0.12)'}`,
       }}
     >
       {/* Phase header */}
@@ -474,7 +474,7 @@ function PhaseAccordion({
         )}
         <span className="w-2 h-2 rounded-full shrink-0" style={{ background: statusDot }} />
         <div className="flex-1 min-w-0">
-          <h3 className="text-sm font-semibold" style={{ color: '#e8e0d8' }}>
+          <h3 className="text-sm font-semibold" style={{ color: '#1a1a1a' }}>
             {phase.name}
           </h3>
         </div>
@@ -495,7 +495,7 @@ function PhaseAccordion({
               <span className="text-xs" style={{ color: '#8a8078' }}>
                 {pendingTasks.length} left
               </span>
-              <div className="w-16 h-1.5 rounded-full" style={{ background: '#1a1a1a' }}>
+              <div className="w-16 h-1.5 rounded-full" style={{ background: '#ffffff' }}>
                 <div
                   className="h-1.5 rounded-full transition-all"
                   style={{
@@ -547,7 +547,7 @@ function PhaseAccordion({
 
           {/* Completed tasks toggle */}
           {completedCount > 0 && (
-            <div style={{ borderTop: '1px solid rgba(205,162,116,0.06)' }}>
+            <div style={{ borderTop: '1px solid rgba(200,140,0,0.06)' }}>
               <button
                 onClick={() => setShowCompleted(!showCompleted)}
                 className="flex items-center gap-1.5 px-4 py-2 text-xs w-full hover:bg-white/[0.02]"
@@ -577,7 +577,7 @@ function PhaseAccordion({
 
           {/* Add Default Tasks button */}
           {showAddDefaults && (
-            <div className="px-4 py-2" style={{ borderTop: '1px solid rgba(205,162,116,0.06)' }}>
+            <div className="px-4 py-2" style={{ borderTop: '1px solid rgba(200,140,0,0.06)' }}>
               <button
                 onClick={fillDefaults}
                 disabled={fillingDefaults}
@@ -595,7 +595,7 @@ function PhaseAccordion({
           )}
 
           {/* Add task form */}
-          <div className="px-4 py-2" style={{ borderTop: '1px solid rgba(205,162,116,0.06)' }}>
+          <div className="px-4 py-2" style={{ borderTop: '1px solid rgba(200,140,0,0.06)' }}>
             {adding ? (
               <div className="flex items-center gap-2">
                 <input
@@ -606,13 +606,13 @@ function PhaseAccordion({
                   placeholder="Task name..."
                   autoFocus
                   className="flex-1 bg-transparent text-sm outline-none"
-                  style={{ color: '#e8e0d8' }}
+                  style={{ color: '#1a1a1a' }}
                 />
                 <button
                   onClick={addTask}
                   disabled={saving || !newTaskName.trim()}
                   className="text-xs px-2 py-1 rounded"
-                  style={{ background: '#C9A84C20', color: '#C9A84C' }}
+                  style={{ background: '#c88c0020', color: '#c88c00' }}
                 >
                   {saving ? '...' : 'Add'}
                 </button>
@@ -663,7 +663,7 @@ function OrphanSection({
   return (
     <div
       className="rounded-xl overflow-hidden"
-      style={{ background: '#242424', border: '1px solid rgba(245,158,11,0.3)' }}
+      style={{ background: '#f8f6f3', border: '1px solid rgba(245,158,11,0.3)' }}
     >
       <button
         onClick={() => setExpanded(!expanded)}
@@ -896,7 +896,7 @@ function MismatchRow({
     >
       <ArrowRightLeft size={13} style={{ color: confColor, flexShrink: 0 }} />
       <div className="flex-1 min-w-0">
-        <p className="text-sm truncate" style={{ color: '#e8e0d8' }}>{task.name}</p>
+        <p className="text-sm truncate" style={{ color: '#1a1a1a' }}>{task.name}</p>
         <p className="text-[11px] mt-0.5" style={{ color: '#8a8078' }}>
           In <span style={{ color: '#a09088' }}>{flag.currentPhaseName}</span> → should be <span style={{ color: confColor }}>{flag.recommendedPhaseName}</span>
         </p>
@@ -1139,10 +1139,10 @@ export default function ProjectScheduleDetail() {
 
       {loading ? (
         <div className="flex items-center justify-center py-16">
-          <Loader2 size={28} className="animate-spin" style={{ color: '#C9A84C' }} />
+          <Loader2 size={28} className="animate-spin" style={{ color: '#c88c00' }} />
         </div>
       ) : error ? (
-        <div className="p-6 rounded-xl text-center" style={{ background: '#242424' }}>
+        <div className="p-6 rounded-xl text-center" style={{ background: '#f8f6f3' }}>
           <p className="text-sm" style={{ color: '#ef4444' }}>Error: {error}</p>
         </div>
       ) : schedule ? (
@@ -1151,7 +1151,7 @@ export default function ProjectScheduleDetail() {
           <div>
             <h1
               className="text-2xl font-bold"
-              style={{ fontFamily: 'Georgia, serif', color: '#C9A84C' }}
+              style={{ fontFamily: 'Georgia, serif', color: '#c88c00' }}
             >
               {schedule.name}
             </h1>
@@ -1167,22 +1167,22 @@ export default function ProjectScheduleDetail() {
           {/* Stats bar */}
           <div
             className="p-4 rounded-xl"
-            style={{ background: '#242424', border: '1px solid rgba(205,162,116,0.12)' }}
+            style={{ background: '#f8f6f3', border: '1px solid rgba(200,140,0,0.12)' }}
           >
             <div className="flex items-center justify-between mb-2">
-              <span className="text-sm font-medium" style={{ color: '#e8e0d8' }}>
+              <span className="text-sm font-medium" style={{ color: '#1a1a1a' }}>
                 Overall Progress
               </span>
-              <span className="text-sm font-bold" style={{ color: '#C9A84C' }}>
+              <span className="text-sm font-bold" style={{ color: '#c88c00' }}>
                 {progressPct}%
               </span>
             </div>
-            <div className="w-full h-3 rounded-full" style={{ background: '#1a1a1a' }}>
+            <div className="w-full h-3 rounded-full" style={{ background: '#ffffff' }}>
               <div
                 className="h-3 rounded-full transition-all"
                 style={{
                   width: `${Math.max(progressPct, 2)}%`,
-                  background: progressPct >= 100 ? '#22c55e' : progressPct > 0 ? '#C9A84C' : '#3f3f3f',
+                  background: progressPct >= 100 ? '#22c55e' : progressPct > 0 ? '#c88c00' : '#3f3f3f',
                 }}
               />
             </div>
@@ -1230,10 +1230,10 @@ export default function ProjectScheduleDetail() {
           {!hasSchedule && (
             <div
               className="p-4 rounded-xl text-center"
-              style={{ background: '#242424', border: '1px dashed rgba(201,168,76,0.3)' }}
+              style={{ background: '#f8f6f3', border: '1px dashed rgba(201,168,76,0.3)' }}
             >
-              <Zap size={24} style={{ color: '#C9A84C', margin: '0 auto 8px' }} />
-              <p className="text-sm font-medium mb-1" style={{ color: '#e8e0d8' }}>
+              <Zap size={24} style={{ color: '#c88c00', margin: '0 auto 8px' }} />
+              <p className="text-sm font-medium mb-1" style={{ color: '#1a1a1a' }}>
                 No schedule set up yet
               </p>
               <p className="text-xs mb-3" style={{ color: '#8a8078' }}>
@@ -1243,7 +1243,7 @@ export default function ProjectScheduleDetail() {
                 onClick={applyFullTemplate}
                 disabled={applyingTemplate}
                 className="text-sm px-4 py-2 rounded-lg font-medium"
-                style={{ background: '#C9A84C', color: '#1a1a1a' }}
+                style={{ background: '#c88c00', color: '#ffffff' }}
               >
                 {applyingTemplate ? (
                   <span className="flex items-center gap-2">
@@ -1293,7 +1293,7 @@ export default function ProjectScheduleDetail() {
             {addingPhase ? (
               <div
                 className="flex items-center gap-2 p-4 rounded-xl"
-                style={{ background: '#242424', border: '1px solid rgba(205,162,116,0.12)' }}
+                style={{ background: '#f8f6f3', border: '1px solid rgba(200,140,0,0.12)' }}
               >
                 <input
                   type="text"
@@ -1303,13 +1303,13 @@ export default function ProjectScheduleDetail() {
                   placeholder="Phase name (e.g. Admin Tasks)"
                   autoFocus
                   className="flex-1 bg-transparent text-sm outline-none"
-                  style={{ color: '#e8e0d8' }}
+                  style={{ color: '#1a1a1a' }}
                 />
                 <button
                   onClick={addPhase}
                   disabled={savingPhase || !newPhaseName.trim()}
                   className="text-xs px-3 py-1.5 rounded-lg font-medium"
-                  style={{ background: '#C9A84C', color: '#1a1a1a' }}
+                  style={{ background: '#c88c00', color: '#ffffff' }}
                 >
                   {savingPhase ? '...' : 'Create Phase'}
                 </button>
@@ -1322,7 +1322,7 @@ export default function ProjectScheduleDetail() {
                 onClick={() => setAddingPhase(true)}
                 className="flex items-center gap-2 text-sm px-4 py-3 rounded-xl w-full hover:bg-white/[0.02] transition-colors"
                 style={{
-                  color: '#C9A84C',
+                  color: '#c88c00',
                   border: '1px dashed rgba(201,168,76,0.3)',
                 }}
               >

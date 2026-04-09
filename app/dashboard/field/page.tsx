@@ -56,14 +56,14 @@ function RenderContent({ content }: { content: string }) {
       {(elements as any[]).map((el: any) => {
         if (el.type === 'code') {
           return (
-            <pre key={el.key} style={{ background: '#1a1a1a', border: '1px solid rgba(205,162,116,0.1)', borderRadius: 6, padding: '6px 8px', fontSize: 11, color: '#c8c0b8', overflowX: 'auto', whiteSpace: 'pre-wrap', margin: '4px 0', fontFamily: 'ui-monospace, SFMono-Regular, monospace' }}>{el.content}</pre>
+            <pre key={el.key} style={{ background: '#ffffff', border: '1px solid rgba(200,140,0,0.1)', borderRadius: 6, padding: '6px 8px', fontSize: 11, color: '#3a3530', overflowX: 'auto', whiteSpace: 'pre-wrap', margin: '4px 0', fontFamily: 'ui-monospace, SFMono-Regular, monospace' }}>{el.content}</pre>
           );
         }
-        if (el.type === 'h2') return <div key={el.key} style={{ fontWeight: 700, color: '#CDA274', fontSize: 13, marginTop: 6, marginBottom: 2 }} dangerouslySetInnerHTML={{ __html: el.html }} />;
-        if (el.type === 'h3') return <div key={el.key} style={{ fontWeight: 600, color: '#e8e0d8', fontSize: 12, marginTop: 4, marginBottom: 1 }} dangerouslySetInnerHTML={{ __html: el.html }} />;
+        if (el.type === 'h2') return <div key={el.key} style={{ fontWeight: 700, color: '#c88c00', fontSize: 13, marginTop: 6, marginBottom: 2 }} dangerouslySetInnerHTML={{ __html: el.html }} />;
+        if (el.type === 'h3') return <div key={el.key} style={{ fontWeight: 600, color: '#1a1a1a', fontSize: 12, marginTop: 4, marginBottom: 1 }} dangerouslySetInnerHTML={{ __html: el.html }} />;
         if (el.type === 'bullet') return <div key={el.key} style={{ marginLeft: 10 }} dangerouslySetInnerHTML={{ __html: '&bull; ' + el.html }} />;
         if (el.type === 'numbered') return <div key={el.key} style={{ marginLeft: 10 }} dangerouslySetInnerHTML={{ __html: el.html }} />;
-        if (el.type === 'hr') return <hr key={el.key} style={{ border: 'none', borderTop: '1px solid rgba(205,162,116,0.1)', margin: '6px 0' }} />;
+        if (el.type === 'hr') return <hr key={el.key} style={{ border: 'none', borderTop: '1px solid rgba(200,140,0,0.1)', margin: '6px 0' }} />;
         if (el.type === 'spacer') return <div key={el.key} style={{ height: 4 }} />;
         return <div key={el.key} dangerouslySetInnerHTML={{ __html: el.html }} />;
       })}
@@ -287,30 +287,30 @@ function InlineAskAgent({ pmJobs, screen }: { pmJobs: { id: string; name: string
   };
 
   return (
-    <div style={{ marginBottom: 6, borderRadius: 8, border: '1px solid rgba(205,162,116,0.12)', overflow: 'hidden', background: '#1a1a1a' }}>
+    <div style={{ marginBottom: 6, borderRadius: 8, border: '1px solid rgba(200,140,0,0.12)', overflow: 'hidden', background: '#ffffff' }}>
       {/* Toggle Bar */}
       <button
         onClick={() => setOpen(!open)}
         style={{
           width: '100%', display: 'flex', alignItems: 'center', gap: isTouch ? 8 : 6,
-          padding: isTouch ? '10px 12px' : '7px 10px', background: open ? 'rgba(205,162,116,0.08)' : 'transparent',
+          padding: isTouch ? '10px 12px' : '7px 10px', background: open ? 'rgba(200,140,0,0.08)' : 'transparent',
           border: 'none', cursor: 'pointer', textAlign: 'left',
         }}
       >
-        <div style={{ width: isTouch ? 28 : 22, height: isTouch ? 28 : 22, borderRadius: 14, background: 'rgba(205,162,116,0.12)', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
-          <Bot size={isTouch ? 15 : 12} style={{ color: '#CDA274' }} />
+        <div style={{ width: isTouch ? 28 : 22, height: isTouch ? 28 : 22, borderRadius: 14, background: 'rgba(200,140,0,0.12)', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
+          <Bot size={isTouch ? 15 : 12} style={{ color: '#c88c00' }} />
         </div>
-        <span style={{ flex: 1, fontSize: isTouch ? 14 : 12, fontWeight: 600, color: '#CDA274' }}>Ask Agent</span>
+        <span style={{ flex: 1, fontSize: isTouch ? 14 : 12, fontWeight: 600, color: '#c88c00' }}>Ask Agent</span>
         {!isMobile && <span style={{ fontSize: isTouch ? 11 : 9, color: '#5a5550' }}>Tasks · Specs · Change Orders</span>}
         {open ? <ChevronUp size={isTouch ? 16 : 12} style={{ color: '#5a5550' }} /> : <ChevronDown size={isTouch ? 16 : 12} style={{ color: '#5a5550' }} />}
       </button>
 
       {/* Chat Body */}
       {open && (
-        <div style={{ borderTop: '1px solid rgba(205,162,116,0.08)' }}>
+        <div style={{ borderTop: '1px solid rgba(200,140,0,0.08)' }}>
           {/* Mode Selector + Job Selector */}
-          <div style={{ padding: isTouch ? '8px 12px' : '6px 10px', borderBottom: '1px solid rgba(205,162,116,0.06)', display: 'flex', flexWrap: isMobile ? 'wrap' : 'nowrap', alignItems: 'center', gap: isTouch ? 8 : 6 }}>
-            <div style={{ display: 'flex', borderRadius: 8, overflow: 'hidden', border: '1px solid rgba(205,162,116,0.15)', flexShrink: 0, ...(isMobile ? { width: '100%' } : {}) }}>
+          <div style={{ padding: isTouch ? '8px 12px' : '6px 10px', borderBottom: '1px solid rgba(200,140,0,0.06)', display: 'flex', flexWrap: isMobile ? 'wrap' : 'nowrap', alignItems: 'center', gap: isTouch ? 8 : 6 }}>
+            <div style={{ display: 'flex', borderRadius: 8, overflow: 'hidden', border: '1px solid rgba(200,140,0,0.15)', flexShrink: 0, ...(isMobile ? { width: '100%' } : {}) }}>
               {([
                 { key: 'general', label: 'Agent' },
                 { key: 'change-order', label: 'Change Order' },
@@ -324,9 +324,9 @@ function InlineAskAgent({ pmJobs, screen }: { pmJobs: { id: string; name: string
                     fontSize: isTouch ? 13 : 10,
                     fontWeight: 600, border: 'none', cursor: 'pointer',
                     ...(isMobile ? { flex: 1 } : {}),
-                    ...(idx > 0 ? { borderLeft: '1px solid rgba(205,162,116,0.15)' } : {}),
-                    background: agentMode === mode.key ? 'rgba(205,162,116,0.2)' : 'transparent',
-                    color: agentMode === mode.key ? '#CDA274' : '#5a5550',
+                    ...(idx > 0 ? { borderLeft: '1px solid rgba(200,140,0,0.15)' } : {}),
+                    background: agentMode === mode.key ? 'rgba(200,140,0,0.2)' : 'transparent',
+                    color: agentMode === mode.key ? '#c88c00' : '#5a5550',
                     transition: 'background 0.15s, color 0.15s',
                   }}
                 >
@@ -338,8 +338,8 @@ function InlineAskAgent({ pmJobs, screen }: { pmJobs: { id: string; name: string
               value={selectedJobId}
               onChange={e => setSelectedJobId(e.target.value)}
               style={{
-                flex: 1, background: '#242424', border: '1px solid rgba(205,162,116,0.1)',
-                borderRadius: isTouch ? 8 : 4, color: selectedJobId ? '#CDA274' : '#5a5550',
+                flex: 1, background: '#f8f6f3', border: '1px solid rgba(200,140,0,0.1)',
+                borderRadius: isTouch ? 8 : 4, color: selectedJobId ? '#c88c00' : '#5a5550',
                 fontSize: isTouch ? 13 : 10, padding: isTouch ? '8px 10px' : '3px 6px', outline: 'none', cursor: 'pointer',
                 ...(isMobile ? { width: '100%' } : {}),
               }}
@@ -365,7 +365,7 @@ function InlineAskAgent({ pmJobs, screen }: { pmJobs: { id: string; name: string
                 </p>
                 {agentMode === 'change-order' && (
                   <p style={{ fontSize: isTouch ? 11 : 9, color: '#8a8078', marginTop: 4 }}>
-                    Use the <Paperclip size={isTouch ? 12 : 9} style={{ display: 'inline', verticalAlign: 'middle', color: '#CDA274' }} /> button to attach photos
+                    Use the <Paperclip size={isTouch ? 12 : 9} style={{ display: 'inline', verticalAlign: 'middle', color: '#c88c00' }} /> button to attach photos
                   </p>
                 )}
               </div>
@@ -375,21 +375,21 @@ function InlineAskAgent({ pmJobs, screen }: { pmJobs: { id: string; name: string
               <div key={i} style={{ marginBottom: isTouch ? 10 : 6 }}>
                 <div style={{ display: 'flex', gap: isTouch ? 8 : 6, justifyContent: msg.role === 'user' ? 'flex-end' : 'flex-start' }}>
                   {msg.role === 'assistant' && (
-                    <div style={{ width: isTouch ? 24 : 18, height: isTouch ? 24 : 18, borderRadius: 12, background: 'rgba(205,162,116,0.12)', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0, marginTop: 2 }}>
-                      <Bot size={isTouch ? 13 : 10} style={{ color: '#CDA274' }} />
+                    <div style={{ width: isTouch ? 24 : 18, height: isTouch ? 24 : 18, borderRadius: 12, background: 'rgba(200,140,0,0.12)', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0, marginTop: 2 }}>
+                      <Bot size={isTouch ? 13 : 10} style={{ color: '#c88c00' }} />
                     </div>
                   )}
                   <div style={{
                     maxWidth: isMobile ? '90%' : '85%', padding: isTouch ? '8px 12px' : '5px 8px', borderRadius: isTouch ? 10 : 6, fontSize: isTouch ? 14 : 11, lineHeight: isTouch ? '20px' : '16px',
                     ...(msg.role === 'user'
-                      ? { background: '#1B3A5C', color: '#e8e0d8' }
-                      : { background: '#242424', color: '#e8e0d8', border: '1px solid rgba(205,162,116,0.06)' }),
+                      ? { background: '#1B3A5C', color: '#1a1a1a' }
+                      : { background: '#f8f6f3', color: '#1a1a1a', border: '1px solid rgba(200,140,0,0.06)' }),
                   }}>
                     {msg.role === 'assistant' ? <RenderContent content={msg.content} /> : msg.content}
                   </div>
                   {msg.role === 'user' && (
                     <div style={{ width: isTouch ? 24 : 18, height: isTouch ? 24 : 18, borderRadius: 12, background: 'rgba(27,58,92,0.3)', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0, marginTop: 2 }}>
-                      <User size={isTouch ? 13 : 10} style={{ color: '#e8e0d8' }} />
+                      <User size={isTouch ? 13 : 10} style={{ color: '#1a1a1a' }} />
                     </div>
                   )}
                 </div>
@@ -473,11 +473,11 @@ function InlineAskAgent({ pmJobs, screen }: { pmJobs: { id: string; name: string
 
             {loading && (
               <div style={{ display: 'flex', gap: isTouch ? 8 : 6, alignItems: 'center', padding: isTouch ? '8px 0' : '4px 0' }}>
-                <div style={{ width: isTouch ? 24 : 18, height: isTouch ? 24 : 18, borderRadius: 12, background: 'rgba(205,162,116,0.12)', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
-                  <Bot size={isTouch ? 13 : 10} style={{ color: '#CDA274' }} />
+                <div style={{ width: isTouch ? 24 : 18, height: isTouch ? 24 : 18, borderRadius: 12, background: 'rgba(200,140,0,0.12)', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
+                  <Bot size={isTouch ? 13 : 10} style={{ color: '#c88c00' }} />
                 </div>
-                <div style={{ display: 'flex', alignItems: 'center', gap: 5, padding: isTouch ? '8px 12px' : '4px 8px', borderRadius: isTouch ? 10 : 6, background: '#242424', border: '1px solid rgba(205,162,116,0.06)' }}>
-                  <Loader2 size={isTouch ? 16 : 12} className="animate-spin" style={{ color: '#CDA274' }} />
+                <div style={{ display: 'flex', alignItems: 'center', gap: 5, padding: isTouch ? '8px 12px' : '4px 8px', borderRadius: isTouch ? 10 : 6, background: '#f8f6f3', border: '1px solid rgba(200,140,0,0.06)' }}>
+                  <Loader2 size={isTouch ? 16 : 12} className="animate-spin" style={{ color: '#c88c00' }} />
                   <span style={{ fontSize: isTouch ? 13 : 10, color: '#5a5550' }}>Searching your data...</span>
                 </div>
               </div>
@@ -487,11 +487,11 @@ function InlineAskAgent({ pmJobs, screen }: { pmJobs: { id: string; name: string
 
           {/* Image Preview Strip */}
           {attachedImages.length > 0 && (
-            <div style={{ display: 'flex', gap: isTouch ? 10 : 6, padding: isTouch ? '8px 12px' : '6px 10px', borderTop: '1px solid rgba(205,162,116,0.06)', overflowX: 'auto' }}>
+            <div style={{ display: 'flex', gap: isTouch ? 10 : 6, padding: isTouch ? '8px 12px' : '6px 10px', borderTop: '1px solid rgba(200,140,0,0.06)', overflowX: 'auto' }}>
               {attachedImages.map((img, idx) => (
                 <div key={idx} style={{ position: 'relative', flexShrink: 0 }}>
                   <img src={img.preview} alt={img.file.name}
-                    style={{ width: isTouch ? 64 : 48, height: isTouch ? 64 : 48, borderRadius: isTouch ? 8 : 6, objectFit: 'cover', border: '1px solid rgba(205,162,116,0.15)' }} />
+                    style={{ width: isTouch ? 64 : 48, height: isTouch ? 64 : 48, borderRadius: isTouch ? 8 : 6, objectFit: 'cover', border: '1px solid rgba(200,140,0,0.15)' }} />
                   <button onClick={() => removeImage(idx)}
                     style={{
                       position: 'absolute', top: -4, right: -4, width: isTouch ? 22 : 16, height: isTouch ? 22 : 16, borderRadius: 11,
@@ -501,13 +501,13 @@ function InlineAskAgent({ pmJobs, screen }: { pmJobs: { id: string; name: string
                   </button>
                 </div>
               ))}
-              {uploading && <div style={{ display: 'flex', alignItems: 'center', gap: 4, fontSize: isTouch ? 13 : 10, color: '#CDA274' }}><Loader2 size={isTouch ? 16 : 12} className="animate-spin" /> Uploading...</div>}
+              {uploading && <div style={{ display: 'flex', alignItems: 'center', gap: 4, fontSize: isTouch ? 13 : 10, color: '#c88c00' }}><Loader2 size={isTouch ? 16 : 12} className="animate-spin" /> Uploading...</div>}
             </div>
           )}
 
           {/* Uploaded URLs indicator */}
           {uploadedUrls.length > 0 && attachedImages.length === 0 && (
-            <div style={{ padding: isTouch ? '6px 12px' : '4px 10px', borderTop: '1px solid rgba(205,162,116,0.06)', display: 'flex', alignItems: 'center', gap: 6 }}>
+            <div style={{ padding: isTouch ? '6px 12px' : '4px 10px', borderTop: '1px solid rgba(200,140,0,0.06)', display: 'flex', alignItems: 'center', gap: 6 }}>
               <ImageIcon size={isTouch ? 14 : 10} color="#22c55e" />
               <span style={{ fontSize: isTouch ? 12 : 9, color: '#22c55e' }}>{uploadedUrls.length} photo(s) ready to attach to change order</span>
               <button onClick={() => setUploadedUrls([])} style={{ fontSize: isTouch ? 12 : 9, color: '#5a5550', background: 'none', border: 'none', cursor: 'pointer', textDecoration: 'underline', marginLeft: 'auto', padding: isTouch ? '4px' : 0 }}>Clear</button>
@@ -515,16 +515,16 @@ function InlineAskAgent({ pmJobs, screen }: { pmJobs: { id: string; name: string
           )}
 
           {/* Input */}
-          <form onSubmit={handleSubmit} style={{ display: 'flex', alignItems: 'center', gap: isTouch ? 8 : 4, padding: isTouch ? '8px 12px' : '6px 10px', borderTop: '1px solid rgba(205,162,116,0.06)' }}>
+          <form onSubmit={handleSubmit} style={{ display: 'flex', alignItems: 'center', gap: isTouch ? 8 : 4, padding: isTouch ? '8px 12px' : '6px 10px', borderTop: '1px solid rgba(200,140,0,0.06)' }}>
             <input ref={fileInputRef} type="file" accept="image/*" multiple onChange={handleImageAttach} style={{ display: 'none' }} />
             {agentMode === 'change-order' && (
               <button type="button" onClick={() => fileInputRef.current?.click()} title="Attach photos"
                 style={{
                   width: isTouch ? 40 : 28, height: isTouch ? 40 : 28, borderRadius: isTouch ? 10 : 6, border: 'none', cursor: 'pointer', flexShrink: 0,
-                  background: attachedImages.length > 0 ? 'rgba(205,162,116,0.15)' : 'transparent',
+                  background: attachedImages.length > 0 ? 'rgba(200,140,0,0.15)' : 'transparent',
                   display: 'flex', alignItems: 'center', justifyContent: 'center',
                 }}>
-                <Paperclip size={isTouch ? 18 : 13} style={{ color: attachedImages.length > 0 ? '#CDA274' : '#5a5550' }} />
+                <Paperclip size={isTouch ? 18 : 13} style={{ color: attachedImages.length > 0 ? '#c88c00' : '#5a5550' }} />
               </button>
             )}
             <textarea
@@ -540,8 +540,8 @@ function InlineAskAgent({ pmJobs, screen }: { pmJobs: { id: string; name: string
               rows={1}
               disabled={loading || uploading}
               style={{
-                flex: 1, background: '#242424', border: '1px solid rgba(205,162,116,0.1)',
-                borderRadius: isTouch ? 10 : 6, color: '#e8e0d8', fontSize: isTouch ? 16 : 11, padding: isTouch ? '10px 12px' : '6px 8px',
+                flex: 1, background: '#f8f6f3', border: '1px solid rgba(200,140,0,0.1)',
+                borderRadius: isTouch ? 10 : 6, color: '#1a1a1a', fontSize: isTouch ? 16 : 11, padding: isTouch ? '10px 12px' : '6px 8px',
                 outline: 'none', resize: 'none', minHeight: isTouch ? 42 : 30, maxHeight: isTouch ? 120 : 80, overflowY: 'auto',
                 fontFamily: 'inherit',
               }}
@@ -549,10 +549,10 @@ function InlineAskAgent({ pmJobs, screen }: { pmJobs: { id: string; name: string
             <button type="submit" disabled={!query.trim() || loading || uploading}
               style={{
                 width: isTouch ? 40 : 28, height: isTouch ? 40 : 28, borderRadius: isTouch ? 10 : 6, border: 'none', cursor: query.trim() && !loading ? 'pointer' : 'default',
-                background: query.trim() && !loading ? 'rgba(205,162,116,0.15)' : 'transparent',
+                background: query.trim() && !loading ? 'rgba(200,140,0,0.15)' : 'transparent',
                 display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0,
               }}>
-              <Send size={isTouch ? 18 : 13} style={{ color: query.trim() && !loading ? '#CDA274' : '#3a3a3a' }} />
+              <Send size={isTouch ? 18 : 13} style={{ color: query.trim() && !loading ? '#c88c00' : '#e8e5e0' }} />
             </button>
           </form>
         </div>
@@ -562,7 +562,7 @@ function InlineAskAgent({ pmJobs, screen }: { pmJobs: { id: string; name: string
 }
 
 const PALETTE = [
-  '#CDA274', '#3b82f6', '#22c55e', '#a855f7',
+  '#c88c00', '#3b82f6', '#22c55e', '#a855f7',
   '#ec4899', '#f59e0b', '#14b8a6', '#ef4444',
   '#6366f1', '#84cc16', '#f97316', '#06b6d4',
 ];
@@ -694,7 +694,7 @@ function TargetBar({ current, target, invert }: { current: number; target: numbe
   }
   const barColor = pct >= 90 ? '#22c55e' : pct >= 60 ? '#eab308' : '#ef4444';
   return (
-    <div style={{ width: '100%', height: 3, background: '#2a2a2a', borderRadius: 2, marginTop: 3, overflow: 'hidden' }}>
+    <div style={{ width: '100%', height: 3, background: '#f0eeeb', borderRadius: 2, marginTop: 3, overflow: 'hidden' }}>
       <div style={{ width: `${pct}%`, height: '100%', background: barColor, borderRadius: 2, transition: 'width 0.3s' }} />
     </div>
   );
@@ -850,13 +850,13 @@ export default function FieldDashboardPage() {
 
   if (loading) return (
     <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '80px 0' }}>
-      <Loader2 size={20} className="animate-spin" style={{ color: '#CDA274' }} />
+      <Loader2 size={20} className="animate-spin" style={{ color: '#c88c00' }} />
     </div>
   );
   if (error || !data) return (
     <div style={{ textAlign: 'center', padding: '60px 0' }}>
       <p style={{ color: '#ef4444', fontSize: 13, marginBottom: 12 }}>{error || 'Something went wrong'}</p>
-      <button onClick={() => fetchData()} style={{ background: '#CDA274', color: '#1a1a1a', fontSize: 12, padding: '6px 16px', borderRadius: 6, border: 'none', cursor: 'pointer' }}>Retry</button>
+      <button onClick={() => fetchData()} style={{ background: '#c88c00', color: '#ffffff', fontSize: 12, padding: '6px 16px', borderRadius: 6, border: 'none', cursor: 'pointer' }}>Retry</button>
     </div>
   );
 
@@ -864,9 +864,9 @@ export default function FieldDashboardPage() {
     <div style={{ maxWidth: 960, margin: '0 auto', padding: isMobile ? '0 12px' : '0 8px', position: 'relative' }}>
       {/* HEADER */}
       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: isTouch ? 10 : 6 }}>
-        <h1 style={{ color: '#e8e0d8', fontSize: isTouch ? 22 : 18, fontWeight: 700, margin: 0 }}>{getGreeting()}, {firstName}</h1>
-        <button onClick={() => fetchData(true)} disabled={refreshing} style={{ padding: 5, borderRadius: 6, background: 'rgba(205,162,116,0.08)', border: 'none', cursor: 'pointer', lineHeight: 0 }}>
-          <RefreshCw size={12} className={refreshing ? 'animate-spin' : ''} style={{ color: '#CDA274' }} />
+        <h1 style={{ color: '#1a1a1a', fontSize: isTouch ? 22 : 18, fontWeight: 700, margin: 0 }}>{getGreeting()}, {firstName}</h1>
+        <button onClick={() => fetchData(true)} disabled={refreshing} style={{ padding: 5, borderRadius: 6, background: 'rgba(200,140,0,0.08)', border: 'none', cursor: 'pointer', lineHeight: 0 }}>
+          <RefreshCw size={12} className={refreshing ? 'animate-spin' : ''} style={{ color: '#c88c00' }} />
         </button>
       </div>
 
@@ -881,15 +881,15 @@ export default function FieldDashboardPage() {
           style={{
             flex: 1, display: 'flex', alignItems: 'center', gap: 5,
             padding: '7px 8px', borderRadius: 8, border: 'none', cursor: jobOverdueCount > 0 ? 'pointer' : 'default',
-            background: jobOverdueCount > 0 ? 'rgba(249,115,22,0.07)' : '#1e1e1e',
+            background: jobOverdueCount > 0 ? 'rgba(249,115,22,0.07)' : '#f8f6f3',
             borderWidth: 1, borderStyle: 'solid',
-            borderColor: jobOverdueCount > 0 ? 'rgba(249,115,22,0.18)' : 'rgba(205,162,116,0.06)',
+            borderColor: jobOverdueCount > 0 ? 'rgba(249,115,22,0.18)' : 'rgba(200,140,0,0.06)',
             textAlign: 'left',
           }}
         >
-          <Briefcase size={12} style={{ color: jobOverdueCount > 0 ? '#f97316' : '#3a3a3a', flexShrink: 0 }} />
+          <Briefcase size={12} style={{ color: jobOverdueCount > 0 ? '#f97316' : '#e8e5e0', flexShrink: 0 }} />
           <div style={{ flex: 1, minWidth: 0 }}>
-            <div style={{ fontSize: 16, fontWeight: 700, color: jobOverdueCount > 0 ? '#f97316' : '#3a3a3a', lineHeight: 1 }}>{jobOverdueCount}</div>
+            <div style={{ fontSize: 16, fontWeight: 700, color: jobOverdueCount > 0 ? '#f97316' : '#e8e5e0', lineHeight: 1 }}>{jobOverdueCount}</div>
             <div style={{ fontSize: 8, color: '#6a6058', marginTop: 1, whiteSpace: 'nowrap' }}>Job Overdue</div>
           </div>
           {jobOverdueCount > 0 && (showTasks === 'jobOverdue' ? <ChevronUp size={11} style={{ color: '#6a6058' }} /> : <ChevronDown size={11} style={{ color: '#6a6058' }} />)}
@@ -901,15 +901,15 @@ export default function FieldDashboardPage() {
           style={{
             flex: 1, display: 'flex', alignItems: 'center', gap: 5,
             padding: '7px 8px', borderRadius: 8, border: 'none', cursor: myOverdueCount > 0 ? 'pointer' : 'default',
-            background: myOverdueCount > 0 ? 'rgba(239,68,68,0.07)' : '#1e1e1e',
+            background: myOverdueCount > 0 ? 'rgba(239,68,68,0.07)' : '#f8f6f3',
             borderWidth: 1, borderStyle: 'solid',
-            borderColor: myOverdueCount > 0 ? 'rgba(239,68,68,0.18)' : 'rgba(205,162,116,0.06)',
+            borderColor: myOverdueCount > 0 ? 'rgba(239,68,68,0.18)' : 'rgba(200,140,0,0.06)',
             textAlign: 'left',
           }}
         >
-          <AlertTriangle size={12} style={{ color: myOverdueCount > 0 ? '#ef4444' : '#3a3a3a', flexShrink: 0 }} />
+          <AlertTriangle size={12} style={{ color: myOverdueCount > 0 ? '#ef4444' : '#e8e5e0', flexShrink: 0 }} />
           <div style={{ flex: 1, minWidth: 0 }}>
-            <div style={{ fontSize: 16, fontWeight: 700, color: myOverdueCount > 0 ? '#ef4444' : '#3a3a3a', lineHeight: 1 }}>{myOverdueCount}</div>
+            <div style={{ fontSize: 16, fontWeight: 700, color: myOverdueCount > 0 ? '#ef4444' : '#e8e5e0', lineHeight: 1 }}>{myOverdueCount}</div>
             <div style={{ fontSize: 8, color: '#6a6058', marginTop: 1, whiteSpace: 'nowrap' }}>My Overdue</div>
           </div>
           {myOverdueCount > 0 && (showTasks === 'myOverdue' ? <ChevronUp size={11} style={{ color: '#6a6058' }} /> : <ChevronDown size={11} style={{ color: '#6a6058' }} />)}
@@ -921,14 +921,14 @@ export default function FieldDashboardPage() {
           style={{
             flex: 1, display: 'flex', alignItems: 'center', gap: 5,
             padding: '7px 8px', borderRadius: 8, border: 'none', cursor: myUpcomingCount > 0 ? 'pointer' : 'default',
-            background: '#1e1e1e', textAlign: 'left',
+            background: '#f8f6f3', textAlign: 'left',
             borderWidth: 1, borderStyle: 'solid',
-            borderColor: 'rgba(205,162,116,0.08)',
+            borderColor: 'rgba(200,140,0,0.08)',
           }}
         >
-          <ClipboardList size={12} style={{ color: '#CDA274', flexShrink: 0 }} />
+          <ClipboardList size={12} style={{ color: '#c88c00', flexShrink: 0 }} />
           <div style={{ flex: 1, minWidth: 0 }}>
-            <div style={{ fontSize: 16, fontWeight: 700, color: '#CDA274', lineHeight: 1 }}>{myUpcomingCount}</div>
+            <div style={{ fontSize: 16, fontWeight: 700, color: '#c88c00', lineHeight: 1 }}>{myUpcomingCount}</div>
             <div style={{ fontSize: 8, color: '#6a6058', marginTop: 1, whiteSpace: 'nowrap' }}>My Upcoming</div>
           </div>
           {myUpcomingCount > 0 && (showTasks === 'upcoming' ? <ChevronUp size={11} style={{ color: '#6a6058' }} /> : <ChevronDown size={11} style={{ color: '#6a6058' }} />)}
@@ -937,11 +937,11 @@ export default function FieldDashboardPage() {
 
       {/* Expanded task list */}
       {showTasks && (
-        <div style={{ background: '#1e1e1e', border: '1px solid rgba(205,162,116,0.08)', borderRadius: 8, padding: '6px 10px', marginBottom: 6, maxHeight: 200, overflowY: 'auto' }}>
+        <div style={{ background: '#f8f6f3', border: '1px solid rgba(200,140,0,0.08)', borderRadius: 8, padding: '6px 10px', marginBottom: 6, maxHeight: 200, overflowY: 'auto' }}>
           {showTasks === 'jobOverdue' && data.jobOverdueTasks.map(t => {
             const days = Math.floor((new Date(data.todayDate + 'T12:00:00').getTime() - new Date(t.date + 'T12:00:00').getTime()) / 86400000);
             return (
-              <div key={t.id} style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '3px 0', borderBottom: '1px solid rgba(205,162,116,0.04)', fontSize: 11 }}>
+              <div key={t.id} style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '3px 0', borderBottom: '1px solid rgba(200,140,0,0.04)', fontSize: 11 }}>
                 <button onClick={() => toggleComplete(t.id, false)} disabled={completing.has(t.id)}
                   style={{ background: 'none', border: 'none', cursor: 'pointer', padding: 0, lineHeight: 0, flexShrink: 0 }}>
                   {completing.has(t.id)
@@ -951,7 +951,7 @@ export default function FieldDashboardPage() {
                 </button>
                 <span style={{ width: 5, height: 5, borderRadius: 3, background: jobColor(t.jobNumber), flexShrink: 0 }} />
                 <a href={jtScheduleUrl(t.jobId)} target="_blank" rel="noopener noreferrer" style={{ flex: 1, overflow: 'hidden', minWidth: 0, display: 'flex', flexDirection: 'column', textDecoration: 'none' }}>
-                  <div style={{ color: '#e8e0d8', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', lineHeight: '14px' }}>{t.name}</div>
+                  <div style={{ color: '#1a1a1a', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', lineHeight: '14px' }}>{t.name}</div>
                   <div style={{ color: '#5a5550', fontSize: 9, lineHeight: '12px' }}>{t.jobName}{t.isAssignedToMe ? ' · assigned to you' : ''}</div>
                 </a>
                 <span style={{ color: '#f97316', fontSize: 10, fontWeight: 600, flexShrink: 0 }}>{days}d</span>
@@ -961,7 +961,7 @@ export default function FieldDashboardPage() {
           {showTasks === 'myOverdue' && data.myOverdueTasks.map(t => {
             const days = Math.floor((new Date(data.todayDate + 'T12:00:00').getTime() - new Date(t.date + 'T12:00:00').getTime()) / 86400000);
             return (
-              <div key={t.id} style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '3px 0', borderBottom: '1px solid rgba(205,162,116,0.04)', fontSize: 11 }}>
+              <div key={t.id} style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '3px 0', borderBottom: '1px solid rgba(200,140,0,0.04)', fontSize: 11 }}>
                 <button onClick={() => toggleComplete(t.id, false)} disabled={completing.has(t.id)}
                   style={{ background: 'none', border: 'none', cursor: 'pointer', padding: 0, lineHeight: 0, flexShrink: 0 }}>
                   {completing.has(t.id)
@@ -971,7 +971,7 @@ export default function FieldDashboardPage() {
                 </button>
                 <span style={{ width: 5, height: 5, borderRadius: 3, background: jobColor(t.jobNumber), flexShrink: 0 }} />
                 <a href={jtScheduleUrl(t.jobId)} target="_blank" rel="noopener noreferrer" style={{ flex: 1, overflow: 'hidden', minWidth: 0, display: 'flex', flexDirection: 'column', textDecoration: 'none' }}>
-                  <div style={{ color: '#e8e0d8', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', lineHeight: '14px' }}>{t.name}</div>
+                  <div style={{ color: '#1a1a1a', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', lineHeight: '14px' }}>{t.name}</div>
                   <div style={{ color: '#5a5550', fontSize: 9, lineHeight: '12px' }}>{t.jobName}</div>
                 </a>
                 <span style={{ color: '#ef4444', fontSize: 10, fontWeight: 600, flexShrink: 0 }}>{days}d</span>
@@ -982,17 +982,17 @@ export default function FieldDashboardPage() {
             const lbl = !t.endDate ? '' : t.endDate === data.todayDate ? 'Today'
               : (() => { const d = Math.floor((new Date(t.endDate + 'T12:00:00').getTime() - new Date(data.todayDate + 'T12:00:00').getTime()) / 86400000); return d === 1 ? 'Tomorrow' : d <= 0 ? 'Today' : `${d}d`; })();
             return (
-              <div key={t.id} style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '3px 0', borderBottom: '1px solid rgba(205,162,116,0.04)', fontSize: 11 }}>
+              <div key={t.id} style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '3px 0', borderBottom: '1px solid rgba(200,140,0,0.04)', fontSize: 11 }}>
                 <button onClick={() => toggleComplete(t.id, false)} disabled={completing.has(t.id)}
                   style={{ background: 'none', border: 'none', cursor: 'pointer', padding: 0, lineHeight: 0, flexShrink: 0 }}>
                   {completing.has(t.id)
                     ? <Loader2 size={13} className="animate-spin" style={{ color: '#6a6058' }} />
-                    : <Circle size={13} style={{ color: '#CDA274' }} />
+                    : <Circle size={13} style={{ color: '#c88c00' }} />
                   }
                 </button>
                 <span style={{ width: 5, height: 5, borderRadius: 3, background: jobColor(t.jobNumber), flexShrink: 0 }} />
                 <a href={jtScheduleUrl(t.jobId)} target="_blank" rel="noopener noreferrer" style={{ flex: 1, overflow: 'hidden', minWidth: 0, display: 'flex', flexDirection: 'column', textDecoration: 'none' }}>
-                  <div style={{ color: '#e8e0d8', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', lineHeight: '14px' }}>{t.name}</div>
+                  <div style={{ color: '#1a1a1a', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', lineHeight: '14px' }}>{t.name}</div>
                   <div style={{ color: '#5a5550', fontSize: 9, lineHeight: '12px' }}>{t.jobName}</div>
                 </a>
                 <span style={{ color: t.endDate === data.todayDate ? '#eab308' : '#5a5550', fontSize: 10, fontWeight: 500, flexShrink: 0 }}>{lbl}</span>
@@ -1030,7 +1030,7 @@ export default function FieldDashboardPage() {
                     textDecoration: 'none', fontSize: 11,
                   }}>
                   <span style={{ width: 6, height: 6, borderRadius: 3, background: c, flexShrink: 0 }} />
-                  <span style={{ color: '#e8e0d8', flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{t.name}</span>
+                  <span style={{ color: '#1a1a1a', flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{t.name}</span>
                   <span style={{ color: '#6a8ab5', fontSize: 9, flexShrink: 0 }}>{t.jobName.replace(/^#\d+\s*/, '')}</span>
                   <span style={{ color: '#3b82f6', fontSize: 10, fontWeight: 600, flexShrink: 0 }}>{dayLabel}</span>
                 </a>
@@ -1058,8 +1058,8 @@ export default function FieldDashboardPage() {
         const dayNames = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
 
         return (
-          <div style={{ marginBottom: 6, borderRadius: 8, overflow: 'hidden', border: '1px solid rgba(205,162,116,0.08)' }}>
-            <div style={{ display: 'flex', alignItems: 'center', gap: 5, padding: '4px 10px', background: 'rgba(205,162,116,0.04)' }}>
+          <div style={{ marginBottom: 6, borderRadius: 8, overflow: 'hidden', border: '1px solid rgba(200,140,0,0.08)' }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 5, padding: '4px 10px', background: 'rgba(200,140,0,0.04)' }}>
               <Sun size={10} style={{ color: '#eab308' }} />
               <span style={{ fontSize: 8, fontWeight: 700, color: '#5a5550', letterSpacing: '0.06em' }}>PERKASIE FORECAST</span>
             </div>
@@ -1072,14 +1072,14 @@ export default function FieldDashboardPage() {
                 return (
                   <div key={w.date} style={{
                     padding: '5px 2px', textAlign: 'center',
-                    background: isToday ? 'rgba(205,162,116,0.1)' : rainWarning ? 'rgba(59,130,246,0.04)' : '#1a1a1a',
-                    borderRight: i < data.weather.length - 1 ? '1px solid rgba(205,162,116,0.04)' : 'none',
+                    background: isToday ? 'rgba(200,140,0,0.1)' : rainWarning ? 'rgba(59,130,246,0.04)' : '#ffffff',
+                    borderRight: i < data.weather.length - 1 ? '1px solid rgba(200,140,0,0.04)' : 'none',
                   }}>
-                    <div style={{ fontSize: 8, fontWeight: 600, color: isToday ? '#CDA274' : isWeekend ? '#3a3a3a' : '#5a5550', marginBottom: 2 }}>
+                    <div style={{ fontSize: 8, fontWeight: 600, color: isToday ? '#c88c00' : isWeekend ? '#e8e5e0' : '#5a5550', marginBottom: 2 }}>
                       {isToday ? 'Today' : dayNames[dt.getDay()]}
                     </div>
                     <div style={{ margin: '2px 0' }}>{weatherIcon(w.code, 14)}</div>
-                    <div style={{ fontSize: 10, fontWeight: 700, color: '#e8e0d8', lineHeight: 1.2 }}>{w.high}°</div>
+                    <div style={{ fontSize: 10, fontWeight: 700, color: '#1a1a1a', lineHeight: 1.2 }}>{w.high}°</div>
                     <div style={{ fontSize: 8, color: '#4a4a4a' }}>{w.low}°</div>
                     {w.precipChance > 10 && (
                       <div style={{ fontSize: 7, color: w.precipChance >= 50 ? '#3b82f6' : '#5a5550', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 1, marginTop: 1 }}>
@@ -1098,7 +1098,7 @@ export default function FieldDashboardPage() {
       {weeks.map((week, wi) => (
         <div key={wi} style={{ marginBottom: 6 }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 3 }}>
-            <Calendar size={11} style={{ color: '#CDA274' }} />
+            <Calendar size={11} style={{ color: '#c88c00' }} />
             <span style={{ fontSize: 10, fontWeight: 700, letterSpacing: '0.08em', color: '#5a5550' }}>{week.label.toUpperCase()}</span>
             <span style={{ fontSize: 10, color: '#3f3f3f' }}>{week.days[0].month} {week.days[0].dayNum} – {week.days[6].month} {week.days[6].dayNum}</span>
           </div>
@@ -1112,15 +1112,15 @@ export default function FieldDashboardPage() {
 
               return (
                 <div key={day.date} style={{
-                  background: isToday ? 'rgba(205,162,116,0.1)' : '#1a1a1a',
+                  background: isToday ? 'rgba(200,140,0,0.1)' : '#ffffff',
                   minHeight: 80, display: 'flex', flexDirection: 'column',
                 }}>
                   <div style={{ display: 'flex', alignItems: 'baseline', justifyContent: 'space-between', padding: '3px 5px 2px' }}>
-                    <span style={{ fontSize: 9, fontWeight: 500, color: day.isWeekend ? '#3a3a3a' : '#6a6058' }}>{day.dayName}</span>
+                    <span style={{ fontSize: 9, fontWeight: 500, color: day.isWeekend ? '#e8e5e0' : '#6a6058' }}>{day.dayName}</span>
                     <span style={{
                       fontSize: 13, fontWeight: 700,
-                      color: isToday ? '#CDA274' : day.isWeekend ? '#3a3a3a' : '#7a7068',
-                      ...(isToday ? { background: 'rgba(205,162,116,0.25)', borderRadius: 4, padding: '0 4px' } : {}),
+                      color: isToday ? '#c88c00' : day.isWeekend ? '#e8e5e0' : '#7a7068',
+                      ...(isToday ? { background: 'rgba(200,140,0,0.25)', borderRadius: 4, padding: '0 4px' } : {}),
                     }}>{day.dayNum}</span>
                   </div>
                   <div style={{ flex: 1, padding: '1px 2px 3px', display: 'flex', flexDirection: 'column', gap: 1, overflow: 'hidden' }}>
@@ -1140,7 +1140,7 @@ export default function FieldDashboardPage() {
                               padding: '2px 3px', borderRadius: 3, cursor: 'pointer',
                               borderLeft: `3px solid ${c}`,
                               background: isSelected ? `${c}50` : highlighted ? `${c}35` : `${c}18`,
-                              fontSize: 9, lineHeight: '12px', color: '#e8e0d8',
+                              fontSize: 9, lineHeight: '12px', color: '#1a1a1a',
                               display: 'flex', alignItems: 'center', gap: 2,
                               opacity: isBeingCompleted ? 0.4 : 1,
                               ...(highlighted ? { boxShadow: `inset 0 0 0 1px ${c}50` } : {}),
@@ -1160,7 +1160,7 @@ export default function FieldDashboardPage() {
                       );
                     })}
                     {complete.length > 0 && (
-                      <div style={{ fontSize: 8, color: '#3a3a3a', display: 'flex', alignItems: 'center', gap: 2 }}>
+                      <div style={{ fontSize: 8, color: '#e8e5e0', display: 'flex', alignItems: 'center', gap: 2 }}>
                         <Check size={7} style={{ color: '#22c55e' }} /> {complete.length} done
                       </div>
                     )}
@@ -1222,7 +1222,7 @@ export default function FieldDashboardPage() {
         return (
           <div style={{ display: 'grid', gridTemplateColumns: isMobile ? 'repeat(3, 1fr)' : 'repeat(5, 1fr)', gap: isTouch ? 6 : 4, marginBottom: isTouch ? 10 : 6 }}>
             {/* KPI 1: Schedule Adherence */}
-            <div style={{ background: '#1e1e1e', borderRadius: 6, padding: '6px 7px', borderLeft: `3px solid ${adherenceColor}` }}>
+            <div style={{ background: '#f8f6f3', borderRadius: 6, padding: '6px 7px', borderLeft: `3px solid ${adherenceColor}` }}>
               <div style={{ display: 'flex', alignItems: 'center', gap: 3, marginBottom: 3 }}>
                 <Target size={9} style={{ color: adherenceColor }} />
                 <span style={{ fontSize: 7, color: '#5a5550', fontWeight: 600, letterSpacing: '0.04em' }}>ON-TRACK</span>
@@ -1243,7 +1243,7 @@ export default function FieldDashboardPage() {
             </div>
 
             {/* KPI 2: Avg Days Overdue */}
-            <div style={{ background: '#1e1e1e', borderRadius: 6, padding: '6px 7px', borderLeft: `3px solid ${avgOdColor}` }}>
+            <div style={{ background: '#f8f6f3', borderRadius: 6, padding: '6px 7px', borderLeft: `3px solid ${avgOdColor}` }}>
               <div style={{ display: 'flex', alignItems: 'center', gap: 3, marginBottom: 3 }}>
                 <Clock3 size={9} style={{ color: avgOdColor }} />
                 <span style={{ fontSize: 7, color: '#5a5550', fontWeight: 600, letterSpacing: '0.04em' }}>AVG OVERDUE</span>
@@ -1264,7 +1264,7 @@ export default function FieldDashboardPage() {
             </div>
 
             {/* KPI 3: Stale Tasks */}
-            <div style={{ background: '#1e1e1e', borderRadius: 6, padding: '6px 7px', borderLeft: `3px solid ${staleColor}` }}>
+            <div style={{ background: '#f8f6f3', borderRadius: 6, padding: '6px 7px', borderLeft: `3px solid ${staleColor}` }}>
               <div style={{ display: 'flex', alignItems: 'center', gap: 3, marginBottom: 3 }}>
                 <AlertTriangle size={9} style={{ color: staleColor }} />
                 <span style={{ fontSize: 7, color: '#5a5550', fontWeight: 600, letterSpacing: '0.04em' }}>STALE</span>
@@ -1285,7 +1285,7 @@ export default function FieldDashboardPage() {
             </div>
 
             {/* KPI 4: Completed This Week */}
-            <div style={{ background: '#1e1e1e', borderRadius: 6, padding: '6px 7px', borderLeft: `3px solid #3b82f6` }}>
+            <div style={{ background: '#f8f6f3', borderRadius: 6, padding: '6px 7px', borderLeft: `3px solid #3b82f6` }}>
               <div style={{ display: 'flex', alignItems: 'center', gap: 3, marginBottom: 3 }}>
                 <Activity size={9} style={{ color: '#3b82f6' }} />
                 <span style={{ fontSize: 7, color: '#5a5550', fontWeight: 600, letterSpacing: '0.04em' }}>DONE / WK</span>
@@ -1305,7 +1305,7 @@ export default function FieldDashboardPage() {
             </div>
 
             {/* KPI 5: Upcoming Density */}
-            <div style={{ background: '#1e1e1e', borderRadius: 6, padding: '6px 7px', borderLeft: `3px solid ${densityColor}` }}>
+            <div style={{ background: '#f8f6f3', borderRadius: 6, padding: '6px 7px', borderLeft: `3px solid ${densityColor}` }}>
               <div style={{ display: 'flex', alignItems: 'center', gap: 3, marginBottom: 3 }}>
                 <CalendarDays size={9} style={{ color: densityColor }} />
                 <span style={{ fontSize: 7, color: '#5a5550', fontWeight: 600, letterSpacing: '0.04em' }}>DENSITY</span>
@@ -1349,13 +1349,13 @@ export default function FieldDashboardPage() {
               style={{
                 width: '100%', display: 'flex', alignItems: 'center', gap: 8,
                 padding: '7px 10px', borderRadius: 8, border: 'none', cursor: 'pointer',
-                background: pendingCount > 0 ? 'rgba(245,158,11,0.07)' : '#1e1e1e',
+                background: pendingCount > 0 ? 'rgba(245,158,11,0.07)' : '#f8f6f3',
                 borderWidth: 1, borderStyle: 'solid',
-                borderColor: pendingCount > 0 ? 'rgba(245,158,11,0.18)' : 'rgba(205,162,116,0.06)',
+                borderColor: pendingCount > 0 ? 'rgba(245,158,11,0.18)' : 'rgba(200,140,0,0.06)',
                 textAlign: 'left', marginBottom: 6,
               }}
             >
-              <FileClock size={12} style={{ color: pendingCount > 0 ? '#f59e0b' : '#CDA274', flexShrink: 0 }} />
+              <FileClock size={12} style={{ color: pendingCount > 0 ? '#f59e0b' : '#c88c00', flexShrink: 0 }} />
               <div style={{ flex: 1, minWidth: 0, display: 'flex', alignItems: 'center', gap: 6 }}>
                 <span style={{ fontSize: 16, fontWeight: 700, color: pendingCount > 0 ? '#f59e0b' : '#22c55e', lineHeight: 1 }}>{totalCount}</span>
                 <span style={{ fontSize: 8, color: '#6a6058', whiteSpace: 'nowrap' }}>Change Orders</span>
@@ -1367,14 +1367,14 @@ export default function FieldDashboardPage() {
               {showTasks === 'changeOrders' ? <ChevronUp size={11} style={{ color: '#6a6058' }} /> : <ChevronDown size={11} style={{ color: '#6a6058' }} />}
             </button>
             {showTasks === 'changeOrders' && (
-              <div style={{ background: '#1e1e1e', border: '1px solid rgba(205,162,116,0.08)', borderRadius: 8, padding: '6px 10px', marginBottom: 6, maxHeight: 260, overflowY: 'auto' }}>
+              <div style={{ background: '#f8f6f3', border: '1px solid rgba(200,140,0,0.08)', borderRadius: 8, padding: '6px 10px', marginBottom: 6, maxHeight: 260, overflowY: 'auto' }}>
                 {Array.from(byJob.entries()).map(([jobId, { jobName, jobNumber, cos }]) => {
                   const jobPending = cos.filter(co => co.status === 'pending');
                   const jobApproved = cos.filter(co => co.status === 'approved');
                   const isJobExpanded = expandedCOStatus === jobId;
 
                   return (
-                    <div key={jobId} style={{ padding: '4px 0', borderBottom: '1px solid rgba(205,162,116,0.06)' }}>
+                    <div key={jobId} style={{ padding: '4px 0', borderBottom: '1px solid rgba(200,140,0,0.06)' }}>
                       <button
                         onClick={() => setExpandedCOStatus(isJobExpanded ? null : jobId)}
                         style={{
@@ -1383,7 +1383,7 @@ export default function FieldDashboardPage() {
                         }}
                       >
                         <span style={{ width: 5, height: 5, borderRadius: 3, background: jobColor(jobNumber), flexShrink: 0 }} />
-                        <span style={{ fontSize: 11, color: '#e8e0d8', fontWeight: 500, flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                        <span style={{ fontSize: 11, color: '#1a1a1a', fontWeight: 500, flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
                           {jobName.replace(/^#\d+\s*/, '')}
                         </span>
                         <div style={{ display: 'flex', gap: 3, flexShrink: 0 }}>
@@ -1443,10 +1443,10 @@ export default function FieldDashboardPage() {
         }
         const activeCols = STATUS_COLUMNS.filter(c => grouped[c.key].length > 0);
         return (
-          <div style={{ background: 'rgba(205,162,116,0.04)', border: '1px solid rgba(205,162,116,0.08)', borderRadius: 8, padding: '8px 10px', marginBottom: 6 }}>
+          <div style={{ background: 'rgba(200,140,0,0.04)', border: '1px solid rgba(200,140,0,0.08)', borderRadius: 8, padding: '8px 10px', marginBottom: 6 }}>
             <div style={{ display: 'flex', alignItems: 'center', gap: 5, marginBottom: 8 }}>
-              <Briefcase size={10} style={{ color: '#CDA274' }} />
-              <span style={{ fontSize: 9, fontWeight: 700, color: '#CDA274', letterSpacing: '0.06em' }}>MY JOBS</span>
+              <Briefcase size={10} style={{ color: '#c88c00' }} />
+              <span style={{ fontSize: 9, fontWeight: 700, color: '#c88c00', letterSpacing: '0.06em' }}>MY JOBS</span>
               <span style={{ fontSize: 9, color: '#4a4a4a' }}>({data.pmJobs.length})</span>
             </div>
             <div style={{ display: 'grid', gridTemplateColumns: `repeat(${activeCols.length || 1}, 1fr)`, gap: 6 }}>
@@ -1467,13 +1467,13 @@ export default function FieldDashboardPage() {
                         style={{
                           display: 'flex', alignItems: 'center', gap: 5,
                           padding: '5px 7px', borderRadius: 5,
-                          background: 'rgba(205,162,116,0.06)',
-                          border: '1px solid rgba(205,162,116,0.08)',
+                          background: 'rgba(200,140,0,0.06)',
+                          border: '1px solid rgba(200,140,0,0.08)',
                           textDecoration: 'none', fontSize: 10, color: '#c0b8a8',
                           transition: 'background 0.15s',
                         }}
-                        onMouseEnter={e => (e.currentTarget.style.background = 'rgba(205,162,116,0.15)')}
-                        onMouseLeave={e => (e.currentTarget.style.background = 'rgba(205,162,116,0.06)')}
+                        onMouseEnter={e => (e.currentTarget.style.background = 'rgba(200,140,0,0.15)')}
+                        onMouseLeave={e => (e.currentTarget.style.background = 'rgba(200,140,0,0.06)')}
                       >
                         <span style={{ width: 5, height: 5, borderRadius: 3, background: jobColor(job.number), flexShrink: 0 }} />
                         <span style={{ flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{job.name.replace(/^#\d+\s*/, '')}</span>
@@ -1488,9 +1488,9 @@ export default function FieldDashboardPage() {
               <div style={{ display: 'flex', flexWrap: 'wrap', gap: 3, marginTop: 6 }}>
                 {uncategorized.map(job => (
                   <a key={job.id} href={jtScheduleUrl(job.id)} target="_blank" rel="noopener noreferrer"
-                    style={{ display: 'inline-flex', alignItems: 'center', gap: 4, padding: '3px 7px', borderRadius: 5, background: 'rgba(205,162,116,0.06)', border: '1px solid rgba(205,162,116,0.1)', textDecoration: 'none', fontSize: 10, color: '#c0b8a8', transition: 'background 0.15s' }}
-                    onMouseEnter={e => (e.currentTarget.style.background = 'rgba(205,162,116,0.15)')}
-                    onMouseLeave={e => (e.currentTarget.style.background = 'rgba(205,162,116,0.06)')}
+                    style={{ display: 'inline-flex', alignItems: 'center', gap: 4, padding: '3px 7px', borderRadius: 5, background: 'rgba(200,140,0,0.06)', border: '1px solid rgba(200,140,0,0.1)', textDecoration: 'none', fontSize: 10, color: '#c0b8a8', transition: 'background 0.15s' }}
+                    onMouseEnter={e => (e.currentTarget.style.background = 'rgba(200,140,0,0.15)')}
+                    onMouseLeave={e => (e.currentTarget.style.background = 'rgba(200,140,0,0.06)')}
                   >
                     <span style={{ width: 5, height: 5, borderRadius: 3, background: jobColor(job.number), flexShrink: 0 }} />
                     <span style={{ whiteSpace: 'nowrap' }}>{job.name.replace(/^#\d+\s*/, '')}</span>
@@ -1511,13 +1511,13 @@ export default function FieldDashboardPage() {
           zIndex: 1000,
         }} onClick={() => setSelectedTask(null)}>
           <div ref={popupRef} onClick={e => e.stopPropagation()} style={{
-            background: '#252525', borderRadius: 12, padding: 16, minWidth: 280, maxWidth: 360,
-            border: '1px solid rgba(205,162,116,0.15)', boxShadow: '0 12px 40px rgba(0,0,0,0.6)',
+            background: '#f8f6f3', borderRadius: 12, padding: 16, minWidth: 280, maxWidth: 360,
+            border: '1px solid rgba(200,140,0,0.15)', boxShadow: '0 12px 40px rgba(0,0,0,0.6)',
           }}>
             {/* Header */}
             <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', marginBottom: 10 }}>
               <div style={{ flex: 1, minWidth: 0 }}>
-                <div style={{ fontSize: 14, fontWeight: 600, color: '#e8e0d8', lineHeight: '18px' }}>{selectedTask.name}</div>
+                <div style={{ fontSize: 14, fontWeight: 600, color: '#1a1a1a', lineHeight: '18px' }}>{selectedTask.name}</div>
                 <div style={{ display: 'flex', alignItems: 'center', gap: 5, marginTop: 4 }}>
                   <span style={{ width: 7, height: 7, borderRadius: 4, background: jobColor(selectedTask.jobNumber), flexShrink: 0 }} />
                   <span style={{ fontSize: 11, color: '#8a8078' }}>#{selectedTask.jobNumber} {selectedTask.jobName}</span>
@@ -1537,15 +1537,15 @@ export default function FieldDashboardPage() {
                   value={editingDate}
                   onChange={e => setEditingDate(e.target.value)}
                   style={{
-                    flex: 1, background: '#1a1a1a', border: '1px solid rgba(205,162,116,0.15)', borderRadius: 6,
-                    color: '#e8e0d8', fontSize: 12, padding: '5px 8px',
+                    flex: 1, background: '#ffffff', border: '1px solid rgba(200,140,0,0.15)', borderRadius: 6,
+                    color: '#1a1a1a', fontSize: 12, padding: '5px 8px',
                     colorScheme: 'dark',
                   }}
                 />
                 {editingDate !== (selectedTask.endDate || selectedTask.date) && (
                   <button onClick={saveDate} disabled={savingDate}
                     style={{
-                      background: '#CDA274', color: '#1a1a1a', fontSize: 11, fontWeight: 600,
+                      background: '#c88c00', color: '#ffffff', fontSize: 11, fontWeight: 600,
                       padding: '5px 10px', borderRadius: 6, border: 'none', cursor: 'pointer',
                       opacity: savingDate ? 0.5 : 1,
                     }}>
@@ -1557,7 +1557,7 @@ export default function FieldDashboardPage() {
 
             {/* Assignment info */}
             {selectedTask.isAssignedToMe && (
-              <div style={{ fontSize: 10, color: '#CDA274', marginBottom: 10, display: 'flex', alignItems: 'center', gap: 4 }}>
+              <div style={{ fontSize: 10, color: '#c88c00', marginBottom: 10, display: 'flex', alignItems: 'center', gap: 4 }}>
                 <CheckCircle2 size={10} /> Assigned to you
               </div>
             )}
@@ -1587,7 +1587,7 @@ export default function FieldDashboardPage() {
                 style={{
                   flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 5,
                   padding: '7px 0', borderRadius: 6, fontSize: 12, fontWeight: 600, textDecoration: 'none',
-                  background: 'rgba(205,162,116,0.1)', color: '#CDA274',
+                  background: 'rgba(200,140,0,0.1)', color: '#c88c00',
                 }}>
                 <ExternalLink size={13} /> View in JobTread
               </a>

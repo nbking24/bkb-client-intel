@@ -262,7 +262,7 @@ export default function JobCostingDashboard() {
         <button
           onClick={() => { setSelectedJobId(null); setDetail(null); }}
           className="flex items-center gap-2 text-sm hover:opacity-80 transition-opacity"
-          style={{ color: '#C9A84C' }}
+          style={{ color: '#c88c00' }}
         >
           <ArrowLeft size={16} />
           Back to All Jobs
@@ -277,7 +277,7 @@ export default function JobCostingDashboard() {
           <>
             {/* Job Header */}
             <div className="flex items-center gap-3 flex-wrap">
-              <h1 className="text-2xl font-bold" style={{ color: '#C9A84C', fontFamily: 'Georgia, serif' }}>
+              <h1 className="text-2xl font-bold" style={{ color: '#c88c00', fontFamily: 'Georgia, serif' }}>
                 {detail.job.name}
               </h1>
               <span className="text-sm px-2 py-0.5 rounded" style={{ background: '#222', color: '#8a8078' }}>
@@ -307,18 +307,18 @@ export default function JobCostingDashboard() {
                 }}
               >
                 <div className="flex items-center gap-2 mb-2">
-                  <BarChart3 size={16} style={{ color: '#C9A84C' }} />
-                  <span className="text-sm font-semibold" style={{ color: '#C9A84C' }}>
+                  <BarChart3 size={16} style={{ color: '#c88c00' }} />
+                  <span className="text-sm font-semibold" style={{ color: '#c88c00' }}>
                     {detail.job.isCompleted ? 'AI Final Assessment' : 'AI Cost Analysis'}
                   </span>
                 </div>
                 <div className="text-sm" style={{ color: '#d0c8c0', lineHeight: '1.7' }}
                   dangerouslySetInnerHTML={{
                     __html: detail.aiAnalysis
-                      .replace(/\*\*(.+?)\*\*/g, '<strong style="color:#e8e0d8">$1</strong>')
-                      .replace(/^### (.+)$/gm, '<div style="font-weight:600;color:#C9A84C;margin-top:0.75rem">$1</div>')
-                      .replace(/^## (.+)$/gm, '<div style="font-weight:600;color:#C9A84C;margin-top:0.75rem">$1</div>')
-                      .replace(/^# (.+)$/gm, '<div style="font-weight:600;color:#C9A84C;margin-top:0.75rem">$1</div>')
+                      .replace(/\*\*(.+?)\*\*/g, '<strong style="color:#1a1a1a">$1</strong>')
+                      .replace(/^### (.+)$/gm, '<div style="font-weight:600;color:#c88c00;margin-top:0.75rem">$1</div>')
+                      .replace(/^## (.+)$/gm, '<div style="font-weight:600;color:#c88c00;margin-top:0.75rem">$1</div>')
+                      .replace(/^# (.+)$/gm, '<div style="font-weight:600;color:#c88c00;margin-top:0.75rem">$1</div>')
                       .replace(/\n/g, '<br/>')
                   }}
                 />
@@ -364,7 +364,7 @@ export default function JobCostingDashboard() {
                   sub: detail.financialSummary.isCostPlus
                     ? 'Cost-Plus'
                     : `$${fmt(detail.financialSummary.estimatedCost)} internal cost budget`,
-                  color: '#C9A84C',
+                  color: '#c88c00',
                 },
                 {
                   label: 'Total Costs',
@@ -373,7 +373,7 @@ export default function JobCostingDashboard() {
                     ? `$${fmt(detail.financialSummary.actualCost)} paid · $${fmt(detail.financialSummary.pendingCost)} pending`
                     : `$${fmt(detail.financialSummary.actualCost)} paid`,
                   color: (detail.financialSummary.totalCosts || detail.financialSummary.committedCost) > detail.financialSummary.estimatedCost && detail.financialSummary.estimatedCost > 0
-                    ? '#ef4444' : '#e8e0d8',
+                    ? '#ef4444' : '#1a1a1a',
                 },
                 {
                   label: detail.job.isCompleted ? 'Final Margin' : 'Margin',
@@ -392,13 +392,13 @@ export default function JobCostingDashboard() {
                       ? ` · $${fmt(detail.financialSummary.draftInvoiceTotal)} in draft`
                       : '')
                     : 'No contract',
-                  color: '#C9A84C',
+                  color: '#c88c00',
                 },
               ].map((card, i) => (
                 <div
                   key={i}
                   className="rounded-lg p-3"
-                  style={{ background: '#1a1a1a', border: '1px solid rgba(205,162,116,0.1)' }}
+                  style={{ background: '#ffffff', border: '1px solid rgba(200,140,0,0.1)' }}
                 >
                   <p className="text-xs mb-1" style={{ color: '#8a8078' }}>{card.label}</p>
                   <p className="text-xl font-bold" style={{ color: card.color }}>{card.value}</p>
@@ -416,7 +416,7 @@ export default function JobCostingDashboard() {
                   sub: detail.financialSummary.invoicedTotal > 0
                     ? `${Math.round((detail.financialSummary.collectedAmount / detail.financialSummary.invoicedTotal) * 100)}% of invoiced`
                     : 'Nothing invoiced',
-                  color: '#C9A84C',
+                  color: '#c88c00',
                 },
                 {
                   label: 'Remaining to Bill',
@@ -438,13 +438,13 @@ export default function JobCostingDashboard() {
                   label: 'Schedule',
                   value: detail.financialSummary.scheduleProgress + '%',
                   sub: 'tasks complete',
-                  color: detail.financialSummary.scheduleProgress >= 75 ? '#22c55e' : detail.financialSummary.scheduleProgress >= 25 ? '#C9A84C' : '#8a8078',
+                  color: detail.financialSummary.scheduleProgress >= 75 ? '#22c55e' : detail.financialSummary.scheduleProgress >= 25 ? '#c88c00' : '#8a8078',
                 },
               ].map((card, i) => (
                 <div
                   key={i}
                   className="rounded-lg p-3"
-                  style={{ background: '#1a1a1a', border: '1px solid rgba(205,162,116,0.1)' }}
+                  style={{ background: '#ffffff', border: '1px solid rgba(200,140,0,0.1)' }}
                 >
                   <p className="text-xs mb-1" style={{ color: '#8a8078' }}>{card.label}</p>
                   <p className="text-xl font-bold" style={{ color: card.color }}>{card.value}</p>
@@ -456,10 +456,10 @@ export default function JobCostingDashboard() {
             {/* Cost Code Breakdown */}
             <div
               className="rounded-lg overflow-hidden"
-              style={{ background: '#1a1a1a', border: '1px solid rgba(205,162,116,0.1)' }}
+              style={{ background: '#ffffff', border: '1px solid rgba(200,140,0,0.1)' }}
             >
-              <div className="px-4 py-3" style={{ borderBottom: '1px solid rgba(205,162,116,0.08)' }}>
-                <h2 className="text-sm font-bold" style={{ color: '#e8e0d8' }}>
+              <div className="px-4 py-3" style={{ borderBottom: '1px solid rgba(200,140,0,0.08)' }}>
+                <h2 className="text-sm font-bold" style={{ color: '#1a1a1a' }}>
                   Cost Breakdown by Category
                 </h2>
                 <p className="text-xs mt-1" style={{ color: '#8a8078' }}>
@@ -472,7 +472,7 @@ export default function JobCostingDashboard() {
                 className="grid gap-2 px-4 py-2 text-xs font-medium"
                 style={{
                   color: '#8a8078',
-                  borderBottom: '1px solid rgba(205,162,116,0.06)',
+                  borderBottom: '1px solid rgba(200,140,0,0.06)',
                   gridTemplateColumns: '2.5fr 1fr 1fr 1fr 1fr 80px',
                 }}
               >
@@ -506,7 +506,7 @@ export default function JobCostingDashboard() {
                         }}
                         className="w-full grid gap-2 px-4 py-2.5 text-sm hover:bg-white/[0.02] transition-colors items-center"
                         style={{
-                          borderBottom: '1px solid rgba(205,162,116,0.04)',
+                          borderBottom: '1px solid rgba(200,140,0,0.04)',
                           gridTemplateColumns: '2.5fr 1fr 1fr 1fr 1fr 80px',
                         }}
                       >
@@ -522,12 +522,12 @@ export default function JobCostingDashboard() {
                           >
                             {cc.costCodeNumber}
                           </span>
-                          <span className="truncate" style={{ color: '#e8e0d8' }}>{cc.costCodeName}</span>
+                          <span className="truncate" style={{ color: '#1a1a1a' }}>{cc.costCodeName}</span>
                         </div>
                         <div className="text-right" style={{ color: '#8a8078' }}>
                           ${fmt(cc.estimatedCost)}
                         </div>
-                        <div className="text-right" style={{ color: '#e8e0d8' }}>
+                        <div className="text-right" style={{ color: '#1a1a1a' }}>
                           ${fmt(cc.actualCost)}
                         </div>
                         <div className="text-right" style={{ color: cc.pendingCost > 0 ? '#f59e0b' : '#555' }}>
@@ -602,16 +602,16 @@ export default function JobCostingDashboard() {
                 <div
                   className="grid gap-2 px-4 py-3 text-sm font-bold"
                   style={{
-                    borderTop: '1px solid rgba(205,162,116,0.15)',
+                    borderTop: '1px solid rgba(200,140,0,0.15)',
                     background: 'rgba(201,168,76,0.04)',
                     gridTemplateColumns: '2.5fr 1fr 1fr 1fr 1fr 80px',
                   }}
                 >
-                  <div style={{ color: '#C9A84C' }}>TOTAL</div>
+                  <div style={{ color: '#c88c00' }}>TOTAL</div>
                   <div className="text-right" style={{ color: '#8a8078' }}>
                     ${fmt(detail.financialSummary.estimatedCost)}
                   </div>
-                  <div className="text-right" style={{ color: '#e8e0d8' }}>
+                  <div className="text-right" style={{ color: '#1a1a1a' }}>
                     ${fmt(detail.financialSummary.actualCost)}
                   </div>
                   <div className="text-right" style={{ color: detail.financialSummary.pendingCost > 0 ? '#f59e0b' : '#555' }}>
@@ -636,10 +636,10 @@ export default function JobCostingDashboard() {
               {/* Hours summary */}
               <div
                 className="rounded-lg p-4"
-                style={{ background: '#1a1a1a', border: '1px solid rgba(205,162,116,0.1)' }}
+                style={{ background: '#ffffff', border: '1px solid rgba(200,140,0,0.1)' }}
               >
-                <h2 className="text-sm font-bold mb-3 flex items-center gap-2" style={{ color: '#e8e0d8' }}>
-                  <Clock size={14} style={{ color: '#C9A84C' }} />
+                <h2 className="text-sm font-bold mb-3 flex items-center gap-2" style={{ color: '#1a1a1a' }}>
+                  <Clock size={14} style={{ color: '#c88c00' }} />
                   Labor Hours
                 </h2>
 
@@ -652,7 +652,7 @@ export default function JobCostingDashboard() {
                   </div>
                   <div className="flex justify-between items-center">
                     <span className="text-xs" style={{ color: '#8a8078' }}>Actual Work</span>
-                    <span className="text-sm font-medium" style={{ color: '#e8e0d8' }}>
+                    <span className="text-sm font-medium" style={{ color: '#1a1a1a' }}>
                       {detail.timeAnalysis.actualWorkHours} hrs
                     </span>
                   </div>
@@ -664,9 +664,9 @@ export default function JobCostingDashboard() {
                   </div>
                   <div
                     className="flex justify-between items-center pt-2"
-                    style={{ borderTop: '1px solid rgba(205,162,116,0.1)' }}
+                    style={{ borderTop: '1px solid rgba(200,140,0,0.1)' }}
                   >
-                    <span className="text-xs font-medium" style={{ color: '#C9A84C' }}>Variance</span>
+                    <span className="text-xs font-medium" style={{ color: '#c88c00' }}>Variance</span>
                     <span
                       className="text-sm font-bold"
                       style={{ color: detail.timeAnalysis.hoursVariance >= 0 ? '#22c55e' : '#ef4444' }}
@@ -692,10 +692,10 @@ export default function JobCostingDashboard() {
               {/* Hours by user */}
               <div
                 className="rounded-lg p-4"
-                style={{ background: '#1a1a1a', border: '1px solid rgba(205,162,116,0.1)' }}
+                style={{ background: '#ffffff', border: '1px solid rgba(200,140,0,0.1)' }}
               >
-                <h2 className="text-sm font-bold mb-3 flex items-center gap-2" style={{ color: '#e8e0d8' }}>
-                  <Users size={14} style={{ color: '#C9A84C' }} />
+                <h2 className="text-sm font-bold mb-3 flex items-center gap-2" style={{ color: '#1a1a1a' }}>
+                  <Users size={14} style={{ color: '#c88c00' }} />
                   Hours by Team Member
                 </h2>
 
@@ -705,7 +705,7 @@ export default function JobCostingDashboard() {
                   <div className="space-y-2">
                     {detail.timeAnalysis.byUser.map((user) => (
                       <div key={user.name} className="flex items-center gap-2">
-                        <span className="text-xs flex-1 truncate" style={{ color: '#e8e0d8' }}>
+                        <span className="text-xs flex-1 truncate" style={{ color: '#1a1a1a' }}>
                           {user.name}
                         </span>
                         <span className="text-xs" style={{ color: '#8a8078' }}>
@@ -716,7 +716,7 @@ export default function JobCostingDashboard() {
                             {user.travel}t
                           </span>
                         )}
-                        <span className="text-xs font-medium w-12 text-right" style={{ color: '#C9A84C' }}>
+                        <span className="text-xs font-medium w-12 text-right" style={{ color: '#c88c00' }}>
                           {user.total}h
                         </span>
                       </div>
@@ -729,10 +729,10 @@ export default function JobCostingDashboard() {
             {/* Documents */}
             <div
               className="rounded-lg p-4"
-              style={{ background: '#1a1a1a', border: '1px solid rgba(205,162,116,0.1)' }}
+              style={{ background: '#ffffff', border: '1px solid rgba(200,140,0,0.1)' }}
             >
-              <h2 className="text-sm font-bold mb-3 flex items-center gap-2" style={{ color: '#e8e0d8' }}>
-                <FileText size={14} style={{ color: '#C9A84C' }} />
+              <h2 className="text-sm font-bold mb-3 flex items-center gap-2" style={{ color: '#1a1a1a' }}>
+                <FileText size={14} style={{ color: '#c88c00' }} />
                 Documents
               </h2>
               <div className="grid grid-cols-2 md:grid-cols-4 gap-3 text-center">
@@ -767,7 +767,7 @@ export default function JobCostingDashboard() {
                 ].map((cat: any) => (
                   <div key={cat.label} className="p-2 rounded" style={{ background: '#0d0d0d' }}>
                     <p className="text-xs mb-1" style={{ color: '#8a8078' }}>{cat.label}</p>
-                    <p className="text-lg font-bold" style={{ color: '#e8e0d8' }}>{cat.countOverride ?? cat.items.length}</p>
+                    <p className="text-lg font-bold" style={{ color: '#1a1a1a' }}>{cat.countOverride ?? cat.items.length}</p>
                     <p className="text-xs" style={{ color: '#8a8078' }}>
                       ${fmt(cat.totalOverride ?? cat.items.reduce((s: number, d: any) => s + (cat.type === 'cost' ? d.cost : d.price), 0))}
                       {cat.sublabel ? ` ${cat.sublabel}` : ''}
@@ -792,7 +792,7 @@ export default function JobCostingDashboard() {
       {/* Page header */}
       <div className="flex items-center justify-between">
         <div>
-          <h1 className="text-2xl font-bold" style={{ color: '#C9A84C', fontFamily: 'Georgia, serif' }}>
+          <h1 className="text-2xl font-bold" style={{ color: '#c88c00', fontFamily: 'Georgia, serif' }}>
             Job Costing
           </h1>
           <p className="text-sm mt-1" style={{ color: '#8a8078' }}>
@@ -803,7 +803,7 @@ export default function JobCostingDashboard() {
           onClick={loadSummary}
           disabled={loading}
           className="flex items-center gap-2 px-3 py-1.5 rounded-lg text-sm disabled:opacity-50"
-          style={{ border: '1px solid rgba(205,162,116,0.15)', color: '#8a8078' }}
+          style={{ border: '1px solid rgba(200,140,0,0.15)', color: '#8a8078' }}
         >
           <RefreshCw size={14} className={loading ? 'animate-spin' : ''} />
           Refresh
@@ -820,17 +820,17 @@ export default function JobCostingDashboard() {
           {/* Portfolio KPI cards */}
           {totals && (
             <div className="grid grid-cols-2 md:grid-cols-5 gap-3">
-              <div className="rounded-lg p-3" style={{ background: '#1a1a1a', border: '1px solid rgba(205,162,116,0.1)' }}>
+              <div className="rounded-lg p-3" style={{ background: '#ffffff', border: '1px solid rgba(200,140,0,0.1)' }}>
                 <p className="text-xs" style={{ color: '#8a8078' }}>Active Jobs</p>
-                <p className="text-2xl font-bold" style={{ color: '#e8e0d8' }}>{totals.jobCount}</p>
+                <p className="text-2xl font-bold" style={{ color: '#1a1a1a' }}>{totals.jobCount}</p>
               </div>
-              <div className="rounded-lg p-3" style={{ background: '#1a1a1a', border: '1px solid rgba(205,162,116,0.1)' }}>
+              <div className="rounded-lg p-3" style={{ background: '#ffffff', border: '1px solid rgba(200,140,0,0.1)' }}>
                 <p className="text-xs" style={{ color: '#8a8078' }}>Total Contract</p>
-                <p className="text-2xl font-bold" style={{ color: '#C9A84C' }}>${fmt(totals.totalContractPrice || totals.totalEstimatedCost)}</p>
+                <p className="text-2xl font-bold" style={{ color: '#c88c00' }}>${fmt(totals.totalContractPrice || totals.totalEstimatedCost)}</p>
               </div>
-              <div className="rounded-lg p-3" style={{ background: '#1a1a1a', border: '1px solid rgba(205,162,116,0.1)' }}>
+              <div className="rounded-lg p-3" style={{ background: '#ffffff', border: '1px solid rgba(200,140,0,0.1)' }}>
                 <p className="text-xs" style={{ color: '#8a8078' }}>Total Costs</p>
-                <p className="text-2xl font-bold" style={{ color: (totals.totalCosts || totals.totalActualCost) > totals.totalEstimatedCost ? '#ef4444' : '#e8e0d8' }}>
+                <p className="text-2xl font-bold" style={{ color: (totals.totalCosts || totals.totalActualCost) > totals.totalEstimatedCost ? '#ef4444' : '#1a1a1a' }}>
                   ${fmt(totals.totalCosts || totals.totalActualCost)}
                 </p>
               </div>
@@ -858,9 +858,9 @@ export default function JobCostingDashboard() {
                 onChange={(e) => setSearch(e.target.value)}
                 className="w-full pl-9 pr-3 py-2 rounded-lg text-sm"
                 style={{
-                  background: '#1a1a1a',
-                  border: '1px solid rgba(205,162,116,0.15)',
-                  color: '#e8e0d8',
+                  background: '#ffffff',
+                  border: '1px solid rgba(200,140,0,0.15)',
+                  color: '#1a1a1a',
                 }}
               />
             </div>
@@ -868,7 +868,7 @@ export default function JobCostingDashboard() {
               value={filterHealth}
               onChange={(e) => setFilterHealth(e.target.value)}
               className="rounded-lg px-3 py-2 text-sm"
-              style={{ background: '#1a1a1a', border: '1px solid rgba(205,162,116,0.15)', color: '#e8e0d8' }}
+              style={{ background: '#ffffff', border: '1px solid rgba(200,140,0,0.15)', color: '#1a1a1a' }}
             >
               <option value="all">All Health</option>
               <option value="over-budget">Over Budget</option>
@@ -879,7 +879,7 @@ export default function JobCostingDashboard() {
               value={sortBy}
               onChange={(e) => setSortBy(e.target.value)}
               className="rounded-lg px-3 py-2 text-sm"
-              style={{ background: '#1a1a1a', border: '1px solid rgba(205,162,116,0.15)', color: '#e8e0d8' }}
+              style={{ background: '#ffffff', border: '1px solid rgba(200,140,0,0.15)', color: '#1a1a1a' }}
             >
               <option value="health">Sort by Health</option>
               <option value="variance">Sort by Variance</option>
@@ -914,7 +914,7 @@ export default function JobCostingDashboard() {
                       {/* Left: name + status */}
                       <div className="flex-1 min-w-0">
                         <div className="flex items-center gap-2 mb-1">
-                          <span className="text-sm font-bold truncate" style={{ color: '#e8e0d8' }}>
+                          <span className="text-sm font-bold truncate" style={{ color: '#1a1a1a' }}>
                             {job.jobName}
                           </span>
                           <span className="text-xs px-1.5 py-0.5 rounded shrink-0" style={{ background: '#222', color: '#8a8078' }}>
@@ -935,7 +935,7 @@ export default function JobCostingDashboard() {
                         <div className="flex items-center gap-3 text-xs" style={{ color: '#8a8078' }}>
                           {job.clientName && <span>{job.clientName}</span>}
                           {job.customStatus && (
-                            <span className="px-1.5 py-0.5 rounded" style={{ background: 'rgba(205,162,116,0.08)' }}>
+                            <span className="px-1.5 py-0.5 rounded" style={{ background: 'rgba(200,140,0,0.08)' }}>
                               {job.customStatus}
                             </span>
                           )}
@@ -962,7 +962,7 @@ export default function JobCostingDashboard() {
                       <div className="flex gap-6 shrink-0">
                         <div className="text-right">
                           <p className="text-xs" style={{ color: '#8a8078' }}>Contract / Costs</p>
-                          <p className="text-sm font-medium" style={{ color: '#e8e0d8' }}>
+                          <p className="text-sm font-medium" style={{ color: '#1a1a1a' }}>
                             ${fmt(job.contractPrice ?? job.estimatedPrice ?? job.estimatedCost)} / ${fmt(jobTotalCosts)}
                           </p>
                         </div>
@@ -989,7 +989,7 @@ export default function JobCostingDashboard() {
                         </div>
                         <div className="text-right">
                           <p className="text-xs" style={{ color: '#8a8078' }}>Hours</p>
-                          <p className="text-sm font-medium" style={{ color: '#e8e0d8' }}>
+                          <p className="text-sm font-medium" style={{ color: '#1a1a1a' }}>
                             {job.actualHours}/{job.estimatedHours}
                           </p>
                         </div>

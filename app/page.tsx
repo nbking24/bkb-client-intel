@@ -12,7 +12,7 @@ export default function RootPage() {
   return (
     <div
       className="min-h-screen flex items-center justify-center"
-      style={{ background: '#141414' }}
+      style={{ background: '#ffffff' }}
     >
       <div className="text-sm" style={{ color: '#8a8078' }}>
         Loading...

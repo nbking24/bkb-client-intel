@@ -143,7 +143,7 @@ function IssueRow({
   return (
     <div
       className="flex items-center gap-3 px-4 py-3 hover:bg-white/[0.02] transition-colors"
-      style={{ borderBottom: '1px solid rgba(205,162,116,0.06)' }}
+      style={{ borderBottom: '1px solid rgba(200,140,0,0.06)' }}
     >
       {/* Issue type icon */}
       {issue.isOrphan ? (
@@ -154,14 +154,14 @@ function IssueRow({
 
       {/* Task info */}
       <div className="flex-1 min-w-0">
-        <p className="text-sm truncate" style={{ color: isComplete ? '#6b7280' : '#e8e0d8' }}>
+        <p className="text-sm truncate" style={{ color: isComplete ? '#6b7280' : '#1a1a1a' }}>
           {issue.taskName}
         </p>
         <div className="flex items-center gap-2 mt-0.5">
           <Link
             href={`/dashboard/precon/${issue.jobId}`}
             className="text-xs hover:underline"
-            style={{ color: '#C9A84C' }}
+            style={{ color: '#c88c00' }}
           >
             {issue.jobName}
           </Link>
@@ -234,7 +234,7 @@ function JobSection({
   return (
     <div
       className="rounded-xl overflow-hidden"
-      style={{ background: '#242424', border: '1px solid rgba(205,162,116,0.12)' }}
+      style={{ background: '#f8f6f3', border: '1px solid rgba(200,140,0,0.12)' }}
     >
       <button
         onClick={() => setExpanded(!expanded)}
@@ -242,7 +242,7 @@ function JobSection({
       >
         {expanded ? <ChevronDown size={16} style={{ color: '#8a8078' }} /> : <ChevronRight size={16} style={{ color: '#8a8078' }} />}
         <div className="flex-1 min-w-0">
-          <h3 className="text-sm font-semibold truncate" style={{ color: '#e8e0d8' }}>
+          <h3 className="text-sm font-semibold truncate" style={{ color: '#1a1a1a' }}>
             {jobName}
           </h3>
           <div className="flex items-center gap-2 mt-0.5">
@@ -250,7 +250,7 @@ function JobSection({
             {customStatus && (
               <span
                 className="text-[10px] px-1.5 py-0.5 rounded-full"
-                style={{ background: 'rgba(201,168,76,0.15)', color: '#C9A84C' }}
+                style={{ background: 'rgba(201,168,76,0.15)', color: '#c88c00' }}
               >
                 {customStatus}
               </span>
@@ -366,7 +366,7 @@ export default function ScheduleAuditPage() {
       <div>
         <h1
           className="text-2xl font-bold flex items-center gap-3"
-          style={{ fontFamily: 'Georgia, serif', color: '#C9A84C' }}
+          style={{ fontFamily: 'Georgia, serif', color: '#c88c00' }}
         >
           <Shield size={28} />
           Schedule Audit
@@ -378,10 +378,10 @@ export default function ScheduleAuditPage() {
 
       {loading ? (
         <div className="flex items-center justify-center py-16">
-          <Loader2 size={28} className="animate-spin" style={{ color: '#C9A84C' }} />
+          <Loader2 size={28} className="animate-spin" style={{ color: '#c88c00' }} />
         </div>
       ) : error ? (
-        <div className="p-6 rounded-xl text-center" style={{ background: '#242424' }}>
+        <div className="p-6 rounded-xl text-center" style={{ background: '#f8f6f3' }}>
           <p className="text-sm" style={{ color: '#ef4444' }}>Error: {error}</p>
         </div>
       ) : (
@@ -390,7 +390,7 @@ export default function ScheduleAuditPage() {
           {stats && (
             <div className="grid grid-cols-2 md:grid-cols-5 gap-3">
               {[
-                { label: 'Active Jobs', value: stats.totalJobs, color: '#C9A84C' },
+                { label: 'Active Jobs', value: stats.totalJobs, color: '#c88c00' },
                 { label: 'Tasks Scanned', value: stats.totalTasks, color: '#8a8078' },
                 { label: 'Misplaced', value: stats.misplacedTasks, color: '#ef4444' },
                 { label: 'Orphaned', value: stats.orphanTasks, color: '#f59e0b' },
@@ -399,7 +399,7 @@ export default function ScheduleAuditPage() {
                 <div
                   key={stat.label}
                   className="p-3 rounded-xl text-center"
-                  style={{ background: '#242424', border: '1px solid rgba(205,162,116,0.12)' }}
+                  style={{ background: '#f8f6f3', border: '1px solid rgba(200,140,0,0.12)' }}
                 >
                   <p className="text-2xl font-bold" style={{ color: stat.color }}>
                     {stat.value}
@@ -422,14 +422,14 @@ export default function ScheduleAuditPage() {
                 className="text-xs px-3 py-1.5 rounded-full transition-all"
                 style={{
                   background: filter === f ? 'rgba(201,168,76,0.2)' : 'rgba(255,255,255,0.03)',
-                  color: filter === f ? '#C9A84C' : '#8a8078',
-                  border: filter === f ? '1px solid rgba(201,168,76,0.3)' : '1px solid rgba(205,162,116,0.1)',
+                  color: filter === f ? '#c88c00' : '#8a8078',
+                  border: filter === f ? '1px solid rgba(201,168,76,0.3)' : '1px solid rgba(200,140,0,0.1)',
                 }}
               >
                 {f === 'all' ? 'All Issues' : f === 'misplaced' ? 'Misplaced Only' : 'Orphans Only'}
               </button>
             ))}
-            <span className="w-px h-4" style={{ background: 'rgba(205,162,116,0.12)' }} />
+            <span className="w-px h-4" style={{ background: 'rgba(200,140,0,0.12)' }} />
             {(['all', 'high', 'medium'] as const).map((c) => (
               <button
                 key={c}
@@ -437,8 +437,8 @@ export default function ScheduleAuditPage() {
                 className="text-xs px-3 py-1.5 rounded-full transition-all"
                 style={{
                   background: confidenceFilter === c ? 'rgba(201,168,76,0.2)' : 'rgba(255,255,255,0.03)',
-                  color: confidenceFilter === c ? '#C9A84C' : '#8a8078',
-                  border: confidenceFilter === c ? '1px solid rgba(201,168,76,0.3)' : '1px solid rgba(205,162,116,0.1)',
+                  color: confidenceFilter === c ? '#c88c00' : '#8a8078',
+                  border: confidenceFilter === c ? '1px solid rgba(201,168,76,0.3)' : '1px solid rgba(200,140,0,0.1)',
                 }}
               >
                 {c === 'all' ? 'All Confidence' : c === 'high' ? 'High Confidence' : 'Medium Confidence'}
@@ -448,7 +448,7 @@ export default function ScheduleAuditPage() {
 
           {/* All clear state */}
           {filtered.length === 0 && (
-            <div className="p-8 rounded-xl text-center" style={{ background: '#242424' }}>
+            <div className="p-8 rounded-xl text-center" style={{ background: '#f8f6f3' }}>
               <CheckCircle2 size={32} style={{ color: '#22c55e', margin: '0 auto 12px' }} />
               <p className="text-sm font-medium" style={{ color: '#22c55e' }}>
                 {issues.length === 0 ? 'All schedules look good!' : 'No issues match the current filter.'}

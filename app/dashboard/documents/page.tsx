@@ -6,7 +6,7 @@ export default function DocumentsPage() {
   return (
     <div className="space-y-6">
       <div>
-        <h1 className="text-2xl font-bold" style={{ fontFamily: 'Georgia, serif', color: '#C9A84C' }}>
+        <h1 className="text-2xl font-bold" style={{ fontFamily: 'Georgia, serif', color: '#c88c00' }}>
           Document Intelligence
         </h1>
         <p className="text-sm mt-1" style={{ color: '#8a8078' }}>
@@ -22,9 +22,9 @@ export default function DocumentsPage() {
           placeholder="Search documents across all projects..."
           className="w-full pl-10 pr-4 py-3 rounded-lg text-sm outline-none"
           style={{
-            background: '#242424',
-            color: '#e8e0d8',
-            border: '1px solid rgba(205,162,116,0.12)',
+            background: '#f8f6f3',
+            color: '#1a1a1a',
+            border: '1px solid rgba(200,140,0,0.12)',
           }}
           disabled
         />
@@ -34,14 +34,14 @@ export default function DocumentsPage() {
       <div className="flex gap-3">
         <button
           className="flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-medium"
-          style={{ background: 'rgba(205,162,116,0.1)', color: '#C9A84C', border: '1px solid rgba(205,162,116,0.2)' }}
+          style={{ background: 'rgba(200,140,0,0.1)', color: '#c88c00', border: '1px solid rgba(200,140,0,0.2)' }}
         >
           <Filter size={14} />
           Approved Docs (Tier 1)
         </button>
         <button
           className="flex items-center gap-2 px-4 py-2 rounded-lg text-sm"
-          style={{ background: '#242424', color: '#8a8078', border: '1px solid rgba(205,162,116,0.08)' }}
+          style={{ background: '#f8f6f3', color: '#8a8078', border: '1px solid rgba(200,140,0,0.08)' }}
         >
           Job Files (Tier 2)
         </button>
@@ -50,15 +50,15 @@ export default function DocumentsPage() {
       {/* Coming Soon Card */}
       <div
         className="flex flex-col items-center justify-center py-20 rounded-lg"
-        style={{ background: '#242424', border: '1px solid rgba(205,162,116,0.08)' }}
+        style={{ background: '#f8f6f3', border: '1px solid rgba(200,140,0,0.08)' }}
       >
         <div
           className="w-16 h-16 rounded-full flex items-center justify-center mb-4"
           style={{ background: 'rgba(201,168,76,0.1)' }}
         >
-          <FileText size={28} style={{ color: '#C9A84C' }} />
+          <FileText size={28} style={{ color: '#c88c00' }} />
         </div>
-        <h2 className="text-lg font-bold mb-2" style={{ color: '#C9A84C' }}>
+        <h2 className="text-lg font-bold mb-2" style={{ color: '#c88c00' }}>
           Document Intelligence — Phase 2
         </h2>
         <p className="text-sm max-w-md text-center" style={{ color: '#8a8078' }}>
@@ -67,11 +67,11 @@ export default function DocumentsPage() {
         </p>
         <div className="mt-6 flex gap-4">
           <div className="text-center">
-            <p className="text-2xl font-bold" style={{ color: '#C9A84C' }}>Tier 1</p>
+            <p className="text-2xl font-bold" style={{ color: '#c88c00' }}>Tier 1</p>
             <p className="text-xs mt-1" style={{ color: '#8a8078' }}>Approved Docs</p>
             <p className="text-xs" style={{ color: '#8a8078' }}>Webhook sync</p>
           </div>
-          <div className="w-px" style={{ background: 'rgba(205,162,116,0.12)' }} />
+          <div className="w-px" style={{ background: 'rgba(200,140,0,0.12)' }} />
           <div className="text-center">
             <p className="text-2xl font-bold" style={{ color: '#8a8078' }}>Tier 2</p>
             <p className="text-xs mt-1" style={{ color: '#8a8078' }}>Job Files</p>

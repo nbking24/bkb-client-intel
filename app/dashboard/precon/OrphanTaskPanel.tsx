@@ -135,8 +135,8 @@ export default function OrphanTaskPanel() {
   return (
     <div
       style={{
-        background: '#1a1a1a',
-        border: '1px solid rgba(205,162,116,0.15)',
+        background: '#ffffff',
+        border: '1px solid rgba(200,140,0,0.15)',
         borderRadius: 12,
         padding: 20,
         marginBottom: 24,
@@ -146,7 +146,7 @@ export default function OrphanTaskPanel() {
       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 16 }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
           <Link2Off size={20} color="#f97316" />
-          <h3 style={{ margin: 0, color: '#e8e0d8', fontSize: 16, fontWeight: 600 }}>
+          <h3 style={{ margin: 0, color: '#1a1a1a', fontSize: 16, fontWeight: 600 }}>
             Orphan &amp; Misplaced Tasks
           </h3>
           {totalIssues > 0 && (
@@ -183,7 +183,7 @@ export default function OrphanTaskPanel() {
             onClick={() => setShowDismissed(!showDismissed)}
             style={{
               background: 'rgba(255,255,255,0.05)',
-              border: '1px solid rgba(205,162,116,0.15)',
+              border: '1px solid rgba(200,140,0,0.15)',
               borderRadius: 6,
               padding: '4px 10px',
               color: '#8a8078',
@@ -205,7 +205,7 @@ export default function OrphanTaskPanel() {
               border: '1px solid rgba(201,168,76,0.3)',
               borderRadius: 6,
               padding: '4px 10px',
-              color: '#C9A84C',
+              color: '#c88c00',
               fontSize: 12,
               cursor: loading ? 'wait' : 'pointer',
               display: 'flex',
@@ -255,7 +255,7 @@ export default function OrphanTaskPanel() {
           }}
         >
           <div style={{ background: '#0d0d0d', borderRadius: 8, padding: '10px 14px', textAlign: 'center' }}>
-            <div style={{ fontSize: 20, fontWeight: 700, color: '#e8e0d8' }}>{audit.scannedJobs}</div>
+            <div style={{ fontSize: 20, fontWeight: 700, color: '#1a1a1a' }}>{audit.scannedJobs}</div>
             <div style={{ fontSize: 11, color: '#8a8078' }}>Jobs Scanned</div>
           </div>
           <div style={{ background: '#0d0d0d', borderRadius: 8, padding: '10px 14px', textAlign: 'center' }}>
@@ -282,7 +282,7 @@ export default function OrphanTaskPanel() {
             key={job.jobId}
             style={{
               background: '#0d0d0d',
-              border: '1px solid rgba(205,162,116,0.1)',
+              border: '1px solid rgba(200,140,0,0.1)',
               borderRadius: 8,
               marginBottom: 8,
               overflow: 'hidden',
@@ -307,7 +307,7 @@ export default function OrphanTaskPanel() {
                 alignItems: 'center',
                 gap: 8,
                 cursor: 'pointer',
-                color: '#e8e0d8',
+                color: '#1a1a1a',
               }}
             >
               {isExpanded ? <ChevronDown size={14} /> : <ChevronRight size={14} />}
@@ -354,7 +354,7 @@ export default function OrphanTaskPanel() {
                         <div
                           style={{
                             fontSize: 13,
-                            color: '#e8e0d8',
+                            color: '#1a1a1a',
                             whiteSpace: 'nowrap',
                             overflow: 'hidden',
                             textOverflow: 'ellipsis',
@@ -365,7 +365,7 @@ export default function OrphanTaskPanel() {
                         <div style={{ fontSize: 11, color: '#8a8078' }}>
                           {isOrphan ? 'No phase' : `In: ${task.currentPhase}`}
                           {' \u2192 '}
-                          <span style={{ color: '#C9A84C' }}>
+                          <span style={{ color: '#c88c00' }}>
                             Phase {task.suggestedPhase}: {task.suggestedPhaseName}
                           </span>
                           <span
@@ -405,7 +405,7 @@ export default function OrphanTaskPanel() {
                               border: '1px solid rgba(201,168,76,0.3)',
                               borderRadius: 4,
                               padding: '3px 8px',
-                              color: '#C9A84C',
+                              color: '#c88c00',
                               fontSize: 11,
                               cursor: isMoving ? 'wait' : 'pointer',
                               display: 'flex',

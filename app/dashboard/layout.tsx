@@ -79,7 +79,7 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
   // Show loading while checking auth (reading localStorage)
   if (auth.loading || !auth.isAuthenticated) {
     return (
-      <div className="min-h-screen flex items-center justify-center" style={{ background: '#141414' }}>
+      <div className="min-h-screen flex items-center justify-center" style={{ background: '#ffffff' }}>
         <div className="text-sm" style={{ color: '#8a8078' }}>Loading...</div>
       </div>
     );
@@ -88,16 +88,17 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
   const NAV_ITEMS = isFieldStaff ? FIELD_NAV : ADMIN_NAV;
 
   return (
-    <div className="min-h-screen" style={{ background: '#141414', color: '#e8e0d8' }}>
+    <div className="min-h-screen" style={{ background: '#f8f6f3', color: '#1a1a1a' }}>
       {/* Top Nav Bar */}
       <header
         className="sticky top-0 z-30 flex items-center justify-between px-4 h-14"
-        style={{ background: '#1a1a1a', borderBottom: '1px solid rgba(205,162,116,0.12)' }}
+        style={{ background: '#68050a', borderBottom: '1px solid #5a0408' }}
       >
         <div className="flex items-center gap-3">
           <button
             onClick={() => setSidebarOpen(!sidebarOpen)}
-            className="p-2 rounded-lg hover:bg-white/5 md:hidden"
+            className="p-2 rounded-lg hover:bg-white/10 md:hidden"
+            style={{ color: '#ffffff' }}
           >
             {sidebarOpen ? <X size={20} /> : <Menu size={20} />}
           </button>
@@ -106,7 +107,7 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
             alt="BKB"
             className="h-8 w-auto"
           />
-          <span className="hidden sm:inline text-sm font-medium" style={{ color: '#C9A84C' }}>
+          <span className="hidden sm:inline text-sm font-medium" style={{ color: '#e8c860' }}>
             {isFieldStaff ? 'Field Hub' : 'Operations Platform'}
           </span>
         </div>
@@ -116,12 +117,12 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
           <button
             onClick={() => setChatOpen(!chatOpen)}
             className={`flex items-center gap-2 px-3 py-1.5 rounded-lg text-sm transition-all ${
-              chatOpen ? 'ring-1' : 'hover:bg-white/5'
+              chatOpen ? '' : 'hover:bg-white/10'
             }`}
             style={{
-              color: chatOpen ? '#1a1a1a' : '#CDA274',
-              background: chatOpen ? '#CDA274' : 'transparent',
-              ringColor: '#CDA274',
+              color: chatOpen ? '#68050a' : '#ffffff',
+              background: chatOpen ? '#e8c860' : 'transparent',
+              border: chatOpen ? 'none' : '1px solid rgba(255,255,255,0.2)',
             }}
           >
             <MessageSquare size={16} />
@@ -133,7 +134,7 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
             <button
               onClick={() => setUserMenuOpen(!userMenuOpen)}
               className="w-8 h-8 rounded-full flex items-center justify-center text-xs font-bold cursor-pointer transition-all hover:ring-2"
-              style={{ background: '#1B3A5C', color: '#C9A84C', border: 'none', ringColor: '#CDA274' }}
+              style={{ background: '#c88c00', color: '#ffffff', border: 'none', ringColor: '#e8c860' }}
               title={auth.user?.name || 'User'}
             >
               {auth.user?.initials || 'BK'}
@@ -141,18 +142,18 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
             {userMenuOpen && (
               <div
                 className="absolute right-0 top-10 rounded-lg shadow-xl overflow-hidden z-50"
-                style={{ background: '#242424', border: '1px solid rgba(205,162,116,0.15)', minWidth: 180 }}
+                style={{ background: '#ffffff', border: '1px solid #e8e5e0', minWidth: 180 }}
               >
-                <div className="px-4 py-3" style={{ borderBottom: '1px solid rgba(205,162,116,0.1)' }}>
-                  <div className="text-sm font-medium" style={{ color: '#e8e0d8' }}>{auth.user?.name || 'User'}</div>
-                  <div className="text-xs mt-0.5" style={{ color: '#6a6058' }}>{auth.role || 'team member'}</div>
+                <div className="px-4 py-3" style={{ borderBottom: '1px solid #e8e5e0' }}>
+                  <div className="text-sm font-medium" style={{ color: '#1a1a1a' }}>{auth.user?.name || 'User'}</div>
+                  <div className="text-xs mt-0.5" style={{ color: '#8a8078' }}>{auth.role || 'team member'}</div>
                 </div>
                 <button
                   onClick={handleLogout}
-                  className="w-full flex items-center gap-3 px-4 py-2.5 text-sm hover:bg-white/5 transition-colors"
-                  style={{ color: '#e8e0d8', border: 'none', background: 'transparent', cursor: 'pointer' }}
+                  className="w-full flex items-center gap-3 px-4 py-2.5 text-sm hover:bg-gray-50 transition-colors"
+                  style={{ color: '#1a1a1a', border: 'none', background: 'transparent', cursor: 'pointer' }}
                 >
-                  <LogOut size={15} style={{ color: '#CDA274' }} />
+                  <LogOut size={15} style={{ color: '#68050a' }} />
                   Switch User
                 </button>
               </div>
@@ -169,7 +170,7 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
             transition-transform duration-200 ease-in-out
             ${sidebarOpen ? 'translate-x-0' : '-translate-x-full md:translate-x-0'}
           `}
-          style={{ background: '#1a1a1a', borderRight: '1px solid rgba(205,162,116,0.12)' }}
+          style={{ background: '#ffffff', borderRight: '1px solid #e8e5e0' }}
         >
           <nav className="p-3 space-y-1">
             {NAV_ITEMS.map((item) => {
@@ -182,9 +183,9 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
                   href={item.href}
                   onClick={() => setSidebarOpen(false)}
                   className={`flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm transition-colors ${
-                    active ? 'font-medium' : 'hover:bg-white/5'
+                    active ? 'font-medium' : 'hover:bg-gray-50'
                   }`}
-                  style={active ? { background: 'rgba(205,162,116,0.1)', color: '#C9A84C' } : { color: '#8a8078' }}
+                  style={active ? { background: 'rgba(104,5,10,0.08)', color: '#68050a' } : { color: '#5a5550' }}
                 >
                   <Icon size={18} />
                   {item.label}
@@ -198,8 +199,8 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
           <div className="absolute bottom-4 left-0 right-0 px-3">
             <button
               onClick={() => { setChatOpen(true); setSidebarOpen(false); }}
-              className="w-full flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm hover:bg-white/5"
-              style={{ color: '#CDA274', border: '1px solid rgba(205,162,116,0.12)' }}
+              className="w-full flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm hover:bg-gray-50"
+              style={{ color: '#68050a', border: '1px solid #e8e5e0' }}
             >
               <MessageSquare size={18} />
               Ask Agent
@@ -216,7 +217,7 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
       {/* Mobile sidebar overlay */}
       {sidebarOpen && (
         <div
-          className="fixed inset-0 z-30 bg-black/50 md:hidden"
+          className="fixed inset-0 z-30 bg-black/30 md:hidden"
           onClick={() => setSidebarOpen(false)}
         />
       )}

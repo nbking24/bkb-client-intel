@@ -58,11 +58,11 @@ interface QuestionAnswers {
 type EstimateType = 'initial' | 'change-order';
 
 /* ── Style constants ── */
-const CARD = { background: '#242424', border: '1px solid rgba(205,162,116,0.12)' };
-const GOLD = '#C9A84C';
-const TEXT = '#e8e0d8';
+const CARD = { background: '#f8f6f3', border: '1px solid rgba(200,140,0,0.12)' };
+const GOLD = '#c88c00';
+const TEXT = '#1a1a1a';
 const TEXT_MUTED = '#8a8078';
-const DARK_BG = '#1a1a1a';
+const DARK_BG = '#ffffff';
 
 const CODE_COLORS: Record<string, string> = {
   '01': '#6366f1', '02': '#ef4444', '03': '#78716c', '04': '#f59e0b',
@@ -81,8 +81,8 @@ function RenderContent({ content }: { content: string }) {
       {elements.map((el: any) => {
         if (el.type === 'code') {
           return (
-            <div key={el.key} className="mt-2 mb-2 rounded-lg" style={{ background: DARK_BG, border: '1px solid rgba(205,162,116,0.15)' }}>
-              <pre className="px-3 py-2 text-xs overflow-x-auto whitespace-pre-wrap" style={{ color: '#c8c0b8', fontFamily: 'monospace', lineHeight: '1.5' }}>{el.content}</pre>
+            <div key={el.key} className="mt-2 mb-2 rounded-lg" style={{ background: DARK_BG, border: '1px solid rgba(200,140,0,0.15)' }}>
+              <pre className="px-3 py-2 text-xs overflow-x-auto whitespace-pre-wrap" style={{ color: '#3a3530', fontFamily: 'monospace', lineHeight: '1.5' }}>{el.content}</pre>
             </div>
           );
         }
@@ -90,7 +90,7 @@ function RenderContent({ content }: { content: string }) {
         if (el.type === 'h3') return <div key={el.key} className="font-semibold mt-2 mb-0.5" style={{ color: TEXT, fontSize: '0.85rem' }} dangerouslySetInnerHTML={{ __html: el.html }} />;
         if (el.type === 'bullet') return <div key={el.key} className="ml-3 text-sm" dangerouslySetInnerHTML={{ __html: '&bull; ' + el.html }} />;
         if (el.type === 'numbered') return <div key={el.key} className="ml-3 text-sm" dangerouslySetInnerHTML={{ __html: el.html }} />;
-        if (el.type === 'hr') return <hr key={el.key} className="my-3" style={{ borderColor: 'rgba(205,162,116,0.15)' }} />;
+        if (el.type === 'hr') return <hr key={el.key} className="my-3" style={{ borderColor: 'rgba(200,140,0,0.15)' }} />;
         if (el.type === 'spacer') return <div key={el.key} className="h-1.5" />;
         return <div key={el.key} className="text-sm" dangerouslySetInnerHTML={{ __html: el.html }} />;
       })}
@@ -186,7 +186,7 @@ function BudgetPreview({ budget }: { budget: ProposedBudget | null }) {
           <div key={path}>
             <button
               onClick={() => toggleGroup(path)}
-              className="w-full flex items-center gap-1.5 px-2 py-1.5 rounded hover:bg-white/5 transition-colors"
+              className="w-full flex items-center gap-1.5 px-2 py-1.5 rounded hover:bg-black/5 transition-colors"
               style={{ paddingLeft: `${8 + depth * 12}px` }}
             >
               {isExpanded ? <ChevronDown size={12} style={{ color: TEXT_MUTED }} /> : <ChevronRight size={12} style={{ color: TEXT_MUTED }} />}
@@ -263,7 +263,7 @@ function QuestionPicker({
           <div
             key={q.id}
             className="rounded-lg px-3 py-2.5"
-            style={{ background: '#242424', border: '1px solid rgba(205,162,116,0.1)' }}
+            style={{ background: '#f8f6f3', border: '1px solid rgba(200,140,0,0.1)' }}
           >
             <p className="text-xs font-medium mb-2" style={{ color: TEXT }}>{q.question}</p>
             <div className="flex flex-wrap gap-1.5">
@@ -275,7 +275,7 @@ function QuestionPicker({
                   style={{
                     background: a.selected === opt ? 'rgba(201,168,76,0.2)' : 'rgba(255,255,255,0.04)',
                     color: a.selected === opt ? GOLD : TEXT_MUTED,
-                    border: `1px solid ${a.selected === opt ? 'rgba(201,168,76,0.4)' : 'rgba(205,162,116,0.1)'}`,
+                    border: `1px solid ${a.selected === opt ? 'rgba(201,168,76,0.4)' : 'rgba(200,140,0,0.1)'}`,
                   }}
                 >
                   {a.selected === opt && <span className="mr-1">✓</span>}
@@ -289,7 +289,7 @@ function QuestionPicker({
                   style={{
                     background: isCustomActive ? 'rgba(201,168,76,0.2)' : 'rgba(255,255,255,0.04)',
                     color: isCustomActive ? GOLD : TEXT_MUTED,
-                    border: `1px solid ${isCustomActive ? 'rgba(201,168,76,0.4)' : 'rgba(205,162,116,0.1)'}`,
+                    border: `1px solid ${isCustomActive ? 'rgba(201,168,76,0.4)' : 'rgba(200,140,0,0.1)'}`,
                   }}
                 >
                   ✏️ Other
@@ -318,7 +318,7 @@ function QuestionPicker({
         style={{
           background: allAnswered ? 'rgba(201,168,76,0.15)' : 'transparent',
           color: allAnswered ? GOLD : TEXT_MUTED,
-          border: `1px solid ${allAnswered ? 'rgba(201,168,76,0.3)' : 'rgba(205,162,116,0.08)'}`,
+          border: `1px solid ${allAnswered ? 'rgba(201,168,76,0.3)' : 'rgba(200,140,0,0.08)'}`,
         }}
       >
         {submitting ? (
@@ -738,7 +738,7 @@ export default function EstimatePage() {
       {/* ── LEFT PANEL: Config & Scope Input ── */}
       <div
         className="w-80 flex-shrink-0 flex flex-col border-r overflow-y-auto"
-        style={{ background: DARK_BG, borderColor: 'rgba(205,162,116,0.12)' }}
+        style={{ background: DARK_BG, borderColor: 'rgba(200,140,0,0.12)' }}
       >
         <div className="p-4 space-y-4">
           {/* Header */}
@@ -767,7 +767,7 @@ export default function EstimatePage() {
               {jobDropdownOpen && (
                 <div
                   className="absolute z-50 w-full mt-1 rounded-lg shadow-xl max-h-60 overflow-y-auto"
-                  style={{ background: '#2a2a2a', border: '1px solid rgba(205,162,116,0.2)' }}
+                  style={{ background: '#f0eeeb', border: '1px solid rgba(200,140,0,0.2)' }}
                 >
                   <div className="p-2">
                     <input
@@ -776,7 +776,7 @@ export default function EstimatePage() {
                       value={jobSearch}
                       onChange={(e) => setJobSearch(e.target.value)}
                       className="w-full px-2 py-1.5 rounded text-xs outline-none"
-                      style={{ background: DARK_BG, color: TEXT, border: '1px solid rgba(205,162,116,0.1)' }}
+                      style={{ background: DARK_BG, color: TEXT, border: '1px solid rgba(200,140,0,0.1)' }}
                       autoFocus
                     />
                   </div>
@@ -788,7 +788,7 @@ export default function EstimatePage() {
                         setJobDropdownOpen(false);
                         setJobSearch('');
                       }}
-                      className="w-full text-left px-3 py-2 text-xs hover:bg-white/5 transition-colors"
+                      className="w-full text-left px-3 py-2 text-xs hover:bg-black/5 transition-colors"
                       style={{ color: TEXT }}
                     >
                       <span style={{ color: GOLD }}>#{j.number}</span>{' '}
@@ -820,7 +820,7 @@ export default function EstimatePage() {
                   style={{
                     background: estimateType === type ? 'rgba(201,168,76,0.15)' : 'transparent',
                     color: estimateType === type ? GOLD : TEXT_MUTED,
-                    border: `1px solid ${estimateType === type ? 'rgba(201,168,76,0.3)' : 'rgba(205,162,116,0.08)'}`,
+                    border: `1px solid ${estimateType === type ? 'rgba(201,168,76,0.3)' : 'rgba(200,140,0,0.08)'}`,
                   }}
                 >
                   {type === 'initial' ? 'Initial Estimate' : 'Change Order'}
@@ -850,7 +850,7 @@ export default function EstimatePage() {
           )}
 
           {/* Divider */}
-          <hr style={{ borderColor: 'rgba(205,162,116,0.1)' }} />
+          <hr style={{ borderColor: 'rgba(200,140,0,0.1)' }} />
 
           {/* ── SCOPE INPUT SECTION ── */}
           {!hasStarted ? (
@@ -888,9 +888,9 @@ export default function EstimatePage() {
                 <button
                   onClick={() => fileInputRef.current?.click()}
                   disabled={!selectedJob}
-                  className="w-full mt-1 flex items-center justify-center gap-2 px-3 py-3 rounded-lg text-xs transition-colors hover:bg-white/5 disabled:opacity-30"
+                  className="w-full mt-1 flex items-center justify-center gap-2 px-3 py-3 rounded-lg text-xs transition-colors hover:bg-black/5 disabled:opacity-30"
                   style={{
-                    border: '1px dashed rgba(205,162,116,0.2)',
+                    border: '1px dashed rgba(200,140,0,0.2)',
                     color: TEXT_MUTED,
                     background: 'rgba(36,36,36,0.5)',
                   }}
@@ -926,9 +926,9 @@ export default function EstimatePage() {
 
               {/* Estimate Mode Toggle */}
               <label
-                className="flex items-start gap-2.5 px-3 py-2.5 rounded-lg cursor-pointer transition-colors hover:bg-white/5"
+                className="flex items-start gap-2.5 px-3 py-2.5 rounded-lg cursor-pointer transition-colors hover:bg-black/5"
                 style={{
-                  border: `1px solid ${quickEstimate ? 'rgba(201,168,76,0.25)' : 'rgba(205,162,116,0.08)'}`,
+                  border: `1px solid ${quickEstimate ? 'rgba(201,168,76,0.25)' : 'rgba(200,140,0,0.08)'}`,
                   background: quickEstimate ? 'rgba(201,168,76,0.06)' : 'transparent',
                 }}
               >
@@ -957,7 +957,7 @@ export default function EstimatePage() {
                 style={{
                   background: canStartEstimate ? 'rgba(201,168,76,0.15)' : 'transparent',
                   color: canStartEstimate ? GOLD : TEXT_MUTED,
-                  border: `1px solid ${canStartEstimate ? 'rgba(201,168,76,0.3)' : 'rgba(205,162,116,0.08)'}`,
+                  border: `1px solid ${canStartEstimate ? 'rgba(201,168,76,0.3)' : 'rgba(200,140,0,0.08)'}`,
                 }}
               >
                 {loading ? (
@@ -987,8 +987,8 @@ export default function EstimatePage() {
                     <button
                       key={idx}
                       onClick={() => setScopeText(suggestion)}
-                      className="w-full text-left px-3 py-2 mb-1 rounded-lg text-[11px] hover:bg-white/5 transition-colors"
-                      style={{ color: TEXT_MUTED, border: '1px solid rgba(205,162,116,0.06)' }}
+                      className="w-full text-left px-3 py-2 mb-1 rounded-lg text-[11px] hover:bg-black/5 transition-colors"
+                      style={{ color: TEXT_MUTED, border: '1px solid rgba(200,140,0,0.06)' }}
                     >
                       {suggestion}
                     </button>
@@ -1016,8 +1016,8 @@ export default function EstimatePage() {
 
                 <button
                   onClick={handleReset}
-                  className="w-full flex items-center justify-center gap-1.5 px-3 py-2 rounded-lg text-xs font-medium transition-colors hover:bg-white/5"
-                  style={{ color: TEXT_MUTED, border: '1px solid rgba(205,162,116,0.08)' }}
+                  className="w-full flex items-center justify-center gap-1.5 px-3 py-2 rounded-lg text-xs font-medium transition-colors hover:bg-black/5"
+                  style={{ color: TEXT_MUTED, border: '1px solid rgba(200,140,0,0.08)' }}
                 >
                   <Plus size={14} />
                   New Estimate
@@ -1058,8 +1058,8 @@ export default function EstimatePage() {
               <div
                 className="max-w-[80%] rounded-lg px-3 py-2"
                 style={{
-                  background: msg.role === 'user' ? 'rgba(201,168,76,0.1)' : '#242424',
-                  border: `1px solid ${msg.role === 'user' ? 'rgba(201,168,76,0.2)' : 'rgba(205,162,116,0.08)'}`,
+                  background: msg.role === 'user' ? 'rgba(201,168,76,0.1)' : '#f8f6f3',
+                  border: `1px solid ${msg.role === 'user' ? 'rgba(201,168,76,0.2)' : 'rgba(200,140,0,0.08)'}`,
                   color: TEXT,
                 }}
               >
@@ -1103,7 +1103,7 @@ export default function EstimatePage() {
 
         {/* Chat Input — only shown after conversation has started */}
         {hasStarted && (
-          <div className="p-4 border-t" style={{ borderColor: 'rgba(205,162,116,0.08)' }}>
+          <div className="p-4 border-t" style={{ borderColor: 'rgba(200,140,0,0.08)' }}>
             <form onSubmit={handleSubmit} className="flex gap-2">
               <textarea
                 ref={inputRef}
@@ -1132,9 +1132,9 @@ export default function EstimatePage() {
       {/* ── RIGHT PANEL: Budget Preview ── */}
       <div
         className="w-80 flex-shrink-0 flex flex-col border-l overflow-y-auto"
-        style={{ background: DARK_BG, borderColor: 'rgba(205,162,116,0.12)' }}
+        style={{ background: DARK_BG, borderColor: 'rgba(200,140,0,0.12)' }}
       >
-        <div className="p-3 border-b" style={{ borderColor: 'rgba(205,162,116,0.08)' }}>
+        <div className="p-3 border-b" style={{ borderColor: 'rgba(200,140,0,0.08)' }}>
           <div className="flex items-center justify-between">
             <div className="flex items-center gap-2">
               <DollarSign size={14} style={{ color: GOLD }} />
@@ -1161,7 +1161,7 @@ export default function EstimatePage() {
                     style={{
                       background: isActive ? 'rgba(201,168,76,0.15)' : 'transparent',
                       color: isActive ? GOLD : TEXT_MUTED,
-                      border: `1px solid ${isActive ? 'rgba(201,168,76,0.3)' : 'rgba(205,162,116,0.08)'}`,
+                      border: `1px solid ${isActive ? 'rgba(201,168,76,0.3)' : 'rgba(200,140,0,0.08)'}`,
                     }}
                   >
                     {isImported && (
@@ -1181,7 +1181,7 @@ export default function EstimatePage() {
 
         {/* Create button — for active option */}
         {proposedBudgets.length > 0 && proposedBudgets[activeOptionIndex] && (
-          <div className="p-3 border-t space-y-2" style={{ borderColor: 'rgba(205,162,116,0.08)' }}>
+          <div className="p-3 border-t space-y-2" style={{ borderColor: 'rgba(200,140,0,0.08)' }}>
             {createResults[activeOptionIndex] && (
               <div
                 className="flex items-start gap-2 px-3 py-2 rounded-lg text-xs"
