@@ -17,24 +17,24 @@ export async function GET(req: NextRequest) {
       return NextResponse.json({ error: 'membershipId or all=true required' }, { status: 400 });
     }
 
-    // Classify urgency
+    // Classify urgency — only mark 'urgent' (red) for truly overdue tasks
     const now = new Date();
-    const twoDaysMs = 2 * 24 * 60 * 60 * 1000;
+    now.setHours(0, 0, 0, 0);
 
     const classified = tasks.map((task: any) => {
       let urgency: 'normal' | 'high' | 'urgent' = 'normal';
 
       if (task.endDate) {
         const deadline = new Date(task.endDate);
-        const daysUntil = deadline.getTime() - now.getTime();
+        deadline.setHours(0, 0, 0, 0);
+        const diffDays = Math.ceil((deadline.getTime() - now.getTime()) / (1000 * 60 * 60 * 24));
 
-        if (daysUntil < 0) {
-          urgency = 'urgent'; // Past due
-        } else if (daysUntil < twoDaysMs) {
-          urgency = 'urgent'; // Within 2 days
-        } else if (daysUntil < 5 * 24 * 60 * 60 * 1000) {
-          urgency = 'high'; // Within 5 days
+        if (diffDays < 0) {
+          urgency = 'urgent'; // Past due only
+        } else if (diffDays <= 2) {
+          urgency = 'high'; // Due today, tomorrow, or day after
         }
+        // Everything else stays 'normal'
       }
 
       return { ...task, urgency };

@@ -1442,7 +1442,7 @@ export default function DashboardOverview() {
     const today = new Date(); today.setHours(0, 0, 0, 0);
     const due = new Date(endDate); due.setHours(0, 0, 0, 0);
     const days = Math.ceil((due.getTime() - today.getTime()) / (1000 * 60 * 60 * 24));
-    const urgency = (days < 0 || days <= 2) ? 'urgent' : days <= 5 ? 'high' : 'normal';
+    const urgency = days < 0 ? 'urgent' : days <= 2 ? 'high' : 'normal';
     return { urgency, daysUntilDue: days };
   }
 
@@ -2267,10 +2267,10 @@ export default function DashboardOverview() {
                       )}
                       <button
                         onClick={() => { setEditingDateTaskId(task.id); setPendingDate(task.endDate || ''); }}
-                        style={{ fontSize: 12, color: task.urgency === 'urgent' ? '#ef4444' : '#6a6058', background: 'transparent', border: 'none', cursor: 'pointer', padding: 0 }}
+                        style={{ fontSize: 12, color: task.daysUntilDue !== null && task.daysUntilDue < 0 ? '#ef4444' : task.daysUntilDue !== null && task.daysUntilDue <= 2 ? '#eab308' : '#6a6058', background: 'transparent', border: 'none', cursor: 'pointer', padding: 0 }}
                       >
                         {task.daysUntilDue !== null
-                          ? (task.daysUntilDue < 0 ? `${Math.abs(task.daysUntilDue)}d overdue` : task.daysUntilDue === 0 ? 'Today' : `${task.daysUntilDue}d`)
+                          ? (task.daysUntilDue < 0 ? `${Math.abs(task.daysUntilDue)}d overdue` : task.daysUntilDue === 0 ? 'Today' : task.daysUntilDue === 1 ? 'Tomorrow' : task.daysUntilDue <= 7 ? (() => { const d = new Date(); d.setDate(d.getDate() + task.daysUntilDue); return d.toLocaleDateString('en-US', { weekday: 'short' }); })() : `in ${task.daysUntilDue} days`)
                           : 'No date'}
                       </button>
                     </div>
@@ -2862,7 +2862,18 @@ export default function DashboardOverview() {
                       }).map(task => {
                         const isCompleting = completingTaskId === task.id;
                         const isEditingDate = editingDateTaskId === task.id;
-                        const statusColor = task.urgency === 'urgent' ? '#ef4444' : task.urgency === 'high' ? '#eab308' : '#6a6058';
+                        const statusColor = task.daysUntilDue !== null && task.daysUntilDue < 0 ? '#ef4444' : task.daysUntilDue !== null && task.daysUntilDue <= 2 ? '#eab308' : '#5a5550';
+                        const dateLabel = (() => {
+                          if (task.daysUntilDue === null) return 'No date';
+                          if (task.daysUntilDue < 0) return `${Math.abs(task.daysUntilDue)}d overdue`;
+                          if (task.daysUntilDue === 0) return 'Today';
+                          if (task.daysUntilDue === 1) return 'Tomorrow';
+                          if (task.daysUntilDue <= 7) {
+                            const d = new Date(); d.setDate(d.getDate() + task.daysUntilDue);
+                            return d.toLocaleDateString('en-US', { weekday: 'short' });
+                          }
+                          return `in ${task.daysUntilDue} days`;
+                        })();
                         return (
                           <div key={task.id} style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '4px 0', borderBottom: '1px solid rgba(200,140,0,0.04)', opacity: isCompleting ? 0.4 : 1 }}>
                             <button
@@ -2906,9 +2917,7 @@ export default function DashboardOverview() {
                                   onClick={() => { setEditingDateTaskId(task.id); setPendingDate(task.endDate || ''); }}
                                   style={{ fontSize: 12, color: statusColor, background: 'transparent', border: 'none', cursor: 'pointer', padding: 0 }}
                                 >
-                                  {task.daysUntilDue !== null
-                                    ? (task.daysUntilDue < 0 ? `${Math.abs(task.daysUntilDue)}d overdue` : task.daysUntilDue === 0 ? 'Today' : `${task.daysUntilDue}d`)
-                                    : 'No date'}
+                                  {dateLabel}
                                 </button>
                                 {task.jobId && (
                                   <a
