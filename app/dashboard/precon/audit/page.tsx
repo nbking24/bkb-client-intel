@@ -56,7 +56,7 @@ let toastIdCounter = 0;
 function ToastContainer({ toasts, onDismiss }: { toasts: Toast[]; onDismiss: (id: number) => void }) {
   if (toasts.length === 0) return null;
   const colors = {
-    info: { bg: '#1e40af', border: '#3b82f6', text: '#dbeafe' },
+    info: { bg: 'rgba(200,140,0,0.08)', border: '#c88c00', text: '#1a1a1a' },
     warning: { bg: '#78350f', border: '#f59e0b', text: '#fef3c7' },
     success: { bg: '#14532d', border: '#22c55e', text: '#dcfce7' },
     error: { bg: '#7f1d1d', border: '#ef4444', text: '#fecaca' },

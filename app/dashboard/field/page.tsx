@@ -382,13 +382,13 @@ function InlineAskAgent({ pmJobs, screen }: { pmJobs: { id: string; name: string
                   <div style={{
                     maxWidth: isMobile ? '90%' : '85%', padding: isTouch ? '8px 12px' : '5px 8px', borderRadius: isTouch ? 10 : 6, fontSize: isTouch ? 14 : 11, lineHeight: isTouch ? '20px' : '16px',
                     ...(msg.role === 'user'
-                      ? { background: '#1B3A5C', color: '#1a1a1a' }
+                      ? { background: 'rgba(200,140,0,0.15)', color: '#1a1a1a' }
                       : { background: '#f8f6f3', color: '#1a1a1a', border: '1px solid rgba(200,140,0,0.06)' }),
                   }}>
                     {msg.role === 'assistant' ? <RenderContent content={msg.content} /> : msg.content}
                   </div>
                   {msg.role === 'user' && (
-                    <div style={{ width: isTouch ? 24 : 18, height: isTouch ? 24 : 18, borderRadius: 12, background: 'rgba(27,58,92,0.3)', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0, marginTop: 2 }}>
+                    <div style={{ width: isTouch ? 24 : 18, height: isTouch ? 24 : 18, borderRadius: 12, background: 'rgba(200,140,0,0.12)', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0, marginTop: 2 }}>
                       <User size={isTouch ? 13 : 10} style={{ color: '#1a1a1a' }} />
                     </div>
                   )}
@@ -415,13 +415,13 @@ function InlineAskAgent({ pmJobs, screen }: { pmJobs: { id: string; name: string
                   const totalCost = co.lineItems.reduce((s, li) => s + (li.unitCost * li.quantity), 0);
                   return (
                     <div style={{ marginLeft: 24, marginTop: 6 }}>
-                      <div style={{ background: '#1e293b', borderRadius: 8, padding: 10, marginBottom: 6, border: '1px solid rgba(59,130,246,0.2)' }}>
-                        <div style={{ fontSize: 12, fontWeight: 600, color: '#93c5fd', marginBottom: 6 }}>
+                      <div style={{ background: '#f8f6f3', borderRadius: 8, padding: 10, marginBottom: 6, border: '1px solid rgba(200,140,0,0.2)' }}>
+                        <div style={{ fontSize: 12, fontWeight: 600, color: '#c88c00', marginBottom: 6 }}>
                           CO: {co.coName}
                         </div>
                         <table style={{ width: '100%', fontSize: 10, borderCollapse: 'collapse' }}>
                           <thead>
-                            <tr style={{ color: '#64748b', borderBottom: '1px solid rgba(100,116,139,0.2)' }}>
+                            <tr style={{ color: '#8a8078', borderBottom: '1px solid rgba(200,140,0,0.15)' }}>
                               <th style={{ textAlign: 'left', padding: '2px 4px' }}>Item</th>
                               <th style={{ textAlign: 'right', padding: '2px 4px' }}>Qty</th>
                               <th style={{ textAlign: 'right', padding: '2px 4px' }}>Cost</th>
@@ -430,24 +430,24 @@ function InlineAskAgent({ pmJobs, screen }: { pmJobs: { id: string; name: string
                           </thead>
                           <tbody>
                             {co.lineItems.map((li, liIdx) => (
-                              <tr key={liIdx} style={{ color: '#e2e8f0', borderBottom: '1px solid rgba(100,116,139,0.1)' }}>
+                              <tr key={liIdx} style={{ color: '#1a1a1a', borderBottom: '1px solid rgba(200,140,0,0.08)' }}>
                                 <td style={{ padding: '3px 4px' }}>{li.name}</td>
-                                <td style={{ textAlign: 'right', padding: '3px 4px', color: '#94a3b8' }}>{li.quantity}</td>
-                                <td style={{ textAlign: 'right', padding: '3px 4px', color: '#94a3b8' }}>${(li.unitCost * li.quantity).toFixed(0)}</td>
+                                <td style={{ textAlign: 'right', padding: '3px 4px', color: '#5a5550' }}>{li.quantity}</td>
+                                <td style={{ textAlign: 'right', padding: '3px 4px', color: '#5a5550' }}>${(li.unitCost * li.quantity).toFixed(0)}</td>
                                 <td style={{ textAlign: 'right', padding: '3px 4px', fontWeight: 500 }}>${(li.unitPrice * li.quantity).toFixed(0)}</td>
                               </tr>
                             ))}
                           </tbody>
                           <tfoot>
-                            <tr style={{ color: '#f1f5f9', fontWeight: 600, borderTop: '1px solid rgba(100,116,139,0.3)' }}>
+                            <tr style={{ color: '#1a1a1a', fontWeight: 600, borderTop: '1px solid rgba(200,140,0,0.2)' }}>
                               <td style={{ padding: '4px' }}>Total</td>
                               <td></td>
-                              <td style={{ textAlign: 'right', padding: '4px', color: '#94a3b8' }}>${totalCost.toFixed(0)}</td>
+                              <td style={{ textAlign: 'right', padding: '4px', color: '#5a5550' }}>${totalCost.toFixed(0)}</td>
                               <td style={{ textAlign: 'right', padding: '4px' }}>${totalPrice.toFixed(0)}</td>
                             </tr>
                           </tfoot>
                         </table>
-                        {co.createDocument && <div style={{ fontSize: 9, color: '#60a5fa', marginTop: 4 }}>+ Draft CO document will be created</div>}
+                        {co.createDocument && <div style={{ fontSize: 9, color: '#c88c00', marginTop: 4 }}>+ Draft CO document will be created</div>}
                         {co.followUp?.needed && <div style={{ fontSize: 9, color: '#f59e0b', marginTop: 2 }}>+ Follow-up task → {co.followUp.assignTo || 'Nathan'} by {co.followUp.dueDate || 'TBD'}</div>}
                         {co.imageUrls && co.imageUrls.length > 0 && <div style={{ fontSize: 9, color: '#22c55e', marginTop: 2 }}>+ {co.imageUrls.length} photo(s) will be attached</div>}
                       </div>
@@ -562,7 +562,7 @@ function InlineAskAgent({ pmJobs, screen }: { pmJobs: { id: string; name: string
 }
 
 const PALETTE = [
-  '#c88c00', '#3b82f6', '#22c55e', '#a855f7',
+  '#c88c00', '#c88c00', '#22c55e', '#a855f7',
   '#ec4899', '#f59e0b', '#14b8a6', '#ef4444',
   '#6366f1', '#84cc16', '#f97316', '#06b6d4',
 ];
@@ -1012,8 +1012,8 @@ export default function FieldDashboardPage() {
           borderRadius: 8, padding: '8px 10px', marginBottom: 6,
         }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: 5, marginBottom: 5 }}>
-            <CalendarDays size={11} style={{ color: '#3b82f6' }} />
-            <span style={{ fontSize: 9, fontWeight: 700, color: '#3b82f6', letterSpacing: '0.06em' }}>YOUR TASKS THIS WEEK</span>
+            <CalendarDays size={11} style={{ color: '#c88c00' }} />
+            <span style={{ fontSize: 9, fontWeight: 700, color: '#c88c00', letterSpacing: '0.06em' }}>YOUR TASKS THIS WEEK</span>
           </div>
           <div style={{ display: 'flex', flexDirection: 'column', gap: 3 }}>
             {myNext7Days.map(t => {
@@ -1032,7 +1032,7 @@ export default function FieldDashboardPage() {
                   <span style={{ width: 6, height: 6, borderRadius: 3, background: c, flexShrink: 0 }} />
                   <span style={{ color: '#1a1a1a', flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{t.name}</span>
                   <span style={{ color: '#6a8ab5', fontSize: 9, flexShrink: 0 }}>{t.jobName.replace(/^#\d+\s*/, '')}</span>
-                  <span style={{ color: '#3b82f6', fontSize: 10, fontWeight: 600, flexShrink: 0 }}>{dayLabel}</span>
+                  <span style={{ color: '#c88c00', fontSize: 10, fontWeight: 600, flexShrink: 0 }}>{dayLabel}</span>
                 </a>
               );
             })}
@@ -1047,8 +1047,8 @@ export default function FieldDashboardPage() {
           if (code <= 1) return <Sun size={size} style={{ color: '#eab308' }} />;
           if (code <= 3) return <Cloud size={size} style={{ color: '#9ca3af' }} />;
           if (code <= 48) return <CloudFog size={size} style={{ color: '#9ca3af' }} />;
-          if (code <= 57) return <CloudDrizzle size={size} style={{ color: '#60a5fa' }} />;
-          if (code <= 67) return <CloudRain size={size} style={{ color: '#3b82f6' }} />;
+          if (code <= 57) return <CloudDrizzle size={size} style={{ color: '#8a8078' }} />;
+          if (code <= 67) return <CloudRain size={size} style={{ color: '#c88c00' }} />;
           if (code <= 77) return <CloudSnow size={size} style={{ color: '#c4b5fd' }} />;
           if (code <= 82) return <CloudRain size={size} style={{ color: '#2563eb' }} />;
           if (code <= 86) return <CloudSnow size={size} style={{ color: '#a78bfa' }} />;
@@ -1082,7 +1082,7 @@ export default function FieldDashboardPage() {
                     <div style={{ fontSize: 10, fontWeight: 700, color: '#1a1a1a', lineHeight: 1.2 }}>{w.high}°</div>
                     <div style={{ fontSize: 8, color: '#4a4a4a' }}>{w.low}°</div>
                     {w.precipChance > 10 && (
-                      <div style={{ fontSize: 7, color: w.precipChance >= 50 ? '#3b82f6' : '#5a5550', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 1, marginTop: 1 }}>
+                      <div style={{ fontSize: 7, color: w.precipChance >= 50 ? '#c88c00' : '#5a5550', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 1, marginTop: 1 }}>
                         <Droplets size={6} /> {w.precipChance}%
                       </div>
                     )}
@@ -1285,21 +1285,21 @@ export default function FieldDashboardPage() {
             </div>
 
             {/* KPI 4: Completed This Week */}
-            <div style={{ background: '#f8f6f3', borderRadius: 6, padding: '6px 7px', borderLeft: `3px solid #3b82f6` }}>
+            <div style={{ background: '#f8f6f3', borderRadius: 6, padding: '6px 7px', borderLeft: `3px solid #c88c00` }}>
               <div style={{ display: 'flex', alignItems: 'center', gap: 3, marginBottom: 3 }}>
-                <Activity size={9} style={{ color: '#3b82f6' }} />
+                <Activity size={9} style={{ color: '#c88c00' }} />
                 <span style={{ fontSize: 7, color: '#5a5550', fontWeight: 600, letterSpacing: '0.04em' }}>DONE / WK</span>
               </div>
               <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
                 <div>
-                  <div style={{ fontSize: 18, fontWeight: 700, color: '#3b82f6', lineHeight: 1 }}>
+                  <div style={{ fontSize: 18, fontWeight: 700, color: '#c88c00', lineHeight: 1 }}>
                     {k.completedThisWeek}
                   </div>
                   <div style={{ fontSize: 7, color: trendColor, marginTop: 2, display: 'flex', alignItems: 'center', gap: 2 }}>
                     {trendIcon} {k.completionTrend > 0 ? '+' : ''}{k.completionTrend} vs last wk · goal {t.completedPerWeek}
                   </div>
                 </div>
-                <Sparkline data={sparkCompleted} color="#3b82f6" targetValue={t.completedPerWeek} />
+                <Sparkline data={sparkCompleted} color="#c88c00" targetValue={t.completedPerWeek} />
               </div>
               <TargetBar current={k.completedThisWeek} target={t.completedPerWeek} />
             </div>

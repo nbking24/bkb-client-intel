@@ -315,13 +315,13 @@ export default function AskAgentPage() {
                   {msg.role === 'assistant' && msg.agent && (
                     <span className="text-[10px] mb-1 px-1.5 py-0.5 rounded w-fit" style={{ color: '#c88c00', background: 'rgba(201,168,76,0.08)' }}>{msg.agent}</span>
                   )}
-                  <div className="px-4 py-3 rounded-lg text-sm leading-relaxed" style={msg.role === 'user' ? { background: '#1B3A5C', color: '#1a1a1a' } : { background: '#f8f6f3', color: '#1a1a1a', border: '1px solid rgba(200,140,0,0.08)' }}>
+                  <div className="px-4 py-3 rounded-lg text-sm leading-relaxed" style={msg.role === 'user' ? { background: 'rgba(200,140,0,0.15)', color: '#1a1a1a' } : { background: '#f8f6f3', color: '#1a1a1a', border: '1px solid rgba(200,140,0,0.08)' }}>
                     {msg.role === 'assistant' ? <RenderContent content={msg.content} /> : msg.content}
                   </div>
                 </div>
                 {msg.role === 'user' && (
-                  <div className="w-7 h-7 rounded-full flex items-center justify-center flex-shrink-0 mt-1" style={{ background: 'rgba(27,58,92,0.3)' }}>
-                    <User size={14} style={{ color: '#1a1a1a' }} />
+                  <div className="w-7 h-7 rounded-full flex items-center justify-center flex-shrink-0 mt-1" style={{ background: 'rgba(200,140,0,0.12)' }}>
+                    <User size={14} style={{ color: '#c88c00' }} />
                   </div>
                 )}
               </div>

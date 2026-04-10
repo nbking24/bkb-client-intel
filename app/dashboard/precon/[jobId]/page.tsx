@@ -61,7 +61,7 @@ function ToastContainer({ toasts, onDismiss }: { toasts: Toast[]; onDismiss: (id
   if (toasts.length === 0) return null;
 
   const colors = {
-    info: { bg: '#1e40af', border: '#3b82f6', text: '#dbeafe' },
+    info: { bg: 'rgba(200,140,0,0.08)', border: '#c88c00', text: '#1a1a1a' },
     warning: { bg: '#78350f', border: '#f59e0b', text: '#fef3c7' },
     success: { bg: '#14532d', border: '#22c55e', text: '#dcfce7' },
     error: { bg: '#7f1d1d', border: '#ef4444', text: '#fecaca' },
@@ -726,7 +726,7 @@ function StageIndicator({ statusCategory, customStatus }: { statusCategory: Stat
   const stages: { key: StatusCategoryKey; label: string; color: string }[] = [
     { key: 'LEADS', label: 'Lead', color: '#8b5cf6' },
     { key: 'IN_DESIGN', label: 'Design', color: '#eab308' },
-    { key: 'READY', label: 'Ready', color: '#3b82f6' },
+    { key: 'READY', label: 'Ready', color: '#c88c00' },
     { key: 'IN_PRODUCTION', label: 'Production', color: '#22c55e' },
     { key: 'FINAL_BILLING', label: 'Billing', color: '#f97316' },
   ];

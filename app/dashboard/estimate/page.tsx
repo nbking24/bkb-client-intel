@@ -1066,8 +1066,8 @@ export default function EstimatePage() {
                 <RenderContent content={msg.content} />
               </div>
               {msg.role === 'user' && (
-                <div className="w-7 h-7 rounded-full flex items-center justify-center flex-shrink-0" style={{ background: 'rgba(27,58,92,0.3)' }}>
-                  <User size={14} style={{ color: '#93c5fd' }} />
+                <div className="w-7 h-7 rounded-full flex items-center justify-center flex-shrink-0" style={{ background: 'rgba(200,140,0,0.12)' }}>
+                  <User size={14} style={{ color: '#c88c00' }} />
                 </div>
               )}
             </div>

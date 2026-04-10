@@ -596,14 +596,14 @@ function InlineAskAgent({ pmJobs, screen, hideToggle, defaultOpen }: { pmJobs: {
                   <div style={{
                     maxWidth: isMobile ? '90%' : '85%', padding: isTouch ? '8px 12px' : '8px 12px', borderRadius: isTouch ? 10 : 8, fontSize: isTouch ? 14 : 13, lineHeight: isTouch ? '20px' : '20px',
                     ...(msg.role === 'user'
-                      ? { background: '#1B3A5C', color: '#1a1a1a' }
+                      ? { background: 'rgba(200,140,0,0.15)', color: '#1a1a1a' }
                       : { background: '#f8f6f3', color: '#1a1a1a', border: '1px solid rgba(200,140,0,0.06)' }),
                   }}>
                     {msg.role === 'assistant' ? <RenderContent content={msg.content} /> : msg.content}
                   </div>
                   {msg.role === 'user' && (
-                    <div style={{ width: isTouch ? 24 : 18, height: isTouch ? 24 : 18, borderRadius: 12, background: 'rgba(27,58,92,0.3)', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0, marginTop: 2 }}>
-                      <User size={isTouch ? 13 : 10} style={{ color: '#1a1a1a' }} />
+                    <div style={{ width: isTouch ? 24 : 18, height: isTouch ? 24 : 18, borderRadius: 12, background: 'rgba(200,140,0,0.12)', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0, marginTop: 2 }}>
+                      <User size={isTouch ? 13 : 10} style={{ color: '#c88c00' }} />
                     </div>
                   )}
                 </div>
@@ -629,13 +629,13 @@ function InlineAskAgent({ pmJobs, screen, hideToggle, defaultOpen }: { pmJobs: {
                   const totalCost = co.lineItems.reduce((s: number, li: any) => s + (li.unitCost * li.quantity), 0);
                   return (
                     <div style={{ marginLeft: 24, marginTop: 6 }}>
-                      <div style={{ background: '#1e293b', borderRadius: 8, padding: 10, marginBottom: 6, border: '1px solid rgba(59,130,246,0.2)' }}>
-                        <div style={{ fontSize: 14, fontWeight: 600, color: '#93c5fd', marginBottom: 6 }}>
+                      <div style={{ background: '#f8f6f3', borderRadius: 8, padding: 10, marginBottom: 6, border: '1px solid rgba(200,140,0,0.2)' }}>
+                        <div style={{ fontSize: 14, fontWeight: 600, color: '#c88c00', marginBottom: 6 }}>
                           CO: {co.coName}
                         </div>
                         <table style={{ width: '100%', fontSize: 12, borderCollapse: 'collapse' }}>
                           <thead>
-                            <tr style={{ color: '#64748b', borderBottom: '1px solid rgba(100,116,139,0.2)' }}>
+                            <tr style={{ color: '#8a8078', borderBottom: '1px solid rgba(200,140,0,0.15)' }}>
                               <th style={{ textAlign: 'left', padding: '2px 4px' }}>Item</th>
                               <th style={{ textAlign: 'right', padding: '2px 4px' }}>Qty</th>
                               <th style={{ textAlign: 'right', padding: '2px 4px' }}>Cost</th>
@@ -644,24 +644,24 @@ function InlineAskAgent({ pmJobs, screen, hideToggle, defaultOpen }: { pmJobs: {
                           </thead>
                           <tbody>
                             {co.lineItems.map((li: any, liIdx: number) => (
-                              <tr key={liIdx} style={{ color: '#e2e8f0', borderBottom: '1px solid rgba(100,116,139,0.1)' }}>
+                              <tr key={liIdx} style={{ color: '#1a1a1a', borderBottom: '1px solid rgba(200,140,0,0.08)' }}>
                                 <td style={{ padding: '3px 4px' }}>{li.name}</td>
-                                <td style={{ textAlign: 'right', padding: '3px 4px', color: '#94a3b8' }}>{li.quantity}</td>
-                                <td style={{ textAlign: 'right', padding: '3px 4px', color: '#94a3b8' }}>${(li.unitCost * li.quantity).toFixed(0)}</td>
+                                <td style={{ textAlign: 'right', padding: '3px 4px', color: '#5a5550' }}>{li.quantity}</td>
+                                <td style={{ textAlign: 'right', padding: '3px 4px', color: '#5a5550' }}>${(li.unitCost * li.quantity).toFixed(0)}</td>
                                 <td style={{ textAlign: 'right', padding: '3px 4px', fontWeight: 500 }}>${(li.unitPrice * li.quantity).toFixed(0)}</td>
                               </tr>
                             ))}
                           </tbody>
                           <tfoot>
-                            <tr style={{ color: '#f1f5f9', fontWeight: 600, borderTop: '1px solid rgba(100,116,139,0.3)' }}>
+                            <tr style={{ color: '#1a1a1a', fontWeight: 600, borderTop: '1px solid rgba(200,140,0,0.2)' }}>
                               <td style={{ padding: '4px' }}>Total</td>
                               <td></td>
-                              <td style={{ textAlign: 'right', padding: '4px', color: '#94a3b8' }}>${totalCost.toFixed(0)}</td>
+                              <td style={{ textAlign: 'right', padding: '4px', color: '#5a5550' }}>${totalCost.toFixed(0)}</td>
                               <td style={{ textAlign: 'right', padding: '4px' }}>${totalPrice.toFixed(0)}</td>
                             </tr>
                           </tfoot>
                         </table>
-                        {co.createDocument && <div style={{ fontSize: 11, color: '#60a5fa', marginTop: 4 }}>+ Draft CO document will be created</div>}
+                        {co.createDocument && <div style={{ fontSize: 11, color: '#c88c00', marginTop: 4 }}>+ Draft CO document will be created</div>}
                         {co.followUp?.needed && <div style={{ fontSize: 11, color: '#f59e0b', marginTop: 2 }}>+ Follow-up task â {co.followUp.assignTo || 'Nathan'} by {co.followUp.dueDate || 'TBD'}</div>}
                         {co.imageUrls && co.imageUrls.length > 0 && <div style={{ fontSize: 11, color: '#22c55e', marginTop: 2 }}>+ {co.imageUrls.length} photo(s) will be attached</div>}
                       </div>
@@ -780,7 +780,7 @@ function InlineAskAgent({ pmJobs, screen, hideToggle, defaultOpen }: { pmJobs: {
 // ============================================================
 
 const PALETTE = [
-  '#c88c00', '#3b82f6', '#22c55e', '#a855f7',
+  '#c88c00', '#68050a', '#22c55e', '#a855f7',
   '#ec4899', '#f59e0b', '#14b8a6', '#ef4444',
   '#6366f1', '#84cc16', '#f97316', '#06b6d4',
 ];
@@ -2004,12 +2004,12 @@ export default function DashboardOverview() {
           const unread = stats?.unreadEmailCount || 0;
           const hasUnread = unread > 0;
           return (
-            <div style={{ background: '#f8f6f3', borderRadius: 6, padding: '6px 7px', borderLeft: `3px solid ${hasUnread ? '#8b5cf6' : '#5a5550'}` }}>
+            <div style={{ background: '#f8f6f3', borderRadius: 6, padding: '6px 7px', borderLeft: `3px solid ${hasUnread ? '#c88c00' : '#5a5550'}` }}>
               <div style={{ display: 'flex', alignItems: 'center', gap: 3, marginBottom: 3 }}>
-                <Mail size={11} style={{ color: hasUnread ? '#8b5cf6' : '#5a5550' }} />
+                <Mail size={11} style={{ color: hasUnread ? '#c88c00' : '#5a5550' }} />
                 <span style={{ fontSize: 9, color: '#5a5550', fontWeight: 600, letterSpacing: '0.04em' }}>UNREAD EMAILS</span>
               </div>
-              <div style={{ fontSize: 18, fontWeight: 700, color: hasUnread ? '#8b5cf6' : '#5a5550', lineHeight: 1 }}>
+              <div style={{ fontSize: 18, fontWeight: 700, color: hasUnread ? '#c88c00' : '#5a5550', lineHeight: 1 }}>
                 {unread}
               </div>
             </div>
@@ -2023,13 +2023,13 @@ export default function DashboardOverview() {
           return (
             <button
               onClick={() => setShowSection(showSection === 'tasks' ? false : 'tasks')}
-              style={{ background: showSection === 'tasks' ? 'rgba(59,130,246,0.1)' : '#f8f6f3', borderRadius: 6, padding: '6px 7px', border: 'none', borderLeftWidth: 3, borderLeftStyle: 'solid', borderLeftColor: hasDue ? '#3b82f6' : '#5a5550', cursor: 'pointer', textAlign: 'left' }}
+              style={{ background: showSection === 'tasks' ? 'rgba(200,140,0,0.08)' : '#f8f6f3', borderRadius: 6, padding: '6px 7px', border: 'none', borderLeftWidth: 3, borderLeftStyle: 'solid', borderLeftColor: hasDue ? '#c88c00' : '#5a5550', cursor: 'pointer', textAlign: 'left' }}
             >
               <div style={{ display: 'flex', alignItems: 'center', gap: 3, marginBottom: 3 }}>
-                <CalendarDays size={11} style={{ color: hasDue ? '#3b82f6' : '#5a5550' }} />
+                <CalendarDays size={11} style={{ color: hasDue ? '#c88c00' : '#5a5550' }} />
                 <span style={{ fontSize: 9, color: '#5a5550', fontWeight: 600, letterSpacing: '0.04em' }}>DUE TODAY</span>
               </div>
-              <div style={{ fontSize: 18, fontWeight: 700, color: hasDue ? '#3b82f6' : '#5a5550', lineHeight: 1 }}>
+              <div style={{ fontSize: 18, fontWeight: 700, color: hasDue ? '#c88c00' : '#5a5550', lineHeight: 1 }}>
                 {dueToday}
               </div>
             </button>
@@ -2202,7 +2202,7 @@ export default function DashboardOverview() {
       {showSection && ['overdue', 'tasks'].includes(showSection) && (() => {
         const sectionTasks = showSection === 'overdue' ? overdueTasks : tasks;
         const sectionLabel = showSection === 'overdue' ? 'Overdue Tasks' : 'All Open Tasks';
-        const sectionColor = showSection === 'overdue' ? '#ef4444' : '#3b82f6';
+        const sectionColor = showSection === 'overdue' ? '#ef4444' : '#c88c00';
 
         return (
           <div style={{ background: '#f8f6f3', border: '1px solid rgba(200,140,0,0.08)', borderRadius: 8, padding: '6px 10px', marginBottom: 6, maxHeight: 300, overflowY: 'auto' }}>

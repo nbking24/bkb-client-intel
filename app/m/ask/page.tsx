@@ -210,7 +210,7 @@ export default function MobileAskAgentPage() {
                   <span className="text-[9px] mb-0.5 px-1.5 py-0.5 rounded w-fit" style={{ color: '#c88c00', background: 'rgba(201,168,76,0.08)' }}>{msg.agent}</span>
                 )}
                 <div className="px-3 py-2.5 rounded-2xl text-[13px] leading-relaxed"
-                  style={msg.role === 'user' ? { background: '#1B3A5C', color: '#1a1a1a', borderBottomRightRadius: '4px' } : { background: '#f8f6f3', color: '#1a1a1a', border: '1px solid rgba(200,140,0,0.08)', borderBottomLeftRadius: '4px' }}>
+                  style={msg.role === 'user' ? { background: 'rgba(200,140,0,0.15)', color: '#1a1a1a', borderBottomRightRadius: '4px' } : { background: '#f8f6f3', color: '#1a1a1a', border: '1px solid rgba(200,140,0,0.08)', borderBottomLeftRadius: '4px' }}>
                   {msg.role === 'assistant' ? <RenderContent content={msg.content} /> : (
                     <span style={{ whiteSpace: 'pre-wrap', wordBreak: 'break-word' }}>
                       {msg.content.includes('--- ATTACHED DOCUMENT:') ? msg.content.split('\n\n--- ATTACHED DOCUMENT:')[0] : msg.content}
@@ -219,8 +219,8 @@ export default function MobileAskAgentPage() {
                 </div>
               </div>
               {msg.role === 'user' && (
-                <div className="w-6 h-6 rounded-full flex items-center justify-center flex-shrink-0 mt-1" style={{ background: 'rgba(27,58,92,0.3)' }}>
-                  <User size={12} style={{ color: '#1a1a1a' }} />
+                <div className="w-6 h-6 rounded-full flex items-center justify-center flex-shrink-0 mt-1" style={{ background: 'rgba(200,140,0,0.12)' }}>
+                  <User size={12} style={{ color: '#c88c00' }} />
                 </div>
               )}
             </div>
@@ -234,7 +234,7 @@ export default function MobileAskAgentPage() {
                     <CheckCircle size={16} /> Approve
                   </button>
                   <button onClick={() => { handleDecline(); setPhaseEdit(null); }} className="flex items-center gap-1.5 px-4 py-2.5 rounded-xl text-sm font-medium active:brightness-110"
-                    style={{ background: '#3a2a2a', color: '#f87171', border: '1px solid rgba(248,113,113,0.2)' }}>
+                    style={{ background: 'rgba(239,68,68,0.1)', color: '#ef4444', border: 'none' }}>
                     <XCircle size={16} /> Cancel
                   </button>
                 </div>

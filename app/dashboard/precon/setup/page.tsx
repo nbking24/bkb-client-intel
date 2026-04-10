@@ -446,7 +446,7 @@ function ScheduleSetupContent() {
           <div className="grid grid-cols-4 gap-2">
             {[
               { label: 'Phases to Create', value: preview.summary.phasesToCreate, icon: FolderPlus, color: '#22c55e' },
-              { label: 'Tasks to Create', value: preview.summary.tasksToCreate, icon: ListPlus, color: '#3b82f6' },
+              { label: 'Tasks to Create', value: preview.summary.tasksToCreate, icon: ListPlus, color: '#c88c00' },
               { label: 'Tasks to Move', value: preview.summary.tasksToMove, icon: ArrowRightLeft, color: '#eab308' },
               { label: 'Orphans to Assign', value: preview.summary.orphansToAssign, icon: Link2Off, color: '#f97316' },
             ].map((c) => {
@@ -501,13 +501,13 @@ function ScheduleSetupContent() {
             <PlanSection
               title={`Tasks to Create (${preview.plan.tasksToCreate.length})`}
               icon={ListPlus}
-              color="#3b82f6"
+              color="#c88c00"
               expanded={expandedSections.tasksToCreate}
               onToggle={() => toggleSection('tasksToCreate')}
             >
               {preview.plan.tasksToCreate.map((t: any, i: number) => (
                 <div key={i} className="text-xs py-1 flex items-start gap-2">
-                  <span className="w-5 text-center flex-shrink-0" style={{ color: '#3b82f6' }}>+</span>
+                  <span className="w-5 text-center flex-shrink-0" style={{ color: '#c88c00' }}>+</span>
                   <span style={{ color: '#d4ccc4' }}>{t.taskName}</span>
                   <span style={{ color: '#8a8078' }}>→ {t.phaseName}</span>
                 </div>
@@ -626,7 +626,7 @@ function ScheduleSetupContent() {
           <div className="grid grid-cols-4 gap-2">
             {[
               { label: 'Phases Created', value: applyResults.phasesCreated, color: '#22c55e' },
-              { label: 'Tasks Created', value: applyResults.tasksCreated, color: '#3b82f6' },
+              { label: 'Tasks Created', value: applyResults.tasksCreated, color: '#c88c00' },
               { label: 'Tasks Moved', value: applyResults.tasksMoved, color: '#eab308' },
               { label: 'Orphans Assigned', value: applyResults.orphansAssigned, color: '#f97316' },
             ].map((c) => (

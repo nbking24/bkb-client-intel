@@ -115,7 +115,7 @@ export default function MobileDashboard() {
 
   // ── Two-Week Calendar Data ──────────────────────────────
   const PALETTE = [
-    '#c88c00', '#3b82f6', '#22c55e', '#a855f7',
+    '#c88c00', '#68050a', '#22c55e', '#a855f7',
     '#ec4899', '#f59e0b', '#14b8a6', '#ef4444',
     '#6366f1', '#84cc16', '#f97316', '#06b6d4',
   ];
@@ -231,13 +231,13 @@ export default function MobileDashboard() {
             icon={<Mail size={14} />}
             label="Unread Emails"
             value={stats?.unreadEmailCount || 0}
-            color={stats?.unreadEmailCount ? '#8b5cf6' : '#5a5550'}
+            color={stats?.unreadEmailCount ? '#c88c00' : '#5a5550'}
           />
           <KpiCard
             icon={<CalendarDays size={14} />}
             label="Due Today"
             value={todayTasks.length}
-            color={todayTasks.length > 0 ? '#3b82f6' : '#5a5550'}
+            color={todayTasks.length > 0 ? '#c88c00' : '#5a5550'}
             active={expandedSection === 'tasks'}
             onClick={() => toggle('tasks')}
           />
@@ -400,7 +400,7 @@ export default function MobileDashboard() {
                       <div style={{ display: 'flex', gap: 8, marginTop: 4, fontSize: 11, color: '#8a8078' }}>
                         <span>{inv.daysPending}d pending</span>
                         {inv.arAutoSent && inv.arAutoSent.length > 0 && (
-                          <span style={{ color: '#3b82f6' }}>{inv.arAutoSent.length} follow-up{inv.arAutoSent.length > 1 ? 's' : ''}</span>
+                          <span style={{ color: '#c88c00' }}>{inv.arAutoSent.length} follow-up{inv.arAutoSent.length > 1 ? 's' : ''}</span>
                         )}
                         {inv.arHold && <span style={{ color: '#ef4444' }}>On hold</span>}
                       </div>
@@ -508,7 +508,7 @@ export default function MobileDashboard() {
                   {dayEvents.map(ev => (
                     <div key={ev.id} style={{
                       fontSize: 10, padding: '3px 5px', marginBottom: 3, borderRadius: 4,
-                      background: 'rgba(59,130,246,0.08)', borderLeft: '2px solid #3b82f6',
+                      background: 'rgba(200,140,0,0.08)', borderLeft: '2px solid #c88c00',
                       color: '#2a2520', lineHeight: 1.25, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
                     }}>
                       {ev.allDay ? '📅' : formatEventTime(ev.start).replace(' ', '')} {ev.summary}

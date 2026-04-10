@@ -1250,9 +1250,9 @@ function SpecWriterContent() {
             <span
               className="px-2.5 py-1 rounded-full text-xs font-medium"
               style={{
-                background: specMode === 'quick' ? 'rgba(201,168,76,0.15)' : 'rgba(59,130,246,0.15)',
-                color: specMode === 'quick' ? '#c88c00' : '#3b82f6',
-                border: `1px solid ${specMode === 'quick' ? 'rgba(201,168,76,0.3)' : 'rgba(59,130,246,0.3)'}`,
+                background: 'rgba(201,168,76,0.15)',
+                color: '#c88c00',
+                border: '1px solid rgba(201,168,76,0.3)',
               }}
             >
               {specMode === 'quick' ? (

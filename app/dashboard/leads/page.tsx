@@ -115,12 +115,12 @@ const BUDGET_RANGES = ['Under $50K', '$50K–$100K', '$100K–$250K', '$250K–$
 
 const STAGE_COLORS: Record<string, string> = {
   'New Inquiry': '#8a8078',
-  'Initial Call Scheduled': '#60a5fa',
-  'Discovery Scheduled': '#60a5fa',
+  'Initial Call Scheduled': '#c88c00',
+  'Discovery Scheduled': '#e8c860',
   'No Show': '#ef4444',
   'Nurture': '#a78bfa',
   'Estimating': '#c88c00',
-  'In Design': '#4ade80',
+  'In Design': '#22c55e',
   'Ready': '#34d399',
   'In Production': '#2dd4bf',
   'Final Billing': '#fbbf24',
@@ -193,7 +193,7 @@ function KpiCard({ label, value, icon: Icon, accent, sub, change, prior }: {
   const showChange = change !== null && change !== undefined;
   const isPositive = (change ?? 0) > 0;
   const isNeutral = change === 0 || change === null;
-  const changeColor = isNeutral ? '#8a8078' : isPositive ? '#4ade80' : '#f87171';
+  const changeColor = isNeutral ? '#8a8078' : isPositive ? '#22c55e' : '#f87171';
   const changeArrow = isPositive ? '↑' : (change ?? 0) < 0 ? '↓' : '→';
 
   return (
@@ -224,7 +224,7 @@ function KpiCard({ label, value, icon: Icon, accent, sub, change, prior }: {
 /* ── Funnel Bar Chart ── */
 function FunnelChart({ data }: { data: { label: string; value: number }[] }) {
   const max = Math.max(...data.map(d => d.value), 1);
-  const colors = ['#8a8078', '#60a5fa', '#a78bfa', '#c88c00', '#4ade80'];
+  const colors = ['#8a8078', '#c88c00', '#a78bfa', '#c88c00', '#22c55e'];
   return (
     <div className="space-y-2.5">
       {data.map((d, i) => (
@@ -256,11 +256,11 @@ function MonthlyTrendChart({ data }: { data: { month: string; leads: number; sec
     <div>
       <div className="flex items-center gap-4 mb-3">
         <div className="flex items-center gap-1.5">
-          <div className="w-2.5 h-2.5 rounded-sm" style={{ background: '#60a5fa' }} />
+          <div className="w-2.5 h-2.5 rounded-sm" style={{ background: '#c88c00' }} />
           <span className="text-xs" style={{ color: '#8a8078' }}>New Leads</span>
         </div>
         <div className="flex items-center gap-1.5">
-          <div className="w-2.5 h-2.5 rounded-sm" style={{ background: '#4ade80' }} />
+          <div className="w-2.5 h-2.5 rounded-sm" style={{ background: '#22c55e' }} />
           <span className="text-xs" style={{ color: '#8a8078' }}>Secured</span>
         </div>
       </div>
@@ -273,7 +273,7 @@ function MonthlyTrendChart({ data }: { data: { month: string; leads: number; sec
                 style={{
                   width: '40%',
                   height: `${Math.max((d.leads / max) * 100, 4)}%`,
-                  background: '#60a5fa',
+                  background: '#c88c00',
                 }}
                 title={`${d.leads} leads`}
               />
@@ -282,7 +282,7 @@ function MonthlyTrendChart({ data }: { data: { month: string; leads: number; sec
                 style={{
                   width: '40%',
                   height: `${Math.max((d.secured / max) * 100, 4)}%`,
-                  background: '#4ade80',
+                  background: '#22c55e',
                 }}
                 title={`${d.secured} secured`}
               />
@@ -299,7 +299,7 @@ function MonthlyTrendChart({ data }: { data: { month: string; leads: number; sec
 function SourceChart({ data }: { data: SourceItem[] }) {
   const total = data.reduce((s, d) => s + d.count, 0) || 1;
   const SOURCE_COLORS: Record<string, string> = {
-    'Google': '#4285F4', 'Referral': '#4ade80', 'Website': '#60a5fa',
+    'Google': '#c88c00', 'Referral': '#22c55e', 'Website': '#c88c00',
     'Social Media': '#a78bfa', 'Sign/Vehicle': '#fbbf24', 'Repeat Client': '#34d399',
     'Magazine/News': '#f472b6', 'Houzz': '#2dd4bf', 'Drive-By': '#fb923c',
     'In-Person': '#c88c00', 'Bucks Beautiful / Garden Tour': '#c084fc',
@@ -532,7 +532,7 @@ export default function LeadsPage() {
               label="Total Leads (12mo)"
               value={kpis.totalLeads12m}
               icon={UserPlus}
-              accent="#4ade80"
+              accent="#22c55e"
               change={kpis.totalLeadsChange}
               prior={kpis.totalLeadsPrior}
               sub={`${kpis.newLeadsThisWeek} this week`}
@@ -550,7 +550,7 @@ export default function LeadsPage() {
               label="Secured Clients (12mo)"
               value={kpis.securedClients12m}
               icon={Shield}
-              accent="#4ade80"
+              accent="#22c55e"
               change={kpis.securedClientsChange}
               prior={kpis.securedClientsPrior}
               sub="In Design or beyond"
@@ -645,12 +645,12 @@ export default function LeadsPage() {
                   </div>
                   <div className="flex items-center gap-4 text-xs" style={{ color: '#8a8078' }}>
                     {lead.phone && (
-                      <a href={`tel:${lead.phone}`} className="flex items-center gap-1 hover:opacity-80" style={{ color: '#60a5fa' }}>
+                      <a href={`tel:${lead.phone}`} className="flex items-center gap-1 hover:opacity-80" style={{ color: '#c88c00' }}>
                         <Phone size={10} /> {lead.phone}
                       </a>
                     )}
                     {lead.email && (
-                      <a href={`mailto:${lead.email}`} className="flex items-center gap-1 hover:opacity-80" style={{ color: '#60a5fa' }}>
+                      <a href={`mailto:${lead.email}`} className="flex items-center gap-1 hover:opacity-80" style={{ color: '#c88c00' }}>
                         <Mail size={10} /> {lead.email}
                       </a>
                     )}
@@ -811,7 +811,7 @@ export default function LeadsPage() {
                             target="_blank"
                             rel="noopener noreferrer"
                             className="ml-auto flex items-center gap-1 text-[10px] hover:opacity-80 flex-shrink-0"
-                            style={{ color: '#60a5fa' }}
+                            style={{ color: '#c88c00' }}
                           >
                             JT <ExternalLink size={9} />
                           </a>
@@ -822,12 +822,12 @@ export default function LeadsPage() {
                       <div className="flex flex-wrap items-center gap-x-5 gap-y-1 text-xs" style={{ color: '#8a8078' }}>
                         {/* Contact info */}
                         {job.contactPhone && (
-                          <a href={`tel:${job.contactPhone}`} className="flex items-center gap-1 hover:opacity-80" style={{ color: '#60a5fa' }}>
+                          <a href={`tel:${job.contactPhone}`} className="flex items-center gap-1 hover:opacity-80" style={{ color: '#c88c00' }}>
                             <Phone size={9} /> {job.contactPhone}
                           </a>
                         )}
                         {job.contactEmail && (
-                          <a href={`mailto:${job.contactEmail}`} className="flex items-center gap-1 hover:opacity-80" style={{ color: '#60a5fa' }}>
+                          <a href={`mailto:${job.contactEmail}`} className="flex items-center gap-1 hover:opacity-80" style={{ color: '#c88c00' }}>
                             <Mail size={9} /> {job.contactEmail}
                           </a>
                         )}
@@ -935,7 +935,7 @@ export default function LeadsPage() {
                       <div style={{ color: '#8a8078' }}>Appointment: <span style={{ color: '#1a1a1a' }}>{form.appointmentDate} at {formatTime(form.appointmentTime)}</span></div>
                     )}
                     {result.jtJobCreated && (
-                      <div style={{ color: '#8a8078' }}>JobTread: <span style={{ color: '#4ade80' }}>Job auto-created</span></div>
+                      <div style={{ color: '#8a8078' }}>JobTread: <span style={{ color: '#22c55e' }}>Job auto-created</span></div>
                     )}
                   </div>
                   <button onClick={resetForm} className="px-6 py-2.5 rounded-lg text-sm font-medium" style={{ background: '#c88c00', color: '#ffffff' }}>
