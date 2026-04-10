@@ -6,7 +6,8 @@ import {
   UserPlus, Check, Phone, Mail, MapPin, Home, FileText,
   Calendar, Clock, Loader2, CheckCircle2, AlertCircle, ChevronDown, ChevronRight,
   TrendingUp, Target, PhoneCall, BarChart3, Users, ArrowRight, RefreshCw,
-  Shield, Eye, Trash2, AlertTriangle, ExternalLink,
+  Shield, Eye, Trash2, AlertTriangle, ExternalLink, MessageSquare, ClipboardList,
+  HardHat, FileCheck,
 } from 'lucide-react';
 
 /* ── Types ── */
@@ -44,6 +45,31 @@ interface PendingLead {
 interface SourceItem {
   source: string;
   count: number;
+}
+
+interface ActivityItem {
+  type: 'comment' | 'daily_log' | 'task_completed' | 'document';
+  date: string;
+  description: string;
+}
+
+interface EstimatingJob {
+  ghlOpportunityId: string;
+  ghlName: string;
+  contactName: string;
+  contactPhone: string;
+  contactEmail: string;
+  daysInEstimating: number;
+  enteredEstimatingAt: string;
+  jtJobId: string | null;
+  jtJobName: string | null;
+  jtJobNumber: string | null;
+  activity: {
+    lastActivity: ActivityItem | null;
+    nextTask: { id: string; name: string; endDate: string | null } | null;
+    hasUpcomingTasks: boolean;
+    daysSinceActivity: number | null;
+  } | null;
 }
 
 interface KpiData {
@@ -367,7 +393,26 @@ export default function LeadsPage() {
     }
   };
 
-  useEffect(() => { loadKpis(); }, []);
+  // Estimating tracker state
+  const [estimatingJobs, setEstimatingJobs] = useState<EstimatingJob[]>([]);
+  const [estimatingLoading, setEstimatingLoading] = useState(true);
+  const [estimatingExpanded, setEstimatingExpanded] = useState(true);
+
+  const loadEstimatingData = async () => {
+    setEstimatingLoading(true);
+    try {
+      const res = await fetch('/api/dashboard/estimating-tracker');
+      if (!res.ok) throw new Error('Failed to load estimating tracker');
+      const data = await res.json();
+      setEstimatingJobs(data.jobs || []);
+    } catch (err: any) {
+      console.error('Estimating tracker error:', err);
+    } finally {
+      setEstimatingLoading(false);
+    }
+  };
+
+  useEffect(() => { loadKpis(); loadEstimatingData(); }, []);
 
   const update = (field: keyof FormData, value: string) => {
     setForm((prev) => ({ ...prev, [field]: value }));
@@ -660,6 +705,177 @@ export default function LeadsPage() {
           </div>
         </div>
       )}
+
+      {/* ═══ Estimating Tracker ═══ */}
+      <div className="rounded-xl overflow-hidden mb-6" style={{ background: '#ffffff', border: '1px solid rgba(200,140,0,0.12)' }}>
+        <button
+          onClick={() => setEstimatingExpanded(!estimatingExpanded)}
+          className="w-full flex items-center gap-2 px-5 py-3 cursor-pointer"
+          style={{ background: '#f8f6f3', borderBottom: estimatingExpanded ? '1px solid rgba(200,140,0,0.08)' : 'none' }}
+        >
+          <HardHat size={14} style={{ color: '#c88c00' }} />
+          <span className="text-sm font-semibold" style={{ color: '#1a1a1a' }}>Estimating Tracker</span>
+          {!estimatingLoading && (
+            <span className="text-xs px-2 py-0.5 rounded-full ml-1" style={{ background: 'rgba(200,140,0,0.12)', color: '#c88c00' }}>
+              {estimatingJobs.length} {estimatingJobs.length === 1 ? 'job' : 'jobs'}
+            </span>
+          )}
+          {!estimatingLoading && estimatingJobs.some(j => (j.activity?.daysSinceActivity ?? 999) >= 14) && (
+            <span className="text-xs px-2 py-0.5 rounded-full" style={{ background: 'rgba(239,68,68,0.12)', color: '#ef4444' }}>
+              {estimatingJobs.filter(j => (j.activity?.daysSinceActivity ?? 999) >= 14).length} stale
+            </span>
+          )}
+          <span className="ml-auto" style={{ color: '#8a8078' }}>
+            {estimatingExpanded ? <ChevronDown size={14} /> : <ChevronRight size={14} />}
+          </span>
+        </button>
+
+        {estimatingExpanded && (
+          <div>
+            {estimatingLoading ? (
+              <div className="flex items-center justify-center gap-2 py-8" style={{ color: '#8a8078' }}>
+                <Loader2 size={14} className="animate-spin" /> Loading estimating jobs...
+              </div>
+            ) : estimatingJobs.length === 0 ? (
+              <div className="text-center py-8 text-sm" style={{ color: '#8a8078' }}>
+                No jobs currently in estimating
+              </div>
+            ) : (
+              <div className="divide-y" style={{ borderColor: 'rgba(200,140,0,0.06)' }}>
+                {estimatingJobs.map((job) => {
+                  const daysSince = job.activity?.daysSinceActivity ?? null;
+                  const isStale = daysSince !== null && daysSince >= 14;
+                  const isGettingStale = daysSince !== null && daysSince >= 7 && daysSince < 14;
+                  const isActive = daysSince !== null && daysSince < 7;
+                  const noJtMatch = !job.jtJobId;
+                  const noTasks = job.activity && !job.activity.hasUpcomingTasks;
+
+                  // Activity type icon
+                  const activityIcon = (type: string) => {
+                    switch (type) {
+                      case 'comment': return <MessageSquare size={10} />;
+                      case 'daily_log': return <ClipboardList size={10} />;
+                      case 'task_completed': return <CheckCircle2 size={10} />;
+                      case 'document': return <FileCheck size={10} />;
+                      default: return <Clock size={10} />;
+                    }
+                  };
+
+                  // Staleness badge
+                  const staleBadge = () => {
+                    if (noJtMatch) return (
+                      <span className="text-[10px] px-1.5 py-0.5 rounded" style={{ background: 'rgba(138,128,120,0.15)', color: '#8a8078' }}>
+                        No JT job found
+                      </span>
+                    );
+                    if (isStale) return (
+                      <span className="text-[10px] px-1.5 py-0.5 rounded" style={{ background: 'rgba(239,68,68,0.15)', color: '#ef4444' }}>
+                        {daysSince}d no activity
+                      </span>
+                    );
+                    if (isGettingStale) return (
+                      <span className="text-[10px] px-1.5 py-0.5 rounded" style={{ background: 'rgba(245,158,11,0.15)', color: '#f59e0b' }}>
+                        {daysSince}d since activity
+                      </span>
+                    );
+                    if (isActive) return (
+                      <span className="text-[10px] px-1.5 py-0.5 rounded" style={{ background: 'rgba(74,222,128,0.15)', color: '#22c55e' }}>
+                        Active
+                      </span>
+                    );
+                    return null;
+                  };
+
+                  return (
+                    <div key={job.ghlOpportunityId} className="px-5 py-3.5" style={{
+                      background: isStale ? 'rgba(239,68,68,0.02)' : isGettingStale ? 'rgba(245,158,11,0.02)' : 'transparent',
+                    }}>
+                      {/* Row 1: Name + badges */}
+                      <div className="flex items-center gap-2 mb-1.5">
+                        <span className="text-sm font-semibold" style={{ color: '#1a1a1a' }}>
+                          {job.contactName || job.ghlName}
+                        </span>
+                        <span className="text-[10px] px-1.5 py-0.5 rounded" style={{ background: 'rgba(200,140,0,0.12)', color: '#c88c00' }}>
+                          {job.daysInEstimating}d in estimating
+                        </span>
+                        {staleBadge()}
+                        {noTasks && !noJtMatch && (
+                          <span className="text-[10px] px-1.5 py-0.5 rounded flex items-center gap-0.5" style={{ background: 'rgba(245,158,11,0.15)', color: '#f59e0b' }}>
+                            <AlertTriangle size={8} /> No upcoming tasks
+                          </span>
+                        )}
+                        {/* JT external link */}
+                        {job.jtJobId && (
+                          <a
+                            href={`https://app.jobtread.com/jobs/${job.jtJobId}`}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            className="ml-auto flex items-center gap-1 text-[10px] hover:opacity-80 flex-shrink-0"
+                            style={{ color: '#60a5fa' }}
+                          >
+                            JT <ExternalLink size={9} />
+                          </a>
+                        )}
+                      </div>
+
+                      {/* Row 2: Contact + Activity + Next Task */}
+                      <div className="flex flex-wrap items-center gap-x-5 gap-y-1 text-xs" style={{ color: '#8a8078' }}>
+                        {/* Contact info */}
+                        {job.contactPhone && (
+                          <a href={`tel:${job.contactPhone}`} className="flex items-center gap-1 hover:opacity-80" style={{ color: '#60a5fa' }}>
+                            <Phone size={9} /> {job.contactPhone}
+                          </a>
+                        )}
+                        {job.contactEmail && (
+                          <a href={`mailto:${job.contactEmail}`} className="flex items-center gap-1 hover:opacity-80" style={{ color: '#60a5fa' }}>
+                            <Mail size={9} /> {job.contactEmail}
+                          </a>
+                        )}
+
+                        {/* Separator */}
+                        {(job.contactPhone || job.contactEmail) && job.activity?.lastActivity && (
+                          <span style={{ color: 'rgba(200,140,0,0.2)' }}>|</span>
+                        )}
+
+                        {/* Last activity */}
+                        {job.activity?.lastActivity ? (
+                          <span className="flex items-center gap-1" style={{ color: isStale ? '#ef4444' : isGettingStale ? '#f59e0b' : '#6a6058' }}>
+                            {activityIcon(job.activity.lastActivity.type)}
+                            <span className="truncate" style={{ maxWidth: 200 }}>
+                              {job.activity.lastActivity.description}
+                            </span>
+                            <span style={{ color: '#8a8078' }}>
+                              · {timeAgo(job.activity.lastActivity.date)}
+                            </span>
+                          </span>
+                        ) : job.jtJobId ? (
+                          <span style={{ color: '#8a8078' }}>No activity recorded</span>
+                        ) : null}
+
+                        {/* Next task */}
+                        {job.activity?.nextTask && (
+                          <>
+                            <span style={{ color: 'rgba(200,140,0,0.2)' }}>|</span>
+                            <span className="flex items-center gap-1" style={{ color: '#6a6058' }}>
+                              <ArrowRight size={9} />
+                              <span className="truncate" style={{ maxWidth: 180 }}>Next: {job.activity.nextTask.name}</span>
+                              {job.activity.nextTask.endDate && (
+                                <span style={{ color: '#8a8078' }}>
+                                  · {new Date(job.activity.nextTask.endDate).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}
+                                </span>
+                              )}
+                            </span>
+                          </>
+                        )}
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            )}
+          </div>
+        )}
+      </div>
 
       {/* Three Column Layout */}
       <div className="grid grid-cols-1 lg:grid-cols-5 gap-6">

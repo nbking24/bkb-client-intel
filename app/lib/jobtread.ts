@@ -4616,3 +4616,110 @@ If a section is "(none)", return empty string for that key.`;
     adminDescription,
   };
 }
+
+// ============================================================
+// Job Activity Summary — for Estimating Tracker
+// Fetches recent activity + upcoming tasks for a single job
+// ============================================================
+
+export interface ActivityItem {
+  type: 'comment' | 'daily_log' | 'task_completed' | 'document';
+  date: string;       // ISO date string
+  description: string; // Human-readable summary
+}
+
+export interface JobActivitySummary {
+  lastActivity: ActivityItem | null;
+  nextTask: { id: string; name: string; endDate: string | null } | null;
+  hasUpcomingTasks: boolean;
+  daysSinceActivity: number | null;
+}
+
+export async function getJobActivitySummary(jobId: string): Promise<JobActivitySummary> {
+  const now = new Date();
+
+  // Fetch all data sources in parallel (with error tolerance)
+  const [comments, dailyLogs, tasks, documents] = await Promise.all([
+    getCommentsForTarget(jobId, 'job', 10).catch(() => [] as JTComment[]),
+    getDailyLogsForJob(jobId, 10).catch(() => [] as JTDailyLog[]),
+    getTasksForJob(jobId).catch(() => [] as JTTask[]),
+    getDocumentsForJob(jobId).catch(() => [] as JTDocument[]),
+  ]);
+
+  // Build unified activity list
+  const activities: ActivityItem[] = [];
+
+  // Comments (filter out system/AR-AUTO tags)
+  for (const c of comments) {
+    if (c.message?.includes('[AR-AUTO]') || c.message?.includes('[AR-HOLD]')) continue;
+    activities.push({
+      type: 'comment',
+      date: c.createdAt,
+      description: `Comment: ${(c.message || '').slice(0, 80)}${(c.message || '').length > 80 ? '…' : ''}`,
+    });
+  }
+
+  // Daily logs
+  for (const dl of dailyLogs) {
+    activities.push({
+      type: 'daily_log',
+      date: dl.createdAt || dl.date,
+      description: `Daily log: ${(dl.notes || '').slice(0, 80)}${(dl.notes || '').length > 80 ? '…' : ''}`,
+    });
+  }
+
+  // Completed tasks (progress === 1)
+  for (const t of tasks) {
+    if (t.progress === 1 && t.endDate) {
+      activities.push({
+        type: 'task_completed',
+        date: t.endDate,
+        description: `Completed: ${t.name}`,
+      });
+    }
+  }
+
+  // Documents with notable statuses
+  for (const d of documents) {
+    if (d.status === 'approved' && d.signedAt) {
+      activities.push({
+        type: 'document',
+        date: d.signedAt,
+        description: `${d.type === 'customerOrder' ? 'Estimate' : d.type === 'customerInvoice' ? 'Invoice' : 'Document'} approved: ${d.name || d.number}`,
+      });
+    } else if (d.status === 'pending' && d.issueDate) {
+      activities.push({
+        type: 'document',
+        date: d.issueDate,
+        description: `${d.type === 'customerOrder' ? 'Estimate' : 'Document'} sent: ${d.name || d.number}`,
+      });
+    } else if (d.status === 'draft' && d.createdAt) {
+      activities.push({
+        type: 'document',
+        date: d.createdAt,
+        description: `Draft created: ${d.name || d.number}`,
+      });
+    }
+  }
+
+  // Sort by date descending → most recent first
+  activities.sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
+
+  const lastActivity = activities[0] || null;
+  const daysSinceActivity = lastActivity
+    ? Math.floor((now.getTime() - new Date(lastActivity.date).getTime()) / (1000 * 60 * 60 * 24))
+    : null;
+
+  // Find next upcoming uncompleted task (sorted by endDate ascending)
+  const upcomingTasks = tasks
+    .filter((t) => t.progress < 1 && t.endDate)
+    .sort((a, b) => new Date(a.endDate!).getTime() - new Date(b.endDate!).getTime());
+
+  const nextTask = upcomingTasks[0]
+    ? { id: upcomingTasks[0].id, name: upcomingTasks[0].name, endDate: upcomingTasks[0].endDate }
+    : null;
+
+  const hasUpcomingTasks = upcomingTasks.length > 0;
+
+  return { lastActivity, nextTask, hasUpcomingTasks, daysSinceActivity };
+}
