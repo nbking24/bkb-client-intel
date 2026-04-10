@@ -53,12 +53,21 @@ interface ActivityItem {
   description: string;
 }
 
+interface CalendarEvent {
+  id: string;
+  title: string;
+  startTime: string;
+  endTime: string;
+  calendarName: string | null;
+}
+
 interface EstimatingJob {
   ghlOpportunityId: string;
   ghlName: string;
   contactName: string;
   contactPhone: string;
   contactEmail: string;
+  ghlContactId: string | null;
   daysInEstimating: number;
   enteredEstimatingAt: string;
   jtJobId: string | null;
@@ -70,6 +79,7 @@ interface EstimatingJob {
     hasUpcomingTasks: boolean;
     daysSinceActivity: number | null;
   } | null;
+  nextCalendarEvent: CalendarEvent | null;
 }
 
 interface KpiData {
@@ -748,7 +758,7 @@ export default function LeadsPage() {
                   const isGettingStale = daysSince !== null && daysSince >= 7 && daysSince < 14;
                   const isActive = daysSince !== null && daysSince < 7;
                   const noJtMatch = !job.jtJobId;
-                  const noTasks = job.activity && !job.activity.hasUpcomingTasks;
+                  const noTasks = job.activity && !job.activity.hasUpcomingTasks && !job.nextCalendarEvent;
 
                   // Activity type icon
                   const activityIcon = (type: string) => {
@@ -852,21 +862,50 @@ export default function LeadsPage() {
                           <span style={{ color: '#8a8078' }}>No activity recorded</span>
                         ) : null}
 
-                        {/* Next task */}
-                        {job.activity?.nextTask && (
-                          <>
-                            <span style={{ color: 'rgba(200,140,0,0.2)' }}>|</span>
-                            <span className="flex items-center gap-1" style={{ color: '#6a6058' }}>
-                              <ArrowRight size={9} />
-                              <span className="truncate" style={{ maxWidth: 180 }}>Next: {job.activity.nextTask.name}</span>
-                              {job.activity.nextTask.endDate && (
-                                <span style={{ color: '#8a8078' }}>
-                                  · {new Date(job.activity.nextTask.endDate).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}
+                        {/* Next upcoming event — prefer calendar event if sooner, otherwise JT task */}
+                        {(() => {
+                          const nextTask = job.activity?.nextTask;
+                          const nextCal = job.nextCalendarEvent;
+                          // Determine which is sooner
+                          const taskDate = nextTask?.endDate ? new Date(nextTask.endDate).getTime() : Infinity;
+                          const calDate = nextCal?.startTime ? new Date(nextCal.startTime).getTime() : Infinity;
+
+                          if (nextCal && calDate <= taskDate) {
+                            // Show calendar event
+                            const evDate = new Date(nextCal.startTime);
+                            const timeStr = evDate.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' });
+                            const dateStr = evDate.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+                            return (
+                              <>
+                                <span style={{ color: 'rgba(200,140,0,0.2)' }}>|</span>
+                                <span className="flex items-center gap-1" style={{ color: '#c88c00' }}>
+                                  <Calendar size={9} />
+                                  <span className="truncate" style={{ maxWidth: 180 }}>{nextCal.title}</span>
+                                  <span style={{ color: '#8a8078' }}>
+                                    · {dateStr} {timeStr}
+                                  </span>
                                 </span>
-                              )}
-                            </span>
-                          </>
-                        )}
+                              </>
+                            );
+                          } else if (nextTask) {
+                            // Show JT task
+                            return (
+                              <>
+                                <span style={{ color: 'rgba(200,140,0,0.2)' }}>|</span>
+                                <span className="flex items-center gap-1" style={{ color: '#6a6058' }}>
+                                  <ArrowRight size={9} />
+                                  <span className="truncate" style={{ maxWidth: 180 }}>Next: {nextTask.name}</span>
+                                  {nextTask.endDate && (
+                                    <span style={{ color: '#8a8078' }}>
+                                      · {new Date(nextTask.endDate).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}
+                                    </span>
+                                  )}
+                                </span>
+                              </>
+                            );
+                          }
+                          return null;
+                        })()}
                       </div>
                     </div>
                   );
