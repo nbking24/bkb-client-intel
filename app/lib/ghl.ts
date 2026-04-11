@@ -243,6 +243,20 @@ export async function getCalendarEvents(params: {
 }
 
 /**
+ * Get all appointments for a specific contact.
+ * Returns future, non-deleted appointments sorted by startTime (soonest first).
+ */
+export async function getContactAppointments(contactId: string): Promise<any[]> {
+  const data = await ghlFetch(`/contacts/${contactId}/appointments`);
+  const events = data.events || [];
+
+  const now = new Date();
+  return events
+    .filter((ev: any) => !ev.deleted && new Date(ev.startTime) > now)
+    .sort((a: any, b: any) => new Date(a.startTime).getTime() - new Date(b.startTime).getTime());
+}
+
+/**
  * Get a single appointment by its event ID.
  */
 export async function getAppointment(eventId: string) {

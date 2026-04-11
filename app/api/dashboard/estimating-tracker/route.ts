@@ -2,7 +2,7 @@
 import { NextResponse } from 'next/server';
 import { getActiveJobs, getJobActivitySummary } from '@/app/lib/jobtread';
 import type { JobActivitySummary } from '@/app/lib/jobtread';
-import { getCalendars, getCalendarEvents } from '@/app/lib/ghl';
+import { getContactAppointments } from '@/app/lib/ghl';
 
 const GHL_BASE = 'https://services.leadconnectorhq.com';
 const GHL_KEY = () => process.env.GHL_API_KEY || '';
@@ -84,70 +84,41 @@ export interface EstimatingJob {
   nextCalendarEvent: CalendarEvent | null;
 }
 
-/** Fetch upcoming GHL calendar events for the next 60 days, keyed by contactId */
-async function fetchUpcomingCalendarEvents(): Promise<Map<string, CalendarEvent[]>> {
+/** Fetch upcoming GHL appointments for a list of contact IDs, keyed by contactId */
+async function fetchContactAppointments(contactIds: string[]): Promise<Map<string, CalendarEvent[]>> {
   const contactEventsMap = new Map<string, CalendarEvent[]>();
 
-  try {
-    const now = new Date();
-    const end = new Date(now.getTime() + 60 * 24 * 60 * 60 * 1000); // 60 days ahead
+  // Deduplicate contact IDs
+  const uniqueIds = [...new Set(contactIds.filter(Boolean))];
+  if (uniqueIds.length === 0) return contactEventsMap;
 
-    const calendars = await getCalendars();
-    if (!calendars || calendars.length === 0) return contactEventsMap;
+  // Fetch in parallel batches of 5
+  const BATCH = 5;
+  for (let i = 0; i < uniqueIds.length; i += BATCH) {
+    const batch = uniqueIds.slice(i, i + BATCH);
+    const results = await Promise.allSettled(
+      batch.map(async (cid) => {
+        const appointments = await getContactAppointments(cid);
+        return { cid, appointments };
+      })
+    );
 
-    // Build a calendar name lookup
-    const calNameMap = new Map<string, string>();
-    for (const cal of calendars) {
-      calNameMap.set(cal.id, cal.name || '');
+    for (const result of results) {
+      if (result.status !== 'fulfilled') continue;
+      const { cid, appointments } = result.value;
+      if (!appointments.length) continue;
+
+      contactEventsMap.set(
+        cid,
+        appointments.map((apt: any) => ({
+          id: apt.id || '',
+          title: apt.title || 'Meeting',
+          startTime: apt.startTime,
+          endTime: apt.endTime || apt.startTime,
+          calendarName: null,
+        }))
+      );
     }
-
-    // Fetch events from all calendars in parallel
-    const allEvents: any[] = [];
-    const calPromises = calendars.map(async (cal: any) => {
-      try {
-        const events = await getCalendarEvents({
-          startTime: now.toISOString(),
-          endTime: end.toISOString(),
-          calendarId: cal.id,
-        });
-        if (events?.length) {
-          for (const ev of events) {
-            allEvents.push({ ...ev, _calendarName: cal.name || null });
-          }
-        }
-      } catch {
-        // Some calendars may not support event queries — skip
-      }
-    });
-    await Promise.all(calPromises);
-
-    // Group by contactId — only future events with a contact
-    for (const ev of allEvents) {
-      const cid = ev.contactId || ev.contact?.id;
-      if (!cid) continue;
-      const startTime = ev.startTime || ev.start;
-      if (!startTime || new Date(startTime) < now) continue;
-
-      const mapped: CalendarEvent = {
-        id: ev.id || '',
-        title: ev.title || ev.name || 'Meeting',
-        startTime: startTime,
-        endTime: ev.endTime || ev.end || startTime,
-        calendarName: ev._calendarName || null,
-      };
-
-      if (!contactEventsMap.has(cid)) {
-        contactEventsMap.set(cid, []);
-      }
-      contactEventsMap.get(cid)!.push(mapped);
-    }
-
-    // Sort each contact's events by start time (soonest first)
-    for (const [, events] of contactEventsMap) {
-      events.sort((a, b) => new Date(a.startTime).getTime() - new Date(b.startTime).getTime());
-    }
-  } catch (err) {
-    console.error('[EstimatingTracker] Calendar events fetch failed:', err);
   }
 
   return contactEventsMap;
@@ -157,12 +128,17 @@ export async function GET() {
   try {
     const now = new Date();
 
-    // Fetch GHL estimating opportunities + JT active jobs + calendar events in parallel
-    const [estimatingOpps, activeJobs, calendarEventsMap] = await Promise.all([
+    // Fetch GHL estimating opportunities + JT active jobs in parallel
+    const [estimatingOpps, activeJobs] = await Promise.all([
       fetchEstimatingOpportunities(),
       getActiveJobs(),
-      fetchUpcomingCalendarEvents(),
     ]);
+
+    // Collect contact IDs from opportunities, then fetch their appointments
+    const contactIds = estimatingOpps
+      .map((o: any) => o.contact?.id)
+      .filter(Boolean);
+    const calendarEventsMap = await fetchContactAppointments(contactIds);
 
     // Build name-based lookup for JT jobs (lowercase for fuzzy matching)
     const jtJobsByName = new Map<string, typeof activeJobs[0]>();

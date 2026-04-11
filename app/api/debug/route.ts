@@ -104,46 +104,5 @@ export async function GET(req: NextRequest) {
     results.pipelines = { error: err instanceof Error ? err.message : 'Failed' };
   }
 
-  // Test 6: Calendar events debug
-  try {
-    // Fetch all calendars
-    const calRes = await fetch(GHL_BASE + '/calendars/?locationId=' + locationId, { headers: headers() });
-    const calData = await calRes.json();
-    const calendars = calData.calendars || [];
-    results.calendars = calendars.map((c: any) => ({ id: c.id, name: c.name }));
-
-    // Fetch events from each calendar for next 60 days
-    const now = new Date();
-    const end = new Date(now.getTime() + 60 * 24 * 60 * 60 * 1000);
-    const allCalEvents: any[] = [];
-
-    for (const cal of calendars) {
-      try {
-        const evUrl = `${GHL_BASE}/calendars/events?locationId=${locationId}&startTime=${encodeURIComponent(now.toISOString())}&endTime=${encodeURIComponent(end.toISOString())}&calendarId=${cal.id}`;
-        const evRes = await fetch(evUrl, { headers: headers() });
-        const evData = await evRes.json();
-        const events = evData.events || [];
-        for (const ev of events) {
-          allCalEvents.push({
-            calendarName: cal.name,
-            id: ev.id,
-            title: ev.title || ev.name,
-            startTime: ev.startTime,
-            endTime: ev.endTime,
-            contactId: ev.contactId,
-            contactName: ev.contact ? `${ev.contact.firstName || ''} ${ev.contact.lastName || ''}`.trim() : null,
-            status: ev.status || ev.appointmentStatus,
-            allKeys: Object.keys(ev),
-          });
-        }
-      } catch (e: any) {
-        allCalEvents.push({ calendarName: cal.name, error: e.message });
-      }
-    }
-    results.calendarEvents = { count: allCalEvents.length, events: allCalEvents };
-  } catch (err: any) {
-    results.calendarEvents = { error: err.message };
-  }
-
   return NextResponse.json(results, { status: 200 });
 }
