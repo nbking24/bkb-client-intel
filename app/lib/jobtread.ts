@@ -3300,7 +3300,7 @@ export async function createDraftCostPlusInvoice(jobId: string): Promise<{
     jobLocationAddress: locationAddress,
     dueDays: 2,
     subject: `Cost Plus Invoice - ${job.name}`,
-    description: `This invoice reflects charges under a Cost Plus Fee agreement. You are billed for all actual project costs — including materials, subcontractors, labor, insurance, and permits — plus a ${marginPercent}% contractor's fee applied to those costs. Labor is billed at $${hourlyRate}/hr.`,
+    description: `This invoice reflects charges under a Cost Plus Fee agreement. You are billed for all actual project costs, including materials, subcontractors, labor, insurance, and permits, plus a ${marginPercent}% contractor's fee applied to those costs. Labor is billed at $${hourlyRate}/hr.`,
   });
 
   // 8. Create cost items from uninvoiced bills (grouped by vendor)
