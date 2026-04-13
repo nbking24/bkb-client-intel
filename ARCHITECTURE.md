@@ -371,7 +371,7 @@ Core analysis function `buildInvoicingContext()` fetches all active jobs via PAV
 - Progress bar: invoiced % of contract value
 - Inline stats: Billable items amount + unbilled labor hours
 - Alerts: approaching milestones, overdue milestones, unmatched drafts (with Create Task button), pending invoices awaiting payment
-- **"Create Billable Invoice" button**: One-click creates a draft customer invoice from CC23 billable items (materials/subs on vendor bills not yet on customer invoices) plus unbilled CC23 labor hours. Sub-grouped by vendor bill source. Labor billed at $85/$115 per hour with worker breakdown in description.
+- **"Create Billable Invoice" button**: One-click creates a draft customer invoice from CC23 billable items (materials/subs on vendor bills not yet on customer invoices) plus unbilled CC23 labor hours. Sub-grouped by vendor bill source. Labor billed at job's Hourly Rate custom field with worker hours in BKB Labor group (individual workers hidden via `showChildren: false`). BKB Labor description includes date range header ("Labor dates: …") followed by AI-rewritten labor notes.
 - Collapsible invoice details: Draft (amber) / Paid (green) / Open (yellow) badges
 
 **Cost Plus Job Cards:**
@@ -380,7 +380,7 @@ Core analysis function `buildInvoicingContext()` fetches all active jobs via PAV
 - Progress bar: days since last invoice (colored by cadence health)
 - Inline stats: unbilled costs + unbilled hours + total billed
 - Alerts: billing cadence warnings
-- **"Create Draft Invoice" button**: One-click creates a draft customer invoice in JobTread with all unbilled budget items (excludes $0.00 placeholders). Groups: Materials first ÃÂ¢ÃÂÃÂ Admin ÃÂ¢ÃÂÃÂ Subcontractor ÃÂ¢ÃÂÃÂ Other ÃÂ¢ÃÂÃÂ Labor last. Material items get auto-generated descriptions from cost code info.
+- **"Create Draft Invoice" button**: One-click creates a draft customer invoice in JobTread with all unbilled budget items (excludes $0.00 placeholders). Groups: Trade Partners (vendor bill items) → Materials → BKB Labor (last). Material items get AI-rewritten descriptions. BKB Labor group: individual worker line items hidden (`showChildren: false`), `unitCost` = `unitPrice` = job Hourly Rate, description includes date range header ("Labor dates: …") followed by AI-rewritten labor notes with bullet points per worker.
 - Collapsible invoice details: Draft / Paid / Open badges
 
 **Billable Items Section:** Expandable cards per job showing uninvoiced CC23 items and hours
@@ -1181,6 +1181,17 @@ The Leads Dashboard (`/dashboard/leads`) is Terri's lead management workspace �
 ---
 
 ## 19. Changelog
+
+### 2026-04-13 — Invoice Labor Date Ranges & Cleanup
+
+- **Added labor date range headers** to BKB Labor group descriptions on both Cost-Plus and CC23 billable invoices. Format: "Labor dates: Nov 3, 2025 – Mar 11, 2026" (or single date if all entries on same day). Prepended before AI-rewritten labor notes so clients can see what period is being billed.
+- **Removed non-working "Show Cost & Fee" code** from `createDraftCostPlusInvoice`. The try/catch block that attempted PAVE field names (`isCostPlus`, `showCostAndFee`, `costPlus`) never succeeded — the correct PAVE field name for this document option could not be determined. Must be toggled manually in JT UI.
+- **Prior related changes** (committed earlier, documented here):
+  - Set labor `unitCost` = job Hourly Rate custom field (previously was 0), so Cost-Plus invoices show accurate cost to client (`5e47936`)
+  - Hidden individual employee labor line items with `showChildren: false` on the BKB Labor cost group — clients see the group total, not per-worker breakdown (`da9634e`)
+  - Removed non-functional "Create Invoice" button from contract job cards — only "Create Billable Invoice" is valid for Fixed-Price jobs (`1fc0c80`)
+- **Files changed**: `app/lib/jobtread.ts`
+- **Commits**: `175ed79` (labor dates + Show Cost & Fee removal), `5e47936`, `da9634e`, `1fc0c80` (prior)
 
 ### 2026-04-04 — Lead Source Data Migration & KPI POST Search Fix
 
