@@ -621,8 +621,26 @@ export default function LeadsPage() {
         </button>
       </div>
 
-      {/* Three Column Layout */}
-      <div className="grid grid-cols-1 lg:grid-cols-5 gap-6">
+      {/* ═══ New Lead Button (standalone when collapsed) ═══ */}
+      {!formExpanded && (
+        <button
+          onClick={() => {
+            setFormExpanded(true);
+            setTimeout(() => firstNameRef.current?.focus(), 200);
+          }}
+          className="w-full flex items-center gap-2 px-5 py-3 rounded-xl cursor-pointer mb-6 transition-all hover:shadow-sm"
+          style={{ background: '#f8f6f3', border: '1px solid rgba(200,140,0,0.12)' }}
+        >
+          <UserPlus size={16} style={{ color: '#c88c00' }} />
+          <span className="text-sm font-semibold" style={{ color: '#1a1a1a' }}>New Lead</span>
+          <span className="text-xs ml-auto mr-2" style={{ color: '#6a6058' }}>Click to add a new lead</span>
+          <ChevronRight size={16} style={{ color: '#8a8078' }} />
+        </button>
+      )}
+
+      {/* Three Column Layout — only visible when form is expanded */}
+      {formExpanded && (
+      <div className="grid grid-cols-1 lg:grid-cols-5 gap-6 mb-6">
 
         {/* ═══ LEFT COLUMN: New Lead Form ═══ */}
         <div className="lg:col-span-3">
@@ -633,35 +651,27 @@ export default function LeadsPage() {
             {/* Form header — clickable toggle */}
             <button
               onClick={() => {
-                setFormExpanded((prev) => !prev);
-                if (!formExpanded) setTimeout(() => firstNameRef.current?.focus(), 200);
+                setFormExpanded(false);
               }}
               className="w-full flex items-center gap-2 px-5 py-3 cursor-pointer"
-              style={{ background: '#f8f6f3', borderBottom: formExpanded ? '1px solid rgba(200,140,0,0.08)' : 'none' }}
+              style={{ background: '#f8f6f3', borderBottom: '1px solid rgba(200,140,0,0.08)' }}
             >
               <UserPlus size={16} style={{ color: '#c88c00' }} />
               <span className="text-sm font-semibold" style={{ color: '#1a1a1a' }}>New Lead</span>
-              {!submitted && formExpanded && (
+              {!submitted && (
                 <div className="flex gap-1.5 ml-auto mr-2">
                   {[section1Complete, section2Complete, section3Complete].map((done, i) => (
                     <div key={i} className="w-2 h-2 rounded-full transition-all" style={{ background: done ? '#c88c00' : 'rgba(200,140,0,0.15)' }} />
                   ))}
                 </div>
               )}
-              {!formExpanded && (
-                <span className="text-xs ml-auto mr-2" style={{ color: '#6a6058' }}>Click to expand</span>
-              )}
-              <div className="transition-transform duration-200" style={{ transform: formExpanded ? 'rotate(90deg)' : 'rotate(0deg)' }}>
+              <div className="transition-transform duration-200" style={{ transform: 'rotate(90deg)' }}>
                 <ChevronRight size={16} style={{ color: '#8a8078' }} />
               </div>
             </button>
 
-            {/* Form content — collapsible */}
-            <div
-              ref={formContentRef}
-              className="overflow-hidden transition-all duration-300 ease-in-out"
-              style={{ maxHeight: formExpanded ? '2000px' : '0px', opacity: formExpanded ? 1 : 0 }}
-            >
+            {/* Form content */}
+            <div ref={formContentRef}>
             <div className="px-5 py-5 space-y-5">
               {submitted && result ? (
                 <div className="text-center py-8">
@@ -957,7 +967,7 @@ export default function LeadsPage() {
           </div>
         </div>
       </div>
-
+      )}
 
       {/* KPI Cards Row */}
       {kpiLoading && !kpiData ? (
