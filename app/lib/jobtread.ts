@@ -3076,6 +3076,21 @@ function isValidAiDescription(text: string): boolean {
   return !badPatterns.some(p => lower.startsWith(p) || lower.includes(p));
 }
 
+// Helper: clean markdown formatting artifacts from AI descriptions
+// Strips # headers, ** bold **, __ underline __, and leading/trailing whitespace per line
+function sanitizeAiDescription(text: string): string {
+  return text
+    .split('\n')
+    .map(line => line
+      .replace(/^#{1,6}\s+/, '')       // strip markdown headers (# ## ### etc.)
+      .replace(/\*\*(.*?)\*\*/g, '*$1*') // convert double bold **text** to single *text*
+      .replace(/__(.*?)__/g, '$1')       // strip underline __text__
+      .trim()
+    )
+    .join('\n')
+    .trim();
+}
+
 export async function createDraftCostPlusInvoice(jobId: string): Promise<{
   documentId: string;
   documentName: string;
@@ -3346,13 +3361,13 @@ export async function createDraftCostPlusInvoice(jobId: string): Promise<{
                 max_tokens: 256,
                 messages: [{
                   role: 'user',
-                  content: `Rewrite this vendor bill description into a brief, professional, client-facing summary for a renovation invoice. Keep it to 1-2 concise sentences. Do not include pricing. Just describe the work or materials provided.\n\nOriginal:\n${allBillDescs.join('\n')}`,
+                  content: `Rewrite this vendor bill description into a brief, professional, client-facing summary for a renovation invoice. Keep it to 1-2 concise sentences. Do not include pricing. Do not use markdown headers (#) or bold (**) formatting. Just describe the work or materials provided in plain text.\n\nOriginal:\n${allBillDescs.join('\n')}`,
                 }],
               }),
             });
             if (aiRes.ok) {
               const aiData = await aiRes.json();
-              const rewritten = (aiData.content?.[0]?.text || '').trim();
+              const rewritten = sanitizeAiDescription((aiData.content?.[0]?.text || '').trim());
               if (isValidAiDescription(rewritten)) {
                 await updateJTCostGroup(vendorGroup.id, { description: rewritten });
               }
@@ -3412,13 +3427,13 @@ export async function createDraftCostPlusInvoice(jobId: string): Promise<{
               max_tokens: 256,
               messages: [{
                 role: 'user',
-                content: `Rewrite these labor notes into a bullet-point list for a renovation invoice. Each bullet should be a brief, professional, client-facing description. Output ONLY the bullet points (using â¢ character), nothing else. No intro text, no questions, no explanations.\n\nNotes:\n${laborDesc}`,
+                content: `Rewrite these labor notes into a bullet-point list for a renovation invoice. Each bullet should be a brief, professional, client-facing description. Output ONLY the bullet points (using â¢ character), nothing else. No intro text, no questions, no explanations. Do not use markdown headers (#). For emphasis use single *asterisks* not double **asterisks**.\n\nNotes:\n${laborDesc}`,
               }],
             }),
           });
           if (aiRes.ok) {
             const aiData = await aiRes.json();
-            const rewritten = (aiData.content?.[0]?.text || '').trim();
+            const rewritten = sanitizeAiDescription((aiData.content?.[0]?.text || '').trim());
             if (isValidAiDescription(rewritten)) laborDesc = rewritten;
           }
         }
@@ -3474,13 +3489,13 @@ export async function createDraftCostPlusInvoice(jobId: string): Promise<{
                 max_tokens: 256,
                 messages: [{
                   role: 'user',
-                  content: `Rewrite these labor time entry notes into a brief, professional, client-facing description for a renovation invoice line item. Write 1-2 concise sentences describing the work performed. Do not include dates, hours, or pricing.\n\nWorker: ${userName}\nNotes:\n${rawNotes}`,
+                  content: `Rewrite these labor time entry notes into a brief, professional, client-facing description for a renovation invoice line item. Write 1-2 concise sentences describing the work performed. Do not include dates, hours, or pricing. Do not use markdown headers (#). For emphasis use single *asterisks* not double **asterisks**.\n\nWorker: ${userName}\nNotes:\n${rawNotes}`,
                 }],
               }),
             });
             if (aiRes.ok) {
               const aiData = await aiRes.json();
-              const rewritten = (aiData.content?.[0]?.text || '').trim();
+              const rewritten = sanitizeAiDescription((aiData.content?.[0]?.text || '').trim());
               if (isValidAiDescription(rewritten)) itemDescription = rewritten;
             }
           }
@@ -3887,13 +3902,13 @@ export async function createDraftBillableInvoice(jobId: string): Promise<{
                 max_tokens: 256,
                 messages: [{
                   role: 'user',
-                  content: `Rewrite this vendor bill description into a brief, professional, client-facing summary for a renovation invoice. Keep it to 1-2 concise sentences. Do not include pricing.\n\nOriginal:\n${billDesc}`,
+                  content: `Rewrite this vendor bill description into a brief, professional, client-facing summary for a renovation invoice. Keep it to 1-2 concise sentences. Do not include pricing. Do not use markdown headers (#) or bold (**) formatting. Write in plain text.\n\nOriginal:\n${billDesc}`,
                 }],
               }),
             });
             if (aiRes.ok) {
               const aiData = await aiRes.json();
-              const rewritten = (aiData.content?.[0]?.text || '').trim();
+              const rewritten = sanitizeAiDescription((aiData.content?.[0]?.text || '').trim());
               if (isValidAiDescription(rewritten)) {
                 await updateJTCostGroup(subGroup.id, { description: rewritten });
               }
@@ -3949,13 +3964,13 @@ export async function createDraftBillableInvoice(jobId: string): Promise<{
               max_tokens: 256,
               messages: [{
                 role: 'user',
-                content: `Rewrite these construction invoice category items into a bullet-point list. Each bullet should be a brief, professional, client-facing description. Output ONLY the bullet points (using â¢ character), nothing else. No intro text, no questions, no explanations.\n\nItems:\n${rawDesc}`,
+                content: `Rewrite these construction invoice category items into a bullet-point list. Each bullet should be a brief, professional, client-facing description. Output ONLY the bullet points (using â¢ character), nothing else. No intro text, no questions, no explanations. Do not use markdown headers (#). For emphasis use single *asterisks* not double **asterisks**.\n\nItems:\n${rawDesc}`,
               }],
             }),
           });
           if (aiRes.ok) {
             const aiData = await aiRes.json();
-            const rewritten = (aiData.content?.[0]?.text || '').trim();
+            const rewritten = sanitizeAiDescription((aiData.content?.[0]?.text || '').trim());
             if (isValidAiDescription(rewritten)) await updateJTCostGroup(categoryGroup.id, { description: rewritten });
           }
         }
@@ -4023,13 +4038,13 @@ export async function createDraftBillableInvoice(jobId: string): Promise<{
             max_tokens: 256,
             messages: [{
               role: 'user',
-              content: `Rewrite these labor notes into a bullet-point list for a renovation invoice. Each bullet should be a brief, professional, client-facing description. Output ONLY the bullet points (using â¢ character), nothing else. No intro text, no questions, no explanations.\n\nNotes:\n${laborDesc}`,
+              content: `Rewrite these labor notes into a bullet-point list for a renovation invoice. Each bullet should be a brief, professional, client-facing description. Output ONLY the bullet points (using â¢ character), nothing else. No intro text, no questions, no explanations. Do not use markdown headers (#). For emphasis use single *asterisks* not double **asterisks**.\n\nNotes:\n${laborDesc}`,
             }],
           }),
         });
         if (aiRes.ok) {
           const aiData = await aiRes.json();
-          const rewritten = (aiData.content?.[0]?.text || '').trim();
+          const rewritten = sanitizeAiDescription((aiData.content?.[0]?.text || '').trim());
           if (isValidAiDescription(rewritten)) laborDesc = rewritten;
         }
       }
@@ -4249,7 +4264,7 @@ export async function reorganizeCostPlusInvoice(documentId: string, jobId: strin
         const matDesc = matGroup?.description || materialBills.map((bg: any) => bg.name).join(', ');
 
         if (adminDesc || matDesc || laborDesc) {
-          const prompt = `You are writing invoice descriptions for a high-end residential renovation company (Brett King Builder-Contractor). Rewrite each section's bullet-point description to be professional, client-facing, and easy to read. Keep bullet points but make each one a polished 1-line description. Do not add items that aren't there. Be concise.
+          const prompt = `You are writing invoice descriptions for a high-end residential renovation company (Brett King Builder-Contractor). Rewrite each section's bullet-point description to be professional, client-facing, and easy to read. Keep bullet points but make each one a polished 1-line description. Do not add items that aren't there. Be concise. Do not use markdown headers (#). For emphasis use single *asterisks* not double **asterisks**.
 
 PERMIT & ADMIN ITEMS:
 ${adminDesc || '(none)'}
@@ -4286,6 +4301,9 @@ If a section is "(none)", return empty string for that key.`;
               const jsonMatch = aiText.match(/\{[\s\S]*\}/);
               if (jsonMatch) {
                 const rewritten = JSON.parse(jsonMatch[0]);
+                if (rewritten.admin) rewritten.admin = sanitizeAiDescription(rewritten.admin);
+                if (rewritten.materials) rewritten.materials = sanitizeAiDescription(rewritten.materials);
+                if (rewritten.labor) rewritten.labor = sanitizeAiDescription(rewritten.labor);
                 // Update the renamed Vendor Bills / Trade Partners group
                 const updatedTP = groups.find((g: any) => g.id === existingVendorBills?.id);
                 if (isValidAiDescription(rewritten.admin) && updatedTP && adminBills.length > 0) {
@@ -4545,14 +4563,14 @@ If a section is "(none)", return empty string for that key.`;
             max_tokens: 256,
             messages: [{
               role: 'user',
-              content: `Rewrite this vendor bill description into a brief, professional, client-facing summary for a renovation invoice. Keep it to 1-2 concise sentences. Do not include pricing. Just describe the work or materials provided.\n\nOriginal description:\n${rawDesc}`,
+              content: `Rewrite this vendor bill description into a brief, professional, client-facing summary for a renovation invoice. Keep it to 1-2 concise sentences. Do not include pricing. Do not use markdown headers (#) or bold (**) formatting. Just describe the work or materials provided in plain text.\n\nOriginal description:\n${rawDesc}`,
             }],
           }),
         });
 
         if (aiRes.ok) {
           const aiData = await aiRes.json();
-          const rewritten = (aiData.content?.[0]?.text || '').trim();
+          const rewritten = sanitizeAiDescription((aiData.content?.[0]?.text || '').trim());
           if (isValidAiDescription(rewritten)) {
             await updateJTCostGroup(bg.group.id, { description: rewritten });
           }
@@ -4567,7 +4585,7 @@ If a section is "(none)", return empty string for that key.`;
   try {
     const apiKey = process.env.ANTHROPIC_API_KEY;
     if (apiKey && (adminDescription || materialsDescription || laborDescription)) {
-      const prompt = `You are writing invoice descriptions for a high-end residential renovation company (Brett King Builder-Contractor). Rewrite each section's bullet-point description to be professional, client-facing, and easy to read. Keep bullet points but make each one a polished 1-line description. Do not add items that aren't there. Be concise.
+      const prompt = `You are writing invoice descriptions for a high-end residential renovation company (Brett King Builder-Contractor). Rewrite each section's bullet-point description to be professional, client-facing, and easy to read. Keep bullet points but make each one a polished 1-line description. Do not add items that aren't there. Be concise. Do not use markdown headers (#). For emphasis use single *asterisks* not double **asterisks**.
 
 PERMIT & ADMIN ITEMS:
 ${adminDescription || '(none)'}
@@ -4605,6 +4623,9 @@ If a section is "(none)", return empty string for that key.`;
           const jsonMatch = aiText.match(/\{[\s\S]*\}/);
           if (jsonMatch) {
             const rewritten = JSON.parse(jsonMatch[0]);
+            if (rewritten.admin) rewritten.admin = sanitizeAiDescription(rewritten.admin);
+            if (rewritten.materials) rewritten.materials = sanitizeAiDescription(rewritten.materials);
+            if (rewritten.labor) rewritten.labor = sanitizeAiDescription(rewritten.labor);
             if (isValidAiDescription(rewritten.admin) && adminDescription && adminGroup) {
               await updateJTCostGroup(adminGroup.id, { description: rewritten.admin });
             }
