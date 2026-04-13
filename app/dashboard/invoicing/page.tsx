@@ -184,8 +184,12 @@ const HEALTH_PRIORITY: Record<InvoicingHealth, number> = {
   healthy: 3,
 };
 
-function sortByHealthPriority<T extends { health: InvoicingHealth }>(jobs: T[]): T[] {
-  return [...jobs].sort((a, b) => HEALTH_PRIORITY[a.health] - HEALTH_PRIORITY[b.health]);
+function sortByHealthPriority<T extends { health: InvoicingHealth; jobName?: string }>(jobs: T[]): T[] {
+  return [...jobs].sort((a, b) => {
+    const nameA = (a.jobName || '').toLowerCase();
+    const nameB = (b.jobName || '').toLowerCase();
+    return nameA.localeCompare(nameB);
+  });
 }
 
 // Status categories — maps JT custom "Status" values to dashboard groupings (kept for reference)
