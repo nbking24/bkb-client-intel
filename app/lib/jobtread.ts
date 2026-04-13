@@ -3529,10 +3529,10 @@ export async function createDraftCostPlusInvoice(jobId: string): Promise<{
         description: itemDescription,
         jobCostItemId: entries[0]?.costItemId || undefined,
         quantity: Math.round(totalHours * 100) / 100,
-        unitCost: Math.round((totalTimeCost / totalHours) * 100) / 100, // actual cost rate
+        unitCost: billRate, // unitCost = Hourly Rate (same as unitPrice)
         unitPrice: billRate,
       });
-      totalCost += totalTimeCost;
+      totalCost += totalHours * billRate;
       totalPrice += totalHours * billRate;
       createdItemCount++;
     }
@@ -4109,9 +4109,9 @@ export async function createDraftBillableInvoice(jobId: string): Promise<{
       .map(([name, hours]) => `${name}: ${Math.round(hours * 10) / 10}h`)
       .join(', ');
 
-    // Use standard BKB billable labor rate: $85/hr cost, $115/hr price
-    const laborUnitCost = 85;
-    const laborUnitPrice = hourlyRate; // From job custom field "Hourly Rate"
+    // Use Hourly Rate from job custom field for both cost and price
+    const laborUnitCost = hourlyRate;
+    const laborUnitPrice = hourlyRate;
 
     await createJTCostItem({
       costGroupId: laborGroup.id,
