@@ -3134,13 +3134,31 @@ export async function createDraftCostPlusInvoice(jobId: string): Promise<{
   const job = (jobData as any)?.job;
   if (!job) throw new Error('Job not found: ' + jobId);
 
-  // Read Margin (%) and Hourly Rate ($) from job custom fields
+  // Read Margin (%) and Hourly Rate ($) from job custom fields — REQUIRED
   const customFields = job.customFieldValues?.nodes || [];
   const marginField = customFields.find((cf: any) => cf.customField?.name === 'Margin');
   const hourlyRateField = customFields.find((cf: any) => cf.customField?.name === 'Hourly Rate');
-  const marginPercent = marginField ? parseFloat(marginField.value) : 25; // default 25%
-  const hourlyRate = hourlyRateField ? parseFloat(hourlyRateField.value) : 115; // default $115
-  const marginMultiplier = 1 + (marginPercent / 100);
+
+  if (!marginField || !marginField.value) {
+    throw new Error('MISSING_CUSTOM_FIELD: The "Margin" custom field is not set on this job in JobTread. Please add a Margin value (e.g. 25 for 25%) before generating an invoice.');
+  }
+  if (!hourlyRateField || !hourlyRateField.value) {
+    throw new Error('MISSING_CUSTOM_FIELD: The "Hourly Rate" custom field is not set on this job in JobTread. Please add an Hourly Rate value (e.g. 115) before generating an invoice.');
+  }
+
+  const marginPercent = parseFloat(marginField.value);
+  const hourlyRate = parseFloat(hourlyRateField.value);
+
+  if (isNaN(marginPercent) || marginPercent <= 0 || marginPercent >= 100) {
+    throw new Error('MISSING_CUSTOM_FIELD: The "Margin" custom field has an invalid value. It must be a number between 1 and 99 (e.g. 25 for 25%).');
+  }
+  if (isNaN(hourlyRate) || hourlyRate <= 0) {
+    throw new Error('MISSING_CUSTOM_FIELD: The "Hourly Rate" custom field has an invalid value. It must be a positive number (e.g. 115).');
+  }
+
+  // Margin = profit as % of selling price (not markup on cost)
+  // e.g. 25% margin -> price = cost / (1 - 0.25) = cost x 1.3333
+  const marginMultiplier = 1 / (1 - marginPercent / 100);
 
   const customerName = job.location?.account?.name || 'Client';
   const locationName = job.location?.name || '';
@@ -3579,13 +3597,31 @@ export async function createDraftBillableInvoice(jobId: string): Promise<{
   const locationName = job.location?.name || '';
   const locationAddress = job.location?.address || locationName;
 
-  // Read custom fields: Margin (%) and Hourly Rate ($)
+  // Read custom fields: Margin (%) and Hourly Rate ($) — REQUIRED
   const customFields = job.customFieldValues?.nodes || [];
   const marginField = customFields.find((cf: any) => cf.customField?.name === 'Margin');
   const hourlyRateField = customFields.find((cf: any) => cf.customField?.name === 'Hourly Rate');
-  const marginPercent = marginField ? parseFloat(marginField.value) : 25; // default 25%
-  const hourlyRate = hourlyRateField ? parseFloat(hourlyRateField.value) : 115; // default $115
-  const marginMultiplier = 1 + (marginPercent / 100); // e.g. 30% â 1.30
+
+  if (!marginField || !marginField.value) {
+    throw new Error('MISSING_CUSTOM_FIELD: The "Margin" custom field is not set on this job in JobTread. Please add a Margin value (e.g. 25 for 25%) before generating an invoice.');
+  }
+  if (!hourlyRateField || !hourlyRateField.value) {
+    throw new Error('MISSING_CUSTOM_FIELD: The "Hourly Rate" custom field is not set on this job in JobTread. Please add an Hourly Rate value (e.g. 115) before generating an invoice.');
+  }
+
+  const marginPercent = parseFloat(marginField.value);
+  const hourlyRate = parseFloat(hourlyRateField.value);
+
+  if (isNaN(marginPercent) || marginPercent <= 0 || marginPercent >= 100) {
+    throw new Error('MISSING_CUSTOM_FIELD: The "Margin" custom field has an invalid value. It must be a number between 1 and 99 (e.g. 25 for 25%).');
+  }
+  if (isNaN(hourlyRate) || hourlyRate <= 0) {
+    throw new Error('MISSING_CUSTOM_FIELD: The "Hourly Rate" custom field has an invalid value. It must be a positive number (e.g. 115).');
+  }
+
+  // Margin = profit as % of selling price (not markup on cost)
+  // e.g. 25% margin -> price = cost / (1 - 0.25) = cost x 1.3333
+  const marginMultiplier = 1 / (1 - marginPercent / 100);
 
   // Get customer contact info for toPhone/toEmail
   const contacts = job.location?.account?.contacts?.nodes || [];

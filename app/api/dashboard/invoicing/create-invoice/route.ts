@@ -30,9 +30,10 @@ export async function POST(req: Request) {
     });
   } catch (error: any) {
     console.error('[CREATE-INVOICE] Error:', error.message);
+    const isMissingField = error.message?.startsWith('MISSING_CUSTOM_FIELD:');
     return NextResponse.json(
-      { error: error.message || 'Failed to create draft invoice' },
-      { status: 500 }
+      { error: isMissingField ? error.message.replace('MISSING_CUSTOM_FIELD: ', '') : (error.message || 'Failed to create draft invoice') },
+      { status: isMissingField ? 400 : 500 }
     );
   }
 }
