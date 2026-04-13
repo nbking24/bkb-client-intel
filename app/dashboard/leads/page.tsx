@@ -40,6 +40,7 @@ interface PendingLead {
   tags: string[];
   createdAt: string;
   daysPending: number;
+  stage: string;
 }
 
 interface SourceItem {
@@ -622,12 +623,12 @@ export default function LeadsPage() {
         <div className="rounded-xl overflow-hidden mb-6" style={{ background: '#ffffff', border: '1px solid rgba(200,140,0,0.12)' }}>
           <div className="flex items-center gap-2 px-5 py-3" style={{ background: '#f8f6f3', borderBottom: '1px solid rgba(200,140,0,0.08)' }}>
             <AlertTriangle size={14} style={{ color: '#f59e0b' }} />
-            <span className="text-sm font-semibold" style={{ color: '#1a1a1a' }}>Pending New Leads</span>
+            <span className="text-sm font-semibold" style={{ color: '#1a1a1a' }}>Pending Leads</span>
             <span className="text-xs px-2 py-0.5 rounded-full ml-1" style={{ background: 'rgba(245,158,11,0.15)', color: '#f59e0b' }}>
-              {kpiData.pendingNewLeads.length} awaiting contact
+              {kpiData.pendingNewLeads.length} active
             </span>
             <span className="text-xs ml-auto" style={{ color: '#6a6058' }}>
-              Needs discovery call scheduled
+              Not yet in design
             </span>
           </div>
           <div className="divide-y" style={{ borderColor: 'rgba(200,140,0,0.06)' }}>
@@ -639,6 +640,14 @@ export default function LeadsPage() {
                     <span className="text-sm font-semibold" style={{ color: '#1a1a1a' }}>
                       {lead.contactName || lead.name}
                     </span>
+                    {lead.stage && (
+                      <span className="text-[10px] px-1.5 py-0.5 rounded" style={{
+                        background: lead.stage === 'Estimating' ? 'rgba(59,130,246,0.15)' : lead.stage === 'New Inquiry' ? 'rgba(245,158,11,0.15)' : 'rgba(200,140,0,0.1)',
+                        color: lead.stage === 'Estimating' ? '#3b82f6' : lead.stage === 'New Inquiry' ? '#f59e0b' : '#8a8078',
+                      }}>
+                        {lead.stage}
+                      </span>
+                    )}
                     {lead.daysPending > 3 && (
                       <span className="text-[10px] px-1.5 py-0.5 rounded" style={{
                         background: lead.daysPending > 7 ? 'rgba(239,68,68,0.15)' : 'rgba(245,158,11,0.15)',

@@ -252,10 +252,15 @@ export async function GET() {
         contactName: o.contact ? `${o.contact.name || ''}`.trim() : '',
       }));
 
-    // ── Pending New Leads ──
-    const NEW_INQUIRY_ID = 'da27d864-0a12-4f4b-9290-21d59a0f9f6f';
+    // ── Pending Leads (all open leads not yet in "In Design" or beyond) ──
+    // Build a Set of stage IDs that count as "lead" stages (everything before "In Design")
+    const LEAD_STAGE_IDS = new Set(
+      Object.entries(STAGES)
+        .filter(([, name]) => LEAD_STAGES.includes(name))
+        .map(([id]) => id)
+    );
     const pendingNewLeads = opps
-      .filter((o: any) => o.pipelineStageId === NEW_INQUIRY_ID && o.status === 'open')
+      .filter((o: any) => LEAD_STAGE_IDS.has(o.pipelineStageId) && o.status === 'open')
       .sort((a: any, b: any) => new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime())
       .map((o: any) => ({
         id: o.id,
@@ -270,6 +275,7 @@ export async function GET() {
         tags: o.contact?.tags || [],
         createdAt: o.createdAt,
         daysPending: Math.floor((now.getTime() - new Date(o.createdAt).getTime()) / (24 * 60 * 60 * 1000)),
+        stage: STAGES[o.pipelineStageId] || 'Unknown',
       }));
 
     return NextResponse.json({
