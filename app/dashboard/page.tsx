@@ -1935,13 +1935,18 @@ export default function DashboardOverview() {
                           style={{ width: 20, height: 20, borderRadius: '50%', border: `1.5px solid ${ac}`, background: 'transparent', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0, opacity: isCompleting ? 0.4 : 1 }}>
                           {isCompleting ? <Loader2 size={12} className="animate-spin" style={{ color: '#8a8078' }} /> : <Check size={12} style={{ color: ac }} />}
                         </button>
-                        <button onClick={() => { if (isExpanded) { setExpandedWoTask(null); } else { setExpandedWoTask(task.id); fetchWoComments(task.id); } }}
+                        <button onClick={() => { setSelectedCalTask(task); setCalEditingDate(task.endDate?.split?.('T')?.[0] || task.endDate || ''); }}
+                          title="Click to edit task"
                           style={{ flex: 1, minWidth: 0, display: 'flex', alignItems: 'center', gap: 4, background: 'none', border: 'none', cursor: 'pointer', textAlign: 'left' as const, padding: 0 }}>
                           <div style={{ flex: 1, minWidth: 0 }}>
                             <div style={{ fontSize: 14, color: '#1a1a1a', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' as const, fontWeight: 500 }}>{displayName}</div>
                             <div style={{ fontSize: 12, color: '#5a5550', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' as const }}>{task.jobName?.replace(/^#\d+\s*/, '') || ''}</div>
                           </div>
-                          <ChevronRight size={13} style={{ color: '#5a5550', transform: isExpanded ? 'rotate(90deg)' : 'none', transition: 'transform 0.15s', flexShrink: 0 }} />
+                        </button>
+                        <button onClick={() => { if (isExpanded) { setExpandedWoTask(null); } else { setExpandedWoTask(task.id); fetchWoComments(task.id); } }}
+                          title="Toggle comments"
+                          style={{ background: 'none', border: 'none', cursor: 'pointer', padding: 2, flexShrink: 0 }}>
+                          <ChevronRight size={13} style={{ color: '#5a5550', transform: isExpanded ? 'rotate(90deg)' : 'none', transition: 'transform 0.15s' }} />
                         </button>
                         <div style={{ fontSize: 12, color: ac, fontWeight: 600, flexShrink: 0, minWidth: 40, textAlign: 'right' as const }}>
                           {task.daysUntilDue !== null ? (task.daysUntilDue < 0 ? Math.abs(task.daysUntilDue) + 'd ago' : task.daysUntilDue === 0 ? 'Today' : task.daysUntilDue + 'd') : 'No date'}
@@ -2461,8 +2466,12 @@ export default function DashboardOverview() {
                             >
                               {isCompleting ? <Loader2 size={10} style={{ color: '#c88c00' }} className="animate-spin" /> : <Check size={10} style={{ color: '#6a6058' }} />}
                             </button>
-                            {/* Task label */}
-                            <span style={{ fontSize: 13, color: '#1a1a1a', flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{label}</span>
+                            {/* Task label — clickable to open edit modal */}
+                            <button
+                              onClick={() => { setSelectedCalTask(t); setCalEditingDate(t.endDate?.split('T')[0] || ''); }}
+                              style={{ fontSize: 13, color: '#1a1a1a', flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', background: 'none', border: 'none', cursor: 'pointer', textAlign: 'left', padding: 0, margin: 0 }}
+                              title="Click to edit task"
+                            >{label}</button>
                             {/* Date display / edit */}
                             {isEditingDate ? (
                               <div style={{ display: 'flex', alignItems: 'center', gap: 2, flexShrink: 0 }} onClick={(e) => e.stopPropagation()}>
