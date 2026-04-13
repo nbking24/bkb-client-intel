@@ -4723,6 +4723,21 @@ If a section is "(none)", return empty string for that key.`;
     console.warn('[reorganize] AI rewrite failed, keeping original descriptions:', aiErr.message);
   }
 
+  // Prepend labor date range header to the BKB Labor group description
+  // invoiceDates contains YYYY-MM-DD strings for each "Time Cost for [date]" group
+  if (laborGroup && invoiceDates.size > 0) {
+    const sortedDates = Array.from(invoiceDates).sort();
+    const firstDate = new Date(sortedDates[0] + 'T12:00:00').toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
+    const lastDate = new Date(sortedDates[sortedDates.length - 1] + 'T12:00:00').toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
+    const dateHeader = firstDate === lastDate ? `Labor dates: ${firstDate}` : `Labor dates: ${firstDate} \u2013 ${lastDate}`;
+
+    // Re-read the current description (may have been AI-rewritten) and prepend date header
+    const currentGroup = await pave({ costGroup: { $: { id: laborGroup.id }, description: {} } });
+    const currentDesc = ((currentGroup as any)?.costGroup?.description || '').trim();
+    const finalDesc = currentDesc ? `${dateHeader}\n\n${currentDesc}` : dateHeader;
+    await updateJTCostGroup(laborGroup.id, { description: finalDesc });
+  }
+
   return {
     success: true,
     groupCount: adminBills.length + materialBills.length + timeGroups.length + (adminGroup ? 1 : 0) + (materialsGroup ? 1 : 0) + (laborGroup ? 1 : 0),
