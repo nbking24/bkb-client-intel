@@ -23,6 +23,27 @@ import {
 
 const anthropic = new Anthropic();
 
+// Retry helper for transient API errors (529 overloaded, 5xx, rate limits)
+async function callClaudeWithRetry(params: any, maxRetries = 3): Promise<any> {
+  for (let attempt = 0; attempt <= maxRetries; attempt++) {
+    try {
+      return await anthropic.messages.create(params);
+    } catch (err: any) {
+      const status = err?.status || err?.error?.status || 0;
+      const isRetryable = status === 529 || status === 503 || status === 502 || status === 429;
+
+      if (isRetryable && attempt < maxRetries) {
+        // Exponential backoff: 2s, 4s, 8s
+        const delay = Math.pow(2, attempt + 1) * 1000;
+        console.log(`[ESTIMATING] API returned ${status}, retrying in ${delay}ms (attempt ${attempt + 1}/${maxRetries})`);
+        await new Promise(resolve => setTimeout(resolve, delay));
+        continue;
+      }
+      throw err;
+    }
+  }
+}
+
 export async function POST(req: NextRequest) {
   if (!validateAuth(req.headers.get('authorization')).valid) {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
@@ -72,7 +93,7 @@ export async function POST(req: NextRequest) {
     });
 
     // Call Claude with enough tokens for large budget proposals
-    let response = await anthropic.messages.create({
+    let response = await callClaudeWithRetry({
       model: 'claude-sonnet-4-20250514',
       max_tokens: 16384,
       system: fullSystemPrompt,
@@ -104,7 +125,7 @@ export async function POST(req: NextRequest) {
           { role: 'user' as const, content: 'Continue — finish ALL remaining JSON budget proposal blocks and close each with @@END_PROPOSAL@@' },
         ];
 
-        const continuation = await anthropic.messages.create({
+        const continuation = await callClaudeWithRetry({
           model: 'claude-sonnet-4-20250514',
           max_tokens: 16384,
           system: fullSystemPrompt,

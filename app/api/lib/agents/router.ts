@@ -10,6 +10,26 @@ import { createProjectEvent } from '@/app/lib/project-memory';
 
 const anthropic = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY });
 
+// Retry helper for transient API errors (529 overloaded, 5xx, rate limits)
+async function callClaudeWithRetry(params: any, maxRetries = 3): Promise<any> {
+  for (let attempt = 0; attempt <= maxRetries; attempt++) {
+    try {
+      return await anthropic.messages.create(params);
+    } catch (err: any) {
+      const status = err?.status || err?.error?.status || 0;
+      const isRetryable = status === 529 || status === 503 || status === 502 || status === 429;
+
+      if (isRetryable && attempt < maxRetries) {
+        const delay = Math.pow(2, attempt + 1) * 1000;
+        console.log(`[ROUTER] API returned ${status}, retrying in ${delay}ms (attempt ${attempt + 1}/${maxRetries})`);
+        await new Promise(resolve => setTimeout(resolve, delay));
+        continue;
+      }
+      throw err;
+    }
+  }
+}
+
 // Registry of all available agents
 // Know-it-All now handles BOTH read and write JT operations (merged with former JT Entry)
 const AGENTS: AgentModule[] = [
@@ -497,7 +517,7 @@ export async function routeMessage(
 
   let response: any;
   try {
-    response = await anthropic.messages.create(createParams);
+    response = await callClaudeWithRetry(createParams);
   } catch (initErr: any) {
     console.error('[ROUTER] Initial API call failed:', initErr?.message);
     return {
@@ -592,7 +612,7 @@ export async function routeMessage(
     claudeMessages.push({ role: 'user', content: toolResults });
 
     try {
-      response = await anthropic.messages.create({
+      response = await callClaudeWithRetry({
         model: 'claude-sonnet-4-20250514',
         max_tokens: maxTokens,
         system: systemPrompt,
