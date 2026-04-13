@@ -1061,9 +1061,12 @@ export default function LeadsPage() {
         </>
       ) : null}
 
+      {/* ═══ Pending Leads + Estimating Tracker — Side by Side ═══ */}
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 mb-6 items-start">
+
       {/* ═══ Pending New Leads ═══ */}
       {kpiData && kpiData.pendingNewLeads && kpiData.pendingNewLeads.length > 0 && (
-        <div className="rounded-xl overflow-hidden mb-6" style={{ background: '#ffffff', border: '1px solid rgba(200,140,0,0.12)' }}>
+        <div className="rounded-xl overflow-hidden" style={{ background: '#ffffff', border: '1px solid rgba(200,140,0,0.12)' }}>
           <button
             onClick={() => setPendingCollapsed(prev => !prev)}
             className="w-full flex items-center gap-2 px-5 py-3 cursor-pointer"
@@ -1260,7 +1263,7 @@ export default function LeadsPage() {
       )}
 
       {/* ═══ Estimating Tracker ═══ */}
-      <div className="rounded-xl overflow-hidden mb-6" style={{ background: '#ffffff', border: '1px solid rgba(200,140,0,0.12)' }}>
+      <div className="rounded-xl overflow-hidden" style={{ background: '#ffffff', border: '1px solid rgba(200,140,0,0.12)' }}>
         <button
           onClick={() => setEstimatingExpanded(!estimatingExpanded)}
           className="w-full flex items-center gap-2 px-5 py-3 cursor-pointer"
@@ -1458,6 +1461,8 @@ export default function LeadsPage() {
           </div>
         )}
       </div>
+
+      </div>{/* end side-by-side grid */}
 
     </div>
   );
