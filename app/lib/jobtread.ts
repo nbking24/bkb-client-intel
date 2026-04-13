@@ -3324,8 +3324,14 @@ export async function createDraftCostPlusInvoice(jobId: string): Promise<{
     description: `This invoice reflects charges under a Cost Plus Fee agreement. You are billed for all actual project costs, including materials, subcontractors, labor, insurance, and permits, plus a ${marginPercent}% contractor's fee applied to those costs. Labor is billed at $${hourlyRate}/hr.`,
   });
 
-  // Enable "Show Cost & Fee" on the invoice
-  await pave({ updateDocument: { $: { id: doc.id, priceType: 'costPlus' } } });
+  // Enable "Show Cost & Fee" on the invoice — try multiple possible PAVE field names
+  for (const field of ['isCostPlus', 'showCostAndFee', 'costPlus'] as const) {
+    try {
+      await pave({ updateDocument: { $: { id: doc.id, [field]: true } } });
+      console.log(`[COST-PLUS] Set ${field}=true on document ${doc.id}`);
+      break;
+    } catch (_e) { /* try next field name */ }
+  }
 
   // 8. Create cost items from uninvoiced bills (grouped by vendor)
   let totalCost = 0;
