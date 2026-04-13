@@ -3305,7 +3305,10 @@ export async function createDraftCostPlusInvoice(jobId: string): Promise<{
     throw new Error('No uninvoiced vendor bills or time entries found for this job.');
   }
 
-  // 7. Create the document shell
+  // 7. Create the document shell with sequential invoice number
+  const existingInvoices = allDocs.filter((d: any) => d.type === 'customerInvoice');
+  const invoiceSeq = existingInvoices.length + 1;
+
   const doc = await createJTDocument({
     jobId,
     type: 'customerInvoice',
@@ -3317,7 +3320,7 @@ export async function createDraftCostPlusInvoice(jobId: string): Promise<{
     jobLocationName: locationName,
     jobLocationAddress: locationAddress,
     dueDays: 2,
-    subject: `Cost Plus Invoice - ${job.name}`,
+    subject: `Cost Plus Invoice #${invoiceSeq} - ${job.name}`,
     description: `This invoice reflects charges under a Cost Plus Fee agreement. You are billed for all actual project costs, including materials, subcontractors, labor, insurance, and permits, plus a ${marginPercent}% contractor's fee applied to those costs. Labor is billed at $${hourlyRate}/hr.`,
   });
 
@@ -3828,7 +3831,10 @@ export async function createDraftBillableInvoice(jobId: string): Promise<{
     }
   }
 
-  // 8. Create the document shell with BKB company info
+  // 8. Create the document shell with BKB company info and sequential number
+  const allExistingInvoices = allDocs.filter((d: any) => d.type === 'customerInvoice');
+  const invoiceSeq = allExistingInvoices.length + 1;
+
   const doc = await createJTDocument({
     jobId,
     type: 'customerInvoice',
@@ -3840,7 +3846,7 @@ export async function createDraftBillableInvoice(jobId: string): Promise<{
     jobLocationName: locationName,
     jobLocationAddress: locationAddress,
     dueDays: 2,
-    subject: `Billable Items Invoice - ${job.name}`,
+    subject: `Billable Items Invoice #${invoiceSeq} - ${job.name}`,
     description: 'This invoice covers additional billable items and labor hours incurred on this project beyond the original contract scope.',
   });
 
