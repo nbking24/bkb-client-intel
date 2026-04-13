@@ -4401,6 +4401,20 @@ If a section is "(none)", return empty string for that key.`;
       }
     } catch (_e) { /* skip AI errors */ }
 
+    // Preserve labor date range header if it was set during invoice creation
+    if (existingLabor) {
+      const currentGroup = await pave({ costGroup: { $: { id: existingLabor.id }, description: {} } });
+      const currentDesc = ((currentGroup as any)?.costGroup?.description || '').trim();
+      // Check if the original description (before AI rewrite) had a date header
+      const originalDesc = (existingLabor.description || '').trim();
+      const dateMatch = originalDesc.match(/^(Labor dates:[^\n]+)/);
+      if (dateMatch && !currentDesc.startsWith('Labor dates:')) {
+        // AI rewrite removed the date header — re-add it
+        const finalDesc = currentDesc ? `${dateMatch[1]}\n\n${currentDesc}` : dateMatch[1];
+        await updateJTCostGroup(existingLabor.id, { description: finalDesc });
+      }
+    }
+
     return {
       success: true,
       groupCount: groups.length,
