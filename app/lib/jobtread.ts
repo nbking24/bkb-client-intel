@@ -4068,9 +4068,9 @@ export async function createDraftBillableInvoice(jobId: string): Promise<{
 
     // Build labor date range header so clients know what dates are being billed
     const cc23LaborDates = cc23TimeEntries
-      .filter(e => e.startedAt)
-      .map(e => new Date(e.startedAt))
-      .sort((a, b) => a.getTime() - b.getTime());
+      .filter((e: any) => e.startedAt)
+      .map((e: any) => new Date(e.startedAt))
+      .sort((a: Date, b: Date) => a.getTime() - b.getTime());
     let cc23DateHeader = '';
     if (cc23LaborDates.length > 0) {
       const cc23First = cc23LaborDates[0].toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
