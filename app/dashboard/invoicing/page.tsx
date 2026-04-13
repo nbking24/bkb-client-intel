@@ -897,35 +897,306 @@ function BillableItemsCard({ summary }: { summary: BillableItemsSummary }) {
 // Agent Recommendations Section
 // ============================================================
 
-const VISIBLE_ALERTS = 5;
+// ============================================================
+// "Needs Invoicing" — primary action list for Terri
+// ============================================================
 
-function GlobalAlertsSection({ alerts }: { alerts: string[] }) {
-  const [expanded, setExpanded] = useState(false);
-  const hasMore = alerts.length > VISIBLE_ALERTS;
-  const visibleAlerts = expanded ? alerts : alerts.slice(0, VISIBLE_ALERTS);
+interface NeedsInvoicingJob {
+  jobId: string;
+  jobName: string;
+  jobNumber: string;
+  clientName: string;
+  health: InvoicingHealth;
+  alerts: string[];
+  type: 'contract' | 'cost-plus';
+  // Contract-specific
+  invoicedPercent?: number;
+  totalContractValue?: number;
+  uninvoicedBillableAmount?: number;
+  unbilledLaborHours?: number;
+  nextMilestone?: MilestoneInfo | null;
+  overdueMilestones?: MilestoneInfo[];
+  draftInvoices?: DraftInvoiceInfo[];
+  // CO awareness
+  approvedCOValue?: number;
+  totalContractAndCOValue?: number;
+  appliedCOsCount?: number;
+  // Cost-plus-specific
+  unbilledCosts?: number;
+  unbilledHours?: number;
+  unbilledAmount?: number;
+  daysSinceLastInvoice?: number | null;
+  invoiceCount?: number;
+}
+
+function NeedsInvoicingSection({
+  contractJobs,
+  costPlusJobs,
+  onInvoiceCreated,
+  arHolds,
+  arToggling,
+  onToggleArHold,
+}: {
+  contractJobs: ContractJobHealth[];
+  costPlusJobs: CostPlusJobHealth[];
+  onInvoiceCreated: () => void;
+  arHolds: Record<string, boolean>;
+  arToggling: string | null;
+  onToggleArHold: (jobId: string, jobName: string) => void;
+}) {
+  // Combine all non-healthy jobs from both types
+  const needsAction: NeedsInvoicingJob[] = [];
+
+  for (const job of contractJobs) {
+    if (job.health !== 'healthy') {
+      needsAction.push({
+        jobId: job.jobId,
+        jobName: job.jobName,
+        jobNumber: job.jobNumber,
+        clientName: job.clientName,
+        health: job.health,
+        alerts: job.alerts,
+        type: 'contract',
+        invoicedPercent: job.invoicedPercent,
+        totalContractValue: job.totalContractValue,
+        uninvoicedBillableAmount: job.uninvoicedBillableAmount,
+        unbilledLaborHours: job.unbilledLaborHours,
+        nextMilestone: job.nextMilestone,
+        overdueMilestones: job.overdueMilestones,
+        draftInvoices: job.draftInvoices,
+        approvedCOValue: job.approvedCOValue,
+        totalContractAndCOValue: job.totalContractAndCOValue,
+        appliedCOsCount: job.appliedCOsCount,
+      });
+    }
+  }
+
+  for (const job of costPlusJobs) {
+    if (job.health !== 'healthy') {
+      needsAction.push({
+        jobId: job.jobId,
+        jobName: job.jobName,
+        jobNumber: job.jobNumber,
+        clientName: job.clientName,
+        health: job.health,
+        alerts: job.alerts,
+        type: 'cost-plus',
+        unbilledCosts: job.unbilledCosts,
+        unbilledHours: job.unbilledHours,
+        unbilledAmount: job.unbilledAmount,
+        daysSinceLastInvoice: job.daysSinceLastInvoice,
+        invoiceCount: job.invoiceCount,
+      });
+    }
+  }
+
+  // Sort by severity: critical > overdue > warning
+  needsAction.sort((a, b) => HEALTH_PRIORITY[a.health] - HEALTH_PRIORITY[b.health]);
+
+  if (needsAction.length === 0) return null;
+
+  const criticalCount = needsAction.filter(j => j.health === 'critical').length;
+  const overdueCount = needsAction.filter(j => j.health === 'overdue').length;
+  const warningCount = needsAction.filter(j => j.health === 'warning').length;
 
   return (
-    <div className="p-4 rounded-xl" style={{ ...CARD_STYLE, border: '1px solid rgba(239,68,68,0.2)' }}>
-      <div className="flex items-center gap-2 mb-2">
-        <AlertTriangle size={16} style={{ color: '#ef4444' }} />
-        <span className="text-sm font-semibold" style={{ color: '#ef4444' }}>
-          Active Alerts ({alerts.length})
-        </span>
-      </div>
-      <div className="space-y-1">
-        {visibleAlerts.map((alert, i) => (
-          <div key={i} className="text-xs" style={{ color: '#f97316' }}>
-            {alert}
-          </div>
-        ))}
-        {hasMore && (
-          <button
-            onClick={() => setExpanded(!expanded)}
-            className="flex items-center gap-1 text-xs mt-1"
-            style={{ color: '#8a8078', background: 'none', border: 'none', cursor: 'pointer', padding: 0 }}
+    <div
+      className="rounded-xl overflow-hidden"
+      style={{
+        background: '#f8f6f3',
+        border: criticalCount > 0
+          ? '1px solid rgba(239,68,68,0.25)'
+          : overdueCount > 0
+            ? '1px solid rgba(249,115,22,0.25)'
+            : '1px solid rgba(234,179,8,0.25)',
+      }}
+    >
+      {/* Header */}
+      <div className="px-4 py-3 flex items-center justify-between" style={{ borderBottom: '1px solid rgba(200,140,0,0.08)' }}>
+        <div className="flex items-center gap-2">
+          <AlertTriangle size={16} style={{ color: criticalCount > 0 ? '#ef4444' : overdueCount > 0 ? '#f97316' : '#eab308' }} />
+          <span className="text-sm font-semibold" style={{ color: '#1a1a1a' }}>
+            Jobs That Need Invoicing
+          </span>
+          <span
+            className="text-xs px-2 py-0.5 rounded-full font-medium"
+            style={{ background: 'rgba(200,140,0,0.12)', color: '#c88c00' }}
           >
-            {expanded ? <ChevronDown size={12} /> : <ChevronRight size={12} />}
-            {expanded ? 'Show less' : `+${alerts.length - VISIBLE_ALERTS} more alerts`}
+            {needsAction.length}
+          </span>
+        </div>
+        <div className="flex items-center gap-2 text-[10px]">
+          {criticalCount > 0 && (
+            <span className="px-1.5 py-0.5 rounded-full" style={{ background: 'rgba(239,68,68,0.15)', color: '#ef4444' }}>
+              {criticalCount} critical
+            </span>
+          )}
+          {overdueCount > 0 && (
+            <span className="px-1.5 py-0.5 rounded-full" style={{ background: 'rgba(249,115,22,0.15)', color: '#f97316' }}>
+              {overdueCount} overdue
+            </span>
+          )}
+          {warningCount > 0 && (
+            <span className="px-1.5 py-0.5 rounded-full" style={{ background: 'rgba(234,179,8,0.15)', color: '#eab308' }}>
+              {warningCount} warning
+            </span>
+          )}
+        </div>
+      </div>
+
+      {/* Job rows */}
+      <div className="divide-y" style={{ borderColor: 'rgba(200,140,0,0.06)' }}>
+        {needsAction.map((job) => (
+          <NeedsInvoicingRow
+            key={job.jobId}
+            job={job}
+            onInvoiceCreated={onInvoiceCreated}
+            arHeld={arHolds[job.jobId]}
+            arToggling={arToggling === job.jobId}
+            onToggleArHold={onToggleArHold}
+          />
+        ))}
+      </div>
+    </div>
+  );
+}
+
+function NeedsInvoicingRow({
+  job,
+  onInvoiceCreated,
+  arHeld,
+  arToggling,
+  onToggleArHold,
+}: {
+  job: NeedsInvoicingJob;
+  onInvoiceCreated: () => void;
+  arHeld?: boolean;
+  arToggling?: boolean;
+  onToggleArHold: (jobId: string, jobName: string) => void;
+}) {
+  const [creatingInvoice, setCreatingInvoice] = useState(false);
+  const [invoiceResult, setInvoiceResult] = useState<{ success: boolean; message: string } | null>(null);
+
+  const cfg = HEALTH_COLORS[job.health];
+
+  async function handleCreateInvoice() {
+    if (creatingInvoice) return;
+    setCreatingInvoice(true);
+    setInvoiceResult(null);
+    try {
+      const endpoint = job.type === 'contract'
+        ? '/api/dashboard/invoicing/create-billable-invoice'
+        : '/api/dashboard/invoicing/create-draft-invoice';
+      const res = await fetch(endpoint, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ jobId: job.jobId }),
+      });
+      const data = await res.json();
+      if (data.success) {
+        setInvoiceResult({ success: true, message: `Draft ${data.documentNumber || ''} created` });
+        setTimeout(() => onInvoiceCreated(), 1500);
+      } else {
+        setInvoiceResult({ success: false, message: data.error || 'Failed' });
+      }
+    } catch (err: any) {
+      setInvoiceResult({ success: false, message: err.message || 'Failed' });
+    } finally {
+      setCreatingInvoice(false);
+    }
+  }
+
+  // Build the "what needs doing" summary line
+  let actionSummary = '';
+  if (job.type === 'contract') {
+    const parts: string[] = [];
+    if ((job.overdueMilestones?.length ?? 0) > 0) {
+      parts.push(`${job.overdueMilestones!.length} overdue milestone${job.overdueMilestones!.length > 1 ? 's' : ''}`);
+    }
+    if ((job.uninvoicedBillableAmount ?? 0) > 0) {
+      parts.push(`${formatCurrency(job.uninvoicedBillableAmount!)} uninvoiced billables`);
+    }
+    if ((job.unbilledLaborHours ?? 0) > 0) {
+      parts.push(`${job.unbilledLaborHours!.toFixed(1)}h unbilled labor`);
+    }
+    if ((job.draftInvoices?.length ?? 0) > 0) {
+      parts.push(`${job.draftInvoices!.length} draft invoice${job.draftInvoices!.length > 1 ? 's' : ''} pending`);
+    }
+    actionSummary = parts.length > 0 ? parts.join(' · ') : job.alerts[0] || 'Needs attention';
+  } else {
+    const parts: string[] = [];
+    if ((job.unbilledAmount ?? 0) > 0) {
+      parts.push(`${formatCurrency(job.unbilledAmount!)} unbilled`);
+    }
+    if ((job.unbilledHours ?? 0) > 0) {
+      parts.push(`${job.unbilledHours!.toFixed(1)}h unbilled`);
+    }
+    if (job.daysSinceLastInvoice !== null && job.daysSinceLastInvoice !== undefined) {
+      parts.push(`${job.daysSinceLastInvoice}d since last invoice`);
+    } else if (job.invoiceCount === 0) {
+      parts.push('No invoices created');
+    }
+    actionSummary = parts.length > 0 ? parts.join(' · ') : job.alerts[0] || 'Needs attention';
+  }
+
+  return (
+    <div className="px-4 py-3 flex items-center gap-3 hover:bg-white/30 transition-colors">
+      {/* Health indicator dot */}
+      <div
+        className="w-2.5 h-2.5 rounded-full flex-shrink-0"
+        style={{ background: cfg.dot }}
+        title={cfg.label}
+      />
+
+      {/* Job info */}
+      <div className="flex-1 min-w-0">
+        <div className="flex items-center gap-2">
+          <span className="text-sm font-medium truncate" style={{ color: '#1a1a1a' }}>
+            {job.jobName}
+          </span>
+          <span
+            className="text-[10px] px-1.5 py-0.5 rounded flex-shrink-0"
+            style={{ background: 'rgba(200,140,0,0.08)', color: '#8a8078' }}
+          >
+            {job.type === 'contract' ? 'Contract' : 'Cost Plus'}
+          </span>
+        </div>
+        <div className="text-xs mt-0.5" style={{ color: '#8a8078' }}>
+          {job.clientName} · #{job.jobNumber}
+        </div>
+        <div className="text-xs mt-0.5" style={{ color: cfg.text }}>
+          {actionSummary}
+        </div>
+      </div>
+
+      {/* Action button */}
+      <div className="flex-shrink-0">
+        {invoiceResult ? (
+          <span
+            className="text-[11px] px-2 py-1"
+            style={{ color: invoiceResult.success ? '#22c55e' : '#ef4444' }}
+          >
+            {invoiceResult.message}
+          </span>
+        ) : (
+          <button
+            onClick={handleCreateInvoice}
+            disabled={creatingInvoice}
+            className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium transition-colors hover:opacity-90"
+            style={{
+              background: 'rgba(200,140,0,0.1)',
+              color: '#c88c00',
+              border: '1px solid rgba(200,140,0,0.2)',
+              cursor: creatingInvoice ? 'wait' : 'pointer',
+              opacity: creatingInvoice ? 0.6 : 1,
+            }}
+          >
+            {creatingInvoice ? (
+              <Loader2 size={12} className="animate-spin" />
+            ) : (
+              <Plus size={12} />
+            )}
+            Create Invoice
           </button>
         )}
       </div>
@@ -1506,10 +1777,15 @@ export default function InvoicingDashboard() {
         )}
       </div>
 
-      {/* Global Alerts */}
-      {report.alerts.length > 0 && (
-        <GlobalAlertsSection alerts={report.alerts} />
-      )}
+      {/* Jobs That Need Invoicing — primary action list */}
+      <NeedsInvoicingSection
+        contractJobs={report.contractJobs.filter(matchesSearch)}
+        costPlusJobs={report.costPlusJobs.filter(matchesSearch)}
+        onInvoiceCreated={() => fetchReport(true)}
+        arHolds={arHolds}
+        arToggling={arToggling}
+        onToggleArHold={toggleArHold}
+      />
 
       {/* Agent Recommendations */}
       <AgentSection report={report} />
