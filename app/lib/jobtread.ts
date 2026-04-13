@@ -3060,6 +3060,22 @@ async function createJTCostItem(params: {
  *
  * Returns the created document info or throws on failure.
  */
+
+// Helper: validate AI-rewritten description is actual content, not meta-commentary
+function isValidAiDescription(text: string): boolean {
+  if (!text || text.length < 3) return false;
+  const lower = text.toLowerCase();
+  const badPatterns = [
+    "i'm ready", "i am ready", "i'd be happy", "i can help",
+    "i don't see", "i don't have", "no description", "no content",
+    "no text", "nothing to rewrite", "please provide", "could you",
+    "unfortunately", "it seems", "it appears", "there is no",
+    "there are no", "i need", "i cannot", "i can't", "however,",
+    "note:", "sorry", "here is", "here's the rewrite",
+  ];
+  return !badPatterns.some(p => lower.startsWith(p) || lower.includes(p));
+}
+
 export async function createDraftCostPlusInvoice(jobId: string): Promise<{
   documentId: string;
   documentName: string;
@@ -3337,7 +3353,7 @@ export async function createDraftCostPlusInvoice(jobId: string): Promise<{
             if (aiRes.ok) {
               const aiData = await aiRes.json();
               const rewritten = (aiData.content?.[0]?.text || '').trim();
-              if (rewritten) {
+              if (isValidAiDescription(rewritten)) {
                 await updateJTCostGroup(vendorGroup.id, { description: rewritten });
               }
             }
@@ -3403,7 +3419,7 @@ export async function createDraftCostPlusInvoice(jobId: string): Promise<{
           if (aiRes.ok) {
             const aiData = await aiRes.json();
             const rewritten = (aiData.content?.[0]?.text || '').trim();
-            if (rewritten) laborDesc = rewritten;
+            if (isValidAiDescription(rewritten)) laborDesc = rewritten;
           }
         }
       } catch (_e) { /* skip AI errors */ }
@@ -3465,7 +3481,7 @@ export async function createDraftCostPlusInvoice(jobId: string): Promise<{
             if (aiRes.ok) {
               const aiData = await aiRes.json();
               const rewritten = (aiData.content?.[0]?.text || '').trim();
-              if (rewritten) itemDescription = rewritten;
+              if (isValidAiDescription(rewritten)) itemDescription = rewritten;
             }
           }
         } catch (_e) { /* keep dateBreakdown as fallback */ }
@@ -3878,7 +3894,7 @@ export async function createDraftBillableInvoice(jobId: string): Promise<{
             if (aiRes.ok) {
               const aiData = await aiRes.json();
               const rewritten = (aiData.content?.[0]?.text || '').trim();
-              if (rewritten) {
+              if (isValidAiDescription(rewritten)) {
                 await updateJTCostGroup(subGroup.id, { description: rewritten });
               }
             }
@@ -3940,7 +3956,7 @@ export async function createDraftBillableInvoice(jobId: string): Promise<{
           if (aiRes.ok) {
             const aiData = await aiRes.json();
             const rewritten = (aiData.content?.[0]?.text || '').trim();
-            if (rewritten) await updateJTCostGroup(categoryGroup.id, { description: rewritten });
+            if (isValidAiDescription(rewritten)) await updateJTCostGroup(categoryGroup.id, { description: rewritten });
           }
         }
       } catch (_e) { /* skip */ }
@@ -4014,7 +4030,7 @@ export async function createDraftBillableInvoice(jobId: string): Promise<{
         if (aiRes.ok) {
           const aiData = await aiRes.json();
           const rewritten = (aiData.content?.[0]?.text || '').trim();
-          if (rewritten) laborDesc = rewritten;
+          if (isValidAiDescription(rewritten)) laborDesc = rewritten;
         }
       }
     } catch (_e) { /* skip */ }
@@ -4272,16 +4288,16 @@ If a section is "(none)", return empty string for that key.`;
                 const rewritten = JSON.parse(jsonMatch[0]);
                 // Update the renamed Vendor Bills / Trade Partners group
                 const updatedTP = groups.find((g: any) => g.id === existingVendorBills?.id);
-                if (rewritten.admin && updatedTP && adminBills.length > 0) {
+                if (isValidAiDescription(rewritten.admin) && updatedTP && adminBills.length > 0) {
                   await updateJTCostGroup(updatedTP.id, { description: rewritten.admin });
                 }
-                if (rewritten.materials) {
+                if (isValidAiDescription(rewritten.materials)) {
                   const mGroup = materialBills.length > 0 && adminBills.length > 0
                     ? groups.find((g: any) => g.name === 'Materials' && !g.parentCostGroup?.id) // newly created
                     : (existingVendorBills?.id ? existingVendorBills : null);
                   // For the newly created materials group, we need to use a fresh lookup
                 }
-                if (rewritten.labor && existingLabor) {
+                if (isValidAiDescription(rewritten.labor) && existingLabor) {
                   await updateJTCostGroup(existingLabor.id, { description: rewritten.labor });
                 }
               }
@@ -4537,7 +4553,7 @@ If a section is "(none)", return empty string for that key.`;
         if (aiRes.ok) {
           const aiData = await aiRes.json();
           const rewritten = (aiData.content?.[0]?.text || '').trim();
-          if (rewritten) {
+          if (isValidAiDescription(rewritten)) {
             await updateJTCostGroup(bg.group.id, { description: rewritten });
           }
         }
@@ -4589,13 +4605,13 @@ If a section is "(none)", return empty string for that key.`;
           const jsonMatch = aiText.match(/\{[\s\S]*\}/);
           if (jsonMatch) {
             const rewritten = JSON.parse(jsonMatch[0]);
-            if (rewritten.admin && adminDescription && adminGroup) {
+            if (isValidAiDescription(rewritten.admin) && adminDescription && adminGroup) {
               await updateJTCostGroup(adminGroup.id, { description: rewritten.admin });
             }
-            if (rewritten.materials && materialsDescription && materialsGroup) {
+            if (isValidAiDescription(rewritten.materials) && materialsDescription && materialsGroup) {
               await updateJTCostGroup(materialsGroup.id, { description: rewritten.materials });
             }
-            if (rewritten.labor && laborDescription && laborGroup) {
+            if (isValidAiDescription(rewritten.labor) && laborDescription && laborGroup) {
               await updateJTCostGroup(laborGroup.id, { description: rewritten.labor });
             }
           }
