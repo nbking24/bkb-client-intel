@@ -7,7 +7,7 @@ import {
   Calendar, Clock, Loader2, CheckCircle2, AlertCircle, ChevronDown, ChevronRight,
   TrendingUp, Target, PhoneCall, BarChart3, Users, ArrowRight, RefreshCw,
   Shield, Eye, Trash2, AlertTriangle, ExternalLink, MessageSquare, ClipboardList,
-  HardHat, FileCheck,
+  HardHat, FileCheck, X, Ban,
 } from 'lucide-react';
 
 /* ── Types ── */
@@ -139,6 +139,17 @@ const STAGE_COLORS: Record<string, string> = {
   'Closed Not Interested': '#6b7280',
   'On Hold': '#9ca3af',
 };
+
+/* ── Pipeline stage order for lead movement ── */
+const LEAD_STAGE_ORDER = [
+  { id: 'da27d864-0a12-4f4b-9290-21d59a0f9f6f', name: 'New Inquiry' },
+  { id: '3e720576-99cc-4e94-baa1-0d82e28b265d', name: 'Initial Call Scheduled' },
+  { id: '25c69200-e006-4a7f-b949-687a66d019a7', name: 'Discovery Scheduled' },
+  { id: 'ae9b3d90-5264-4f38-9e96-85a537d5c035', name: 'No Show' },
+  { id: 'df802d7c-8a49-4e82-b9c1-2ad9d3dd1b80', name: 'Nurture' },
+  { id: 'c4012dfe-bc76-4447-8947-96a9e846ff2b', name: 'Estimating' },
+  { id: '73fd2284-6b5f-4b24-9c10-cd8bca259552', name: 'In Design' },
+];
 
 function getToken() {
   return typeof window !== 'undefined' ? localStorage.getItem('bkb-token') || '' : '';
@@ -401,6 +412,50 @@ export default function LeadsPage() {
       alert('Failed to remove spam lead. Please try again.');
     } finally {
       setSpamLoading(null);
+    }
+  };
+
+  // Lead action state: move stage & close
+  const [stageDropdown, setStageDropdown] = useState<string | null>(null); // opportunityId showing dropdown
+  const [stageLoading, setStageLoading] = useState<string | null>(null);
+  const [closeConfirm, setCloseConfirm] = useState<string | null>(null);
+  const [closeLoading, setCloseLoading] = useState<string | null>(null);
+
+  const handleMoveStage = async (lead: PendingLead, stageId: string, stageName: string) => {
+    setStageLoading(lead.id);
+    try {
+      const res = await fetch('/api/dashboard/leads-update', {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${getToken()}` },
+        body: JSON.stringify({ action: 'move', opportunityId: lead.id, contactId: lead.contactId, stageId }),
+      });
+      if (!res.ok) throw new Error('Failed to move stage');
+      setStageDropdown(null);
+      loadKpis();
+    } catch (err: any) {
+      console.error('Move stage failed:', err);
+      alert('Failed to move lead. Please try again.');
+    } finally {
+      setStageLoading(null);
+    }
+  };
+
+  const handleCloseLead = async (lead: PendingLead) => {
+    setCloseLoading(lead.id);
+    try {
+      const res = await fetch('/api/dashboard/leads-update', {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${getToken()}` },
+        body: JSON.stringify({ action: 'close', opportunityId: lead.id }),
+      });
+      if (!res.ok) throw new Error('Failed to close lead');
+      setCloseConfirm(null);
+      loadKpis();
+    } catch (err: any) {
+      console.error('Close lead failed:', err);
+      alert('Failed to close lead. Please try again.');
+    } finally {
+      setCloseLoading(null);
     }
   };
 
@@ -687,37 +742,121 @@ export default function LeadsPage() {
                 </div>
 
                 {/* Action Buttons */}
-                <div className="flex items-center gap-2 flex-shrink-0 pt-0.5">
-                  {spamConfirm === lead.id ? (
-                    <div className="flex items-center gap-1.5">
-                      <span className="text-xs" style={{ color: '#f87171' }}>Delete lead?</span>
-                      <button
-                        onClick={() => handleMarkSpam(lead)}
-                        disabled={spamLoading === lead.id}
-                        className="flex items-center gap-1 px-2 py-1 rounded text-xs font-medium transition-all"
-                        style={{ background: 'rgba(239,68,68,0.15)', color: '#ef4444', border: '1px solid rgba(239,68,68,0.3)' }}
-                      >
-                        {spamLoading === lead.id ? <Loader2 size={10} className="animate-spin" /> : <Trash2 size={10} />}
-                        Yes
-                      </button>
-                      <button
-                        onClick={() => setSpamConfirm(null)}
-                        className="px-2 py-1 rounded text-xs transition-all"
-                        style={{ background: '#f8f6f3', color: '#8a8078', border: '1px solid rgba(200,140,0,0.12)' }}
-                      >
-                        No
-                      </button>
+                <div className="flex flex-col items-end gap-1.5 flex-shrink-0 pt-0.5 relative">
+                  {/* Stage dropdown */}
+                  {stageDropdown === lead.id ? (
+                    <div className="absolute right-0 top-0 z-10 rounded-lg shadow-lg py-1 min-w-[180px]"
+                      style={{ background: '#ffffff', border: '1px solid rgba(200,140,0,0.2)' }}>
+                      <div className="flex items-center justify-between px-3 py-1.5 mb-0.5" style={{ borderBottom: '1px solid rgba(200,140,0,0.08)' }}>
+                        <span className="text-[10px] font-semibold uppercase tracking-wider" style={{ color: '#8a8078' }}>Move to stage</span>
+                        <button onClick={() => setStageDropdown(null)} className="hover:opacity-70">
+                          <X size={12} style={{ color: '#8a8078' }} />
+                        </button>
+                      </div>
+                      {LEAD_STAGE_ORDER.map((s) => (
+                        <button
+                          key={s.id}
+                          disabled={s.name === lead.stage || stageLoading === lead.id}
+                          onClick={() => handleMoveStage(lead, s.id, s.name)}
+                          className="w-full text-left px-3 py-1.5 text-xs transition-all flex items-center gap-2"
+                          style={{
+                            color: s.name === lead.stage ? '#c88c00' : '#1a1a1a',
+                            background: s.name === lead.stage ? 'rgba(200,140,0,0.06)' : 'transparent',
+                            fontWeight: s.name === lead.stage ? 600 : 400,
+                            opacity: s.name === lead.stage ? 0.7 : 1,
+                            cursor: s.name === lead.stage ? 'default' : 'pointer',
+                          }}
+                          onMouseEnter={(e) => { if (s.name !== lead.stage) (e.currentTarget.style.background = 'rgba(200,140,0,0.08)'); }}
+                          onMouseLeave={(e) => { if (s.name !== lead.stage) (e.currentTarget.style.background = 'transparent'); }}
+                        >
+                          {stageLoading === lead.id ? (
+                            <Loader2 size={10} className="animate-spin" style={{ color: '#c88c00' }} />
+                          ) : s.name === lead.stage ? (
+                            <Check size={10} style={{ color: '#c88c00' }} />
+                          ) : (
+                            <span className="w-2.5 h-2.5 rounded-full flex-shrink-0" style={{ background: STAGE_COLORS[s.name] || '#8a8078', opacity: 0.6 }} />
+                          )}
+                          {s.name}
+                        </button>
+                      ))}
                     </div>
-                  ) : (
+                  ) : null}
+
+                  {/* Button row */}
+                  <div className="flex items-center gap-1.5">
+                    {/* Move stage button */}
                     <button
-                      onClick={() => setSpamConfirm(lead.id)}
+                      onClick={() => { setStageDropdown(stageDropdown === lead.id ? null : lead.id); setCloseConfirm(null); setSpamConfirm(null); }}
                       className="flex items-center gap-1 px-2 py-1 rounded text-xs transition-all hover:opacity-80"
-                      style={{ background: 'rgba(239,68,68,0.08)', color: '#8a8078', border: '1px solid rgba(239,68,68,0.12)' }}
-                      title="Mark as spam — deletes contact and opportunity"
+                      style={{ background: 'rgba(200,140,0,0.08)', color: '#8a8078', border: '1px solid rgba(200,140,0,0.12)' }}
+                      title="Move to different pipeline stage"
                     >
-                      <Trash2 size={10} /> Spam
+                      <ArrowRight size={10} /> Move
                     </button>
-                  )}
+
+                    {/* Close as lost */}
+                    {closeConfirm === lead.id ? (
+                      <div className="flex items-center gap-1">
+                        <span className="text-[10px]" style={{ color: '#8a8078' }}>Close?</span>
+                        <button
+                          onClick={() => handleCloseLead(lead)}
+                          disabled={closeLoading === lead.id}
+                          className="flex items-center gap-1 px-2 py-1 rounded text-xs font-medium transition-all"
+                          style={{ background: 'rgba(107,114,128,0.15)', color: '#6b7280', border: '1px solid rgba(107,114,128,0.3)' }}
+                        >
+                          {closeLoading === lead.id ? <Loader2 size={10} className="animate-spin" /> : <Ban size={10} />}
+                          Yes
+                        </button>
+                        <button
+                          onClick={() => setCloseConfirm(null)}
+                          className="px-1.5 py-1 rounded text-[10px] transition-all"
+                          style={{ background: '#f8f6f3', color: '#8a8078', border: '1px solid rgba(200,140,0,0.12)' }}
+                        >
+                          No
+                        </button>
+                      </div>
+                    ) : (
+                      <button
+                        onClick={() => { setCloseConfirm(lead.id); setStageDropdown(null); setSpamConfirm(null); }}
+                        className="flex items-center gap-1 px-2 py-1 rounded text-xs transition-all hover:opacity-80"
+                        style={{ background: 'rgba(107,114,128,0.08)', color: '#8a8078', border: '1px solid rgba(107,114,128,0.12)' }}
+                        title="Close lead as lost — marks as not interested"
+                      >
+                        <Ban size={10} /> Close
+                      </button>
+                    )}
+
+                    {/* Spam / delete */}
+                    {spamConfirm === lead.id ? (
+                      <div className="flex items-center gap-1">
+                        <button
+                          onClick={() => handleMarkSpam(lead)}
+                          disabled={spamLoading === lead.id}
+                          className="flex items-center gap-1 px-2 py-1 rounded text-xs font-medium transition-all"
+                          style={{ background: 'rgba(239,68,68,0.15)', color: '#ef4444', border: '1px solid rgba(239,68,68,0.3)' }}
+                        >
+                          {spamLoading === lead.id ? <Loader2 size={10} className="animate-spin" /> : <Trash2 size={10} />}
+                          Delete
+                        </button>
+                        <button
+                          onClick={() => setSpamConfirm(null)}
+                          className="px-1.5 py-1 rounded text-[10px] transition-all"
+                          style={{ background: '#f8f6f3', color: '#8a8078', border: '1px solid rgba(200,140,0,0.12)' }}
+                        >
+                          No
+                        </button>
+                      </div>
+                    ) : (
+                      <button
+                        onClick={() => { setSpamConfirm(lead.id); setStageDropdown(null); setCloseConfirm(null); }}
+                        className="flex items-center gap-1 px-2 py-1 rounded text-xs transition-all hover:opacity-80"
+                        style={{ background: 'rgba(239,68,68,0.08)', color: '#8a8078', border: '1px solid rgba(239,68,68,0.12)' }}
+                        title="Mark as spam — deletes contact and opportunity"
+                      >
+                        <Trash2 size={10} />
+                      </button>
+                    )}
+                  </div>
                 </div>
               </div>
             ))}
