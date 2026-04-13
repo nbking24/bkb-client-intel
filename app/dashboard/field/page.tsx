@@ -1548,7 +1548,6 @@ export default function FieldDashboardPage() {
                   style={{
                     flex: 1, background: '#ffffff', border: '1px solid rgba(200,140,0,0.15)', borderRadius: 6,
                     color: '#1a1a1a', fontSize: 12, padding: '5px 8px',
-                    colorScheme: 'dark',
                   }}
                 />
                 {editingDate !== (selectedTask.endDate || selectedTask.date) && (
@@ -1561,6 +1560,35 @@ export default function FieldDashboardPage() {
                     {savingDate ? 'Saving...' : 'Save'}
                   </button>
                 )}
+              </div>
+              {/* Quick date shortcuts */}
+              <div style={{ display: 'flex', gap: 4, marginTop: 6, flexWrap: 'wrap' }}>
+                {[
+                  { label: 'Today', offset: 0 },
+                  { label: 'Tomorrow', offset: 1 },
+                  { label: 'Next Mon', offset: (() => { const d = new Date(); const day = d.getDay(); return day === 0 ? 1 : day === 1 ? 7 : 8 - day; })() },
+                  { label: '+1 Week', offset: 7 },
+                  { label: '+2 Weeks', offset: 14 },
+                ].map(({ label, offset }) => {
+                  const d = new Date(); d.setDate(d.getDate() + offset);
+                  const val = d.toISOString().split('T')[0];
+                  const isActive = editingDate === val;
+                  return (
+                    <button
+                      key={label}
+                      onClick={() => setEditingDate(val)}
+                      style={{
+                        fontSize: 10, padding: '2px 6px', borderRadius: 4, cursor: 'pointer',
+                        background: isActive ? 'rgba(200,140,0,0.15)' : 'rgba(200,140,0,0.05)',
+                        color: isActive ? '#c88c00' : '#6a6058',
+                        border: `1px solid ${isActive ? 'rgba(200,140,0,0.3)' : 'rgba(200,140,0,0.1)'}`,
+                        fontWeight: isActive ? 600 : 400,
+                      }}
+                    >
+                      {label}
+                    </button>
+                  );
+                })}
               </div>
             </div>
 
