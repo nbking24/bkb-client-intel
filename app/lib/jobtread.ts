@@ -3470,78 +3470,26 @@ export async function createDraftCostPlusInvoice(jobId: string): Promise<{
       laborDescFinal = `${dateHeader}\n\n${laborDesc}`;
     }
 
-    // Group by user
-    const byUser: Record<string, TEInfo[]> = {};
+    // Create individual line items for each time entry (hidden behind showChildren: false)
+    // This preserves a detailed record of every labor item on the invoice for future reference
+    const billRate = hourlyRate;
     for (const te of uninvoicedTime) {
-      if (!byUser[te.user]) byUser[te.user] = [];
-      byUser[te.user].push(te);
-    }
-
-    for (const [userName, entries] of Object.entries(byUser)) {
-      const totalHours = entries.reduce((s, e) => s + e.hours, 0);
-      const totalTimeCost = entries.reduce((s, e) => s + e.cost, 0);
-      // Use Hourly Rate from job custom field for all workers
-      const billRate = hourlyRate;
-
-      // Build AI-rewritten description from worker's time entry notes
-      const workerNotes: string[] = [];
-      for (const e of entries) {
-        const note = (e.notes || '').trim();
-        if (note && !workerNotes.some((n: string) => n.toLowerCase() === note.toLowerCase())) {
-          workerNotes.push(note.charAt(0).toUpperCase() + note.slice(1).replace(/\.\s*$/, ''));
-        }
-      }
-
-      // Date breakdown as fallback
-      const dateBreakdown = entries
-        .map(e => {
-          const d = new Date(e.date);
-          return `${d.toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}: ${e.hours.toFixed(1)}h`;
-        })
-        .join(', ');
-
-      let itemDescription = dateBreakdown;
-      if (workerNotes.length > 0) {
-        try {
-          const apiKey = process.env.ANTHROPIC_API_KEY;
-          if (apiKey) {
-            const rawNotes = workerNotes.map((n: string) => `â¢ ${n}`).join('\n');
-            const aiRes = await fetch('https://api.anthropic.com/v1/messages', {
-              method: 'POST',
-              headers: {
-                'Content-Type': 'application/json',
-                'x-api-key': apiKey,
-                'anthropic-version': '2023-06-01',
-              },
-              body: JSON.stringify({
-                model: 'claude-haiku-4-5-20251001',
-                max_tokens: 256,
-                messages: [{
-                  role: 'user',
-                  content: `Rewrite these labor time entry notes into a brief, professional, client-facing description for a renovation invoice line item. Write 1-2 concise sentences describing the work performed. Do not include dates, hours, or pricing. Do not use markdown headers (#). For emphasis use single *asterisks* not double **asterisks**.\n\nWorker: ${userName}\nNotes:\n${rawNotes}`,
-                }],
-              }),
-            });
-            if (aiRes.ok) {
-              const aiData = await aiRes.json();
-              const rewritten = sanitizeAiDescription((aiData.content?.[0]?.text || '').trim());
-              if (isValidAiDescription(rewritten)) itemDescription = rewritten;
-            }
-          }
-        } catch (_e) { /* keep dateBreakdown as fallback */ }
-      }
+      const teDate = new Date(te.date);
+      const dateStr = teDate.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
+      const note = (te.notes || '').trim();
+      const itemDescription = note ? `${dateStr} \u2013 ${note}` : dateStr;
 
       await createJTCostItem({
         costGroupId: laborGroup.id,
-        name: `${userName} Labor`,
+        name: `${te.user} \u2013 ${dateStr}`,
         description: itemDescription,
-        jobCostItemId: entries[0]?.costItemId || undefined,
-        quantity: Math.round(totalHours * 100) / 100,
-        unitCost: billRate, // unitCost = Hourly Rate (same as unitPrice)
+        jobCostItemId: te.costItemId || undefined,
+        quantity: Math.round(te.hours * 100) / 100,
+        unitCost: billRate,
         unitPrice: billRate,
       });
-      totalCost += totalHours * billRate;
-      totalPrice += totalHours * billRate;
+      totalCost += te.hours * billRate;
+      totalPrice += te.hours * billRate;
       createdItemCount++;
     }
 
