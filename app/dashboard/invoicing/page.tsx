@@ -337,9 +337,9 @@ function CreateTaskRow({ jobId, draft }: { jobId: string; draft: DraftInvoiceInf
         <button
           onClick={handleCreate}
           className="flex items-center gap-0.5 px-1.5 py-0.5 rounded text-[10px] font-medium ml-auto flex-shrink-0 transition-colors"
-          style={{ background: '#3b3028', color: '#1a1a1a', border: '1px solid #4a3f35' }}
-          onMouseEnter={(e) => { e.currentTarget.style.background = '#4a3f35'; }}
-          onMouseLeave={(e) => { e.currentTarget.style.background = '#3b3028'; }}
+          style={{ background: 'rgba(200,140,0,0.1)', color: '#c88c00', border: '1px solid rgba(200,140,0,0.2)' }}
+          onMouseEnter={(e) => { e.currentTarget.style.background = 'rgba(200,140,0,0.18)'; }}
+          onMouseLeave={(e) => { e.currentTarget.style.background = 'rgba(200,140,0,0.1)'; }}
         >
           <Plus size={9} /> Create
         </button>
@@ -944,6 +944,8 @@ function NeedsInvoicingSection({
   arToggling: string | null;
   onToggleArHold: (jobId: string, jobName: string) => void;
 }) {
+  const [expanded, setExpanded] = useState(true);
+
   // Combine all non-healthy jobs from both types
   const needsAction: NeedsInvoicingJob[] = [];
 
@@ -1011,8 +1013,12 @@ function NeedsInvoicingSection({
             : '1px solid rgba(234,179,8,0.25)',
       }}
     >
-      {/* Header */}
-      <div className="px-4 py-3 flex items-center justify-between" style={{ borderBottom: '1px solid rgba(200,140,0,0.08)' }}>
+      {/* Clickable Header — toggles collapse */}
+      <button
+        onClick={() => setExpanded(!expanded)}
+        className="w-full px-4 py-3 flex items-center justify-between transition-colors hover:bg-white/[0.03]"
+        style={{ borderBottom: expanded ? '1px solid rgba(200,140,0,0.08)' : 'none' }}
+      >
         <div className="flex items-center gap-2">
           <AlertTriangle size={16} style={{ color: criticalCount > 0 ? '#ef4444' : overdueCount > 0 ? '#f97316' : '#eab308' }} />
           <span className="text-sm font-semibold" style={{ color: '#1a1a1a' }}>
@@ -1041,22 +1047,28 @@ function NeedsInvoicingSection({
               {warningCount} warning
             </span>
           )}
+          {expanded
+            ? <ChevronDown size={16} style={{ color: '#8a8078' }} />
+            : <ChevronRight size={16} style={{ color: '#8a8078' }} />
+          }
         </div>
-      </div>
+      </button>
 
-      {/* Job rows */}
-      <div className="divide-y" style={{ borderColor: 'rgba(200,140,0,0.06)' }}>
-        {needsAction.map((job) => (
-          <NeedsInvoicingRow
-            key={job.jobId}
-            job={job}
-            onInvoiceCreated={onInvoiceCreated}
-            arHeld={arHolds[job.jobId]}
-            arToggling={arToggling === job.jobId}
-            onToggleArHold={onToggleArHold}
-          />
-        ))}
-      </div>
+      {/* Job rows — collapsible */}
+      {expanded && (
+        <div className="divide-y" style={{ borderColor: 'rgba(200,140,0,0.06)' }}>
+          {needsAction.map((job) => (
+            <NeedsInvoicingRow
+              key={job.jobId}
+              job={job}
+              onInvoiceCreated={onInvoiceCreated}
+              arHeld={arHolds[job.jobId]}
+              arToggling={arToggling === job.jobId}
+              onToggleArHold={onToggleArHold}
+            />
+          ))}
+        </div>
+      )}
     </div>
   );
 }
