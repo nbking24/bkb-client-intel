@@ -369,6 +369,7 @@ export default function LeadsPage() {
   const [error, setError] = useState('');
   const [result, setResult] = useState<any>(null);
   const [formExpanded, setFormExpanded] = useState(false);
+  const [pendingCollapsed, setPendingCollapsed] = useState(false);
   const formContentRef = useRef<HTMLDivElement>(null);
   const firstNameRef = useRef<HTMLInputElement>(null);
 
@@ -1063,17 +1064,24 @@ export default function LeadsPage() {
       {/* ═══ Pending New Leads ═══ */}
       {kpiData && kpiData.pendingNewLeads && kpiData.pendingNewLeads.length > 0 && (
         <div className="rounded-xl overflow-hidden mb-6" style={{ background: '#ffffff', border: '1px solid rgba(200,140,0,0.12)' }}>
-          <div className="flex items-center gap-2 px-5 py-3" style={{ background: '#f8f6f3', borderBottom: '1px solid rgba(200,140,0,0.08)' }}>
+          <button
+            onClick={() => setPendingCollapsed(prev => !prev)}
+            className="w-full flex items-center gap-2 px-5 py-3 cursor-pointer"
+            style={{ background: '#f8f6f3', borderBottom: pendingCollapsed ? 'none' : '1px solid rgba(200,140,0,0.08)' }}
+          >
             <AlertTriangle size={14} style={{ color: '#f59e0b' }} />
             <span className="text-sm font-semibold" style={{ color: '#1a1a1a' }}>Pending Leads</span>
             <span className="text-xs px-2 py-0.5 rounded-full ml-1" style={{ background: 'rgba(245,158,11,0.15)', color: '#f59e0b' }}>
               {kpiData.pendingNewLeads.length} active
             </span>
-            <span className="text-xs ml-auto" style={{ color: '#6a6058' }}>
-              Not yet in design
+            <span className="text-xs ml-auto mr-2" style={{ color: '#6a6058' }}>
+              {pendingCollapsed ? 'Click to expand' : 'Not yet in design'}
             </span>
-          </div>
-          <div className="divide-y" style={{ borderColor: 'rgba(200,140,0,0.06)' }}>
+            <div className="transition-transform duration-200" style={{ transform: pendingCollapsed ? 'rotate(0deg)' : 'rotate(90deg)' }}>
+              <ChevronRight size={14} style={{ color: '#8a8078' }} />
+            </div>
+          </button>
+          {!pendingCollapsed && <div className="divide-y" style={{ borderColor: 'rgba(200,140,0,0.06)' }}>
             {kpiData.pendingNewLeads.map((lead) => (
               <div key={lead.id} className="px-5 py-3 flex items-start gap-4">
                 {/* Lead Info */}
@@ -1247,7 +1255,7 @@ export default function LeadsPage() {
                 </div>
               </div>
             ))}
-          </div>
+          </div>}
         </div>
       )}
 
