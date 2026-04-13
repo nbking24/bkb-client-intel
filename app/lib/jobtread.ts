@@ -3858,7 +3858,6 @@ export async function createDraftBillableInvoice(jobId: string): Promise<{
     await pave({ updateDocument: { $: { id: doc.id, fromAddress: '7843 Richlandtown Rd, Quakertown, PA 18951, USA' } } });
     await pave({ updateDocument: { $: { id: doc.id, fromOrganizationName: 'Brett King Builder-Contractor Inc.' } } });
     await pave({ updateDocument: { $: { id: doc.id, showQuantity: false } } });
-    await pave({ updateDocument: { $: { id: doc.id, priceType: 'costPlus' } } });
   } catch (_e) { /* non-critical if any fail */ }
 
   let totalCost = 0;
