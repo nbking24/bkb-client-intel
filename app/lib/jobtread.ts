@@ -3437,8 +3437,9 @@ export async function createDraftCostPlusInvoice(jobId: string): Promise<{
         laborNotes.push(note.charAt(0).toUpperCase() + note.slice(1).replace(/\.\s*$/, ''));
       }
     }
+    let laborDescFinal = dateHeader; // default to just the date header
     if (laborNotes.length > 0) {
-      let laborDesc = laborNotes.map((n: string) => `â¢ ${n}`).join('\n');
+      let laborDesc = laborNotes.map((n: string) => `• ${n}`).join('\n');
       try {
         const apiKey = process.env.ANTHROPIC_API_KEY;
         if (apiKey) {
@@ -3454,7 +3455,7 @@ export async function createDraftCostPlusInvoice(jobId: string): Promise<{
               max_tokens: 256,
               messages: [{
                 role: 'user',
-                content: `Rewrite these labor notes into a bullet-point list for a renovation invoice. Each bullet should be a brief, professional, client-facing description. Output ONLY the bullet points (using â¢ character), nothing else. No intro text, no questions, no explanations. Do not use markdown headers (#). For emphasis use single *asterisks* not double **asterisks**.\n\nNotes:\n${laborDesc}`,
+                content: `Rewrite these labor notes into a bullet-point list for a renovation invoice. Each bullet should be a brief, professional, client-facing description. Output ONLY the bullet points (using • character), nothing else. No intro text, no questions, no explanations. Do not use markdown headers (#). For emphasis use single *asterisks* not double **asterisks**.\n\nNotes:\n${laborDesc}`,
               }],
             }),
           });
@@ -3466,11 +3467,7 @@ export async function createDraftCostPlusInvoice(jobId: string): Promise<{
         }
       } catch (_e) { /* skip AI errors */ }
       // Prepend date range header to the labor description
-      laborDesc = `${dateHeader}\n\n${laborDesc}`;
-      await updateJTCostGroup(laborGroup.id, { description: laborDesc });
-    } else {
-      // No notes — just set the date header as description
-      await updateJTCostGroup(laborGroup.id, { description: dateHeader });
+      laborDescFinal = `${dateHeader}\n\n${laborDesc}`;
     }
 
     // Group by user
@@ -3548,12 +3545,9 @@ export async function createDraftCostPlusInvoice(jobId: string): Promise<{
       createdItemCount++;
     }
 
-    // Set total hours on the BKB Labor group so clients can see the quantity billed
+    // Set total hours, hide children, and set description (all in one call to avoid overwriting)
     const allLaborHours = uninvoicedTime.reduce((s, e) => s + e.hours, 0);
-    await pave({ updateCostGroup: { $: { id: laborGroup.id, quantity: Math.round(allLaborHours * 100) / 100, unitId: '22P5SRxXqzSe' } } }); // unitId = Hours
-
-    // Hide individual worker line items — only the BKB Labor group row is visible on the invoice
-    await pave({ updateCostGroup: { $: { id: laborGroup.id, showChildren: false } } });
+    await pave({ updateCostGroup: { $: { id: laborGroup.id, quantity: Math.round(allLaborHours * 100) / 100, unitId: '22P5SRxXqzSe', showChildren: false, description: laborDescFinal } } });
   }
 
   return {
@@ -4122,13 +4116,14 @@ export async function createDraftBillableInvoice(jobId: string): Promise<{
       }
     } catch (_e) { /* skip */ }
 
+    // Build final description (will be applied in the combined pave call below)
+    let cc23LaborDescFinal = '';
     if (laborDesc && cc23DateHeader) {
-      laborDesc = `${cc23DateHeader}\n\n${laborDesc}`;
-      await updateJTCostGroup(laborGroup.id, { description: laborDesc });
+      cc23LaborDescFinal = `${cc23DateHeader}\n\n${laborDesc}`;
     } else if (laborDesc) {
-      await updateJTCostGroup(laborGroup.id, { description: laborDesc });
+      cc23LaborDescFinal = laborDesc;
     } else if (cc23DateHeader) {
-      await updateJTCostGroup(laborGroup.id, { description: cc23DateHeader });
+      cc23LaborDescFinal = cc23DateHeader;
     }
 
     // Worker breakdown in description (for team reference, hidden from client)
@@ -4163,9 +4158,10 @@ export async function createDraftBillableInvoice(jobId: string): Promise<{
     totalPrice += roundedHours * laborUnitPrice;
     createdItemCount++;
 
-    // Set total hours on the group so clients see the quantity billed, then hide child line items
-    await pave({ updateCostGroup: { $: { id: laborGroup.id, quantity: roundedHours, unitId: '22P5SRxXqzSe' } } }); // unitId = Hours
-    await pave({ updateCostGroup: { $: { id: laborGroup.id, showChildren: false } } });
+    // Set total hours, hide children, and set description (all in one call to avoid overwriting)
+    const cc23GroupUpdate: any = { id: laborGroup.id, quantity: roundedHours, unitId: '22P5SRxXqzSe', showChildren: false };
+    if (cc23LaborDescFinal) cc23GroupUpdate.description = cc23LaborDescFinal;
+    await pave({ updateCostGroup: { $: cc23GroupUpdate } });
   }
 
   return {
