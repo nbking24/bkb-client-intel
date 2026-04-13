@@ -3324,6 +3324,9 @@ export async function createDraftCostPlusInvoice(jobId: string): Promise<{
     description: `This invoice reflects charges under a Cost Plus Fee agreement. You are billed for all actual project costs, including materials, subcontractors, labor, insurance, and permits, plus a ${marginPercent}% contractor's fee applied to those costs. Labor is billed at $${hourlyRate}/hr.`,
   });
 
+  // Enable "Show Cost & Fee" on the invoice
+  await pave({ updateDocument: { $: { id: doc.id, priceType: 'costPlus' } } });
+
   // 8. Create cost items from uninvoiced bills (grouped by vendor)
   let totalCost = 0;
   let totalPrice = 0;
@@ -3855,6 +3858,7 @@ export async function createDraftBillableInvoice(jobId: string): Promise<{
     await pave({ updateDocument: { $: { id: doc.id, fromAddress: '7843 Richlandtown Rd, Quakertown, PA 18951, USA' } } });
     await pave({ updateDocument: { $: { id: doc.id, fromOrganizationName: 'Brett King Builder-Contractor Inc.' } } });
     await pave({ updateDocument: { $: { id: doc.id, showQuantity: false } } });
+    await pave({ updateDocument: { $: { id: doc.id, priceType: 'costPlus' } } });
   } catch (_e) { /* non-critical if any fail */ }
 
   let totalCost = 0;
