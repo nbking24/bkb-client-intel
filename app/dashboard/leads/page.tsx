@@ -621,6 +621,344 @@ export default function LeadsPage() {
         </button>
       </div>
 
+      {/* Three Column Layout */}
+      <div className="grid grid-cols-1 lg:grid-cols-5 gap-6">
+
+        {/* ═══ LEFT COLUMN: New Lead Form ═══ */}
+        <div className="lg:col-span-3">
+          <div
+            className="rounded-xl overflow-hidden"
+            style={{ background: '#ffffff', border: '1px solid rgba(200,140,0,0.12)' }}
+          >
+            {/* Form header — clickable toggle */}
+            <button
+              onClick={() => {
+                setFormExpanded((prev) => !prev);
+                if (!formExpanded) setTimeout(() => firstNameRef.current?.focus(), 200);
+              }}
+              className="w-full flex items-center gap-2 px-5 py-3 cursor-pointer"
+              style={{ background: '#f8f6f3', borderBottom: formExpanded ? '1px solid rgba(200,140,0,0.08)' : 'none' }}
+            >
+              <UserPlus size={16} style={{ color: '#c88c00' }} />
+              <span className="text-sm font-semibold" style={{ color: '#1a1a1a' }}>New Lead</span>
+              {!submitted && formExpanded && (
+                <div className="flex gap-1.5 ml-auto mr-2">
+                  {[section1Complete, section2Complete, section3Complete].map((done, i) => (
+                    <div key={i} className="w-2 h-2 rounded-full transition-all" style={{ background: done ? '#c88c00' : 'rgba(200,140,0,0.15)' }} />
+                  ))}
+                </div>
+              )}
+              {!formExpanded && (
+                <span className="text-xs ml-auto mr-2" style={{ color: '#6a6058' }}>Click to expand</span>
+              )}
+              <div className="transition-transform duration-200" style={{ transform: formExpanded ? 'rotate(90deg)' : 'rotate(0deg)' }}>
+                <ChevronRight size={16} style={{ color: '#8a8078' }} />
+              </div>
+            </button>
+
+            {/* Form content — collapsible */}
+            <div
+              ref={formContentRef}
+              className="overflow-hidden transition-all duration-300 ease-in-out"
+              style={{ maxHeight: formExpanded ? '2000px' : '0px', opacity: formExpanded ? 1 : 0 }}
+            >
+            <div className="px-5 py-5 space-y-5">
+              {submitted && result ? (
+                <div className="text-center py-8">
+                  <CheckCircle2 size={48} className="mx-auto mb-4" style={{ color: '#c88c00' }} />
+                  <h3 className="text-lg font-semibold mb-2" style={{ color: '#1a1a1a' }}>Lead Created!</h3>
+                  <p className="text-sm mb-4" style={{ color: '#8a8078' }}>
+                    {form.firstName} {form.lastName} has been added to the pipeline.
+                  </p>
+                  {result.linkedExisting && (
+                    <p className="text-xs mb-4" style={{ color: '#22c55e' }}>Linked to existing contact</p>
+                  )}
+                  <div
+                    className="rounded-lg px-4 py-3 text-left text-sm space-y-1.5 mb-6 mx-auto max-w-sm"
+                    style={{ background: '#f8f6f3', border: '1px solid rgba(200,140,0,0.12)' }}
+                  >
+                    <div style={{ color: '#8a8078' }}>Stage: <span style={{ color: '#c88c00' }}>{result.stage}</span></div>
+                    {result.appointmentId && (
+                      <div style={{ color: '#8a8078' }}>Appointment: <span style={{ color: '#1a1a1a' }}>{form.appointmentDate} at {formatTime(form.appointmentTime)}</span></div>
+                    )}
+                    {result.jtJobCreated && (
+                      <div style={{ color: '#8a8078' }}>JobTread: <span style={{ color: '#22c55e' }}>Job auto-created</span></div>
+                    )}
+                  </div>
+                  <button onClick={resetForm} className="px-6 py-2.5 rounded-lg text-sm font-medium" style={{ background: '#c88c00', color: '#ffffff' }}>
+                    Add Another Lead
+                  </button>
+                </div>
+              ) : (
+                <>
+                  {/* Section 1: Contact Info */}
+                  <div>
+                    <SectionHeader number={1} title="Contact Info" icon={Phone} complete={section1Complete} />
+                    <div className="space-y-3 ml-10">
+                      <div className="grid grid-cols-2 gap-3">
+                        <div>
+                          <label className="text-xs mb-1 block" style={{ color: '#8a8078' }}>First Name <span style={{ color: '#ef4444' }}>*</span></label>
+                          <input ref={firstNameRef} type="text" value={form.firstName} onChange={(e) => update('firstName', e.target.value)} placeholder="Jane"
+                            className="w-full rounded-lg px-3 py-2.5 text-sm outline-none"
+                            style={{ background: '#ffffff', border: `1px solid ${!form.firstName && error ? 'rgba(220,80,80,0.4)' : 'rgba(200,140,0,0.15)'}`, color: '#1a1a1a' }}
+                          />
+                        </div>
+                        <div>
+                          <label className="text-xs mb-1 block" style={{ color: '#8a8078' }}>Last Name <span style={{ color: '#ef4444' }}>*</span></label>
+                          <StyledInput value={form.lastName} onChange={(v) => update('lastName', v)} placeholder="Smith" required />
+                        </div>
+                      </div>
+                      <div>
+                        <label className="text-xs mb-1 block" style={{ color: '#8a8078' }}>Phone <span style={{ color: '#ef4444' }}>*</span></label>
+                        <StyledInput value={form.phone} onChange={(v) => update('phone', v)} placeholder="(215) 555-1234" type="tel" required />
+                      </div>
+
+                      {/* Duplicate Contact Detection */}
+                      {selectedExisting ? (
+                        <div className="rounded-lg px-3 py-2.5 flex items-center gap-2" style={{ background: 'rgba(34,197,94,0.08)', border: '1px solid rgba(34,197,94,0.25)' }}>
+                          <CheckCircle2 size={14} style={{ color: '#22c55e' }} />
+                          <div className="flex-1 min-w-0">
+                            <div className="text-xs font-medium" style={{ color: '#22c55e' }}>Linked to existing contact</div>
+                            <div className="text-xs" style={{ color: '#1a1a1a' }}>
+                              {selectedExisting.name}{selectedExisting.phone ? ` · ${selectedExisting.phone}` : ''}{selectedExisting.email ? ` · ${selectedExisting.email}` : ''}
+                            </div>
+                          </div>
+                          <button
+                            onClick={() => { setSelectedExisting(null); setContactMatches([]); }}
+                            className="text-xs px-2 py-1 rounded hover:opacity-80"
+                            style={{ background: 'rgba(107,114,128,0.1)', color: '#6b7280' }}
+                          >
+                            Remove
+                          </button>
+                        </div>
+                      ) : contactMatches.length > 0 ? (
+                        <div className="rounded-lg overflow-hidden" style={{ border: '1px solid rgba(245,158,11,0.3)', background: 'rgba(245,158,11,0.05)' }}>
+                          <div className="flex items-center gap-2 px-3 py-2" style={{ background: 'rgba(245,158,11,0.1)', borderBottom: '1px solid rgba(245,158,11,0.15)' }}>
+                            <AlertTriangle size={12} style={{ color: '#f59e0b' }} />
+                            <span className="text-xs font-medium" style={{ color: '#f59e0b' }}>Possible duplicate{contactMatches.length > 1 ? 's' : ''} found</span>
+                          </div>
+                          <div className="divide-y" style={{ borderColor: 'rgba(245,158,11,0.1)' }}>
+                            {contactMatches.slice(0, 5).map((c: any) => (
+                              <div key={c.id} className="flex items-center gap-2 px-3 py-2">
+                                <div className="flex-1 min-w-0">
+                                  <div className="text-xs font-medium" style={{ color: '#1a1a1a' }}>{c.name || `${c.firstName || ''} ${c.lastName || ''}`.trim()}</div>
+                                  <div className="text-[10px]" style={{ color: '#6a6058' }}>
+                                    {c.phone || ''}{c.phone && c.email ? ' · ' : ''}{c.email || ''}
+                                  </div>
+                                </div>
+                                <button
+                                  onClick={() => {
+                                    setSelectedExisting(c);
+                                    setContactMatches([]);
+                                    if (c.firstName) update('firstName', c.firstName);
+                                    if (c.lastName) update('lastName', c.lastName);
+                                    // Keep selectedExisting set after update calls
+                                    setTimeout(() => setSelectedExisting(c), 0);
+                                  }}
+                                  className="text-xs px-2 py-1 rounded font-medium hover:opacity-80 flex-shrink-0"
+                                  style={{ background: 'rgba(200,140,0,0.1)', color: '#c88c00', border: '1px solid rgba(200,140,0,0.2)' }}
+                                >
+                                  Link
+                                </button>
+                              </div>
+                            ))}
+                          </div>
+                        </div>
+                      ) : searchingContacts ? (
+                        <div className="flex items-center gap-2 text-xs py-1" style={{ color: '#8a8078' }}>
+                          <Loader2 size={12} className="animate-spin" /> Checking for existing contacts...
+                        </div>
+                      ) : null}
+
+                      <div>
+                        <label className="text-xs mb-1 block" style={{ color: '#8a8078' }}>Email</label>
+                        <StyledInput value={form.email} onChange={(v) => update('email', v)} placeholder="jane@example.com" type="email" />
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* Section 2: Project Details */}
+                  <div>
+                    <SectionHeader number={2} title="Project Details" icon={Home} complete={section2Complete} />
+                    <div className="space-y-3 ml-10">
+                      <div>
+                        <label className="text-xs mb-1 block" style={{ color: '#8a8078' }}>Project Type <span style={{ color: '#ef4444' }}>*</span></label>
+                        <StyledSelect value={form.projectType} onChange={(v) => update('projectType', v)} options={PROJECT_TYPES} placeholder="Select type..." />
+                      </div>
+                      <div>
+                        <label className="text-xs mb-1 block" style={{ color: '#8a8078' }}>Project Address</label>
+                        <StyledInput value={form.address} onChange={(v) => update('address', v)} placeholder="123 Main St" />
+                      </div>
+                      <div className="grid grid-cols-3 gap-2">
+                        <div><label className="text-xs mb-1 block" style={{ color: '#8a8078' }}>City</label><StyledInput value={form.city} onChange={(v) => update('city', v)} placeholder="Perkasie" /></div>
+                        <div><label className="text-xs mb-1 block" style={{ color: '#8a8078' }}>State</label><StyledInput value={form.state} onChange={(v) => update('state', v)} placeholder="PA" /></div>
+                        <div><label className="text-xs mb-1 block" style={{ color: '#8a8078' }}>ZIP</label><StyledInput value={form.zip} onChange={(v) => update('zip', v)} placeholder="18944" /></div>
+                      </div>
+                      <div>
+                        <label className="text-xs mb-1 block" style={{ color: '#8a8078' }}>How Did They Hear About Us?</label>
+                        <StyledSelect value={form.referralSource} onChange={(v) => update('referralSource', v)} options={REFERRAL_SOURCES} placeholder="Select source..." />
+                      </div>
+                      <div>
+                        <label className="text-xs mb-1 block" style={{ color: '#8a8078' }}>Approximate Budget</label>
+                        <StyledSelect value={form.budgetRange} onChange={(v) => update('budgetRange', v)} options={BUDGET_RANGES} placeholder="Select range..." />
+                      </div>
+                      <div>
+                        <label className="text-xs mb-1 block" style={{ color: '#8a8078' }}>Brief Description</label>
+                        <textarea value={form.description} onChange={(e) => update('description', e.target.value)}
+                          placeholder="What are they looking to do? Any details from the call..." rows={3}
+                          className="w-full rounded-lg px-3 py-2.5 text-sm outline-none resize-none"
+                          style={{ background: '#ffffff', border: '1px solid rgba(200,140,0,0.15)', color: '#1a1a1a' }}
+                        />
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* Section 3: Next Step */}
+                  <div>
+                    <SectionHeader number={3} title="Next Step" icon={Calendar} complete={section3Complete} />
+                    <div className="space-y-3 ml-10">
+                      <div className="space-y-2">
+                        {[
+                          { key: 'discovery_call' as const, label: 'Schedule Discovery Call', sublabel: 'Phone/video call with Nathan', icon: Phone },
+                          { key: 'onsite_visit' as const, label: 'Schedule On-Site Visit', sublabel: 'In-person meeting at the property', icon: MapPin },
+                          { key: 'none' as const, label: 'Save Without Scheduling', sublabel: 'Add to pipeline as New Inquiry', icon: FileText },
+                        ].map((opt) => {
+                          const selected = form.nextStep === opt.key;
+                          const Icon = opt.icon;
+                          return (
+                            <button key={opt.key} onClick={() => {
+                              update('nextStep', opt.key);
+                              if (opt.key === 'none') { update('appointmentDate', ''); update('appointmentTime', ''); }
+                              else if (!form.appointmentDate) { update('appointmentDate', defaultDate); }
+                            }}
+                              className="w-full flex items-center gap-3 px-3 py-3 rounded-lg text-left transition-all"
+                              style={{ background: selected ? 'rgba(200,140,0,0.1)' : '#f8f6f3', border: `1px solid ${selected ? 'rgba(200,140,0,0.4)' : 'rgba(200,140,0,0.08)'}` }}
+                            >
+                              <Icon size={16} style={{ color: selected ? '#c88c00' : '#6a6058' }} />
+                              <div className="flex-1 min-w-0">
+                                <div className="text-sm font-medium" style={{ color: selected ? '#c88c00' : '#1a1a1a' }}>{opt.label}</div>
+                                <div className="text-xs" style={{ color: '#6a6058' }}>{opt.sublabel}</div>
+                              </div>
+                              {selected && <Check size={16} style={{ color: '#c88c00' }} />}
+                            </button>
+                          );
+                        })}
+                      </div>
+                      {form.nextStep !== 'none' && (
+                        <div className="rounded-lg p-3 space-y-3" style={{ background: '#f8f6f3', border: '1px solid rgba(200,140,0,0.08)' }}>
+                          <div className="flex items-center gap-2 mb-2">
+                            <Clock size={14} style={{ color: '#c88c00' }} />
+                            <span className="text-xs font-medium" style={{ color: '#c88c00' }}>
+                              {form.nextStep === 'discovery_call' ? 'Discovery Call' : 'On-Site Visit'} — Nathan&apos;s Calendar
+                            </span>
+                          </div>
+                          <div className="grid grid-cols-2 gap-3">
+                            <div>
+                              <label className="text-xs mb-1 block" style={{ color: '#8a8078' }}>Date</label>
+                              <input type="date" value={form.appointmentDate} onChange={(e) => update('appointmentDate', e.target.value)}
+                                min={new Date().toISOString().split('T')[0]}
+                                className="w-full rounded-lg px-3 py-2.5 text-sm outline-none"
+                                style={{ background: '#ffffff', border: '1px solid rgba(200,140,0,0.15)', color: '#1a1a1a', colorScheme: 'dark' }}
+                              />
+                            </div>
+                            <div>
+                              <label className="text-xs mb-1 block" style={{ color: '#8a8078' }}>Time</label>
+                              <select value={form.appointmentTime} onChange={(e) => update('appointmentTime', e.target.value)}
+                                className="w-full appearance-none rounded-lg px-3 py-2.5 text-sm outline-none cursor-pointer"
+                                style={{ background: '#ffffff', border: '1px solid rgba(200,140,0,0.15)', color: form.appointmentTime ? '#1a1a1a' : '#6a6058' }}
+                              >
+                                <option value="">Select time...</option>
+                                {timeSlots.map((t) => <option key={t} value={t}>{formatTime(t)}</option>)}
+                              </select>
+                            </div>
+                          </div>
+                        </div>
+                      )}
+                    </div>
+                  </div>
+
+                  {/* Error + Submit */}
+                  <div className="pt-2">
+                    {error && (
+                      <div className="flex items-center gap-2 text-xs px-3 py-2 rounded-lg mb-3" style={{ background: 'rgba(220,80,80,0.1)', color: '#f87171' }}>
+                        <AlertCircle size={14} /> {error}
+                      </div>
+                    )}
+                    <button onClick={handleSubmit} disabled={submitting || !section1Complete}
+                      className="w-full flex items-center justify-center gap-2 px-4 py-3 rounded-lg text-sm font-semibold transition-all disabled:opacity-40"
+                      style={{ background: section1Complete ? '#c88c00' : 'rgba(200,140,0,0.3)', color: '#ffffff' }}
+                    >
+                      {submitting ? <><Loader2 size={16} className="animate-spin" /> Creating Lead...</> : <><UserPlus size={16} /> Create Lead{form.nextStep !== 'none' && ' & Schedule'}</>}
+                    </button>
+                    <p className="text-center text-xs mt-2" style={{ color: '#6a6058' }}>
+                      {form.nextStep === 'discovery_call' && 'Stage → Discovery Scheduled'}
+                      {form.nextStep === 'onsite_visit' && 'Stage → Estimating (auto-creates JobTread job)'}
+                      {form.nextStep === 'none' && 'Stage → New Inquiry'}
+                    </p>
+                  </div>
+                </>
+              )}
+            </div>
+            </div>{/* end collapsible wrapper */}
+          </div>
+        </div>
+
+        {/* ═══ RIGHT COLUMN: Pipeline + Recent Leads ═══ */}
+        <div className="lg:col-span-2 space-y-4">
+
+          {/* Pipeline Breakdown */}
+          <div className="rounded-xl overflow-hidden" style={{ background: '#ffffff', border: '1px solid rgba(200,140,0,0.12)' }}>
+            <div className="flex items-center gap-2 px-4 py-3" style={{ background: '#f8f6f3', borderBottom: '1px solid rgba(200,140,0,0.08)' }}>
+              <BarChart3 size={14} style={{ color: '#c88c00' }} />
+              <span className="text-sm font-semibold" style={{ color: '#1a1a1a' }}>Sales Pipeline</span>
+              {kpis && <span className="text-xs ml-auto" style={{ color: '#6a6058' }}>{kpis.totalPipeline} open</span>}
+            </div>
+            <div className="px-4 py-3 space-y-2.5">
+              {kpiData ? kpiData.pipelineBreakdown.map((row) => (
+                <div key={row.stage} className="flex items-center gap-3">
+                  <div className="w-2 h-2 rounded-full flex-shrink-0" style={{ background: STAGE_COLORS[row.stage] || '#8a8078' }} />
+                  <span className="text-sm flex-1" style={{ color: '#1a1a1a' }}>{row.stage}</span>
+                  <span className="text-sm font-bold" style={{ color: STAGE_COLORS[row.stage] || '#c88c00' }}>{row.count}</span>
+                </div>
+              )) : (
+                <div className="py-4 text-center text-xs" style={{ color: '#6a6058' }}>Loading...</div>
+              )}
+            </div>
+          </div>
+
+          {/* Recent Leads */}
+          <div className="rounded-xl overflow-hidden" style={{ background: '#ffffff', border: '1px solid rgba(200,140,0,0.12)' }}>
+            <div className="flex items-center gap-2 px-4 py-3" style={{ background: '#f8f6f3', borderBottom: '1px solid rgba(200,140,0,0.08)' }}>
+              <Users size={14} style={{ color: '#c88c00' }} />
+              <span className="text-sm font-semibold" style={{ color: '#1a1a1a' }}>Recent Leads</span>
+            </div>
+            <div className="divide-y" style={{ borderColor: 'rgba(200,140,0,0.06)' }}>
+              {kpiData && kpiData.recentLeads.length > 0 ? kpiData.recentLeads.slice(0, 8).map((lead) => (
+                <div key={lead.id} className="px-4 py-2.5 flex items-center gap-3">
+                  <div className="w-1.5 h-1.5 rounded-full flex-shrink-0" style={{ background: STAGE_COLORS[lead.stage] || '#8a8078' }} />
+                  <div className="flex-1 min-w-0">
+                    <div className="text-sm truncate" style={{ color: '#1a1a1a' }}>{lead.name}</div>
+                    <div className="text-xs" style={{ color: STAGE_COLORS[lead.stage] || '#6a6058' }}>{lead.stage}</div>
+                  </div>
+                  <div className="text-right flex-shrink-0">
+                    <div className="text-xs" style={{ color: '#6a6058' }}>{timeAgo(lead.createdAt)}</div>
+                    {lead.status !== 'open' && (
+                      <div className="text-[10px] uppercase" style={{ color: lead.status === 'lost' ? '#ef4444' : '#f59e0b' }}>{lead.status}</div>
+                    )}
+                  </div>
+                </div>
+              )) : (
+                <div className="px-4 py-8 text-center">
+                  <Users size={32} className="mx-auto mb-3" style={{ color: 'rgba(200,140,0,0.2)' }} />
+                  <p className="text-sm" style={{ color: '#8a8078' }}>No recent leads</p>
+                </div>
+              )}
+            </div>
+          </div>
+        </div>
+      </div>
+
+
       {/* KPI Cards Row */}
       {kpiLoading && !kpiData ? (
         <div className="flex items-center justify-center gap-2 py-8" style={{ color: '#8a8078' }}>
@@ -1103,342 +1441,6 @@ export default function LeadsPage() {
         )}
       </div>
 
-      {/* Three Column Layout */}
-      <div className="grid grid-cols-1 lg:grid-cols-5 gap-6">
-
-        {/* ═══ LEFT COLUMN: New Lead Form ═══ */}
-        <div className="lg:col-span-3">
-          <div
-            className="rounded-xl overflow-hidden"
-            style={{ background: '#ffffff', border: '1px solid rgba(200,140,0,0.12)' }}
-          >
-            {/* Form header — clickable toggle */}
-            <button
-              onClick={() => {
-                setFormExpanded((prev) => !prev);
-                if (!formExpanded) setTimeout(() => firstNameRef.current?.focus(), 200);
-              }}
-              className="w-full flex items-center gap-2 px-5 py-3 cursor-pointer"
-              style={{ background: '#f8f6f3', borderBottom: formExpanded ? '1px solid rgba(200,140,0,0.08)' : 'none' }}
-            >
-              <UserPlus size={16} style={{ color: '#c88c00' }} />
-              <span className="text-sm font-semibold" style={{ color: '#1a1a1a' }}>New Lead</span>
-              {!submitted && formExpanded && (
-                <div className="flex gap-1.5 ml-auto mr-2">
-                  {[section1Complete, section2Complete, section3Complete].map((done, i) => (
-                    <div key={i} className="w-2 h-2 rounded-full transition-all" style={{ background: done ? '#c88c00' : 'rgba(200,140,0,0.15)' }} />
-                  ))}
-                </div>
-              )}
-              {!formExpanded && (
-                <span className="text-xs ml-auto mr-2" style={{ color: '#6a6058' }}>Click to expand</span>
-              )}
-              <div className="transition-transform duration-200" style={{ transform: formExpanded ? 'rotate(90deg)' : 'rotate(0deg)' }}>
-                <ChevronRight size={16} style={{ color: '#8a8078' }} />
-              </div>
-            </button>
-
-            {/* Form content — collapsible */}
-            <div
-              ref={formContentRef}
-              className="overflow-hidden transition-all duration-300 ease-in-out"
-              style={{ maxHeight: formExpanded ? '2000px' : '0px', opacity: formExpanded ? 1 : 0 }}
-            >
-            <div className="px-5 py-5 space-y-5">
-              {submitted && result ? (
-                <div className="text-center py-8">
-                  <CheckCircle2 size={48} className="mx-auto mb-4" style={{ color: '#c88c00' }} />
-                  <h3 className="text-lg font-semibold mb-2" style={{ color: '#1a1a1a' }}>Lead Created!</h3>
-                  <p className="text-sm mb-4" style={{ color: '#8a8078' }}>
-                    {form.firstName} {form.lastName} has been added to the pipeline.
-                  </p>
-                  {result.linkedExisting && (
-                    <p className="text-xs mb-4" style={{ color: '#22c55e' }}>Linked to existing contact</p>
-                  )}
-                  <div
-                    className="rounded-lg px-4 py-3 text-left text-sm space-y-1.5 mb-6 mx-auto max-w-sm"
-                    style={{ background: '#f8f6f3', border: '1px solid rgba(200,140,0,0.12)' }}
-                  >
-                    <div style={{ color: '#8a8078' }}>Stage: <span style={{ color: '#c88c00' }}>{result.stage}</span></div>
-                    {result.appointmentId && (
-                      <div style={{ color: '#8a8078' }}>Appointment: <span style={{ color: '#1a1a1a' }}>{form.appointmentDate} at {formatTime(form.appointmentTime)}</span></div>
-                    )}
-                    {result.jtJobCreated && (
-                      <div style={{ color: '#8a8078' }}>JobTread: <span style={{ color: '#22c55e' }}>Job auto-created</span></div>
-                    )}
-                  </div>
-                  <button onClick={resetForm} className="px-6 py-2.5 rounded-lg text-sm font-medium" style={{ background: '#c88c00', color: '#ffffff' }}>
-                    Add Another Lead
-                  </button>
-                </div>
-              ) : (
-                <>
-                  {/* Section 1: Contact Info */}
-                  <div>
-                    <SectionHeader number={1} title="Contact Info" icon={Phone} complete={section1Complete} />
-                    <div className="space-y-3 ml-10">
-                      <div className="grid grid-cols-2 gap-3">
-                        <div>
-                          <label className="text-xs mb-1 block" style={{ color: '#8a8078' }}>First Name <span style={{ color: '#ef4444' }}>*</span></label>
-                          <input ref={firstNameRef} type="text" value={form.firstName} onChange={(e) => update('firstName', e.target.value)} placeholder="Jane"
-                            className="w-full rounded-lg px-3 py-2.5 text-sm outline-none"
-                            style={{ background: '#ffffff', border: `1px solid ${!form.firstName && error ? 'rgba(220,80,80,0.4)' : 'rgba(200,140,0,0.15)'}`, color: '#1a1a1a' }}
-                          />
-                        </div>
-                        <div>
-                          <label className="text-xs mb-1 block" style={{ color: '#8a8078' }}>Last Name <span style={{ color: '#ef4444' }}>*</span></label>
-                          <StyledInput value={form.lastName} onChange={(v) => update('lastName', v)} placeholder="Smith" required />
-                        </div>
-                      </div>
-                      <div>
-                        <label className="text-xs mb-1 block" style={{ color: '#8a8078' }}>Phone <span style={{ color: '#ef4444' }}>*</span></label>
-                        <StyledInput value={form.phone} onChange={(v) => update('phone', v)} placeholder="(215) 555-1234" type="tel" required />
-                      </div>
-
-                      {/* Duplicate Contact Detection */}
-                      {selectedExisting ? (
-                        <div className="rounded-lg px-3 py-2.5 flex items-center gap-2" style={{ background: 'rgba(34,197,94,0.08)', border: '1px solid rgba(34,197,94,0.25)' }}>
-                          <CheckCircle2 size={14} style={{ color: '#22c55e' }} />
-                          <div className="flex-1 min-w-0">
-                            <div className="text-xs font-medium" style={{ color: '#22c55e' }}>Linked to existing contact</div>
-                            <div className="text-xs" style={{ color: '#1a1a1a' }}>
-                              {selectedExisting.name}{selectedExisting.phone ? ` · ${selectedExisting.phone}` : ''}{selectedExisting.email ? ` · ${selectedExisting.email}` : ''}
-                            </div>
-                          </div>
-                          <button
-                            onClick={() => { setSelectedExisting(null); setContactMatches([]); }}
-                            className="text-xs px-2 py-1 rounded hover:opacity-80"
-                            style={{ background: 'rgba(107,114,128,0.1)', color: '#6b7280' }}
-                          >
-                            Remove
-                          </button>
-                        </div>
-                      ) : contactMatches.length > 0 ? (
-                        <div className="rounded-lg overflow-hidden" style={{ border: '1px solid rgba(245,158,11,0.3)', background: 'rgba(245,158,11,0.05)' }}>
-                          <div className="flex items-center gap-2 px-3 py-2" style={{ background: 'rgba(245,158,11,0.1)', borderBottom: '1px solid rgba(245,158,11,0.15)' }}>
-                            <AlertTriangle size={12} style={{ color: '#f59e0b' }} />
-                            <span className="text-xs font-medium" style={{ color: '#f59e0b' }}>Possible duplicate{contactMatches.length > 1 ? 's' : ''} found</span>
-                          </div>
-                          <div className="divide-y" style={{ borderColor: 'rgba(245,158,11,0.1)' }}>
-                            {contactMatches.slice(0, 5).map((c: any) => (
-                              <div key={c.id} className="flex items-center gap-2 px-3 py-2">
-                                <div className="flex-1 min-w-0">
-                                  <div className="text-xs font-medium" style={{ color: '#1a1a1a' }}>{c.name || `${c.firstName || ''} ${c.lastName || ''}`.trim()}</div>
-                                  <div className="text-[10px]" style={{ color: '#6a6058' }}>
-                                    {c.phone || ''}{c.phone && c.email ? ' · ' : ''}{c.email || ''}
-                                  </div>
-                                </div>
-                                <button
-                                  onClick={() => {
-                                    setSelectedExisting(c);
-                                    setContactMatches([]);
-                                    if (c.firstName) update('firstName', c.firstName);
-                                    if (c.lastName) update('lastName', c.lastName);
-                                    // Keep selectedExisting set after update calls
-                                    setTimeout(() => setSelectedExisting(c), 0);
-                                  }}
-                                  className="text-xs px-2 py-1 rounded font-medium hover:opacity-80 flex-shrink-0"
-                                  style={{ background: 'rgba(200,140,0,0.1)', color: '#c88c00', border: '1px solid rgba(200,140,0,0.2)' }}
-                                >
-                                  Link
-                                </button>
-                              </div>
-                            ))}
-                          </div>
-                        </div>
-                      ) : searchingContacts ? (
-                        <div className="flex items-center gap-2 text-xs py-1" style={{ color: '#8a8078' }}>
-                          <Loader2 size={12} className="animate-spin" /> Checking for existing contacts...
-                        </div>
-                      ) : null}
-
-                      <div>
-                        <label className="text-xs mb-1 block" style={{ color: '#8a8078' }}>Email</label>
-                        <StyledInput value={form.email} onChange={(v) => update('email', v)} placeholder="jane@example.com" type="email" />
-                      </div>
-                    </div>
-                  </div>
-
-                  {/* Section 2: Project Details */}
-                  <div>
-                    <SectionHeader number={2} title="Project Details" icon={Home} complete={section2Complete} />
-                    <div className="space-y-3 ml-10">
-                      <div>
-                        <label className="text-xs mb-1 block" style={{ color: '#8a8078' }}>Project Type <span style={{ color: '#ef4444' }}>*</span></label>
-                        <StyledSelect value={form.projectType} onChange={(v) => update('projectType', v)} options={PROJECT_TYPES} placeholder="Select type..." />
-                      </div>
-                      <div>
-                        <label className="text-xs mb-1 block" style={{ color: '#8a8078' }}>Project Address</label>
-                        <StyledInput value={form.address} onChange={(v) => update('address', v)} placeholder="123 Main St" />
-                      </div>
-                      <div className="grid grid-cols-3 gap-2">
-                        <div><label className="text-xs mb-1 block" style={{ color: '#8a8078' }}>City</label><StyledInput value={form.city} onChange={(v) => update('city', v)} placeholder="Perkasie" /></div>
-                        <div><label className="text-xs mb-1 block" style={{ color: '#8a8078' }}>State</label><StyledInput value={form.state} onChange={(v) => update('state', v)} placeholder="PA" /></div>
-                        <div><label className="text-xs mb-1 block" style={{ color: '#8a8078' }}>ZIP</label><StyledInput value={form.zip} onChange={(v) => update('zip', v)} placeholder="18944" /></div>
-                      </div>
-                      <div>
-                        <label className="text-xs mb-1 block" style={{ color: '#8a8078' }}>How Did They Hear About Us?</label>
-                        <StyledSelect value={form.referralSource} onChange={(v) => update('referralSource', v)} options={REFERRAL_SOURCES} placeholder="Select source..." />
-                      </div>
-                      <div>
-                        <label className="text-xs mb-1 block" style={{ color: '#8a8078' }}>Approximate Budget</label>
-                        <StyledSelect value={form.budgetRange} onChange={(v) => update('budgetRange', v)} options={BUDGET_RANGES} placeholder="Select range..." />
-                      </div>
-                      <div>
-                        <label className="text-xs mb-1 block" style={{ color: '#8a8078' }}>Brief Description</label>
-                        <textarea value={form.description} onChange={(e) => update('description', e.target.value)}
-                          placeholder="What are they looking to do? Any details from the call..." rows={3}
-                          className="w-full rounded-lg px-3 py-2.5 text-sm outline-none resize-none"
-                          style={{ background: '#ffffff', border: '1px solid rgba(200,140,0,0.15)', color: '#1a1a1a' }}
-                        />
-                      </div>
-                    </div>
-                  </div>
-
-                  {/* Section 3: Next Step */}
-                  <div>
-                    <SectionHeader number={3} title="Next Step" icon={Calendar} complete={section3Complete} />
-                    <div className="space-y-3 ml-10">
-                      <div className="space-y-2">
-                        {[
-                          { key: 'discovery_call' as const, label: 'Schedule Discovery Call', sublabel: 'Phone/video call with Nathan', icon: Phone },
-                          { key: 'onsite_visit' as const, label: 'Schedule On-Site Visit', sublabel: 'In-person meeting at the property', icon: MapPin },
-                          { key: 'none' as const, label: 'Save Without Scheduling', sublabel: 'Add to pipeline as New Inquiry', icon: FileText },
-                        ].map((opt) => {
-                          const selected = form.nextStep === opt.key;
-                          const Icon = opt.icon;
-                          return (
-                            <button key={opt.key} onClick={() => {
-                              update('nextStep', opt.key);
-                              if (opt.key === 'none') { update('appointmentDate', ''); update('appointmentTime', ''); }
-                              else if (!form.appointmentDate) { update('appointmentDate', defaultDate); }
-                            }}
-                              className="w-full flex items-center gap-3 px-3 py-3 rounded-lg text-left transition-all"
-                              style={{ background: selected ? 'rgba(200,140,0,0.1)' : '#f8f6f3', border: `1px solid ${selected ? 'rgba(200,140,0,0.4)' : 'rgba(200,140,0,0.08)'}` }}
-                            >
-                              <Icon size={16} style={{ color: selected ? '#c88c00' : '#6a6058' }} />
-                              <div className="flex-1 min-w-0">
-                                <div className="text-sm font-medium" style={{ color: selected ? '#c88c00' : '#1a1a1a' }}>{opt.label}</div>
-                                <div className="text-xs" style={{ color: '#6a6058' }}>{opt.sublabel}</div>
-                              </div>
-                              {selected && <Check size={16} style={{ color: '#c88c00' }} />}
-                            </button>
-                          );
-                        })}
-                      </div>
-                      {form.nextStep !== 'none' && (
-                        <div className="rounded-lg p-3 space-y-3" style={{ background: '#f8f6f3', border: '1px solid rgba(200,140,0,0.08)' }}>
-                          <div className="flex items-center gap-2 mb-2">
-                            <Clock size={14} style={{ color: '#c88c00' }} />
-                            <span className="text-xs font-medium" style={{ color: '#c88c00' }}>
-                              {form.nextStep === 'discovery_call' ? 'Discovery Call' : 'On-Site Visit'} — Nathan&apos;s Calendar
-                            </span>
-                          </div>
-                          <div className="grid grid-cols-2 gap-3">
-                            <div>
-                              <label className="text-xs mb-1 block" style={{ color: '#8a8078' }}>Date</label>
-                              <input type="date" value={form.appointmentDate} onChange={(e) => update('appointmentDate', e.target.value)}
-                                min={new Date().toISOString().split('T')[0]}
-                                className="w-full rounded-lg px-3 py-2.5 text-sm outline-none"
-                                style={{ background: '#ffffff', border: '1px solid rgba(200,140,0,0.15)', color: '#1a1a1a', colorScheme: 'dark' }}
-                              />
-                            </div>
-                            <div>
-                              <label className="text-xs mb-1 block" style={{ color: '#8a8078' }}>Time</label>
-                              <select value={form.appointmentTime} onChange={(e) => update('appointmentTime', e.target.value)}
-                                className="w-full appearance-none rounded-lg px-3 py-2.5 text-sm outline-none cursor-pointer"
-                                style={{ background: '#ffffff', border: '1px solid rgba(200,140,0,0.15)', color: form.appointmentTime ? '#1a1a1a' : '#6a6058' }}
-                              >
-                                <option value="">Select time...</option>
-                                {timeSlots.map((t) => <option key={t} value={t}>{formatTime(t)}</option>)}
-                              </select>
-                            </div>
-                          </div>
-                        </div>
-                      )}
-                    </div>
-                  </div>
-
-                  {/* Error + Submit */}
-                  <div className="pt-2">
-                    {error && (
-                      <div className="flex items-center gap-2 text-xs px-3 py-2 rounded-lg mb-3" style={{ background: 'rgba(220,80,80,0.1)', color: '#f87171' }}>
-                        <AlertCircle size={14} /> {error}
-                      </div>
-                    )}
-                    <button onClick={handleSubmit} disabled={submitting || !section1Complete}
-                      className="w-full flex items-center justify-center gap-2 px-4 py-3 rounded-lg text-sm font-semibold transition-all disabled:opacity-40"
-                      style={{ background: section1Complete ? '#c88c00' : 'rgba(200,140,0,0.3)', color: '#ffffff' }}
-                    >
-                      {submitting ? <><Loader2 size={16} className="animate-spin" /> Creating Lead...</> : <><UserPlus size={16} /> Create Lead{form.nextStep !== 'none' && ' & Schedule'}</>}
-                    </button>
-                    <p className="text-center text-xs mt-2" style={{ color: '#6a6058' }}>
-                      {form.nextStep === 'discovery_call' && 'Stage → Discovery Scheduled'}
-                      {form.nextStep === 'onsite_visit' && 'Stage → Estimating (auto-creates JobTread job)'}
-                      {form.nextStep === 'none' && 'Stage → New Inquiry'}
-                    </p>
-                  </div>
-                </>
-              )}
-            </div>
-            </div>{/* end collapsible wrapper */}
-          </div>
-        </div>
-
-        {/* ═══ RIGHT COLUMN: Pipeline + Recent Leads ═══ */}
-        <div className="lg:col-span-2 space-y-4">
-
-          {/* Pipeline Breakdown */}
-          <div className="rounded-xl overflow-hidden" style={{ background: '#ffffff', border: '1px solid rgba(200,140,0,0.12)' }}>
-            <div className="flex items-center gap-2 px-4 py-3" style={{ background: '#f8f6f3', borderBottom: '1px solid rgba(200,140,0,0.08)' }}>
-              <BarChart3 size={14} style={{ color: '#c88c00' }} />
-              <span className="text-sm font-semibold" style={{ color: '#1a1a1a' }}>Sales Pipeline</span>
-              {kpis && <span className="text-xs ml-auto" style={{ color: '#6a6058' }}>{kpis.totalPipeline} open</span>}
-            </div>
-            <div className="px-4 py-3 space-y-2.5">
-              {kpiData ? kpiData.pipelineBreakdown.map((row) => (
-                <div key={row.stage} className="flex items-center gap-3">
-                  <div className="w-2 h-2 rounded-full flex-shrink-0" style={{ background: STAGE_COLORS[row.stage] || '#8a8078' }} />
-                  <span className="text-sm flex-1" style={{ color: '#1a1a1a' }}>{row.stage}</span>
-                  <span className="text-sm font-bold" style={{ color: STAGE_COLORS[row.stage] || '#c88c00' }}>{row.count}</span>
-                </div>
-              )) : (
-                <div className="py-4 text-center text-xs" style={{ color: '#6a6058' }}>Loading...</div>
-              )}
-            </div>
-          </div>
-
-          {/* Recent Leads */}
-          <div className="rounded-xl overflow-hidden" style={{ background: '#ffffff', border: '1px solid rgba(200,140,0,0.12)' }}>
-            <div className="flex items-center gap-2 px-4 py-3" style={{ background: '#f8f6f3', borderBottom: '1px solid rgba(200,140,0,0.08)' }}>
-              <Users size={14} style={{ color: '#c88c00' }} />
-              <span className="text-sm font-semibold" style={{ color: '#1a1a1a' }}>Recent Leads</span>
-            </div>
-            <div className="divide-y" style={{ borderColor: 'rgba(200,140,0,0.06)' }}>
-              {kpiData && kpiData.recentLeads.length > 0 ? kpiData.recentLeads.slice(0, 8).map((lead) => (
-                <div key={lead.id} className="px-4 py-2.5 flex items-center gap-3">
-                  <div className="w-1.5 h-1.5 rounded-full flex-shrink-0" style={{ background: STAGE_COLORS[lead.stage] || '#8a8078' }} />
-                  <div className="flex-1 min-w-0">
-                    <div className="text-sm truncate" style={{ color: '#1a1a1a' }}>{lead.name}</div>
-                    <div className="text-xs" style={{ color: STAGE_COLORS[lead.stage] || '#6a6058' }}>{lead.stage}</div>
-                  </div>
-                  <div className="text-right flex-shrink-0">
-                    <div className="text-xs" style={{ color: '#6a6058' }}>{timeAgo(lead.createdAt)}</div>
-                    {lead.status !== 'open' && (
-                      <div className="text-[10px] uppercase" style={{ color: lead.status === 'lost' ? '#ef4444' : '#f59e0b' }}>{lead.status}</div>
-                    )}
-                  </div>
-                </div>
-              )) : (
-                <div className="px-4 py-8 text-center">
-                  <Users size={32} className="mx-auto mb-3" style={{ color: 'rgba(200,140,0,0.2)' }} />
-                  <p className="text-sm" style={{ color: '#8a8078' }}>No recent leads</p>
-                </div>
-              )}
-            </div>
-          </div>
-        </div>
-      </div>
     </div>
   );
 }
