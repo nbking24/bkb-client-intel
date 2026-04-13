@@ -31,6 +31,9 @@ export default function MobileDashboard() {
   const [completingTaskId, setCompletingTaskId] = useState<string | null>(null);
   const [tasksExpanded, setTasksExpanded] = useState(true);
   const [calWeek, setCalWeek] = useState<0 | 1>(0);
+  const [selectedTask, setSelectedTask] = useState<DashboardTask | null>(null);
+  const [editingDate, setEditingDate] = useState('');
+  const [savingDate, setSavingDate] = useState(false);
 
   // ── Data Fetching (same API as desktop) ──────────────────
   const fetchOverview = useCallback(async (forceRefresh = false) => {
@@ -89,6 +92,29 @@ export default function MobileDashboard() {
       console.error('Complete task failed:', err);
     } finally {
       setCompletingTaskId(null);
+    }
+  }
+
+  async function updateTaskDate(taskId: string, newDate: string) {
+    setSavingDate(true);
+    try {
+      const res = await fetch('/api/dashboard/tasks', {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${getToken()}` },
+        body: JSON.stringify({ taskId, action: 'updateDate', endDate: newDate }),
+      });
+      if (!res.ok) throw new Error('Failed to update date');
+      if (overview) {
+        const updatedTasks = overview.data.tasks.map(t =>
+          t.id === taskId ? { ...t, endDate: newDate, daysUntilDue: Math.ceil((new Date(newDate + 'T12:00:00').getTime() - new Date().setHours(12, 0, 0, 0)) / 86400000) } : t
+        );
+        setOverview({ ...overview, data: { ...overview.data, tasks: updatedTasks } });
+      }
+      setSelectedTask(null);
+    } catch (err: any) {
+      console.error('Update date failed:', err);
+    } finally {
+      setSavingDate(false);
     }
   }
 
@@ -325,7 +351,7 @@ export default function MobileDashboard() {
                   : regularTasks
                       .sort((a, b) => (a.daysUntilDue ?? 999) - (b.daysUntilDue ?? 999))
                       .map(task => (
-                        <TaskRow key={task.id} task={task} completing={completingTaskId === task.id} onComplete={completeTask} />
+                        <TaskRow key={task.id} task={task} completing={completingTaskId === task.id} onComplete={completeTask} onSelect={(t) => { setSelectedTask(t); setEditingDate(t.endDate || ''); }} />
                       ))
                 }
                 {waitingOnTasks.length > 0 && (
@@ -334,7 +360,7 @@ export default function MobileDashboard() {
                       WAITING ON ({waitingOnTasks.length})
                     </div>
                     {waitingOnTasks.map(task => (
-                      <TaskRow key={task.id} task={task} completing={completingTaskId === task.id} onComplete={completeTask} isWaitingOn />
+                      <TaskRow key={task.id} task={task} completing={completingTaskId === task.id} onComplete={completeTask} onSelect={(t) => { setSelectedTask(t); setEditingDate(t.endDate || ''); }} isWaitingOn />
                     ))}
                   </>
                 )}
@@ -351,7 +377,7 @@ export default function MobileDashboard() {
               : overdueTasks
                   .sort((a, b) => (a.daysUntilDue ?? 0) - (b.daysUntilDue ?? 0))
                   .map(task => (
-                    <TaskRow key={task.id} task={task} completing={completingTaskId === task.id} onComplete={completeTask} />
+                    <TaskRow key={task.id} task={task} completing={completingTaskId === task.id} onComplete={completeTask} onSelect={(t) => { setSelectedTask(t); setEditingDate(t.endDate || ''); }} />
                   ))
             }
           </ExpandablePanel>
@@ -583,6 +609,84 @@ export default function MobileDashboard() {
         </div>
       </div>
 
+      {/* ── TASK EDIT MODAL ──────────────────────────── */}
+      {selectedTask && (
+        <div style={{
+          position: 'fixed', top: 0, left: 0, right: 0, bottom: 0,
+          background: 'rgba(0,0,0,0.5)', display: 'flex', alignItems: 'center', justifyContent: 'center',
+          zIndex: 1000, padding: 16,
+        }} onClick={() => setSelectedTask(null)}>
+          <div onClick={e => e.stopPropagation()} style={{
+            background: '#f8f6f3', borderRadius: 12, padding: 16, width: '100%', maxWidth: 360,
+            border: '1px solid rgba(200,140,0,0.15)', boxShadow: '0 12px 40px rgba(0,0,0,0.6)',
+          }}>
+            {/* Header */}
+            <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', marginBottom: 12 }}>
+              <div style={{ flex: 1, minWidth: 0 }}>
+                <div style={{ fontSize: 15, fontWeight: 600, color: '#1a1a1a', lineHeight: 1.3 }}>{selectedTask.name}</div>
+                <div style={{ fontSize: 12, color: '#8a8078', marginTop: 4 }}>{selectedTask.jobName} #{selectedTask.jobNumber}</div>
+                {selectedTask.description && (
+                  <div style={{ fontSize: 12, color: '#6a6058', marginTop: 6, lineHeight: 1.4 }}>{selectedTask.description}</div>
+                )}
+              </div>
+              <button onClick={() => setSelectedTask(null)} style={{ background: 'none', border: 'none', cursor: 'pointer', padding: 4, lineHeight: 0 }}>
+                <X size={16} style={{ color: '#6a6058' }} />
+              </button>
+            </div>
+
+            {/* Date edit */}
+            <div style={{ marginBottom: 14 }}>
+              <label style={{ fontSize: 10, color: '#6a6058', fontWeight: 600, display: 'block', marginBottom: 4 }}>DUE DATE</label>
+              <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+                <input
+                  type="date"
+                  value={editingDate}
+                  onChange={e => setEditingDate(e.target.value)}
+                  style={{
+                    flex: 1, background: '#ffffff', border: '1px solid rgba(200,140,0,0.15)', borderRadius: 6,
+                    color: '#1a1a1a', fontSize: 14, padding: '8px 10px',
+                  }}
+                />
+                {editingDate !== (selectedTask.endDate || '') && (
+                  <button onClick={() => updateTaskDate(selectedTask.id, editingDate)} disabled={savingDate}
+                    style={{
+                      background: '#c88c00', color: '#ffffff', fontSize: 13, fontWeight: 600,
+                      padding: '8px 14px', borderRadius: 6, border: 'none', cursor: 'pointer',
+                      opacity: savingDate ? 0.5 : 1,
+                    }}>
+                    {savingDate ? 'Saving...' : 'Save'}
+                  </button>
+                )}
+              </div>
+            </div>
+
+            {/* Actions */}
+            <div style={{ display: 'flex', gap: 8 }}>
+              <button
+                onClick={() => { completeTask(selectedTask.id); setSelectedTask(null); }}
+                disabled={completingTaskId === selectedTask.id}
+                style={{
+                  flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6,
+                  padding: '10px 0', borderRadius: 6, border: 'none', cursor: 'pointer', fontSize: 13, fontWeight: 600,
+                  background: 'rgba(34,197,94,0.1)', color: '#22c55e',
+                }}>
+                <Check size={14} /> Complete
+              </button>
+              <a
+                href={`https://app.jobtread.com/jobs/${selectedTask.jobId}/schedule`}
+                target="_blank" rel="noopener noreferrer"
+                style={{
+                  flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6,
+                  padding: '10px 0', borderRadius: 6, fontSize: 13, fontWeight: 600, textDecoration: 'none',
+                  background: 'rgba(200,140,0,0.1)', color: '#c88c00',
+                }}>
+                <ExternalLink size={14} /> JobTread
+              </a>
+            </div>
+          </div>
+        </div>
+      )}
+
       <style>{`@keyframes spin { to { transform: rotate(360deg) } }`}</style>
     </div>
   );
@@ -617,8 +721,8 @@ function KpiCard({ icon, label, value, color, subtitle, active, onClick }: {
   );
 }
 
-function TaskRow({ task, completing, onComplete, isWaitingOn: wo }: {
-  task: DashboardTask; completing: boolean; onComplete: (id: string) => void; isWaitingOn?: boolean;
+function TaskRow({ task, completing, onComplete, onSelect, isWaitingOn: wo }: {
+  task: DashboardTask; completing: boolean; onComplete: (id: string) => void; onSelect?: (task: DashboardTask) => void; isWaitingOn?: boolean;
 }) {
   const dateLabel = formatDateLabel(task.daysUntilDue);
   const dateColor = getDateColor(task.daysUntilDue);
@@ -628,7 +732,7 @@ function TaskRow({ task, completing, onComplete, isWaitingOn: wo }: {
     <div style={{ padding: '10px 12px', borderBottom: '1px solid #f0eeeb', display: 'flex', alignItems: 'flex-start', gap: 10 }}>
       {/* Complete button */}
       <button
-        onClick={() => onComplete(task.id)}
+        onClick={(e) => { e.stopPropagation(); onComplete(task.id); }}
         disabled={completing}
         style={{
           flexShrink: 0, width: 28, height: 28, borderRadius: '50%', border: `2px solid ${dateColor}`,
@@ -640,8 +744,11 @@ function TaskRow({ task, completing, onComplete, isWaitingOn: wo }: {
         {completing ? <Loader2 size={14} style={{ color: '#fff', animation: 'spin 1s linear infinite' }} />
           : <Check size={14} style={{ color: dateColor, opacity: 0.4 }} />}
       </button>
-      {/* Task info */}
-      <div style={{ flex: 1, minWidth: 0 }}>
+      {/* Task info — clickable to open edit */}
+      <div
+        onClick={() => onSelect?.(task)}
+        style={{ flex: 1, minWidth: 0, cursor: onSelect ? 'pointer' : 'default' }}
+      >
         <div style={{ fontSize: 14, color: '#2a2520', fontWeight: 500, lineHeight: 1.3 }}>
           {wo && <span style={{ color: '#c88c00' }}>⏳ </span>}
           {displayName}

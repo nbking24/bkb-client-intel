@@ -942,7 +942,7 @@ export default function FieldDashboardPage() {
             const days = Math.floor((new Date(data.todayDate + 'T12:00:00').getTime() - new Date(t.date + 'T12:00:00').getTime()) / 86400000);
             return (
               <div key={t.id} style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '3px 0', borderBottom: '1px solid rgba(200,140,0,0.04)', fontSize: 11 }}>
-                <button onClick={() => toggleComplete(t.id, false)} disabled={completing.has(t.id)}
+                <button onClick={(e) => { e.stopPropagation(); toggleComplete(t.id, false); }} disabled={completing.has(t.id)}
                   style={{ background: 'none', border: 'none', cursor: 'pointer', padding: 0, lineHeight: 0, flexShrink: 0 }}>
                   {completing.has(t.id)
                     ? <Loader2 size={13} className="animate-spin" style={{ color: '#6a6058' }} />
@@ -950,10 +950,13 @@ export default function FieldDashboardPage() {
                   }
                 </button>
                 <span style={{ width: 5, height: 5, borderRadius: 3, background: jobColor(t.jobNumber), flexShrink: 0 }} />
-                <a href={jtScheduleUrl(t.jobId)} target="_blank" rel="noopener noreferrer" style={{ flex: 1, overflow: 'hidden', minWidth: 0, display: 'flex', flexDirection: 'column', textDecoration: 'none' }}>
+                <div
+                  onClick={() => { setSelectedTask({ ...t, startDate: null, endDate: t.date, isComplete: false } as CalTask); setEditingDate(t.date); }}
+                  style={{ flex: 1, overflow: 'hidden', minWidth: 0, display: 'flex', flexDirection: 'column', cursor: 'pointer' }}
+                >
                   <div style={{ color: '#1a1a1a', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', lineHeight: '14px' }}>{t.name}</div>
                   <div style={{ color: '#5a5550', fontSize: 9, lineHeight: '12px' }}>{t.jobName}{t.isAssignedToMe ? ' · assigned to you' : ''}</div>
-                </a>
+                </div>
                 <span style={{ color: '#f97316', fontSize: 10, fontWeight: 600, flexShrink: 0 }}>{days}d</span>
               </div>
             );
@@ -962,7 +965,7 @@ export default function FieldDashboardPage() {
             const days = Math.floor((new Date(data.todayDate + 'T12:00:00').getTime() - new Date(t.date + 'T12:00:00').getTime()) / 86400000);
             return (
               <div key={t.id} style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '3px 0', borderBottom: '1px solid rgba(200,140,0,0.04)', fontSize: 11 }}>
-                <button onClick={() => toggleComplete(t.id, false)} disabled={completing.has(t.id)}
+                <button onClick={(e) => { e.stopPropagation(); toggleComplete(t.id, false); }} disabled={completing.has(t.id)}
                   style={{ background: 'none', border: 'none', cursor: 'pointer', padding: 0, lineHeight: 0, flexShrink: 0 }}>
                   {completing.has(t.id)
                     ? <Loader2 size={13} className="animate-spin" style={{ color: '#6a6058' }} />
@@ -970,10 +973,13 @@ export default function FieldDashboardPage() {
                   }
                 </button>
                 <span style={{ width: 5, height: 5, borderRadius: 3, background: jobColor(t.jobNumber), flexShrink: 0 }} />
-                <a href={jtScheduleUrl(t.jobId)} target="_blank" rel="noopener noreferrer" style={{ flex: 1, overflow: 'hidden', minWidth: 0, display: 'flex', flexDirection: 'column', textDecoration: 'none' }}>
+                <div
+                  onClick={() => { setSelectedTask({ ...t, startDate: null, endDate: t.date, isComplete: false } as CalTask); setEditingDate(t.date); }}
+                  style={{ flex: 1, overflow: 'hidden', minWidth: 0, display: 'flex', flexDirection: 'column', cursor: 'pointer' }}
+                >
                   <div style={{ color: '#1a1a1a', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', lineHeight: '14px' }}>{t.name}</div>
                   <div style={{ color: '#5a5550', fontSize: 9, lineHeight: '12px' }}>{t.jobName}</div>
-                </a>
+                </div>
                 <span style={{ color: '#ef4444', fontSize: 10, fontWeight: 600, flexShrink: 0 }}>{days}d</span>
               </div>
             );
@@ -983,7 +989,7 @@ export default function FieldDashboardPage() {
               : (() => { const d = Math.floor((new Date(t.endDate + 'T12:00:00').getTime() - new Date(data.todayDate + 'T12:00:00').getTime()) / 86400000); return d === 1 ? 'Tomorrow' : d <= 0 ? 'Today' : `${d}d`; })();
             return (
               <div key={t.id} style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '3px 0', borderBottom: '1px solid rgba(200,140,0,0.04)', fontSize: 11 }}>
-                <button onClick={() => toggleComplete(t.id, false)} disabled={completing.has(t.id)}
+                <button onClick={(e) => { e.stopPropagation(); toggleComplete(t.id, false); }} disabled={completing.has(t.id)}
                   style={{ background: 'none', border: 'none', cursor: 'pointer', padding: 0, lineHeight: 0, flexShrink: 0 }}>
                   {completing.has(t.id)
                     ? <Loader2 size={13} className="animate-spin" style={{ color: '#6a6058' }} />
@@ -991,10 +997,13 @@ export default function FieldDashboardPage() {
                   }
                 </button>
                 <span style={{ width: 5, height: 5, borderRadius: 3, background: jobColor(t.jobNumber), flexShrink: 0 }} />
-                <a href={jtScheduleUrl(t.jobId)} target="_blank" rel="noopener noreferrer" style={{ flex: 1, overflow: 'hidden', minWidth: 0, display: 'flex', flexDirection: 'column', textDecoration: 'none' }}>
+                <div
+                  onClick={() => { setSelectedTask({ ...t, date: t.endDate || '', startDate: null, isComplete: false, isAssignedToMe: false } as CalTask); setEditingDate(t.endDate || ''); }}
+                  style={{ flex: 1, overflow: 'hidden', minWidth: 0, display: 'flex', flexDirection: 'column', cursor: 'pointer' }}
+                >
                   <div style={{ color: '#1a1a1a', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', lineHeight: '14px' }}>{t.name}</div>
                   <div style={{ color: '#5a5550', fontSize: 9, lineHeight: '12px' }}>{t.jobName}</div>
-                </a>
+                </div>
                 <span style={{ color: t.endDate === data.todayDate ? '#eab308' : '#5a5550', fontSize: 10, fontWeight: 500, flexShrink: 0 }}>{lbl}</span>
               </div>
             );
