@@ -98,6 +98,7 @@ export async function POST(req: NextRequest) {
       nextStep,        // 'discovery_call' | 'onsite_visit' | 'none'
       appointmentDate, // YYYY-MM-DD
       appointmentTime, // HH:MM (24h)
+      existingContactId, // If linking to an existing contact (skip creation)
     } = body;
 
     // --- Validation ---
@@ -107,7 +108,7 @@ export async function POST(req: NextRequest) {
         { status: 400 }
       );
     }
-    if (!phone?.trim()) {
+    if (!phone?.trim() && !existingContactId) {
       return NextResponse.json(
         { error: 'Phone number is required.' },
         { status: 400 }
@@ -120,31 +121,41 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    // --- 1. Create GHL Contact ---
-    const contactTags = ['Dashboard Lead'];
-    if (referralSource) contactTags.push(referralSource);
-    if (projectType) contactTags.push(projectType);
+    // --- 1. Create or Reuse GHL Contact ---
+    let contactId: string;
+    let linkedExisting = false;
 
-    const contactRes = await createContact({
-      firstName: firstName.trim(),
-      lastName: lastName.trim(),
-      phone: phone.trim(),
-      email: email?.trim() || undefined,
-      address1: address?.trim() || undefined,
-      city: city?.trim() || undefined,
-      state: state?.trim() || undefined,
-      postalCode: zip?.trim() || undefined,
-      tags: contactTags,
-      source: 'Dashboard - Terri',
-    });
+    if (existingContactId) {
+      // Link to an existing contact — skip creation
+      contactId = existingContactId;
+      linkedExisting = true;
+      console.log(`[create-lead] Linking to existing contact ${contactId}`);
+    } else {
+      const contactTags = ['Dashboard Lead'];
+      if (referralSource) contactTags.push(referralSource);
+      if (projectType) contactTags.push(projectType);
 
-    const contactId = contactRes?.contact?.id;
-    if (!contactId) {
-      console.error('[create-lead] No contact ID returned:', JSON.stringify(contactRes));
-      return NextResponse.json(
-        { error: 'Failed to create contact in GHL.' },
-        { status: 500 }
-      );
+      const contactRes = await createContact({
+        firstName: firstName.trim(),
+        lastName: lastName.trim(),
+        phone: phone.trim(),
+        email: email?.trim() || undefined,
+        address1: address?.trim() || undefined,
+        city: city?.trim() || undefined,
+        state: state?.trim() || undefined,
+        postalCode: zip?.trim() || undefined,
+        tags: contactTags,
+        source: 'Dashboard - Terri',
+      });
+
+      contactId = contactRes?.contact?.id;
+      if (!contactId) {
+        console.error('[create-lead] No contact ID returned:', JSON.stringify(contactRes));
+        return NextResponse.json(
+          { error: 'Failed to create contact in GHL. They may already exist — try searching by phone or name.' },
+          { status: 500 }
+        );
+      }
     }
 
     // --- 2. Determine stage ---
@@ -285,6 +296,7 @@ export async function POST(req: NextRequest) {
       stage: stageName,
       jtJobCreated,
       jtTaskId,
+      linkedExisting,
     });
   } catch (err: any) {
     console.error('[create-lead] Unhandled error:', err);

@@ -372,6 +372,11 @@ export default function LeadsPage() {
   const formContentRef = useRef<HTMLDivElement>(null);
   const firstNameRef = useRef<HTMLInputElement>(null);
 
+  // Duplicate contact detection state
+  const [contactMatches, setContactMatches] = useState<any[]>([]);
+  const [selectedExisting, setSelectedExisting] = useState<any>(null);
+  const [searchingContacts, setSearchingContacts] = useState(false);
+
   // KPI state
   const [kpiData, setKpiData] = useState<KpiData | null>(null);
   const [kpiLoading, setKpiLoading] = useState(true);
@@ -480,12 +485,37 @@ export default function LeadsPage() {
 
   useEffect(() => { loadKpis(); loadEstimatingData(); }, []);
 
+  // Debounced contact search for duplicate detection
+  useEffect(() => {
+    const query = form.phone?.trim() || form.lastName?.trim();
+    if (!query || query.length < 3 || selectedExisting) {
+      setContactMatches([]);
+      return;
+    }
+    const timer = setTimeout(async () => {
+      setSearchingContacts(true);
+      try {
+        const res = await fetch(`/api/dashboard/search-contacts?q=${encodeURIComponent(query)}`);
+        const data = await res.json();
+        setContactMatches(data.contacts || []);
+      } catch {
+        setContactMatches([]);
+      } finally {
+        setSearchingContacts(false);
+      }
+    }, 500);
+    return () => clearTimeout(timer);
+  }, [form.phone, form.lastName, selectedExisting]);
+
   const update = (field: keyof FormData, value: string) => {
     setForm((prev) => ({ ...prev, [field]: value }));
     setError('');
+    if (['firstName', 'lastName', 'phone', 'email'].includes(field)) {
+      setSelectedExisting(null);
+    }
   };
 
-  const section1Complete = !!(form.firstName && form.lastName && form.phone);
+  const section1Complete = selectedExisting ? !!(form.firstName && form.lastName) : !!(form.firstName && form.lastName && form.phone);
   const section2Complete = !!(form.projectType);
   const section3Complete = form.nextStep === 'none' || !!(form.appointmentDate && form.appointmentTime);
 
@@ -494,7 +524,7 @@ export default function LeadsPage() {
   const defaultDate = tomorrow.toISOString().split('T')[0];
 
   const timeSlots: string[] = [];
-  for (let h = 8; h <= 17; h++) {
+  for (let h = 7; h <= 17; h++) {
     timeSlots.push(`${h.toString().padStart(2, '0')}:00`);
     if (h < 17) timeSlots.push(`${h.toString().padStart(2, '0')}:30`);
   }
@@ -509,8 +539,12 @@ export default function LeadsPage() {
   };
 
   const handleSubmit = async () => {
-    if (!form.firstName || !form.lastName || !form.phone) {
-      setError('Please fill in first name, last name, and phone number.');
+    if (!form.firstName || !form.lastName) {
+      setError('Please fill in first name and last name.');
+      return;
+    }
+    if (!selectedExisting && !form.phone) {
+      setError('Please fill in phone number or link to an existing contact.');
       return;
     }
     if (form.nextStep !== 'none' && (!form.appointmentDate || !form.appointmentTime)) {
@@ -520,16 +554,19 @@ export default function LeadsPage() {
     setSubmitting(true);
     setError('');
     try {
+      const payload: any = { ...form };
+      if (selectedExisting) {
+        payload.existingContactId = selectedExisting.id;
+      }
       const res = await fetch('/api/dashboard/create-lead', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${getToken()}` },
-        body: JSON.stringify(form),
+        body: JSON.stringify(payload),
       });
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || 'Failed to create lead');
       setResult(data);
       setSubmitted(true);
-      // Refresh KPIs after creating a lead
       loadKpis();
     } catch (err: any) {
       setError(err.message || 'Something went wrong. Please try again.');
@@ -543,6 +580,8 @@ export default function LeadsPage() {
     setSubmitted(false);
     setResult(null);
     setError('');
+    setSelectedExisting(null);
+    setContactMatches([]);
     setFormExpanded(true);
     setTimeout(() => firstNameRef.current?.focus(), 200);
   };
@@ -1113,6 +1152,9 @@ export default function LeadsPage() {
                   <p className="text-sm mb-4" style={{ color: '#8a8078' }}>
                     {form.firstName} {form.lastName} has been added to the pipeline.
                   </p>
+                  {result.linkedExisting && (
+                    <p className="text-xs mb-4" style={{ color: '#22c55e' }}>Linked to existing contact</p>
+                  )}
                   <div
                     className="rounded-lg px-4 py-3 text-left text-sm space-y-1.5 mb-6 mx-auto max-w-sm"
                     style={{ background: '#f8f6f3', border: '1px solid rgba(200,140,0,0.12)' }}
@@ -1152,6 +1194,64 @@ export default function LeadsPage() {
                         <label className="text-xs mb-1 block" style={{ color: '#8a8078' }}>Phone <span style={{ color: '#ef4444' }}>*</span></label>
                         <StyledInput value={form.phone} onChange={(v) => update('phone', v)} placeholder="(215) 555-1234" type="tel" required />
                       </div>
+
+                      {/* Duplicate Contact Detection */}
+                      {selectedExisting ? (
+                        <div className="rounded-lg px-3 py-2.5 flex items-center gap-2" style={{ background: 'rgba(34,197,94,0.08)', border: '1px solid rgba(34,197,94,0.25)' }}>
+                          <CheckCircle2 size={14} style={{ color: '#22c55e' }} />
+                          <div className="flex-1 min-w-0">
+                            <div className="text-xs font-medium" style={{ color: '#22c55e' }}>Linked to existing contact</div>
+                            <div className="text-xs" style={{ color: '#1a1a1a' }}>
+                              {selectedExisting.name}{selectedExisting.phone ? ` · ${selectedExisting.phone}` : ''}{selectedExisting.email ? ` · ${selectedExisting.email}` : ''}
+                            </div>
+                          </div>
+                          <button
+                            onClick={() => { setSelectedExisting(null); setContactMatches([]); }}
+                            className="text-xs px-2 py-1 rounded hover:opacity-80"
+                            style={{ background: 'rgba(107,114,128,0.1)', color: '#6b7280' }}
+                          >
+                            Remove
+                          </button>
+                        </div>
+                      ) : contactMatches.length > 0 ? (
+                        <div className="rounded-lg overflow-hidden" style={{ border: '1px solid rgba(245,158,11,0.3)', background: 'rgba(245,158,11,0.05)' }}>
+                          <div className="flex items-center gap-2 px-3 py-2" style={{ background: 'rgba(245,158,11,0.1)', borderBottom: '1px solid rgba(245,158,11,0.15)' }}>
+                            <AlertTriangle size={12} style={{ color: '#f59e0b' }} />
+                            <span className="text-xs font-medium" style={{ color: '#f59e0b' }}>Possible duplicate{contactMatches.length > 1 ? 's' : ''} found</span>
+                          </div>
+                          <div className="divide-y" style={{ borderColor: 'rgba(245,158,11,0.1)' }}>
+                            {contactMatches.slice(0, 5).map((c: any) => (
+                              <div key={c.id} className="flex items-center gap-2 px-3 py-2">
+                                <div className="flex-1 min-w-0">
+                                  <div className="text-xs font-medium" style={{ color: '#1a1a1a' }}>{c.name || `${c.firstName || ''} ${c.lastName || ''}`.trim()}</div>
+                                  <div className="text-[10px]" style={{ color: '#6a6058' }}>
+                                    {c.phone || ''}{c.phone && c.email ? ' · ' : ''}{c.email || ''}
+                                  </div>
+                                </div>
+                                <button
+                                  onClick={() => {
+                                    setSelectedExisting(c);
+                                    setContactMatches([]);
+                                    if (c.firstName) update('firstName', c.firstName);
+                                    if (c.lastName) update('lastName', c.lastName);
+                                    // Keep selectedExisting set after update calls
+                                    setTimeout(() => setSelectedExisting(c), 0);
+                                  }}
+                                  className="text-xs px-2 py-1 rounded font-medium hover:opacity-80 flex-shrink-0"
+                                  style={{ background: 'rgba(200,140,0,0.1)', color: '#c88c00', border: '1px solid rgba(200,140,0,0.2)' }}
+                                >
+                                  Link
+                                </button>
+                              </div>
+                            ))}
+                          </div>
+                        </div>
+                      ) : searchingContacts ? (
+                        <div className="flex items-center gap-2 text-xs py-1" style={{ color: '#8a8078' }}>
+                          <Loader2 size={12} className="animate-spin" /> Checking for existing contacts...
+                        </div>
+                      ) : null}
+
                       <div>
                         <label className="text-xs mb-1 block" style={{ color: '#8a8078' }}>Email</label>
                         <StyledInput value={form.email} onChange={(v) => update('email', v)} placeholder="jane@example.com" type="email" />
