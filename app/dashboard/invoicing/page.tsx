@@ -1065,7 +1065,6 @@ function NeedsInvoicingSection({
             <NeedsInvoicingRow
               key={job.jobId}
               job={job}
-              onInvoiceCreated={onInvoiceCreated}
               arHeld={arHolds[job.jobId]}
               arToggling={arToggling === job.jobId}
               onToggleArHold={onToggleArHold}
@@ -1079,48 +1078,16 @@ function NeedsInvoicingSection({
 
 function NeedsInvoicingRow({
   job,
-  onInvoiceCreated,
   arHeld,
   arToggling,
   onToggleArHold,
 }: {
   job: NeedsInvoicingJob;
-  onInvoiceCreated: () => void;
   arHeld?: boolean;
   arToggling?: boolean;
   onToggleArHold: (jobId: string, jobName: string) => void;
 }) {
-  const [creatingInvoice, setCreatingInvoice] = useState(false);
-  const [invoiceResult, setInvoiceResult] = useState<{ success: boolean; message: string } | null>(null);
-
   const cfg = HEALTH_COLORS[job.health];
-
-  async function handleCreateInvoice() {
-    if (creatingInvoice) return;
-    setCreatingInvoice(true);
-    setInvoiceResult(null);
-    try {
-      const endpoint = job.type === 'contract'
-        ? '/api/dashboard/invoicing/create-billable-invoice'
-        : '/api/dashboard/invoicing/create-draft-invoice';
-      const res = await fetch(endpoint, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ jobId: job.jobId }),
-      });
-      const data = await res.json();
-      if (data.success) {
-        setInvoiceResult({ success: true, message: `Draft ${data.documentNumber || ''} created` });
-        setTimeout(() => onInvoiceCreated(), 1500);
-      } else {
-        setInvoiceResult({ success: false, message: data.error || 'Failed' });
-      }
-    } catch (err: any) {
-      setInvoiceResult({ success: false, message: err.message || 'Failed' });
-    } finally {
-      setCreatingInvoice(false);
-    }
-  }
 
   // Build the "what needs doing" summary line
   let actionSummary = '';
@@ -1185,37 +1152,6 @@ function NeedsInvoicingRow({
         </div>
       </div>
 
-      {/* Action button */}
-      <div className="flex-shrink-0">
-        {invoiceResult ? (
-          <span
-            className="text-[11px] px-2 py-1"
-            style={{ color: invoiceResult.success ? '#22c55e' : '#ef4444' }}
-          >
-            {invoiceResult.message}
-          </span>
-        ) : (
-          <button
-            onClick={handleCreateInvoice}
-            disabled={creatingInvoice}
-            className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium transition-colors hover:opacity-90"
-            style={{
-              background: 'rgba(200,140,0,0.1)',
-              color: '#c88c00',
-              border: '1px solid rgba(200,140,0,0.2)',
-              cursor: creatingInvoice ? 'wait' : 'pointer',
-              opacity: creatingInvoice ? 0.6 : 1,
-            }}
-          >
-            {creatingInvoice ? (
-              <Loader2 size={12} className="animate-spin" />
-            ) : (
-              <Plus size={12} />
-            )}
-            Create Invoice
-          </button>
-        )}
-      </div>
     </div>
   );
 }
