@@ -3539,6 +3539,13 @@ export async function createDraftCostPlusInvoice(jobId: string): Promise<{
       totalPrice += totalHours * billRate;
       createdItemCount++;
     }
+
+    // Set total hours on the BKB Labor group so clients can see the quantity billed
+    const allLaborHours = uninvoicedTime.reduce((s, e) => s + e.hours, 0);
+    await pave({ updateCostGroup: { $: { id: laborGroup.id, quantity: Math.round(allLaborHours * 100) / 100, unitId: '22P5SRxXqzSe' } } }); // unitId = Hours
+
+    // Hide individual worker line items — only the BKB Labor group row is visible on the invoice
+    await pave({ updateCostGroup: { $: { id: laborGroup.id, showChildren: false } } });
   }
 
   return {
@@ -4131,7 +4138,8 @@ export async function createDraftBillableInvoice(jobId: string): Promise<{
     totalPrice += roundedHours * laborUnitPrice;
     createdItemCount++;
 
-    // Hide the labor line items
+    // Set total hours on the group so clients see the quantity billed, then hide child line items
+    await pave({ updateCostGroup: { $: { id: laborGroup.id, quantity: roundedHours, unitId: '22P5SRxXqzSe' } } }); // unitId = Hours
     await pave({ updateCostGroup: { $: { id: laborGroup.id, showChildren: false } } });
   }
 
