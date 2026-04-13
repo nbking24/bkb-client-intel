@@ -3324,15 +3324,6 @@ export async function createDraftCostPlusInvoice(jobId: string): Promise<{
     description: `This invoice reflects charges under a Cost Plus Fee agreement. You are billed for all actual project costs, including materials, subcontractors, labor, insurance, and permits, plus a ${marginPercent}% contractor's fee applied to those costs. Labor is billed at $${hourlyRate}/hr.`,
   });
 
-  // Enable "Show Cost & Fee" on the invoice — try multiple possible PAVE field names
-  for (const field of ['isCostPlus', 'showCostAndFee', 'costPlus'] as const) {
-    try {
-      await pave({ updateDocument: { $: { id: doc.id, [field]: true } } });
-      console.log(`[COST-PLUS] Set ${field}=true on document ${doc.id}`);
-      break;
-    } catch (_e) { /* try next field name */ }
-  }
-
   // 8. Create cost items from uninvoiced bills (grouped by vendor)
   let totalCost = 0;
   let totalPrice = 0;
@@ -3432,6 +3423,12 @@ export async function createDraftCostPlusInvoice(jobId: string): Promise<{
       name: 'BKB Labor',
     });
 
+    // Build labor date range header so clients know what dates are being billed
+    const laborDates = uninvoicedTime.map(te => new Date(te.date)).sort((a, b) => a.getTime() - b.getTime());
+    const firstDate = laborDates[0].toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
+    const lastDate = laborDates[laborDates.length - 1].toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
+    const dateHeader = firstDate === lastDate ? `Labor dates: ${firstDate}` : `Labor dates: ${firstDate} \u2013 ${lastDate}`;
+
     // AI-rewrite labor group description from time entry notes
     const laborNotes: string[] = [];
     for (const te of uninvoicedTime) {
@@ -3468,7 +3465,12 @@ export async function createDraftCostPlusInvoice(jobId: string): Promise<{
           }
         }
       } catch (_e) { /* skip AI errors */ }
+      // Prepend date range header to the labor description
+      laborDesc = `${dateHeader}\n\n${laborDesc}`;
       await updateJTCostGroup(laborGroup.id, { description: laborDesc });
+    } else {
+      // No notes — just set the date header as description
+      await updateJTCostGroup(laborGroup.id, { description: dateHeader });
     }
 
     // Group by user
@@ -4070,6 +4072,18 @@ export async function createDraftBillableInvoice(jobId: string): Promise<{
 
     const roundedHours = Math.round(unbilledLaborHours * 100) / 100;
 
+    // Build labor date range header so clients know what dates are being billed
+    const cc23LaborDates = cc23TimeEntries
+      .filter(e => e.startedAt)
+      .map(e => new Date(e.startedAt))
+      .sort((a, b) => a.getTime() - b.getTime());
+    let cc23DateHeader = '';
+    if (cc23LaborDates.length > 0) {
+      const cc23First = cc23LaborDates[0].toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
+      const cc23Last = cc23LaborDates[cc23LaborDates.length - 1].toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
+      cc23DateHeader = cc23First === cc23Last ? `Labor dates: ${cc23First}` : `Labor dates: ${cc23First} \u2013 ${cc23Last}`;
+    }
+
     // Build labor description from time entry notes
     const laborNotes: string[] = [];
     for (const entry of cc23TimeEntries) {
@@ -4108,8 +4122,13 @@ export async function createDraftBillableInvoice(jobId: string): Promise<{
       }
     } catch (_e) { /* skip */ }
 
-    if (laborDesc) {
+    if (laborDesc && cc23DateHeader) {
+      laborDesc = `${cc23DateHeader}\n\n${laborDesc}`;
       await updateJTCostGroup(laborGroup.id, { description: laborDesc });
+    } else if (laborDesc) {
+      await updateJTCostGroup(laborGroup.id, { description: laborDesc });
+    } else if (cc23DateHeader) {
+      await updateJTCostGroup(laborGroup.id, { description: cc23DateHeader });
     }
 
     // Worker breakdown in description (for team reference, hidden from client)
