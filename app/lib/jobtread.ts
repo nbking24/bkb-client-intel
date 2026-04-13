@@ -3361,7 +3361,7 @@ export async function createDraftCostPlusInvoice(jobId: string): Promise<{
                 max_tokens: 256,
                 messages: [{
                   role: 'user',
-                  content: `Rewrite this vendor bill description into a brief, professional, client-facing summary for a renovation invoice. Keep it to 1-2 concise sentences. Do not include pricing. Do not use markdown headers (#) or bold (**) formatting. Just describe the work or materials provided in plain text.\n\nOriginal:\n${allBillDescs.join('\n')}`,
+                  content: `Rewrite this vendor bill description into a brief, professional, client-facing summary for a renovation invoice. Keep it to 1-2 concise sentences. Do not include pricing. Do not use markdown headers (#) or bold (**) formatting. Just describe the work or materials provided in plain text. Do not mention tools, consumables, or crew supplies (gloves, batteries, cords, blades, tape, rags, trash bags, etc.) — only mention materials that become part of the finished project.\n\nOriginal:\n${allBillDescs.join('\n')}`,
                 }],
               }),
             });
@@ -3902,7 +3902,7 @@ export async function createDraftBillableInvoice(jobId: string): Promise<{
                 max_tokens: 256,
                 messages: [{
                   role: 'user',
-                  content: `Rewrite this vendor bill description into a brief, professional, client-facing summary for a renovation invoice. Keep it to 1-2 concise sentences. Do not include pricing. Do not use markdown headers (#) or bold (**) formatting. Write in plain text.\n\nOriginal:\n${billDesc}`,
+                  content: `Rewrite this vendor bill description into a brief, professional, client-facing summary for a renovation invoice. Keep it to 1-2 concise sentences. Do not include pricing. Do not use markdown headers (#) or bold (**) formatting. Write in plain text. Do not mention tools, consumables, or crew supplies (gloves, batteries, cords, blades, tape, rags, trash bags, etc.) — only mention materials that become part of the finished project.\n\nOriginal:\n${billDesc}`,
                 }],
               }),
             });
@@ -4266,6 +4266,8 @@ export async function reorganizeCostPlusInvoice(documentId: string, jobId: strin
         if (adminDesc || matDesc || laborDesc) {
           const prompt = `You are writing invoice descriptions for a high-end residential renovation company (Brett King Builder-Contractor). Rewrite each section's bullet-point description to be professional, client-facing, and easy to read. Keep bullet points but make each one a polished 1-line description. Do not add items that aren't there. Be concise. Do not use markdown headers (#). For emphasis use single *asterisks* not double **asterisks**.
 
+IMPORTANT for MATERIAL ITEMS: Do NOT include tools, consumables, or supplies purchased for the crew to do the work. Omit items like work gloves, batteries, electrical cords, extension cords, blades, drill bits, tape, rags, trash bags, safety glasses, dust masks, and similar job-site consumables. Only describe materials that become part of the finished project (lumber, tile, fixtures, hardware, paint, drywall, etc.). If all material items are tools/consumables, return an empty string for that key.
+
 PERMIT & ADMIN ITEMS:
 ${adminDesc || '(none)'}
 
@@ -4563,7 +4565,7 @@ If a section is "(none)", return empty string for that key.`;
             max_tokens: 256,
             messages: [{
               role: 'user',
-              content: `Rewrite this vendor bill description into a brief, professional, client-facing summary for a renovation invoice. Keep it to 1-2 concise sentences. Do not include pricing. Do not use markdown headers (#) or bold (**) formatting. Just describe the work or materials provided in plain text.\n\nOriginal description:\n${rawDesc}`,
+              content: `Rewrite this vendor bill description into a brief, professional, client-facing summary for a renovation invoice. Keep it to 1-2 concise sentences. Do not include pricing. Do not use markdown headers (#) or bold (**) formatting. Just describe the work or materials provided in plain text. Do not mention tools, consumables, or crew supplies (gloves, batteries, cords, blades, tape, rags, trash bags, etc.) — only mention materials that become part of the finished project.\n\nOriginal description:\n${rawDesc}`,
             }],
           }),
         });
@@ -4586,6 +4588,8 @@ If a section is "(none)", return empty string for that key.`;
     const apiKey = process.env.ANTHROPIC_API_KEY;
     if (apiKey && (adminDescription || materialsDescription || laborDescription)) {
       const prompt = `You are writing invoice descriptions for a high-end residential renovation company (Brett King Builder-Contractor). Rewrite each section's bullet-point description to be professional, client-facing, and easy to read. Keep bullet points but make each one a polished 1-line description. Do not add items that aren't there. Be concise. Do not use markdown headers (#). For emphasis use single *asterisks* not double **asterisks**.
+
+IMPORTANT for MATERIAL ITEMS: Do NOT include tools, consumables, or supplies purchased for the crew to do the work. Omit items like work gloves, batteries, electrical cords, extension cords, blades, drill bits, tape, rags, trash bags, safety glasses, dust masks, and similar job-site consumables. Only describe materials that become part of the finished project (lumber, tile, fixtures, hardware, paint, drywall, etc.). If all material items are tools/consumables, return an empty string for that key.
 
 PERMIT & ADMIN ITEMS:
 ${adminDescription || '(none)'}
