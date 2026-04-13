@@ -840,7 +840,11 @@ async function analyzeCostPlusJob(
   let health: InvoicingHealth = 'healthy';
   const hasUnbilledWork = unbilledCosts > 0 || unbilledHours > 0;
 
+  // Total unbilled amount includes both vendor bill costs AND uninvoiced time costs
+  const totalUnbilledAmount = unbilledCosts + unbilledTimeCost;
+
   if (hasUnbilledWork && daysSinceLastInvoice !== null) {
+    // Has at least one approved invoice — check staleness against last invoice date
     if (daysSinceLastInvoice > COST_PLUS_BILLING_CADENCE_DAYS * 2) {
       health = 'critical';
       alerts.push(`${daysSinceLastInvoice} days since last invoice — over 2x billing cadence`);
@@ -851,15 +855,56 @@ async function analyzeCostPlusJob(
       health = 'warning';
       alerts.push(`${daysSinceLastInvoice} days since last invoice — billing due soon`);
     }
+  } else if (hasUnbilledWork && daysSinceLastInvoice === null) {
+    // No invoices have ever been created — check staleness against earliest work date
+    // (oldest time entry or vendor bill)
+    let earliestWorkDate: string | null = null;
+    Array.from(timeByBudgetItem.values()).forEach((entries) => {
+      for (const entry of entries) {
+        if (entry.date && (!earliestWorkDate || entry.date < earliestWorkDate)) {
+          earliestWorkDate = entry.date;
+        }
+      }
+    });
+    Array.from(billsByBudgetItem.values()).forEach((bills) => {
+      for (const bill of bills) {
+        if (bill.date && (!earliestWorkDate || bill.date < earliestWorkDate)) {
+          earliestWorkDate = bill.date;
+        }
+      }
+    });
+
+    if (earliestWorkDate) {
+      const daysSinceFirstWork = daysSinceDate(todayStr, earliestWorkDate);
+      if (daysSinceFirstWork !== null && daysSinceFirstWork > COST_PLUS_BILLING_CADENCE_DAYS * 2) {
+        health = 'critical';
+        alerts.push(`No invoices created — work started ${daysSinceFirstWork} days ago`);
+      } else if (daysSinceFirstWork !== null && daysSinceFirstWork > ALERT_THRESHOLDS.costPlusOverdueDays) {
+        health = 'overdue';
+        alerts.push(`No invoices created — work started ${daysSinceFirstWork} days ago`);
+      } else if (daysSinceFirstWork !== null && daysSinceFirstWork > ALERT_THRESHOLDS.costPlusWarningDays) {
+        health = 'warning';
+        alerts.push(`No invoices created — work started ${daysSinceFirstWork} days ago`);
+      } else {
+        // Work is recent but still never invoiced — at minimum a warning
+        health = 'warning';
+        alerts.push('No invoices created yet');
+      }
+    } else {
+      // Has unbilled work but can't determine when — flag as warning
+      health = 'warning';
+      alerts.push('Unbilled work with no invoices created');
+    }
   }
 
-  if (hasUnbilledWork && unbilledAmount > ALERT_THRESHOLDS.unbilledAmountThreshold) {
-    alerts.push(`$${unbilledAmount.toLocaleString()} in unbilled costs`);
+  if (hasUnbilledWork && totalUnbilledAmount > ALERT_THRESHOLDS.unbilledAmountThreshold) {
+    alerts.push(`$${totalUnbilledAmount.toLocaleString()} in unbilled costs`);
     if (health === 'healthy') health = 'warning';
   }
 
   if (unbilledHours > 0) {
     alerts.push(`${unbilledHours.toFixed(1)} unbilled hours`);
+    if (health === 'healthy') health = 'warning';
   }
 
   return {
@@ -872,7 +917,7 @@ async function analyzeCostPlusJob(
     daysSinceLastInvoice,
     unbilledCosts,
     unbilledHours: Math.round(unbilledHours * 10) / 10,
-    unbilledAmount,
+    unbilledAmount: totalUnbilledAmount,
     invoiceCount: approvedInvoices.length,
     totalInvoiced,
     draftInvoices: draftInvoiceInfos,
