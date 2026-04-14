@@ -886,7 +886,7 @@ export default function DashboardOverview() {
   const [smDuration, setSmDuration] = useState(60);
   const [smNotes, setSmNotes] = useState('');
   const [smAddress, setSmAddress] = useState('');
-  const [smAssignee, setSmAssignee] = useState('');
+  const [smAssignees, setSmAssignees] = useState<string[]>([]);
   const [creatingSm, setCreatingSm] = useState(false);
   const [smSuccess, setSmSuccess] = useState('');
   const [smAvailability, setSmAvailability] = useState<any[]>([]);
@@ -912,12 +912,12 @@ export default function DashboardOverview() {
   ];
 
   const TEAM_ASSIGNEES = [
-    { id: '22P5SRwhLaYf', name: 'Nathan King', label: 'Nathan' },
-    { id: '22P6GTaPEbkh', name: 'Brett King', label: 'Brett' },
-    { id: '22P5nJ7ncFj4', name: 'Evan Harrington', label: 'Evan' },
-    { id: '22P6GTEnhCre', name: 'Josh King', label: 'Josh' },
-    { id: '22P5SpJkype2', name: 'Terri King', label: 'Terri' },
-    { id: '22P732t6SgNk', name: 'Kim King', label: 'Kim' },
+    { id: '22P5SRwhLaYf', name: 'Nathan King', label: 'Nathan', ghlUserId: 'nSwKWyjOFCRbopatJI36' },
+    { id: '22P6GTaPEbkh', name: 'Brett King', label: 'Brett', ghlUserId: 'cFyoFwK0LIr0npmY7W34' },
+    { id: '22P5nJ7ncFj4', name: 'Evan Harrington', label: 'Evan', ghlUserId: '' },
+    { id: '22P6GTEnhCre', name: 'Josh King', label: 'Josh', ghlUserId: '' },
+    { id: '22P5SpJkype2', name: 'Terri King', label: 'Terri', ghlUserId: '' },
+    { id: '22P732t6SgNk', name: 'Kim King', label: 'Kim', ghlUserId: '' },
   ];
   // The dashboard creator — auto-assigned on Waiting On tasks alongside the person being waited on
   const CREATOR_MEMBERSHIP_ID = '22P5SRwhLaYf'; // Nathan King
@@ -1383,6 +1383,12 @@ export default function DashboardOverview() {
         }
       });
 
+      // Build team assignees list with GHL user IDs for Loop automations
+      const selectedTeamMembers = smAssignees
+        .map(id => TEAM_ASSIGNEES.find(a => a.id === id))
+        .filter(Boolean)
+        .map(a => ({ jtMembershipId: a!.id, name: a!.name, ghlUserId: a!.ghlUserId || '' }));
+
       const res = await fetch('/api/dashboard/schedule-meeting', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${getToken()}` },
@@ -1395,7 +1401,7 @@ export default function DashboardOverview() {
           endTime,
           notes: smNotes || undefined,
           address: smAddress || undefined,
-          assigneeId: smAssignee || undefined,
+          assignees: selectedTeamMembers.length > 0 ? selectedTeamMembers : undefined,
         }),
       });
       if (!res.ok) { const t = await res.text(); throw new Error(t); }
@@ -1404,7 +1410,7 @@ export default function DashboardOverview() {
       setSmSuccess(`Meeting created — ${apptCount} reminder${apptCount > 1 ? 's' : ''} sent${data.jtTaskId ? ' + JT task' : ''}`);
       // Reset form
       setSmTitle(''); setSmDate(''); setSmTime('09:00'); setSmNotes(''); setSmAddress('');
-      setSmAddedTrades([]); setSmJobContacts([]); setSmSelectedContacts({});
+      setSmAssignees([]); setSmAddedTrades([]); setSmJobContacts([]); setSmSelectedContacts({});
       // Refresh dashboard data
       window.dispatchEvent(new Event('refreshDashboard'));
       setTimeout(() => setSmSuccess(''), 4000);
@@ -1798,12 +1804,20 @@ export default function DashboardOverview() {
                         />
                       </div>
                       <div>
-                        <label style={{ fontSize: 11, color: '#6a6058', fontWeight: 600, display: 'block', marginBottom: 3 }}>BKB ATTENDEE</label>
-                        <select value={smAssignee} onChange={e => setSmAssignee(e.target.value)}
-                          style={{ width: '100%', background: '#ffffff', border: '1px solid rgba(200,140,0,0.15)', borderRadius: 5, color: smAssignee ? '#c88c00' : '#5a5550', fontSize: 13, padding: '7px 8px', outline: 'none', cursor: 'pointer', boxSizing: 'border-box' as const }}>
-                          <option value="">Select attendee...</option>
-                          {TEAM_ASSIGNEES.map((a: any) => (<option key={a.id} value={a.id}>{a.label}</option>))}
-                        </select>
+                        <label style={{ fontSize: 11, color: '#6a6058', fontWeight: 600, display: 'block', marginBottom: 3 }}>BKB ATTENDEES</label>
+                        <div style={{ background: '#ffffff', border: '1px solid rgba(200,140,0,0.15)', borderRadius: 5, padding: '4px 8px', maxHeight: 120, overflowY: 'auto', boxSizing: 'border-box' as const }}>
+                          {TEAM_ASSIGNEES.map((a: any) => (
+                            <label key={a.id} style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '3px 0', cursor: 'pointer', fontSize: 13, color: smAssignees.includes(a.id) ? '#c88c00' : '#5a5550' }}>
+                              <input type="checkbox" checked={smAssignees.includes(a.id)}
+                                onChange={e => {
+                                  if (e.target.checked) setSmAssignees(prev => [...prev, a.id]);
+                                  else setSmAssignees(prev => prev.filter(id => id !== a.id));
+                                }}
+                                style={{ accentColor: '#c88c00' }} />
+                              {a.label}
+                            </label>
+                          ))}
+                        </div>
                       </div>
                     </div>
                     {/* CONTACTS — who gets reminders */}

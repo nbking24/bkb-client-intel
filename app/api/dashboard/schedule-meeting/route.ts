@@ -67,6 +67,7 @@ export async function POST(req: NextRequest) {
       notes,
       address,
       assigneeId,
+      assignees,
     } = await req.json();
 
     if (!calendarId || !jobId || !title || !startTime || !endTime) {
@@ -108,34 +109,78 @@ export async function POST(req: NextRequest) {
       );
     }
 
+    // Build list of team member GHL user IDs for appointment assignment
+    const teamAssignees: Array<{ jtMembershipId: string; name: string; ghlUserId: string }> =
+      Array.isArray(assignees) && assignees.length > 0 ? assignees : [];
+
     // 1. Create appointments in GHL for each contact
-    const ghlAppointments: Array<{ contactName: string; ghlEventId: string }> = [];
+    // When team assignees have GHL user IDs, create one appointment per contact per team member
+    // so that Loop automations fire for each assigned team member.
+    const ghlAppointments: Array<{ contactName: string; ghlEventId: string; assignedTo?: string }> = [];
     const errors: string[] = [];
 
-    for (const contact of contactsToUse) {
-      try {
-        const ghlAppointment = await createAppointment({
-          calendarId,
-          contactId: contact.ghlContactId,
-          startTime,
-          endTime,
-          title,
-          notes,
-          address,
-          status: 'confirmed',
-        });
+    // Determine which GHL user IDs to assign appointments to
+    const ghlUserIds = teamAssignees
+      .filter(a => a.ghlUserId && a.ghlUserId.trim() !== '')
+      .map(a => ({ ghlUserId: a.ghlUserId, name: a.name }));
 
-        const ghlEventId = ghlAppointment.id;
-        if (!ghlEventId) {
-          errors.push(`GHL appointment for ${contact.name || contact.ghlContactId} failed: no ID returned`);
-        } else {
-          ghlAppointments.push({
-            contactName: contact.name || contact.ghlContactId,
-            ghlEventId,
-          });
+    for (const contact of contactsToUse) {
+      if (ghlUserIds.length > 0) {
+        // Create one appointment per GHL team member so each gets Loop automations
+        for (const assignee of ghlUserIds) {
+          try {
+            const ghlAppointment = await createAppointment({
+              calendarId,
+              contactId: contact.ghlContactId,
+              startTime,
+              endTime,
+              title,
+              notes,
+              address,
+              status: 'confirmed',
+              assignedUserId: assignee.ghlUserId,
+            });
+
+            const ghlEventId = ghlAppointment.id;
+            if (!ghlEventId) {
+              errors.push(`GHL appointment for ${contact.name || contact.ghlContactId} (assigned to ${assignee.name}) failed: no ID returned`);
+            } else {
+              ghlAppointments.push({
+                contactName: contact.name || contact.ghlContactId,
+                ghlEventId,
+                assignedTo: assignee.name,
+              });
+            }
+          } catch (err: any) {
+            errors.push(`GHL appointment for ${contact.name || contact.ghlContactId} (assigned to ${assignee.name}) failed: ${err.message}`);
+          }
         }
-      } catch (err: any) {
-        errors.push(`GHL appointment for ${contact.name || contact.ghlContactId} failed: ${err.message}`);
+      } else {
+        // No GHL team members — create unassigned appointment (original behavior)
+        try {
+          const ghlAppointment = await createAppointment({
+            calendarId,
+            contactId: contact.ghlContactId,
+            startTime,
+            endTime,
+            title,
+            notes,
+            address,
+            status: 'confirmed',
+          });
+
+          const ghlEventId = ghlAppointment.id;
+          if (!ghlEventId) {
+            errors.push(`GHL appointment for ${contact.name || contact.ghlContactId} failed: no ID returned`);
+          } else {
+            ghlAppointments.push({
+              contactName: contact.name || contact.ghlContactId,
+              ghlEventId,
+            });
+          }
+        } catch (err: any) {
+          errors.push(`GHL appointment for ${contact.name || contact.ghlContactId} failed: ${err.message}`);
+        }
       }
     }
 
@@ -188,6 +233,11 @@ export async function POST(req: NextRequest) {
         phaseGroupId = created.id;
       }
 
+      // Build JT assignee list: use new multi-assignees if available, fall back to legacy single assigneeId
+      const jtMembershipIds = teamAssignees.length > 0
+        ? teamAssignees.map(a => a.jtMembershipId)
+        : (assigneeId ? [assigneeId] : []);
+
       // Create the task
       const jtTask = await createPhaseTask({
         jobId,
@@ -196,7 +246,7 @@ export async function POST(req: NextRequest) {
         description,
         startDate,
         endDate,
-        ...(assigneeId ? { assignedMembershipIds: [assigneeId] } : {}),
+        ...(jtMembershipIds.length > 0 ? { assignedMembershipIds: jtMembershipIds } : {}),
       });
 
       jtTaskId = jtTask.id;

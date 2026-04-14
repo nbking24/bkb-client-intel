@@ -276,6 +276,7 @@ export async function createAppointment(params: {
   notes?: string;
   address?: string;
   status?: string;
+  assignedUserId?: string;
 }) {
   const body: any = {
     calendarId: params.calendarId,
@@ -288,6 +289,7 @@ export async function createAppointment(params: {
   if (params.title) body.title = params.title;
   if (params.notes) body.notes = params.notes;
   if (params.address) body.address = params.address;
+  if (params.assignedUserId) body.assignedUserId = params.assignedUserId;
 
   return ghlFetch('/calendars/events/appointments', {
     method: 'POST',
