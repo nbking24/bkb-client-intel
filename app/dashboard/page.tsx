@@ -912,9 +912,9 @@ export default function DashboardOverview() {
   ];
 
   const TEAM_ASSIGNEES = [
-    { id: '22P5SRwhLaYf', name: 'Nathan King', label: 'Nathan', ghlUserId: 'nSwKWyjOFCRbopatJI36' },
-    { id: '22P6GTaPEbkh', name: 'Brett King', label: 'Brett', ghlUserId: 'cFyoFwK0LIr0npmY7W34' },
-    { id: '22P5nJ7ncFj4', name: 'Evan Harrington', label: 'Evan', ghlUserId: '' },
+    { id: '22P5SRwhLaYf', name: 'Nathan King', label: 'Nathan', ghlUserId: 'cFyoFwK0LIr0npmY7W34' },
+    { id: '22P6GTaPEbkh', name: 'Brett King', label: 'Brett', ghlUserId: 'ffCrLZvtipVnvKgSActX' },
+    { id: '22P5nJ7ncFj4', name: 'Evan Harrington', label: 'Evan', ghlUserId: 'YyjcH150scEotXz21lWA' },
     { id: '22P6GTEnhCre', name: 'Josh King', label: 'Josh', ghlUserId: '' },
     { id: '22P5SpJkype2', name: 'Terri King', label: 'Terri', ghlUserId: '' },
     { id: '22P732t6SgNk', name: 'Kim King', label: 'Kim', ghlUserId: '' },

@@ -35,26 +35,14 @@ export async function GET(req: NextRequest) {
   try {
     const calendars = await getCalendars();
 
-    // Also fetch GHL users for team member verification
-    let users: any[] = [];
-    try {
-      const { getLocationUsers } = await import('@/app/lib/ghl');
-      users = await getLocationUsers();
-    } catch (e: any) {
-      users = [{ error: e.message }];
-    }
-
     return NextResponse.json({
       success: true,
       calendars: calendars.map((cal: any) => ({
         id: cal.id,
         name: cal.name,
-        group: cal.group || null,
-        duration: cal.slotDuration || cal.duration || null,
-        teamMembers: cal.teamMembers || cal.calendarConfig?.teamMembers || [],
-        rawKeys: Object.keys(cal),
+        group: cal.group,
+        duration: cal.duration,
       })),
-      users,
     });
   } catch (err: any) {
     console.error('Fetch GHL calendars failed:', err);
