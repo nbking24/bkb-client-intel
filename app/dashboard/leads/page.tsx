@@ -9,6 +9,7 @@ import {
   Shield, Eye, Trash2, AlertTriangle, ExternalLink, MessageSquare, ClipboardList,
   HardHat, FileCheck, X, Ban,
 } from 'lucide-react';
+import LeadActionPanel from './LeadActionPanel';
 
 /* ── Types ── */
 interface FormData {
@@ -397,6 +398,9 @@ export default function LeadsPage() {
       setKpiLoading(false);
     }
   };
+
+  // Lead action panel state
+  const [actionPanelLead, setActionPanelLead] = useState<PendingLead | null>(null);
 
   // Spam handling state
   const [spamLoading, setSpamLoading] = useState<string | null>(null); // opportunityId being processed
@@ -1087,10 +1091,10 @@ export default function LeadsPage() {
           {!pendingCollapsed && <div className="divide-y" style={{ borderColor: 'rgba(200,140,0,0.06)' }}>
             {kpiData.pendingNewLeads.map((lead) => (
               <div key={lead.id} className="px-5 py-3 flex items-start gap-4">
-                {/* Lead Info */}
-                <div className="flex-1 min-w-0">
+                {/* Lead Info — click to open action panel */}
+                <div className="flex-1 min-w-0 cursor-pointer rounded-lg px-2 py-1 -mx-2 -my-1 transition-all hover:bg-[rgba(200,140,0,0.04)]" onClick={() => setActionPanelLead(lead)}>
                   <div className="flex items-center gap-2 mb-1">
-                    <span className="text-sm font-semibold" style={{ color: '#1a1a1a' }}>
+                    <span className="text-sm font-semibold group-hover:underline" style={{ color: '#1a1a1a', textDecorationColor: '#c88c00' }}>
                       {lead.contactName || lead.name}
                     </span>
                     {lead.stage && (
@@ -1463,6 +1467,16 @@ export default function LeadsPage() {
       </div>
 
       </div>{/* end side-by-side grid */}
+
+      {/* ═══ Lead Action Panel (slide-out) ═══ */}
+      {actionPanelLead && (
+        <LeadActionPanel
+          lead={actionPanelLead}
+          onClose={() => setActionPanelLead(null)}
+          onComplete={() => { loadKpis(); loadEstimatingData(); }}
+          getToken={getToken}
+        />
+      )}
 
     </div>
   );
