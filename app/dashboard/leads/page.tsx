@@ -10,6 +10,7 @@ import {
   HardHat, FileCheck, X, Ban,
 } from 'lucide-react';
 import LeadActionPanel from './LeadActionPanel';
+import LeadDetailModal from './LeadDetailModal';
 
 /* ── Types ── */
 interface FormData {
@@ -109,7 +110,7 @@ interface KpiData {
   pipelineBreakdown: { stage: string; count: number; stageId: string }[];
   funnel: { label: string; value: number }[];
   monthlyTrend: { month: string; leads: number; secured: number }[];
-  recentLeads: { id: string; name: string; stage: string; status: string; createdAt: string; contactName: string }[];
+  recentLeads: { id: string; name: string; stage: string; status: string; createdAt: string; contactName: string; contactId: string }[];
   pendingNewLeads: PendingLead[];
   sourceBreakdown: SourceItem[];
 }
@@ -398,6 +399,9 @@ export default function LeadsPage() {
       setKpiLoading(false);
     }
   };
+
+  // Lead detail modal state
+  const [detailModal, setDetailModal] = useState<{ contactId: string; opportunityId?: string; contactName?: string } | null>(null);
 
   // Lead action panel state
   const [actionPanelExpanded, setActionPanelExpanded] = useState(false);
@@ -979,7 +983,13 @@ export default function LeadsPage() {
                 <div key={lead.id} className="px-4 py-2.5 flex items-center gap-3">
                   <div className="w-1.5 h-1.5 rounded-full flex-shrink-0" style={{ background: STAGE_COLORS[lead.stage] || '#8a8078' }} />
                   <div className="flex-1 min-w-0">
-                    <div className="text-sm truncate" style={{ color: '#1a1a1a' }}>{lead.name}</div>
+                    <div
+                      className="text-sm truncate cursor-pointer hover:underline"
+                      style={{ color: '#1a1a1a', textDecorationColor: '#c88c00' }}
+                      onClick={() => lead.contactId && setDetailModal({ contactId: lead.contactId, opportunityId: lead.id, contactName: lead.contactName || lead.name })}
+                    >
+                      {lead.name}
+                    </div>
                     <div className="text-xs" style={{ color: STAGE_COLORS[lead.stage] || '#6a6058' }}>{lead.stage}</div>
                   </div>
                   <div className="text-right flex-shrink-0">
@@ -1121,7 +1131,11 @@ export default function LeadsPage() {
                 {/* Lead Info */}
                 <div className="flex-1 min-w-0">
                   <div className="flex items-center gap-2 mb-1">
-                    <span className="text-sm font-semibold" style={{ color: '#1a1a1a' }}>
+                    <span
+                      className="text-sm font-semibold cursor-pointer hover:underline"
+                      style={{ color: '#1a1a1a', textDecorationColor: '#c88c00' }}
+                      onClick={() => setDetailModal({ contactId: lead.contactId, opportunityId: lead.id, contactName: lead.contactName || lead.name })}
+                    >
                       {lead.contactName || lead.name}
                     </span>
                     {lead.stage && (
@@ -1379,7 +1393,11 @@ export default function LeadsPage() {
                     }}>
                       {/* Row 1: Name + badges */}
                       <div className="flex items-center gap-2 mb-1.5">
-                        <span className="text-sm font-semibold" style={{ color: '#1a1a1a' }}>
+                        <span
+                          className="text-sm font-semibold cursor-pointer hover:underline"
+                          style={{ color: '#1a1a1a', textDecorationColor: '#c88c00' }}
+                          onClick={() => job.ghlContactId && setDetailModal({ contactId: job.ghlContactId, opportunityId: job.ghlOpportunityId, contactName: job.contactName || job.ghlName })}
+                        >
                           {job.contactName || job.ghlName}
                         </span>
                         <span className="text-[10px] px-1.5 py-0.5 rounded" style={{ background: 'rgba(200,140,0,0.12)', color: '#c88c00' }}>
@@ -1494,6 +1512,16 @@ export default function LeadsPage() {
       </div>
 
       </div>{/* end side-by-side grid */}
+
+      {/* ═══ Lead Detail Modal ═══ */}
+      {detailModal && (
+        <LeadDetailModal
+          contactId={detailModal.contactId}
+          opportunityId={detailModal.opportunityId}
+          contactName={detailModal.contactName}
+          onClose={() => setDetailModal(null)}
+        />
+      )}
 
     </div>
   );

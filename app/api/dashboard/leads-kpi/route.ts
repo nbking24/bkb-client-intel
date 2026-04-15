@@ -250,6 +250,7 @@ export async function GET() {
         status: o.status,
         createdAt: o.createdAt,
         contactName: o.contact ? `${o.contact.name || ''}`.trim() : '',
+        contactId: o.contact?.id || '',
       }));
 
     // ── Pending Leads (open leads in early pipeline stages only) ──
