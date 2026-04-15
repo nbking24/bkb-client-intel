@@ -9,6 +9,7 @@ const GHL_KEY = () => process.env.GHL_API_KEY || '';
 const GHL_LOC = () => process.env.GHL_LOCATION_ID || '';
 
 const ESTIMATING_STAGE_ID = 'c4012dfe-bc76-4447-8947-96a9e846ff2b';
+const GHL_CF_JT_JOB_ID = 'GjwWvbGyh7CQfGmFir5p';
 
 function ghlHeaders() {
   return {
@@ -142,8 +143,10 @@ export async function GET() {
 
     // Build name-based lookup for JT jobs (lowercase for fuzzy matching)
     const jtJobsByName = new Map<string, typeof activeJobs[0]>();
+    const jtJobsById = new Map<string, typeof activeJobs[0]>();
     for (const job of activeJobs) {
       jtJobsByName.set(job.name.toLowerCase().trim(), job);
+      jtJobsById.set(job.id, job);
     }
 
     // For each estimating opportunity, find matching JT job and get activity
@@ -160,10 +163,26 @@ export async function GET() {
             ? `${opp.contact.firstName || ''} ${opp.contact.lastName || ''}`.trim()
             : opp.name || '';
 
-          // Try to find matching JT job by name
-          let jtJob = jtJobsByName.get(oppName) || null;
+          // 1. Try matching by JT Job ID custom field (most reliable — set by webhook or manually)
+          let jtJob: typeof activeJobs[0] | null = null;
+          if (opp.customFields && Array.isArray(opp.customFields)) {
+            for (const cf of opp.customFields) {
+              if (cf.id === GHL_CF_JT_JOB_ID || (cf.fieldKey || cf.key || '').toLowerCase().includes('jt_job_id')) {
+                const val = cf.fieldValueString || cf.value || '';
+                if (val && jtJobsById.has(val)) {
+                  jtJob = jtJobsById.get(val)!;
+                  break;
+                }
+              }
+            }
+          }
 
-          // If no exact match, try partial matching (GHL name contained in JT name or vice versa)
+          // 2. Try exact name match
+          if (!jtJob) {
+            jtJob = jtJobsByName.get(oppName) || null;
+          }
+
+          // 3. Try partial matching (GHL name contained in JT name or vice versa)
           if (!jtJob) {
             for (const [jtName, job] of jtJobsByName) {
               if (jtName.includes(oppName) || oppName.includes(jtName)) {
@@ -173,7 +192,7 @@ export async function GET() {
             }
           }
 
-          // Also try matching by client name
+          // 4. Try matching by client name
           if (!jtJob && contactName) {
             const contactLower = contactName.toLowerCase().trim();
             for (const [jtName, job] of jtJobsByName) {
