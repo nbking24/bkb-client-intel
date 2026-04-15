@@ -52,13 +52,17 @@ export async function GET(req: NextRequest) {
     const userPmName = user.name;
     const myJobs = activeJobs.filter((j: any) => j.projectManager === userPmName);
 
-    // Date boundaries
+    // Date boundaries — use Central Time (BKB is in Texas)
+    // Vercel runs in UTC; without this, tasks due "today" CT appear overdue after 7 PM CT
     const now = new Date();
-    const today = new Date();
+    const centralNow = new Date(now.toLocaleString('en-US', { timeZone: 'America/Chicago' }));
+    const today = new Date(centralNow);
     today.setHours(0, 0, 0, 0);
-    const todayStr = today.toISOString().split('T')[0];
-    const tomorrowStr = new Date(today.getTime() + 86400000).toISOString().split('T')[0];
-    const dayAfterStr = new Date(today.getTime() + 2 * 86400000).toISOString().split('T')[0];
+    const todayStr = centralNow.toISOString().split('T')[0];
+    const tomorrow = new Date(centralNow); tomorrow.setDate(tomorrow.getDate() + 1);
+    const tomorrowStr = tomorrow.toISOString().split('T')[0];
+    const dayAfter = new Date(centralNow); dayAfter.setDate(dayAfter.getDate() + 2);
+    const dayAfterStr = dayAfter.toISOString().split('T')[0];
 
     // Forward-looking: upcoming Monday
     const dow = today.getDay();
@@ -109,11 +113,15 @@ export async function GET(req: NextRequest) {
       for (const task of tasks) {
         if (task.isGroup) continue;
         const isComplete = task.progress !== null && task.progress >= 1;
-        const taskDate = task.endDate || task.startDate;
-        if (!taskDate) continue;
-        const dateStr = taskDate.split('T')[0];
+        // Only use endDate for overdue check — startDate is NOT a due date.
+        // Tasks without an endDate cannot be overdue.
+        const taskDate = task.endDate;
+        const calDate = task.endDate || task.startDate; // calendar still uses startDate for positioning
+        if (!taskDate && !calDate) continue;
+        const dateStr = taskDate ? taskDate.split('T')[0] : null;
+        const calDateStr = calDate ? calDate.split('T')[0] : null;
 
-        if (dateStr < todayStr && !isComplete) {
+        if (dateStr && dateStr < todayStr && !isComplete) {
           const overdueItem = {
             id: task.id, name: task.name, date: dateStr,
             progress: task.progress,
@@ -128,9 +136,10 @@ export async function GET(req: NextRequest) {
           continue;
         }
 
-        if (dateStr >= week1Start && dateStr <= week2End) {
+        const displayDate = calDateStr || dateStr;
+        if (displayDate && displayDate >= week1Start && displayDate <= week2End) {
           calendarTasks.push({
-            id: task.id, name: task.name, date: dateStr,
+            id: task.id, name: task.name, date: displayDate,
             startDate: task.startDate ? task.startDate.split('T')[0] : null,
             endDate: task.endDate ? task.endDate.split('T')[0] : null,
             progress: task.progress, isComplete,

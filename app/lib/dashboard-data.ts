@@ -153,9 +153,12 @@ export interface UserDashboardData {
 
 function classifyUrgency(endDate: string | null, progress: number): { urgency: 'urgent' | 'high' | 'normal'; daysUntilDue: number | null } {
   if (!endDate || progress >= 1) return { urgency: 'normal', daysUntilDue: null };
-  const today = new Date();
+  // Use Central Time (BKB is in Texas) to avoid UTC offset causing
+  // tasks due "today" to appear overdue after 7 PM CT
+  const centralNow = new Date(new Date().toLocaleString('en-US', { timeZone: 'America/Chicago' }));
+  const today = new Date(centralNow);
   today.setHours(0, 0, 0, 0);
-  const due = new Date(endDate);
+  const due = new Date(endDate + 'T12:00:00'); // noon to avoid DST edge cases
   due.setHours(0, 0, 0, 0);
   const days = Math.ceil((due.getTime() - today.getTime()) / (1000 * 60 * 60 * 24));
   if (days < 0 || days <= 2) return { urgency: 'urgent', daysUntilDue: days };
@@ -659,8 +662,8 @@ export async function buildUserDashboardData(userId: string): Promise<UserDashbo
   // Filter tomorrow's tasks
   const tomorrowTasks = tasks.filter(t => t.endDate?.startsWith(timeContext.tomorrowDate));
 
-  // Compute stats
-  const today = new Date().toISOString().split('T')[0];
+  // Compute stats — use Central Time for consistency
+  const today = new Date(new Date().toLocaleString('en-US', { timeZone: 'America/Chicago' })).toISOString().split('T')[0];
   const stats = {
     totalTasks: tasks.length,
     urgentTasks: tasks.filter(t => t.urgency === 'urgent').length,

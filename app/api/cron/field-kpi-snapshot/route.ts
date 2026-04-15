@@ -32,7 +32,9 @@ export async function GET(req: NextRequest) {
   }
 
   console.log('=== Field KPI Snapshot ===');
-  const today = new Date();
+  // Use Central Time (BKB is in Texas)
+  const centralNow = new Date(new Date().toLocaleString('en-US', { timeZone: 'America/Chicago' }));
+  const today = new Date(centralNow);
   today.setHours(0, 0, 0, 0);
   const todayStr = today.toISOString().split('T')[0];
   console.log(`Date: ${todayStr}, Seed: ${isSeed}`);
