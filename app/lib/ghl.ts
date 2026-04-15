@@ -224,6 +224,25 @@ export async function getCalendars() {
 }
 
 /**
+ * List all users in the GHL location.
+ */
+export async function getLocationUsers() {
+  const data = await ghlFetch(`/users/search`, {
+    method: 'POST',
+    body: JSON.stringify({
+      locationId: GHL_LOC(),
+      limit: 100,
+    }),
+  });
+  return (data.users || []).map((u: any) => ({
+    id: u.id,
+    name: u.name || `${u.firstName || ''} ${u.lastName || ''}`.trim(),
+    email: u.email || '',
+    roles: u.roles || {},
+  }));
+}
+
+/**
  * Get calendar events/appointments within a date range.
  * All times should be ISO-8601 / epoch milliseconds.
  */

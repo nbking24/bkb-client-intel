@@ -35,6 +35,15 @@ export async function GET(req: NextRequest) {
   try {
     const calendars = await getCalendars();
 
+    // Also fetch GHL users for team member verification
+    let users: any[] = [];
+    try {
+      const { getLocationUsers } = await import('@/app/lib/ghl');
+      users = await getLocationUsers();
+    } catch (e) {
+      // getLocationUsers may not exist yet — ignore
+    }
+
     return NextResponse.json({
       success: true,
       calendars: calendars.map((cal: any) => ({
@@ -42,7 +51,9 @@ export async function GET(req: NextRequest) {
         name: cal.name,
         group: cal.group,
         duration: cal.duration,
+        teamMembers: cal.teamMembers || [],
       })),
+      users,
     });
   } catch (err: any) {
     console.error('Fetch GHL calendars failed:', err);
