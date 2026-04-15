@@ -849,7 +849,7 @@ export default function DashboardOverview() {
   // Waiting On tracking
   const [showWaitingOnPanel, setShowWaitingOnPanel] = useState(false);
   const [showAgentPanel, setShowAgentPanel] = useState(false);
-  const [panelTab, setPanelTab] = useState<'waitingOn' | 'newTask' | 'scheduleMeeting'>('waitingOn');
+  const [panelTab, setPanelTab] = useState<'waitingOn' | 'newTask' | 'scheduleMeeting'>('newTask');
   const [stNewTaskName, setStNewTaskName] = useState('');
   const [stNewTaskJob, setStNewTaskJob] = useState('');
   const [stNewTaskPhase, setStNewTaskPhase] = useState('');
