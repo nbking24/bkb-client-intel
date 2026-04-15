@@ -252,15 +252,16 @@ export async function GET() {
         contactName: o.contact ? `${o.contact.name || ''}`.trim() : '',
       }));
 
-    // ── Pending Leads (all open leads not yet in "In Design" or beyond) ──
-    // Build a Set of stage IDs that count as "lead" stages (everything before "In Design")
-    const LEAD_STAGE_IDS = new Set(
+    // ── Pending Leads (open leads in early pipeline stages only) ──
+    // Only show leads that are actively pending action — not Nurture or Estimating
+    const PENDING_STAGES = ['New Inquiry', 'Initial Call Scheduled', 'Discovery Scheduled', 'No Show'];
+    const PENDING_STAGE_IDS = new Set(
       Object.entries(STAGES)
-        .filter(([, name]) => LEAD_STAGES.includes(name))
+        .filter(([, name]) => PENDING_STAGES.includes(name))
         .map(([id]) => id)
     );
     const pendingNewLeads = opps
-      .filter((o: any) => LEAD_STAGE_IDS.has(o.pipelineStageId) && o.status === 'open')
+      .filter((o: any) => PENDING_STAGE_IDS.has(o.pipelineStageId) && o.status === 'open')
       .sort((a: any, b: any) => new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime())
       .map((o: any) => ({
         id: o.id,
