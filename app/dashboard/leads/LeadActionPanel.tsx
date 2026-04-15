@@ -4,8 +4,8 @@
 import { useState, useRef, useEffect } from 'react';
 import {
   X, Calendar, Clock, Loader2, CheckCircle2,
-  ArrowRight, MessageSquare, MapPin, Heart,
-  Phone, Mail, ChevronDown, FileText,
+  ArrowRight, MessageSquare, Heart,
+  Phone, Mail, ChevronDown, ChevronRight, FileText, UserPlus, Search,
 } from 'lucide-react';
 
 /* ── Types ── */
@@ -23,26 +23,16 @@ interface PendingLead {
   stage: string;
 }
 
-interface RecentLead {
-  id: string;
-  name: string;
-  stage: string;
-  status: string;
-  createdAt: string;
-  contactName: string;
-  contactId?: string;
-  phone?: string;
-  email?: string;
-}
-
 interface LeadActionPanelProps {
-  lead: PendingLead | RecentLead | null;
+  lead: PendingLead | null;
+  pendingLeads: PendingLead[];
+  onSelectLead: (lead: PendingLead) => void;
   onClose: () => void;
   onComplete: () => void;
   getToken: () => string;
 }
 
-/* ── Time slot generation ── */
+/* ── Time slots ── */
 const TIME_SLOTS: string[] = [];
 for (let h = 7; h <= 17; h++) {
   TIME_SLOTS.push(`${h.toString().padStart(2, '0')}:00`);
@@ -58,18 +48,6 @@ function formatTime(t: string) {
   return `${h12}:${mm} ${ampm}`;
 }
 
-function timeAgo(dateStr: string) {
-  const d = new Date(dateStr);
-  const now = new Date();
-  const diffMs = now.getTime() - d.getTime();
-  const days = Math.floor(diffMs / 86400000);
-  if (days === 0) return 'Today';
-  if (days === 1) return 'Yesterday';
-  if (days < 7) return `${days}d ago`;
-  if (days < 30) return `${Math.floor(days / 7)}w ago`;
-  return d.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
-}
-
 const STAGE_COLORS: Record<string, string> = {
   'New Inquiry': '#8a8078',
   'Initial Call Scheduled': '#c88c00',
@@ -77,10 +55,9 @@ const STAGE_COLORS: Record<string, string> = {
   'No Show': '#ef4444',
   'Nurture': '#a78bfa',
   'Estimating': '#c88c00',
-  'In Design': '#22c55e',
 };
 
-export default function LeadActionPanel({ lead, onClose, onComplete, getToken }: LeadActionPanelProps) {
+export default function LeadActionPanel({ lead, pendingLeads, onSelectLead, onClose, onComplete, getToken }: LeadActionPanelProps) {
   const [selectedAction, setSelectedAction] = useState<'schedule' | 'nurture' | null>(null);
   const [notes, setNotes] = useState('');
   const [appointmentDate, setAppointmentDate] = useState('');
@@ -88,8 +65,9 @@ export default function LeadActionPanel({ lead, onClose, onComplete, getToken }:
   const [loading, setLoading] = useState(false);
   const [success, setSuccess] = useState<string | null>(null);
   const [error, setError] = useState('');
-  const panelRef = useRef<HTMLDivElement>(null);
-  const notesRef = useRef<HTMLTextAreaElement>(null);
+  const [leadSearchOpen, setLeadSearchOpen] = useState(false);
+  const [leadSearch, setLeadSearch] = useState('');
+  const searchRef = useRef<HTMLInputElement>(null);
 
   // Default date to tomorrow
   useEffect(() => {
@@ -98,7 +76,7 @@ export default function LeadActionPanel({ lead, onClose, onComplete, getToken }:
     setAppointmentDate(tomorrow.toISOString().split('T')[0]);
   }, []);
 
-  // Reset state when lead changes
+  // Reset when lead changes
   useEffect(() => {
     setSelectedAction(null);
     setNotes('');
@@ -111,44 +89,28 @@ export default function LeadActionPanel({ lead, onClose, onComplete, getToken }:
     setAppointmentDate(tomorrow.toISOString().split('T')[0]);
   }, [lead?.id]);
 
-  // Close on Escape
+  // Focus search when dropdown opens
   useEffect(() => {
-    const handleKey = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') onClose();
-    };
-    document.addEventListener('keydown', handleKey);
-    return () => document.removeEventListener('keydown', handleKey);
-  }, [onClose]);
+    if (leadSearchOpen) setTimeout(() => searchRef.current?.focus(), 100);
+  }, [leadSearchOpen]);
 
-  // Click outside to close
-  useEffect(() => {
-    const handleClick = (e: MouseEvent) => {
-      if (panelRef.current && !panelRef.current.contains(e.target as Node)) {
-        onClose();
-      }
-    };
-    // Delay to avoid catching the opening click
-    const timer = setTimeout(() => document.addEventListener('mousedown', handleClick), 100);
-    return () => { clearTimeout(timer); document.removeEventListener('mousedown', handleClick); };
-  }, [onClose]);
+  const contactName = lead ? (lead.contactName || lead.name) : '';
 
-  if (!lead) return null;
+  const filteredLeads = pendingLeads.filter(l => {
+    if (!leadSearch.trim()) return true;
+    const q = leadSearch.toLowerCase();
+    return (l.contactName || l.name).toLowerCase().includes(q) ||
+      (l.phone || '').includes(q) ||
+      (l.email || '').toLowerCase().includes(q);
+  });
 
-  const contactName = ('contactName' in lead ? lead.contactName : null) || lead.name;
-  const contactId = ('contactId' in lead ? lead.contactId : null) || (lead as any).contactId;
-  const phone = ('phone' in lead ? lead.phone : null) || (lead as any).phone;
-  const email = ('email' in lead ? lead.email : null) || (lead as any).email;
-  const stage = lead.stage || (lead as any).stage;
-  const daysPending = 'daysPending' in lead ? lead.daysPending : null;
-
-  const canSubmit = selectedAction === 'nurture'
-    ? true
-    : selectedAction === 'schedule'
-      ? !!(appointmentDate && appointmentTime)
-      : false;
+  const canSubmit = lead && (
+    selectedAction === 'nurture' ||
+    (selectedAction === 'schedule' && appointmentDate && appointmentTime)
+  );
 
   const handleSubmit = async () => {
-    if (!selectedAction) return;
+    if (!selectedAction || !lead) return;
     setLoading(true);
     setError('');
 
@@ -156,13 +118,11 @@ export default function LeadActionPanel({ lead, onClose, onComplete, getToken }:
       const payload: Record<string, any> = {
         action: selectedAction === 'schedule' ? 'schedule_meeting' : 'move_to_nurture',
         opportunityId: lead.id,
-        contactId,
+        contactId: lead.contactId,
         contactName,
       };
 
-      if (notes.trim()) {
-        payload.notes = notes.trim();
-      }
+      if (notes.trim()) payload.notes = notes.trim();
 
       if (selectedAction === 'schedule') {
         payload.appointmentDate = appointmentDate;
@@ -185,12 +145,7 @@ export default function LeadActionPanel({ lead, onClose, onComplete, getToken }:
         : `${contactName} moved to Nurture`;
 
       setSuccess(successMsg);
-
-      // Auto-close after success
-      setTimeout(() => {
-        onComplete();
-        onClose();
-      }, 1800);
+      setTimeout(() => onComplete(), 2000);
     } catch (err: any) {
       setError(err.message || 'Something went wrong');
     } finally {
@@ -199,291 +154,332 @@ export default function LeadActionPanel({ lead, onClose, onComplete, getToken }:
   };
 
   return (
-    <>
-      {/* Backdrop */}
-      <div
-        className="fixed inset-0 z-40 transition-opacity duration-200"
-        style={{ background: 'rgba(0,0,0,0.3)', backdropFilter: 'blur(2px)' }}
-      />
-
-      {/* Panel */}
-      <div
-        ref={panelRef}
-        className="fixed right-0 top-0 bottom-0 z-50 flex flex-col overflow-y-auto"
-        style={{
-          width: '420px',
-          maxWidth: '90vw',
-          background: '#ffffff',
-          boxShadow: '-8px 0 30px rgba(0,0,0,0.12)',
-          animation: 'slideIn 0.2s ease-out',
-        }}
+    <div className="rounded-xl overflow-hidden" style={{ background: '#ffffff', border: '1px solid rgba(200,140,0,0.12)' }}>
+      {/* Header */}
+      <button
+        onClick={onClose}
+        className="w-full flex items-center gap-2 px-5 py-3 cursor-pointer"
+        style={{ background: '#f8f6f3', borderBottom: '1px solid rgba(200,140,0,0.08)' }}
       >
-        {/* Header */}
-        <div className="flex items-center justify-between px-5 py-4 flex-shrink-0" style={{ borderBottom: '1px solid rgba(200,140,0,0.1)', background: '#f8f6f3' }}>
-          <div className="flex items-center gap-2">
-            <MessageSquare size={16} style={{ color: '#c88c00' }} />
-            <span className="text-sm font-semibold" style={{ color: '#1a1a1a' }}>Post-Call Actions</span>
-          </div>
-          <button onClick={onClose} className="p-1 rounded-md hover:opacity-70 transition-all" style={{ color: '#8a8078' }}>
-            <X size={16} />
-          </button>
+        <MessageSquare size={16} style={{ color: '#c88c00' }} />
+        <span className="text-sm font-semibold" style={{ color: '#1a1a1a' }}>Post-Call Actions</span>
+        <span className="text-xs ml-auto mr-2" style={{ color: '#6a6058' }}>
+          {success ? 'Done!' : lead ? contactName : 'Select a lead'}
+        </span>
+        <div className="transition-transform duration-200" style={{ transform: 'rotate(90deg)' }}>
+          <ChevronRight size={16} style={{ color: '#8a8078' }} />
         </div>
+      </button>
 
-        {/* Lead Info Card */}
-        <div className="px-5 py-4 flex-shrink-0" style={{ borderBottom: '1px solid rgba(200,140,0,0.08)' }}>
-          <div className="flex items-center gap-2 mb-2">
-            <span className="text-base font-semibold" style={{ color: '#1a1a1a' }}>{contactName}</span>
-            {stage && (
-              <span className="text-[10px] px-2 py-0.5 rounded-full" style={{
-                background: `${STAGE_COLORS[stage] || '#8a8078'}18`,
-                color: STAGE_COLORS[stage] || '#8a8078',
-              }}>
-                {stage}
-              </span>
-            )}
-            {daysPending != null && daysPending > 0 && (
-              <span className="text-[10px] px-2 py-0.5 rounded-full" style={{
-                background: daysPending > 7 ? 'rgba(239,68,68,0.12)' : 'rgba(245,158,11,0.12)',
-                color: daysPending > 7 ? '#ef4444' : '#f59e0b',
-              }}>
-                {daysPending}d waiting
-              </span>
-            )}
-          </div>
-          <div className="flex items-center gap-4 text-xs" style={{ color: '#6a6058' }}>
-            {phone && (
-              <a href={`tel:${phone}`} className="flex items-center gap-1 hover:opacity-80" style={{ color: '#c88c00' }}>
-                <Phone size={10} /> {phone}
-              </a>
-            )}
-            {email && (
-              <a href={`mailto:${email}`} className="flex items-center gap-1 hover:opacity-80" style={{ color: '#c88c00' }}>
-                <Mail size={10} /> {email}
-              </a>
-            )}
-          </div>
-          <div className="text-xs mt-1.5" style={{ color: '#8a8078' }}>
-            Created {timeAgo(lead.createdAt)}
-          </div>
+      {/* Success state */}
+      {success ? (
+        <div className="px-5 py-8 text-center">
+          <CheckCircle2 size={36} className="mx-auto mb-3" style={{ color: '#22c55e' }} />
+          <p className="text-sm font-medium" style={{ color: '#1a1a1a' }}>{success}</p>
+          {notes.trim() && (
+            <p className="text-xs mt-1" style={{ color: '#8a8078' }}>Call notes saved to GHL + Project Memory</p>
+          )}
         </div>
-
-        {/* Success state */}
-        {success ? (
-          <div className="flex-1 flex items-center justify-center px-5">
-            <div className="text-center">
-              <CheckCircle2 size={40} className="mx-auto mb-3" style={{ color: '#22c55e' }} />
-              <p className="text-sm font-medium" style={{ color: '#1a1a1a' }}>{success}</p>
-              {notes.trim() && (
-                <p className="text-xs mt-1" style={{ color: '#8a8078' }}>Call notes saved</p>
-              )}
-            </div>
-          </div>
-        ) : (
-          <div className="flex-1 px-5 py-4 space-y-5">
-
-            {/* ── Call Notes ── */}
-            <div>
-              <label className="flex items-center gap-1.5 text-xs font-semibold mb-2" style={{ color: '#6a6058' }}>
-                <FileText size={12} />
-                CALL NOTES
-              </label>
-              <textarea
-                ref={notesRef}
-                value={notes}
-                onChange={(e) => setNotes(e.target.value)}
-                placeholder="How did the discovery call go? Key details, project scope, client preferences, budget discussion..."
-                rows={5}
-                className="w-full rounded-lg px-3 py-2.5 text-sm outline-none resize-y"
+      ) : (
+        <div className="px-5 py-4">
+          {/* ── Lead Selector ── */}
+          <div className="mb-4">
+            <label className="flex items-center gap-1.5 text-[10px] font-semibold uppercase tracking-wider mb-2" style={{ color: '#8a8078' }}>
+              Lead
+            </label>
+            <div className="relative">
+              <button
+                onClick={() => setLeadSearchOpen(!leadSearchOpen)}
+                className="w-full flex items-center gap-2 px-3 py-2.5 rounded-lg text-sm text-left transition-all"
                 style={{
                   background: '#ffffff',
-                  border: '1px solid rgba(200,140,0,0.15)',
-                  color: '#1a1a1a',
-                  minHeight: '100px',
+                  border: lead ? '1px solid rgba(200,140,0,0.2)' : '1px solid rgba(220,80,80,0.3)',
+                  color: lead ? '#1a1a1a' : '#8a8078',
                 }}
-              />
-              <div className="text-right mt-1">
-                <span className="text-[10px]" style={{ color: notes.length > 0 ? '#c88c00' : '#ccc' }}>
-                  {notes.length > 0 ? `${notes.trim().split(/\s+/).filter(Boolean).length} words` : 'Optional'}
-                </span>
-              </div>
-            </div>
+              >
+                {lead ? (
+                  <>
+                    <span className="font-medium flex-1">{contactName}</span>
+                    {lead.stage && (
+                      <span className="text-[10px] px-1.5 py-0.5 rounded" style={{
+                        background: `${STAGE_COLORS[lead.stage] || '#8a8078'}18`,
+                        color: STAGE_COLORS[lead.stage] || '#8a8078',
+                      }}>
+                        {lead.stage}
+                      </span>
+                    )}
+                  </>
+                ) : (
+                  <span className="flex-1">Select a lead...</span>
+                )}
+                <ChevronDown size={14} style={{ color: '#8a8078' }} />
+              </button>
 
-            {/* ── Next Step Selection ── */}
-            <div>
-              <label className="flex items-center gap-1.5 text-xs font-semibold mb-3" style={{ color: '#6a6058' }}>
-                <ArrowRight size={12} />
-                NEXT STEP
-              </label>
-
-              <div className="space-y-2">
-                {/* Schedule Design Meeting */}
-                <button
-                  onClick={() => setSelectedAction(selectedAction === 'schedule' ? null : 'schedule')}
-                  className="w-full text-left rounded-lg px-4 py-3 transition-all"
-                  style={{
-                    background: selectedAction === 'schedule' ? 'rgba(200,140,0,0.08)' : '#ffffff',
-                    border: selectedAction === 'schedule' ? '2px solid #c88c00' : '1px solid rgba(200,140,0,0.15)',
-                  }}
-                >
-                  <div className="flex items-center gap-3">
-                    <div className="w-8 h-8 rounded-full flex items-center justify-center flex-shrink-0" style={{
-                      background: selectedAction === 'schedule' ? '#c88c00' : 'rgba(200,140,0,0.1)',
-                    }}>
-                      <Calendar size={14} style={{ color: selectedAction === 'schedule' ? '#fff' : '#c88c00' }} />
-                    </div>
-                    <div>
-                      <div className="text-sm font-medium" style={{ color: '#1a1a1a' }}>Schedule Design Meeting</div>
-                      <div className="text-xs" style={{ color: '#8a8078' }}>Book an on-site initial design consultation</div>
-                    </div>
-                  </div>
-                </button>
-
-                {/* Schedule fields (animated expand) */}
-                {selectedAction === 'schedule' && (
-                  <div className="ml-4 pl-4 space-y-3 py-2" style={{ borderLeft: '2px solid rgba(200,140,0,0.15)' }}>
-                    {/* Date */}
-                    <div>
-                      <label className="flex items-center gap-1 text-xs mb-1.5" style={{ color: '#6a6058' }}>
-                        <Calendar size={10} /> Date
-                      </label>
+              {/* Dropdown */}
+              {leadSearchOpen && (
+                <div className="absolute left-0 right-0 top-full mt-1 z-20 rounded-lg shadow-lg overflow-hidden"
+                  style={{ background: '#ffffff', border: '1px solid rgba(200,140,0,0.15)', maxHeight: 280 }}>
+                  {/* Search */}
+                  <div className="px-3 py-2" style={{ borderBottom: '1px solid rgba(200,140,0,0.08)' }}>
+                    <div className="flex items-center gap-2 px-2 py-1.5 rounded-md" style={{ background: '#f8f6f3' }}>
+                      <Search size={12} style={{ color: '#8a8078' }} />
                       <input
-                        type="date"
-                        value={appointmentDate}
-                        onChange={(e) => setAppointmentDate(e.target.value)}
-                        min={new Date().toISOString().split('T')[0]}
-                        className="w-full rounded-lg px-3 py-2 text-sm outline-none"
-                        style={{ background: '#ffffff', border: '1px solid rgba(200,140,0,0.15)', color: '#1a1a1a' }}
+                        ref={searchRef}
+                        type="text"
+                        value={leadSearch}
+                        onChange={(e) => setLeadSearch(e.target.value)}
+                        placeholder="Search leads..."
+                        className="flex-1 text-xs bg-transparent outline-none"
+                        style={{ color: '#1a1a1a' }}
                       />
                     </div>
-
-                    {/* Time */}
-                    <div>
-                      <label className="flex items-center gap-1 text-xs mb-1.5" style={{ color: '#6a6058' }}>
-                        <Clock size={10} /> Time
-                      </label>
-                      <div className="relative">
-                        <select
-                          value={appointmentTime}
-                          onChange={(e) => setAppointmentTime(e.target.value)}
-                          className="w-full appearance-none rounded-lg px-3 py-2 text-sm outline-none cursor-pointer"
-                          style={{
-                            background: '#ffffff',
-                            border: `1px solid ${!appointmentTime ? 'rgba(220,80,80,0.3)' : 'rgba(200,140,0,0.15)'}`,
-                            color: appointmentTime ? '#1a1a1a' : '#6a6058',
-                          }}
-                        >
-                          <option value="">Select time...</option>
-                          {TIME_SLOTS.map((t) => (
-                            <option key={t} value={t}>{formatTime(t)}</option>
-                          ))}
-                        </select>
-                        <ChevronDown size={12} className="absolute right-3 top-1/2 -translate-y-1/2 pointer-events-none" style={{ color: '#6a6058' }} />
-                      </div>
-                    </div>
-
-                    {appointmentDate && appointmentTime && (
-                      <div className="flex items-center gap-2 px-3 py-2 rounded-lg text-xs" style={{ background: 'rgba(34,197,94,0.08)', color: '#16a34a' }}>
-                        <CheckCircle2 size={12} />
-                        {new Date(appointmentDate + 'T12:00:00').toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric' })} at {formatTime(appointmentTime)}
+                  </div>
+                  {/* Lead list */}
+                  <div className="overflow-y-auto" style={{ maxHeight: 220 }}>
+                    {filteredLeads.length > 0 ? filteredLeads.map((l) => (
+                      <button
+                        key={l.id}
+                        onClick={() => { onSelectLead(l); setLeadSearchOpen(false); setLeadSearch(''); }}
+                        className="w-full text-left px-3 py-2.5 flex items-center gap-3 transition-all"
+                        style={{
+                          borderBottom: '1px solid rgba(200,140,0,0.04)',
+                          background: lead?.id === l.id ? 'rgba(200,140,0,0.06)' : 'transparent',
+                        }}
+                        onMouseEnter={(e) => { e.currentTarget.style.background = 'rgba(200,140,0,0.04)'; }}
+                        onMouseLeave={(e) => { e.currentTarget.style.background = lead?.id === l.id ? 'rgba(200,140,0,0.06)' : 'transparent'; }}
+                      >
+                        <div className="flex-1 min-w-0">
+                          <div className="flex items-center gap-2">
+                            <span className="text-sm font-medium truncate" style={{ color: '#1a1a1a' }}>
+                              {l.contactName || l.name}
+                            </span>
+                            {l.stage && (
+                              <span className="text-[10px] px-1.5 py-0.5 rounded flex-shrink-0" style={{
+                                background: `${STAGE_COLORS[l.stage] || '#8a8078'}18`,
+                                color: STAGE_COLORS[l.stage] || '#8a8078',
+                              }}>
+                                {l.stage}
+                              </span>
+                            )}
+                          </div>
+                          <div className="flex items-center gap-3 text-[11px] mt-0.5" style={{ color: '#8a8078' }}>
+                            {l.phone && <span className="flex items-center gap-1"><Phone size={9} /> {l.phone}</span>}
+                            {l.email && <span className="flex items-center gap-1 truncate"><Mail size={9} /> {l.email}</span>}
+                          </div>
+                        </div>
+                        {l.daysPending > 0 && (
+                          <span className="text-[10px] px-1.5 py-0.5 rounded flex-shrink-0" style={{
+                            background: l.daysPending > 7 ? 'rgba(239,68,68,0.1)' : l.daysPending > 3 ? 'rgba(245,158,11,0.1)' : 'rgba(200,140,0,0.06)',
+                            color: l.daysPending > 7 ? '#ef4444' : l.daysPending > 3 ? '#f59e0b' : '#8a8078',
+                          }}>
+                            {l.daysPending}d
+                          </span>
+                        )}
+                      </button>
+                    )) : (
+                      <div className="px-3 py-6 text-center text-xs" style={{ color: '#8a8078' }}>
+                        {pendingLeads.length === 0 ? 'No pending leads found' : 'No matches'}
                       </div>
                     )}
                   </div>
-                )}
-
-                {/* Move to Nurture */}
-                <button
-                  onClick={() => setSelectedAction(selectedAction === 'nurture' ? null : 'nurture')}
-                  className="w-full text-left rounded-lg px-4 py-3 transition-all"
-                  style={{
-                    background: selectedAction === 'nurture' ? 'rgba(167,139,250,0.08)' : '#ffffff',
-                    border: selectedAction === 'nurture' ? '2px solid #a78bfa' : '1px solid rgba(200,140,0,0.15)',
-                  }}
-                >
-                  <div className="flex items-center gap-3">
-                    <div className="w-8 h-8 rounded-full flex items-center justify-center flex-shrink-0" style={{
-                      background: selectedAction === 'nurture' ? '#a78bfa' : 'rgba(167,139,250,0.1)',
-                    }}>
-                      <Heart size={14} style={{ color: selectedAction === 'nurture' ? '#fff' : '#a78bfa' }} />
-                    </div>
-                    <div>
-                      <div className="text-sm font-medium" style={{ color: '#1a1a1a' }}>Move to Nurture</div>
-                      <div className="text-xs" style={{ color: '#8a8078' }}>Not ready yet — keep in touch for later</div>
-                    </div>
-                  </div>
-                </button>
-
-                {selectedAction === 'nurture' && (
-                  <div className="ml-4 pl-4 py-2" style={{ borderLeft: '2px solid rgba(167,139,250,0.2)' }}>
-                    <div className="flex items-center gap-2 px-3 py-2 rounded-lg text-xs" style={{ background: 'rgba(167,139,250,0.08)', color: '#7c3aed' }}>
-                      <Heart size={12} />
-                      Will be moved to the Nurture pipeline stage
-                    </div>
-                  </div>
-                )}
-              </div>
+                </div>
+              )}
             </div>
 
-            {/* Error */}
-            {error && (
-              <div className="flex items-center gap-2 px-3 py-2 rounded-lg text-xs" style={{ background: 'rgba(239,68,68,0.08)', color: '#ef4444' }}>
-                <X size={12} /> {error}
+            {/* Quick info under selected lead */}
+            {lead && (lead.phone || lead.email) && (
+              <div className="flex items-center gap-4 mt-2 text-xs" style={{ color: '#6a6058' }}>
+                {lead.phone && (
+                  <a href={`tel:${lead.phone}`} className="flex items-center gap-1 hover:opacity-80" style={{ color: '#c88c00' }}>
+                    <Phone size={10} /> {lead.phone}
+                  </a>
+                )}
+                {lead.email && (
+                  <a href={`mailto:${lead.email}`} className="flex items-center gap-1 hover:opacity-80" style={{ color: '#c88c00' }}>
+                    <Mail size={10} /> {lead.email}
+                  </a>
+                )}
               </div>
             )}
           </div>
-        )}
 
-        {/* Footer / Submit */}
-        {!success && (
-          <div className="px-5 py-4 flex-shrink-0 flex items-center gap-3" style={{ borderTop: '1px solid rgba(200,140,0,0.1)', background: '#f8f6f3' }}>
-            <button
-              onClick={onClose}
-              className="px-4 py-2 rounded-lg text-sm transition-all hover:opacity-80"
-              style={{ background: '#ffffff', color: '#6a6058', border: '1px solid rgba(200,140,0,0.15)' }}
-            >
-              Cancel
-            </button>
-            <button
-              onClick={handleSubmit}
-              disabled={!canSubmit || loading}
-              className="flex-1 flex items-center justify-center gap-2 px-4 py-2 rounded-lg text-sm font-medium transition-all"
+          {/* ── Call Notes ── */}
+          <div className="mb-4">
+            <label className="flex items-center gap-1.5 text-[10px] font-semibold uppercase tracking-wider mb-2" style={{ color: '#8a8078' }}>
+              <FileText size={10} />
+              Call Notes
+            </label>
+            <textarea
+              value={notes}
+              onChange={(e) => setNotes(e.target.value)}
+              placeholder="How did the discovery call go? Key details, project scope, budget discussion..."
+              rows={4}
+              className="w-full rounded-lg px-3 py-2.5 text-sm outline-none resize-y"
               style={{
-                background: canSubmit && !loading
-                  ? (selectedAction === 'nurture' ? '#a78bfa' : '#c88c00')
-                  : 'rgba(200,140,0,0.15)',
-                color: canSubmit && !loading ? '#ffffff' : '#8a8078',
-                cursor: canSubmit && !loading ? 'pointer' : 'not-allowed',
+                background: '#ffffff',
+                border: '1px solid rgba(200,140,0,0.15)',
+                color: '#1a1a1a',
+                minHeight: '80px',
               }}
-            >
-              {loading ? (
-                <>
-                  <Loader2 size={14} className="animate-spin" />
-                  Processing...
-                </>
-              ) : selectedAction === 'schedule' ? (
-                <>
-                  <Calendar size={14} />
-                  Schedule Meeting
-                </>
-              ) : selectedAction === 'nurture' ? (
-                <>
-                  <Heart size={14} />
-                  Move to Nurture
-                </>
-              ) : (
-                'Select a next step above'
-              )}
-            </button>
+            />
+            {notes.length > 0 && (
+              <div className="text-right mt-1">
+                <span className="text-[10px]" style={{ color: '#c88c00' }}>
+                  {notes.trim().split(/\s+/).filter(Boolean).length} words
+                </span>
+              </div>
+            )}
           </div>
-        )}
-      </div>
 
-      {/* Slide-in animation */}
-      <style jsx>{`
-        @keyframes slideIn {
-          from { transform: translateX(100%); }
-          to { transform: translateX(0); }
-        }
-      `}</style>
-    </>
+          {/* ── Next Step Selection ── */}
+          <div className="mb-4">
+            <label className="flex items-center gap-1.5 text-[10px] font-semibold uppercase tracking-wider mb-3" style={{ color: '#8a8078' }}>
+              <ArrowRight size={10} />
+              Next Step
+            </label>
+
+            <div className="grid grid-cols-2 gap-2">
+              {/* Schedule Design Meeting */}
+              <button
+                onClick={() => setSelectedAction(selectedAction === 'schedule' ? null : 'schedule')}
+                className="text-left rounded-lg px-3 py-3 transition-all"
+                style={{
+                  background: selectedAction === 'schedule' ? 'rgba(200,140,0,0.08)' : '#ffffff',
+                  border: selectedAction === 'schedule' ? '2px solid #c88c00' : '1px solid rgba(200,140,0,0.15)',
+                }}
+              >
+                <div className="flex items-center gap-2 mb-1">
+                  <div className="w-6 h-6 rounded-full flex items-center justify-center flex-shrink-0" style={{
+                    background: selectedAction === 'schedule' ? '#c88c00' : 'rgba(200,140,0,0.1)',
+                  }}>
+                    <Calendar size={12} style={{ color: selectedAction === 'schedule' ? '#fff' : '#c88c00' }} />
+                  </div>
+                  <span className="text-xs font-semibold" style={{ color: '#1a1a1a' }}>Schedule Meeting</span>
+                </div>
+                <p className="text-[11px] ml-8" style={{ color: '#8a8078' }}>Book on-site design consultation</p>
+              </button>
+
+              {/* Move to Nurture */}
+              <button
+                onClick={() => setSelectedAction(selectedAction === 'nurture' ? null : 'nurture')}
+                className="text-left rounded-lg px-3 py-3 transition-all"
+                style={{
+                  background: selectedAction === 'nurture' ? 'rgba(167,139,250,0.08)' : '#ffffff',
+                  border: selectedAction === 'nurture' ? '2px solid #a78bfa' : '1px solid rgba(200,140,0,0.15)',
+                }}
+              >
+                <div className="flex items-center gap-2 mb-1">
+                  <div className="w-6 h-6 rounded-full flex items-center justify-center flex-shrink-0" style={{
+                    background: selectedAction === 'nurture' ? '#a78bfa' : 'rgba(167,139,250,0.1)',
+                  }}>
+                    <Heart size={12} style={{ color: selectedAction === 'nurture' ? '#fff' : '#a78bfa' }} />
+                  </div>
+                  <span className="text-xs font-semibold" style={{ color: '#1a1a1a' }}>Nurture</span>
+                </div>
+                <p className="text-[11px] ml-8" style={{ color: '#8a8078' }}>Not ready — keep in touch</p>
+              </button>
+            </div>
+          </div>
+
+          {/* ── Schedule fields ── */}
+          {selectedAction === 'schedule' && (
+            <div className="mb-4 grid grid-cols-2 gap-3 p-3 rounded-lg" style={{ background: 'rgba(200,140,0,0.03)', border: '1px solid rgba(200,140,0,0.08)' }}>
+              <div>
+                <label className="flex items-center gap-1 text-[10px] font-semibold uppercase tracking-wider mb-1.5" style={{ color: '#8a8078' }}>
+                  <Calendar size={9} /> Date
+                </label>
+                <input
+                  type="date"
+                  value={appointmentDate}
+                  onChange={(e) => setAppointmentDate(e.target.value)}
+                  min={new Date().toISOString().split('T')[0]}
+                  className="w-full rounded-lg px-3 py-2 text-sm outline-none"
+                  style={{ background: '#ffffff', border: '1px solid rgba(200,140,0,0.15)', color: '#1a1a1a' }}
+                />
+              </div>
+              <div>
+                <label className="flex items-center gap-1 text-[10px] font-semibold uppercase tracking-wider mb-1.5" style={{ color: '#8a8078' }}>
+                  <Clock size={9} /> Time
+                </label>
+                <div className="relative">
+                  <select
+                    value={appointmentTime}
+                    onChange={(e) => setAppointmentTime(e.target.value)}
+                    className="w-full appearance-none rounded-lg px-3 py-2 text-sm outline-none cursor-pointer"
+                    style={{
+                      background: '#ffffff',
+                      border: `1px solid ${!appointmentTime ? 'rgba(220,80,80,0.3)' : 'rgba(200,140,0,0.15)'}`,
+                      color: appointmentTime ? '#1a1a1a' : '#6a6058',
+                    }}
+                  >
+                    <option value="">Select...</option>
+                    {TIME_SLOTS.map((t) => (
+                      <option key={t} value={t}>{formatTime(t)}</option>
+                    ))}
+                  </select>
+                  <ChevronDown size={12} className="absolute right-3 top-1/2 -translate-y-1/2 pointer-events-none" style={{ color: '#6a6058' }} />
+                </div>
+              </div>
+              {appointmentDate && appointmentTime && (
+                <div className="col-span-2 flex items-center gap-2 px-3 py-2 rounded-lg text-xs" style={{ background: 'rgba(34,197,94,0.08)', color: '#16a34a' }}>
+                  <CheckCircle2 size={12} />
+                  {new Date(appointmentDate + 'T12:00:00').toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric' })} at {formatTime(appointmentTime)}
+                </div>
+              )}
+            </div>
+          )}
+
+          {/* Nurture confirmation */}
+          {selectedAction === 'nurture' && (
+            <div className="mb-4 flex items-center gap-2 px-3 py-2 rounded-lg text-xs" style={{ background: 'rgba(167,139,250,0.08)', color: '#7c3aed' }}>
+              <Heart size={12} />
+              Will be moved to the Nurture pipeline stage
+            </div>
+          )}
+
+          {/* Error */}
+          {error && (
+            <div className="mb-4 flex items-center gap-2 px-3 py-2 rounded-lg text-xs" style={{ background: 'rgba(239,68,68,0.08)', color: '#ef4444' }}>
+              <X size={12} /> {error}
+            </div>
+          )}
+
+          {/* Submit */}
+          <button
+            onClick={handleSubmit}
+            disabled={!canSubmit || loading}
+            className="w-full flex items-center justify-center gap-2 px-4 py-2.5 rounded-lg text-sm font-medium transition-all"
+            style={{
+              background: canSubmit && !loading
+                ? (selectedAction === 'nurture' ? '#a78bfa' : '#c88c00')
+                : 'rgba(200,140,0,0.12)',
+              color: canSubmit && !loading ? '#ffffff' : '#8a8078',
+              cursor: canSubmit && !loading ? 'pointer' : 'not-allowed',
+            }}
+          >
+            {loading ? (
+              <>
+                <Loader2 size={14} className="animate-spin" />
+                Processing...
+              </>
+            ) : !lead ? (
+              'Select a lead above'
+            ) : !selectedAction ? (
+              'Choose a next step'
+            ) : selectedAction === 'schedule' ? (
+              <>
+                <Calendar size={14} />
+                Schedule Design Meeting
+              </>
+            ) : (
+              <>
+                <Heart size={14} />
+                Move to Nurture
+              </>
+            )}
+          </button>
+        </div>
+      )}
+    </div>
   );
 }

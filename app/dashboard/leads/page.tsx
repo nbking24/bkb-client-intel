@@ -400,6 +400,7 @@ export default function LeadsPage() {
   };
 
   // Lead action panel state
+  const [actionPanelExpanded, setActionPanelExpanded] = useState(false);
   const [actionPanelLead, setActionPanelLead] = useState<PendingLead | null>(null);
 
   // Spam handling state
@@ -626,21 +627,47 @@ export default function LeadsPage() {
         </button>
       </div>
 
-      {/* ═══ New Lead Button (standalone when collapsed) ═══ */}
-      {!formExpanded && (
-        <button
-          onClick={() => {
-            setFormExpanded(true);
-            setTimeout(() => firstNameRef.current?.focus(), 200);
-          }}
-          className="w-full flex items-center gap-2 px-5 py-3 rounded-xl cursor-pointer mb-6 transition-all hover:shadow-sm"
-          style={{ background: '#f8f6f3', border: '1px solid rgba(200,140,0,0.12)' }}
-        >
-          <UserPlus size={16} style={{ color: '#c88c00' }} />
-          <span className="text-sm font-semibold" style={{ color: '#1a1a1a' }}>New Lead</span>
-          <span className="text-xs ml-auto mr-2" style={{ color: '#6a6058' }}>Click to add a new lead</span>
-          <ChevronRight size={16} style={{ color: '#8a8078' }} />
-        </button>
+      {/* ═══ Action Buttons Row ═══ */}
+      {!formExpanded && !actionPanelExpanded && (
+        <div className="flex gap-2 mb-6">
+          <button
+            onClick={() => {
+              setFormExpanded(true);
+              setActionPanelExpanded(false);
+              setTimeout(() => firstNameRef.current?.focus(), 200);
+            }}
+            className="flex-1 flex items-center justify-center gap-2 px-4 py-2.5 rounded-xl cursor-pointer transition-all hover:shadow-sm"
+            style={{ background: '#f8f6f3', border: '1px solid rgba(200,140,0,0.12)' }}
+          >
+            <UserPlus size={15} style={{ color: '#c88c00' }} />
+            <span className="text-xs font-semibold tracking-wide" style={{ color: '#c88c00' }}>NEW LEAD</span>
+          </button>
+          <button
+            onClick={() => {
+              setActionPanelExpanded(true);
+              setFormExpanded(false);
+            }}
+            className="flex-1 flex items-center justify-center gap-2 px-4 py-2.5 rounded-xl cursor-pointer transition-all hover:shadow-sm"
+            style={{ background: '#f8f6f3', border: '1px solid rgba(200,140,0,0.12)' }}
+          >
+            <MessageSquare size={15} style={{ color: '#c88c00' }} />
+            <span className="text-xs font-semibold tracking-wide" style={{ color: '#c88c00' }}>POST-CALL ACTIONS</span>
+          </button>
+        </div>
+      )}
+
+      {/* ═══ Post-Call Action Panel (inline) ═══ */}
+      {actionPanelExpanded && (
+        <div className="mb-6">
+          <LeadActionPanel
+            lead={actionPanelLead}
+            pendingLeads={kpiData?.pendingNewLeads || []}
+            onSelectLead={(lead) => setActionPanelLead(lead)}
+            onClose={() => { setActionPanelExpanded(false); setActionPanelLead(null); }}
+            onComplete={() => { loadKpis(); loadEstimatingData(); setActionPanelExpanded(false); setActionPanelLead(null); }}
+            getToken={getToken}
+          />
+        </div>
       )}
 
       {/* Three Column Layout — only visible when form is expanded */}
@@ -1091,10 +1118,10 @@ export default function LeadsPage() {
           {!pendingCollapsed && <div className="divide-y" style={{ borderColor: 'rgba(200,140,0,0.06)' }}>
             {kpiData.pendingNewLeads.map((lead) => (
               <div key={lead.id} className="px-5 py-3 flex items-start gap-4">
-                {/* Lead Info — click to open action panel */}
-                <div className="flex-1 min-w-0 cursor-pointer rounded-lg px-2 py-1 -mx-2 -my-1 transition-all hover:bg-[rgba(200,140,0,0.04)]" onClick={() => setActionPanelLead(lead)}>
+                {/* Lead Info */}
+                <div className="flex-1 min-w-0">
                   <div className="flex items-center gap-2 mb-1">
-                    <span className="text-sm font-semibold group-hover:underline" style={{ color: '#1a1a1a', textDecorationColor: '#c88c00' }}>
+                    <span className="text-sm font-semibold" style={{ color: '#1a1a1a' }}>
                       {lead.contactName || lead.name}
                     </span>
                     {lead.stage && (
@@ -1467,16 +1494,6 @@ export default function LeadsPage() {
       </div>
 
       </div>{/* end side-by-side grid */}
-
-      {/* ═══ Lead Action Panel (slide-out) ═══ */}
-      {actionPanelLead && (
-        <LeadActionPanel
-          lead={actionPanelLead}
-          onClose={() => setActionPanelLead(null)}
-          onComplete={() => { loadKpis(); loadEstimatingData(); }}
-          getToken={getToken}
-        />
-      )}
 
     </div>
   );
