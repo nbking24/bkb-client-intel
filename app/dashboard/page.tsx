@@ -854,7 +854,7 @@ export default function DashboardOverview() {
   const [stNewTaskJob, setStNewTaskJob] = useState('');
   const [stNewTaskPhase, setStNewTaskPhase] = useState('');
   const [stNewTaskDate, setStNewTaskDate] = useState('');
-  const [stNewTaskAssignee, setStNewTaskAssignee] = useState('');
+  const [stNewTaskAssignees, setStNewTaskAssignees] = useState<string[]>([]);
   const [stNewTaskNote, setStNewTaskNote] = useState('');
   const [stNewTaskFiles, setStNewTaskFiles] = useState<Array<{ file: File; uploading: boolean; url?: string; name: string; error?: string }>>([]);
   const [creatingSt, setCreatingSt] = useState(false);
@@ -1277,16 +1277,16 @@ export default function DashboardOverview() {
       const res = await fetch('/api/dashboard/create-task', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ jobId: stNewTaskJob, taskName: stNewTaskName.trim(), phaseName: stNewTaskPhase, endDate: stNewTaskDate || undefined, description: stNewTaskNote.trim() || undefined, fileUrls: fileUrls.length > 0 ? fileUrls : undefined, assigneeId: stNewTaskAssignee || undefined }),
+        body: JSON.stringify({ jobId: stNewTaskJob, taskName: stNewTaskName.trim(), phaseName: stNewTaskPhase, endDate: stNewTaskDate || undefined, description: stNewTaskNote.trim() || undefined, fileUrls: fileUrls.length > 0 ? fileUrls : undefined, assigneeIds: stNewTaskAssignees.length > 0 ? stNewTaskAssignees : undefined }),
       });
       if (!res.ok) throw new Error(await res.text());
       const data = await res.json();
       if (overview && data.task) {
         const mj = overview.data.activeJobs?.find((j: any) => j.id === stNewTaskJob);
-        const assigneeName = TEAM_ASSIGNEES.find(a => a.id === stNewTaskAssignee)?.name || '';
-        setOverview({ ...overview, data: { ...overview.data, tasks: [...(overview.data.tasks || []), { id: data.task.id, name: stNewTaskName.trim(), jobName: mj ? mj.name : '', jobId: stNewTaskJob, jobNumber: mj ? String(mj.number) : '', endDate: stNewTaskDate || null, startDate: stNewTaskDate || null, progress: 0, urgency: 'normal', assignee: assigneeName, daysUntilDue: stNewTaskDate ? Math.ceil((new Date(stNewTaskDate).getTime() - Date.now()) / 86400000) : null } as any] } });
+        const assigneeNames = stNewTaskAssignees.map(id => TEAM_ASSIGNEES.find(a => a.id === id)?.name || '').filter(Boolean).join(', ');
+        setOverview({ ...overview, data: { ...overview.data, tasks: [...(overview.data.tasks || []), { id: data.task.id, name: stNewTaskName.trim(), jobName: mj ? mj.name : '', jobId: stNewTaskJob, jobNumber: mj ? String(mj.number) : '', endDate: stNewTaskDate || null, startDate: stNewTaskDate || null, progress: 0, urgency: 'normal', assignee: assigneeNames, daysUntilDue: stNewTaskDate ? Math.ceil((new Date(stNewTaskDate).getTime() - Date.now()) / 86400000) : null } as any] } });
       }
-      setStNewTaskName(''); setStNewTaskJob(''); setStNewTaskPhase(''); setStNewTaskDate(''); setStNewTaskAssignee(''); setStNewTaskNote(''); setStNewTaskFiles([]);
+      setStNewTaskName(''); setStNewTaskJob(''); setStNewTaskPhase(''); setStNewTaskDate(''); setStNewTaskAssignees([]); setStNewTaskNote(''); setStNewTaskFiles([]);
       setPanelTab('waitingOn');
     } catch (err: any) {
       console.error('Create task failed:', err);
@@ -1670,11 +1670,19 @@ export default function DashboardOverview() {
                     </div>
                     <div style={{ marginTop: 8 }}>
                       <label style={{ fontSize: 11, color: '#6a6058', fontWeight: 600, display: 'block', marginBottom: 3 }}>ASSIGN TO</label>
-                      <select value={stNewTaskAssignee} onChange={e => setStNewTaskAssignee(e.target.value)}
-                        style={{ width: '100%', background: '#ffffff', border: '1px solid rgba(200,140,0,0.15)', borderRadius: 5, color: stNewTaskAssignee ? '#c88c00' : '#5a5550', fontSize: 13, padding: '7px 8px', outline: 'none', cursor: 'pointer', boxSizing: 'border-box' as const }}>
-                        <option value="">Select assignee...</option>
-                        {TEAM_ASSIGNEES.map((a: any) => (<option key={a.id} value={a.id}>{a.label}</option>))}
-                      </select>
+                      <div style={{ background: '#ffffff', border: '1px solid rgba(200,140,0,0.15)', borderRadius: 5, padding: '4px 8px', maxHeight: 120, overflowY: 'auto', boxSizing: 'border-box' as const }}>
+                        {TEAM_ASSIGNEES.map((a: any) => (
+                          <label key={a.id} style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '3px 0', cursor: 'pointer', fontSize: 13, color: stNewTaskAssignees.includes(a.id) ? '#c88c00' : '#5a5550' }}>
+                            <input type="checkbox" checked={stNewTaskAssignees.includes(a.id)}
+                              onChange={e => {
+                                if (e.target.checked) setStNewTaskAssignees(prev => [...prev, a.id]);
+                                else setStNewTaskAssignees(prev => prev.filter(id => id !== a.id));
+                              }}
+                              style={{ accentColor: '#c88c00' }} />
+                            {a.label}
+                          </label>
+                        ))}
+                      </div>
                     </div>
                     <div style={{ marginTop: 8 }}>
                       <label style={{ fontSize: 11, color: '#6a6058', fontWeight: 600, display: 'block', marginBottom: 3 }}>DUE DATE</label>
