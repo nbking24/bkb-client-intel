@@ -225,21 +225,30 @@ export async function getCalendars() {
 
 /**
  * List all users in the GHL location.
+ * Tries multiple GHL endpoints for compatibility.
  */
 export async function getLocationUsers() {
-  const data = await ghlFetch(`/users/search`, {
-    method: 'POST',
-    body: JSON.stringify({
-      locationId: GHL_LOC(),
-      limit: 100,
-    }),
-  });
-  return (data.users || []).map((u: any) => ({
-    id: u.id,
-    name: u.name || `${u.firstName || ''} ${u.lastName || ''}`.trim(),
-    email: u.email || '',
-    roles: u.roles || {},
-  }));
+  // Try GET /users/search?companyId=xxx or /users/?locationId=xxx
+  try {
+    const data = await ghlFetch(`/users/?locationId=${GHL_LOC()}`);
+    return (data.users || []).map((u: any) => ({
+      id: u.id,
+      name: u.name || `${u.firstName || ''} ${u.lastName || ''}`.trim(),
+      email: u.email || '',
+    }));
+  } catch (e1: any) {
+    // Fallback: try /users/search endpoint
+    try {
+      const data = await ghlFetch(`/users/search?locationId=${GHL_LOC()}&limit=100`);
+      return (data.users || []).map((u: any) => ({
+        id: u.id,
+        name: u.name || `${u.firstName || ''} ${u.lastName || ''}`.trim(),
+        email: u.email || '',
+      }));
+    } catch (e2: any) {
+      return [{ error: `Endpoint 1: ${e1.message}, Endpoint 2: ${e2.message}` }];
+    }
+  }
 }
 
 /**

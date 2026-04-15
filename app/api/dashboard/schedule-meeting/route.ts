@@ -40,8 +40,8 @@ export async function GET(req: NextRequest) {
     try {
       const { getLocationUsers } = await import('@/app/lib/ghl');
       users = await getLocationUsers();
-    } catch (e) {
-      // getLocationUsers may not exist yet — ignore
+    } catch (e: any) {
+      users = [{ error: e.message }];
     }
 
     return NextResponse.json({
@@ -49,9 +49,10 @@ export async function GET(req: NextRequest) {
       calendars: calendars.map((cal: any) => ({
         id: cal.id,
         name: cal.name,
-        group: cal.group,
-        duration: cal.duration,
-        teamMembers: cal.teamMembers || [],
+        group: cal.group || null,
+        duration: cal.slotDuration || cal.duration || null,
+        teamMembers: cal.teamMembers || cal.calendarConfig?.teamMembers || [],
+        rawKeys: Object.keys(cal),
       })),
       users,
     });
