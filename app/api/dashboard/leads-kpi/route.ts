@@ -253,9 +253,9 @@ export async function GET() {
         contactId: o.contact?.id || '',
       }));
 
-    // ── Pending Leads (open leads in early pipeline stages only) ──
-    // Only show leads that are actively pending action — not Nurture or Estimating
-    const PENDING_STAGES = ['New Inquiry', 'Initial Call Scheduled', 'Discovery Scheduled', 'No Show'];
+    // ── Pending Leads (open leads in early pipeline stages needing action) ──
+    // Includes Estimating so users can schedule design review meetings from Post-Call Actions
+    const PENDING_STAGES = ['New Inquiry', 'Initial Call Scheduled', 'Discovery Scheduled', 'No Show', 'Estimating'];
     const PENDING_STAGE_IDS = new Set(
       Object.entries(STAGES)
         .filter(([, name]) => PENDING_STAGES.includes(name))
