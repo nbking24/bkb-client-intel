@@ -139,18 +139,15 @@ export async function POST(req: NextRequest) {
       .map(a => ({ ghlUserId: a.ghlUserId, name: a.name }));
 
     // Helper: extract event ID from GHL response (may be top-level or nested)
-    function extractEventId(resp: any): string | null {
+    const extractEventId = (resp: any): string | null => {
       if (!resp) return null;
-      // Direct id
       if (resp.id) return resp.id;
-      // Nested under calendarEvent, event, or appointment
       if (resp.calendarEvent?.id) return resp.calendarEvent.id;
       if (resp.event?.id) return resp.event.id;
       if (resp.appointment?.id) return resp.appointment.id;
-      // Sometimes GHL returns { data: { id } }
       if (resp.data?.id) return resp.data.id;
       return null;
-    }
+    };
 
     for (const contact of contactsToUse) {
       const appointmentParams = {
