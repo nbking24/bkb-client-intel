@@ -127,6 +127,20 @@ export async function POST(req: NextRequest) {
       .filter(a => a.ghlUserId && a.ghlUserId.trim() !== '')
       .map(a => ({ ghlUserId: a.ghlUserId, name: a.name }));
 
+    // Helper: extract event ID from GHL response (may be top-level or nested)
+    function extractEventId(resp: any): string | null {
+      if (!resp) return null;
+      // Direct id
+      if (resp.id) return resp.id;
+      // Nested under calendarEvent, event, or appointment
+      if (resp.calendarEvent?.id) return resp.calendarEvent.id;
+      if (resp.event?.id) return resp.event.id;
+      if (resp.appointment?.id) return resp.appointment.id;
+      // Sometimes GHL returns { data: { id } }
+      if (resp.data?.id) return resp.data.id;
+      return null;
+    }
+
     for (const contact of contactsToUse) {
       if (ghlUserIds.length > 0) {
         // Create one appointment per GHL team member so each gets Loop automations
@@ -144,9 +158,9 @@ export async function POST(req: NextRequest) {
               assignedUserId: assignee.ghlUserId,
             });
 
-            const ghlEventId = ghlAppointment.id;
+            const ghlEventId = extractEventId(ghlAppointment);
             if (!ghlEventId) {
-              errors.push(`GHL appointment for ${contact.name || contact.ghlContactId} (assigned to ${assignee.name}) failed: no ID returned`);
+              errors.push(`GHL appointment for ${contact.name || contact.ghlContactId} (assigned to ${assignee.name}) failed: no ID in response — keys: ${Object.keys(ghlAppointment || {}).join(',')}`);
             } else {
               ghlAppointments.push({
                 contactName: contact.name || contact.ghlContactId,
@@ -172,9 +186,9 @@ export async function POST(req: NextRequest) {
             status: 'confirmed',
           });
 
-          const ghlEventId = ghlAppointment.id;
+          const ghlEventId = extractEventId(ghlAppointment);
           if (!ghlEventId) {
-            errors.push(`GHL appointment for ${contact.name || contact.ghlContactId} failed: no ID returned`);
+            errors.push(`GHL appointment for ${contact.name || contact.ghlContactId} failed: no ID in response — keys: ${Object.keys(ghlAppointment || {}).join(',')}`);
           } else {
             ghlAppointments.push({
               contactName: contact.name || contact.ghlContactId,
@@ -188,8 +202,10 @@ export async function POST(req: NextRequest) {
     }
 
     if (ghlAppointments.length === 0) {
+      // Surface the actual error details so the user can see what went wrong
+      const errorDetail = errors.length > 0 ? errors[0] : 'Unknown error';
       return NextResponse.json(
-        { error: 'Failed to create any GHL appointments', errors },
+        { error: `Failed to create GHL appointment: ${errorDetail}`, errors },
         { status: 500 }
       );
     }

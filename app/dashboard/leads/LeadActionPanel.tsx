@@ -204,7 +204,9 @@ export default function LeadActionPanel({ lead, pendingLeads, onSelectLead, onCl
 
         if (!res.ok) {
           const data = await res.json().catch(() => ({ error: 'Failed to create meeting' }));
-          throw new Error(data.error || 'Failed to create meeting');
+          // Surface detailed error from API (includes actual GHL failure reason)
+          const detail = data.errors?.[0] || data.error || 'Failed to create meeting';
+          throw new Error(detail);
         }
 
         const data = await res.json();
