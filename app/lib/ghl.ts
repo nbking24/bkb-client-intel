@@ -305,6 +305,7 @@ export async function createAppointment(params: {
   address?: string;
   status?: string;
   assignedUserId?: string;
+  ignoreDateRange?: boolean;
 }) {
   const body: any = {
     calendarId: params.calendarId,
@@ -318,6 +319,7 @@ export async function createAppointment(params: {
   if (params.notes) body.notes = params.notes;
   if (params.address) body.address = params.address;
   if (params.assignedUserId) body.assignedUserId = params.assignedUserId;
+  if (params.ignoreDateRange) body.ignoreDateRange = true;
 
   return ghlFetch('/calendars/events/appointments', {
     method: 'POST',

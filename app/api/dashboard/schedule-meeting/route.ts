@@ -69,6 +69,7 @@ export async function POST(req: NextRequest) {
       address,
       assigneeId,
       assignees,
+      customTime,
     } = body;
 
     // Debug: log the full incoming request
@@ -159,6 +160,7 @@ export async function POST(req: NextRequest) {
         notes,
         address,
         status: 'confirmed' as const,
+        ...(customTime ? { ignoreDateRange: true } : {}),
       };
 
       if (ghlUserIds.length > 0) {

@@ -114,6 +114,7 @@ export default function LeadActionPanel({ lead, pendingLeads, onSelectLead, onCl
   const [loadingSlots, setLoadingSlots] = useState(false);
   const [slotsError, setSlotsError] = useState('');
   const [selectedSlotIso, setSelectedSlotIso] = useState('');
+  const [useCustomTime, setUseCustomTime] = useState(false);
 
   // Default date to tomorrow
   useEffect(() => {
@@ -134,6 +135,7 @@ export default function LeadActionPanel({ lead, pendingLeads, onSelectLead, onCl
     setAvailableSlots([]);
     setSelectedSlotIso('');
     setSlotsError('');
+    setUseCustomTime(false);
     setLoading(false);
     setSuccess(null);
     setError('');
@@ -270,6 +272,7 @@ export default function LeadActionPanel({ lead, pendingLeads, onSelectLead, onCl
             endTime,
             notes: notes.trim() || undefined,
             assignees: selectedTeamMembers.length > 0 ? selectedTeamMembers : undefined,
+            customTime: useCustomTime || undefined,
           }),
         });
 
@@ -626,21 +629,48 @@ export default function LeadActionPanel({ lead, pendingLeads, onSelectLead, onCl
                 </div>
               </div>
 
-              {/* Available Time Slots */}
+              {/* Available Time Slots / Custom Time */}
               {smCalendarId && smDate && (
                 <div>
-                  <label className="flex items-center gap-1 text-[10px] font-semibold uppercase tracking-wider mb-1.5" style={{ color: '#8a8078' }}>
-                    <Clock size={9} /> Available Times
-                  </label>
+                  <div className="flex items-center justify-between mb-1.5">
+                    <label className="flex items-center gap-1 text-[10px] font-semibold uppercase tracking-wider" style={{ color: '#8a8078' }}>
+                      <Clock size={9} /> {useCustomTime ? 'Custom Time' : 'Available Times'}
+                    </label>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setUseCustomTime(!useCustomTime);
+                        setSelectedSlotIso('');
+                        setSmTime('');
+                      }}
+                      className="text-[10px] transition-colors"
+                      style={{ color: '#c88c00', cursor: 'pointer', background: 'none', border: 'none', padding: 0 }}
+                    >
+                      {useCustomTime ? '← Back to available slots' : 'Use custom time'}
+                    </button>
+                  </div>
 
-                  {loadingSlots ? (
+                  {useCustomTime ? (
+                    <input
+                      type="time"
+                      value={smTime}
+                      onChange={(e) => {
+                        setSmTime(e.target.value);
+                        setSelectedSlotIso(''); // clear slot — will use manual time path
+                      }}
+                      className="w-full rounded-lg px-2 py-2 text-sm outline-none"
+                      style={{ background: '#ffffff', border: '1px solid rgba(200,140,0,0.15)', color: '#c88c00' }}
+                    />
+                  ) : loadingSlots ? (
                     <div className="flex items-center gap-2 py-3 justify-center text-xs" style={{ color: '#8a8078' }}>
                       <Loader2 size={12} className="animate-spin" /> Loading available slots...
                     </div>
                   ) : slotsError ? (
-                    <div className="flex items-center gap-2 py-2 px-3 rounded-lg text-xs" style={{ background: 'rgba(245,158,11,0.08)', color: '#d97706' }}>
-                      <AlertCircle size={12} />
-                      <span>{slotsError}</span>
+                    <div className="flex flex-col gap-2">
+                      <div className="flex items-center gap-2 py-2 px-3 rounded-lg text-xs" style={{ background: 'rgba(245,158,11,0.08)', color: '#d97706' }}>
+                        <AlertCircle size={12} />
+                        <span>{slotsError}</span>
+                      </div>
                     </div>
                   ) : availableSlots.length > 0 ? (
                     <div className="flex flex-wrap gap-1.5">
