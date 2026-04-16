@@ -4,6 +4,7 @@
 // ============================================================
 
 const GHL_BASE = 'https://services.leadconnectorhq.com';
+const GHL_BACKEND = 'https://backend.leadconnectorhq.com';
 const GHL_KEY = () => process.env.GHL_API_KEY || '';
 const GHL_LOC = () => process.env.GHL_LOCATION_ID || '';
 const GHL_PIPELINE = () => process.env.GHL_PIPELINE_ID || '1iqzDqMkl6sxHr8OCeqi';
@@ -24,6 +25,19 @@ async function ghlFetch(path: string, opts: RequestInit = {}) {
   if (!res.ok) {
     const text = await res.text().catch(() => '');
     throw new Error(`GHL ${res.status}: ${text.slice(0, 200)}`);
+  }
+  return res.json();
+}
+
+// Internal backend fetch — bypasses slot validation (same endpoint Loop UI uses)
+async function ghlBackendFetch(path: string, opts: RequestInit = {}) {
+  const res = await fetch(`${GHL_BACKEND}${path}`, {
+    ...opts,
+    headers: { ...headers(), ...(opts.headers || {}) },
+  });
+  if (!res.ok) {
+    const text = await res.text().catch(() => '');
+    throw new Error(`GHL-Backend ${res.status}: ${text.slice(0, 200)}`);
   }
   return res.json();
 }
@@ -319,10 +333,13 @@ export async function createAppointment(params: {
   if (params.notes) body.notes = params.notes;
   if (params.address) body.address = params.address;
   if (params.assignedUserId) body.assignedUserId = params.assignedUserId;
+
+  // Custom time: use internal backend (same as Loop UI) to bypass slot validation
   if (params.ignoreDateRange) {
-    body.ignoreDateRange = true;
-    body.ignoreValidation = true;
-    body.toNotify = false;
+    return ghlBackendFetch('/calendars/events/appointments', {
+      method: 'POST',
+      body: JSON.stringify(body),
+    });
   }
 
   return ghlFetch('/calendars/events/appointments', {
