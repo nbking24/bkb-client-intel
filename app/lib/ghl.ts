@@ -339,15 +339,11 @@ export async function createAppointment(params: {
   if (params.address) body.address = params.address;
   if (params.assignedUserId) body.assignedUserId = params.assignedUserId;
 
-  // Custom time: use internal backend (same as Loop UI) to bypass slot validation
+  // Custom time: add flags to bypass slot validation (same params Loop UI sends)
   if (params.ignoreDateRange) {
     body.ignoreFreeSlotValidation = true;
     body.ignoreDateRange = true;
     body.toNotify = false;
-    return ghlBackendFetch('/calendars/events/appointments', {
-      method: 'POST',
-      body: JSON.stringify(body),
-    });
   }
 
   return ghlFetch('/calendars/events/appointments', {
