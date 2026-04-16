@@ -6,6 +6,7 @@ import {
   X, Calendar, Clock, Loader2, CheckCircle2,
   ArrowRight, MessageSquare, Heart,
   Phone, Mail, ChevronDown, ChevronRight, FileText, Search,
+  AlertCircle,
 } from 'lucide-react';
 
 /* ── Types ── */
@@ -32,11 +33,12 @@ interface LeadActionPanelProps {
   getToken: () => string;
 }
 
-/* ── Time slots ── */
-const TIME_SLOTS: string[] = [];
-for (let h = 7; h <= 17; h++) {
-  TIME_SLOTS.push(`${h.toString().padStart(2, '0')}:00`);
-  if (h < 17) TIME_SLOTS.push(`${h.toString().padStart(2, '0')}:30`);
+/* ── Time formatting ── */
+function formatSlotTime(isoStr: string) {
+  try {
+    const d = new Date(isoStr);
+    return d.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit', hour12: true, timeZone: 'America/New_York' });
+  } catch { return isoStr; }
 }
 
 function formatTime(t: string) {
@@ -46,6 +48,16 @@ function formatTime(t: string) {
   const ampm = h >= 12 ? 'PM' : 'AM';
   const h12 = h === 0 ? 12 : h > 12 ? h - 12 : h;
   return `${h12}:${mm} ${ampm}`;
+}
+
+/** Convert a slot ISO string to local HH:MM for the form state */
+function slotToLocalTime(isoStr: string): string {
+  try {
+    const d = new Date(isoStr);
+    // Get time in ET
+    const parts = d.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', hour12: false, timeZone: 'America/New_York' });
+    return parts; // "HH:MM"
+  } catch { return ''; }
 }
 
 const STAGE_COLORS: Record<string, string> = {
@@ -89,13 +101,19 @@ export default function LeadActionPanel({ lead, pendingLeads, onSelectLead, onCl
   const [leadSearch, setLeadSearch] = useState('');
   const searchRef = useRef<HTMLInputElement>(null);
 
-  // Schedule meeting state (mirrors dashboard Quick Add)
+  // Schedule meeting state
   const [smCalendarId, setSmCalendarId] = useState('');
   const [smTitle, setSmTitle] = useState('');
   const [smDate, setSmDate] = useState('');
   const [smTime, setSmTime] = useState('');
   const [smDuration, setSmDuration] = useState(60);
   const [smAssignees, setSmAssignees] = useState<string[]>([]);
+
+  // Available slots state
+  const [availableSlots, setAvailableSlots] = useState<string[]>([]);
+  const [loadingSlots, setLoadingSlots] = useState(false);
+  const [slotsError, setSlotsError] = useState('');
+  const [selectedSlotIso, setSelectedSlotIso] = useState('');
 
   // Default date to tomorrow
   useEffect(() => {
@@ -113,6 +131,9 @@ export default function LeadActionPanel({ lead, pendingLeads, onSelectLead, onCl
     setSmTime('');
     setSmDuration(60);
     setSmAssignees([]);
+    setAvailableSlots([]);
+    setSelectedSlotIso('');
+    setSlotsError('');
     setLoading(false);
     setSuccess(null);
     setError('');
@@ -130,6 +151,41 @@ export default function LeadActionPanel({ lead, pendingLeads, onSelectLead, onCl
       setSmTitle(`${mt.label} - ${name}`);
     }
   }, [smCalendarId, lead?.id]);
+
+  // Fetch available slots when calendar + date change
+  useEffect(() => {
+    if (!smCalendarId || !smDate) {
+      setAvailableSlots([]);
+      setSlotsError('');
+      return;
+    }
+    setLoadingSlots(true);
+    setSlotsError('');
+    setAvailableSlots([]);
+    setSmTime('');
+    setSelectedSlotIso('');
+
+    fetch(`/api/dashboard/schedule-meeting/availability?calendarId=${smCalendarId}&date=${smDate}`, {
+      headers: { Authorization: `Bearer ${getToken()}` },
+    })
+      .then(res => res.json())
+      .then(data => {
+        if (data.error) {
+          setSlotsError(data.error);
+        } else {
+          const slots = data.slots || [];
+          setAvailableSlots(slots);
+          if (slots.length === 0) {
+            setSlotsError('No available slots for this date. Try a different date or calendar.');
+          }
+        }
+      })
+      .catch(err => {
+        setSlotsError('Could not load available times');
+        console.error('Slot fetch error:', err);
+      })
+      .finally(() => setLoadingSlots(false));
+  }, [smCalendarId, smDate]);
 
   // Focus search when dropdown opens
   useEffect(() => {
@@ -178,8 +234,23 @@ export default function LeadActionPanel({ lead, pendingLeads, onSelectLead, onCl
         }
 
         // ── Create meeting via schedule-meeting API (GHL + JobTread) ──
-        const startDt = new Date(`${smDate}T${smTime}:00`);
-        const endDt = new Date(startDt.getTime() + smDuration * 60000);
+        // Use the selected slot's ISO string for precise GHL slot matching
+        let startTime: string;
+        let endTime: string;
+
+        if (selectedSlotIso) {
+          // Use the exact slot ISO string from GHL — this ensures slot validation passes
+          const startDt = new Date(selectedSlotIso);
+          const endDt = new Date(startDt.getTime() + smDuration * 60000);
+          startTime = startDt.toISOString();
+          endTime = endDt.toISOString();
+        } else {
+          // Fallback: manually constructed time (may fail slot validation)
+          const startDt = new Date(`${smDate}T${smTime}:00`);
+          const endDt = new Date(startDt.getTime() + smDuration * 60000);
+          startTime = startDt.toISOString();
+          endTime = endDt.toISOString();
+        }
 
         // Build team assignees with GHL user IDs
         const selectedTeamMembers = smAssignees
@@ -193,10 +264,10 @@ export default function LeadActionPanel({ lead, pendingLeads, onSelectLead, onCl
           body: JSON.stringify({
             calendarId: smCalendarId,
             contacts: [{ ghlContactId: lead.contactId, name: contactName }],
-            jobId: 'none', // No JT job linked from leads — will auto-resolve or skip
+            jobId: 'none',
             title: smTitle.trim(),
-            startTime: startDt.toISOString(),
-            endTime: endDt.toISOString(),
+            startTime,
+            endTime,
             notes: notes.trim() || undefined,
             assignees: selectedTeamMembers.length > 0 ? selectedTeamMembers : undefined,
           }),
@@ -204,8 +275,11 @@ export default function LeadActionPanel({ lead, pendingLeads, onSelectLead, onCl
 
         if (!res.ok) {
           const data = await res.json().catch(() => ({ error: 'Failed to create meeting' }));
-          // Surface detailed error from API (includes actual GHL failure reason)
           const detail = data.errors?.[0] || data.error || 'Failed to create meeting';
+          // Make slot validation errors more user-friendly
+          if (detail.includes('slot') && detail.includes('no longer available')) {
+            throw new Error('This time slot is no longer available. Please pick a different time.');
+          }
           throw new Error(detail);
         }
 
@@ -522,8 +596,8 @@ export default function LeadActionPanel({ lead, pendingLeads, onSelectLead, onCl
                 />
               </div>
 
-              {/* Date, Time, Duration */}
-              <div className="grid grid-cols-3 gap-2">
+              {/* Date + Duration row */}
+              <div className="grid grid-cols-2 gap-2">
                 <div>
                   <label className="flex items-center gap-1 text-[10px] font-semibold uppercase tracking-wider mb-1.5" style={{ color: '#8a8078' }}>
                     <Calendar size={9} /> Date
@@ -538,31 +612,8 @@ export default function LeadActionPanel({ lead, pendingLeads, onSelectLead, onCl
                   />
                 </div>
                 <div>
-                  <label className="flex items-center gap-1 text-[10px] font-semibold uppercase tracking-wider mb-1.5" style={{ color: '#8a8078' }}>
-                    <Clock size={9} /> Time
-                  </label>
-                  <div className="relative">
-                    <select
-                      value={smTime}
-                      onChange={(e) => setSmTime(e.target.value)}
-                      className="w-full appearance-none rounded-lg px-2 py-2 text-sm outline-none cursor-pointer"
-                      style={{
-                        background: '#ffffff',
-                        border: `1px solid ${!smTime ? 'rgba(220,80,80,0.3)' : 'rgba(200,140,0,0.15)'}`,
-                        color: smTime ? '#c88c00' : '#6a6058',
-                      }}
-                    >
-                      <option value="">Select...</option>
-                      {TIME_SLOTS.map((t) => (
-                        <option key={t} value={t}>{formatTime(t)}</option>
-                      ))}
-                    </select>
-                    <ChevronDown size={10} className="absolute right-2 top-1/2 -translate-y-1/2 pointer-events-none" style={{ color: '#6a6058' }} />
-                  </div>
-                </div>
-                <div>
                   <label className="text-[10px] font-semibold uppercase tracking-wider mb-1.5 block" style={{ color: '#8a8078' }}>
-                    Mins
+                    Duration (mins)
                   </label>
                   <input
                     type="number"
@@ -574,6 +625,53 @@ export default function LeadActionPanel({ lead, pendingLeads, onSelectLead, onCl
                   />
                 </div>
               </div>
+
+              {/* Available Time Slots */}
+              {smCalendarId && smDate && (
+                <div>
+                  <label className="flex items-center gap-1 text-[10px] font-semibold uppercase tracking-wider mb-1.5" style={{ color: '#8a8078' }}>
+                    <Clock size={9} /> Available Times
+                  </label>
+
+                  {loadingSlots ? (
+                    <div className="flex items-center gap-2 py-3 justify-center text-xs" style={{ color: '#8a8078' }}>
+                      <Loader2 size={12} className="animate-spin" /> Loading available slots...
+                    </div>
+                  ) : slotsError ? (
+                    <div className="flex items-center gap-2 py-2 px-3 rounded-lg text-xs" style={{ background: 'rgba(245,158,11,0.08)', color: '#d97706' }}>
+                      <AlertCircle size={12} />
+                      <span>{slotsError}</span>
+                    </div>
+                  ) : availableSlots.length > 0 ? (
+                    <div className="flex flex-wrap gap-1.5">
+                      {availableSlots.map((slot) => {
+                        const localTime = slotToLocalTime(slot);
+                        const isSelected = selectedSlotIso === slot;
+                        return (
+                          <button
+                            key={slot}
+                            type="button"
+                            onClick={() => {
+                              setSelectedSlotIso(slot);
+                              setSmTime(localTime);
+                            }}
+                            className="px-2.5 py-1.5 rounded-md text-xs transition-all"
+                            style={{
+                              background: isSelected ? '#c88c00' : '#ffffff',
+                              border: isSelected ? '1px solid #c88c00' : '1px solid rgba(200,140,0,0.15)',
+                              color: isSelected ? '#ffffff' : '#6a6058',
+                              fontWeight: isSelected ? 600 : 400,
+                              cursor: 'pointer',
+                            }}
+                          >
+                            {formatSlotTime(slot)}
+                          </button>
+                        );
+                      })}
+                    </div>
+                  ) : null}
+                </div>
+              )}
 
               {/* BKB Attendees */}
               <div>

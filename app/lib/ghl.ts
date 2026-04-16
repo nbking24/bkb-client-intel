@@ -642,6 +642,27 @@ export async function moveOpportunityStage(params: {
 }
 
 // ============================================================
+// FREE SLOTS
+// ============================================================
+
+/**
+ * Get free/available time slots for a calendar on a given date range.
+ * Uses GHL's /calendars/{calendarId}/free-slots endpoint.
+ */
+export async function getFreeSlots(params: {
+  calendarId: string;
+  startDate: string; // YYYY-MM-DD
+  endDate: string;   // YYYY-MM-DD
+  timezone?: string;
+}) {
+  const tz = params.timezone || 'America/New_York';
+  const url = `/calendars/${params.calendarId}/free-slots?startDate=${params.startDate}&endDate=${params.endDate}&timezone=${encodeURIComponent(tz)}`;
+  const data = await ghlFetch(url);
+  // GHL returns { [date]: { slots: [{ slot: "ISO string" }] } } or similar
+  return data;
+}
+
+// ============================================================
 // CROSS-REFERENCE FIELDS
 // ============================================================
 
