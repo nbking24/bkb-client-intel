@@ -33,7 +33,12 @@ async function ghlFetch(path: string, opts: RequestInit = {}) {
 async function ghlBackendFetch(path: string, opts: RequestInit = {}) {
   const res = await fetch(`${GHL_BACKEND}${path}`, {
     ...opts,
-    headers: { ...headers(), ...(opts.headers || {}) },
+    headers: {
+      ...headers(),
+      channel: 'APP',
+      source: 'WEB_USER',
+      ...(opts.headers || {}),
+    },
   });
   if (!res.ok) {
     const text = await res.text().catch(() => '');
@@ -336,6 +341,9 @@ export async function createAppointment(params: {
 
   // Custom time: use internal backend (same as Loop UI) to bypass slot validation
   if (params.ignoreDateRange) {
+    body.ignoreFreeSlotValidation = true;
+    body.ignoreDateRange = true;
+    body.toNotify = false;
     return ghlBackendFetch('/calendars/events/appointments', {
       method: 'POST',
       body: JSON.stringify(body),
