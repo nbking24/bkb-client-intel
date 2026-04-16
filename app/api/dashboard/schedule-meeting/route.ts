@@ -56,6 +56,7 @@ export async function GET(req: NextRequest) {
 // -- POST: Create a meeting in GHL + JT --------------------------
 export async function POST(req: NextRequest) {
   try {
+    const body = await req.json();
     const {
       calendarId,
       contactId,
@@ -68,7 +69,13 @@ export async function POST(req: NextRequest) {
       address,
       assigneeId,
       assignees,
-    } = await req.json();
+    } = body;
+
+    // Debug: log the full incoming request
+    console.log('[schedule-meeting] Incoming request:', JSON.stringify({
+      calendarId, contactId, contacts, jobId, title, startTime, endTime,
+      hasAssignees: Array.isArray(assignees) ? assignees.length : 0,
+    }));
 
     if (!calendarId || !title || !startTime || !endTime) {
       return NextResponse.json(
@@ -105,6 +112,8 @@ export async function POST(req: NextRequest) {
       }
     }
 
+    console.log('[schedule-meeting] Resolved contacts:', JSON.stringify(contactsToUse));
+
     if (contactsToUse.length === 0) {
       return NextResponse.json(
         { error: 'No valid GHL contacts provided. Create the contact in Loop first.' },
@@ -115,6 +124,8 @@ export async function POST(req: NextRequest) {
     // Build list of team member GHL user IDs for appointment assignment
     const teamAssignees: Array<{ jtMembershipId: string; name: string; ghlUserId: string }> =
       Array.isArray(assignees) && assignees.length > 0 ? assignees : [];
+
+    console.log('[schedule-meeting] Team assignees:', JSON.stringify(teamAssignees));
 
     // 1. Create appointments in GHL for each contact
     // When team assignees have GHL user IDs, create one appointment per contact per team member
@@ -142,25 +153,31 @@ export async function POST(req: NextRequest) {
     }
 
     for (const contact of contactsToUse) {
+      const appointmentParams = {
+        calendarId,
+        contactId: contact.ghlContactId,
+        startTime,
+        endTime,
+        title,
+        notes,
+        address,
+        status: 'confirmed' as const,
+      };
+
       if (ghlUserIds.length > 0) {
         // Create one appointment per GHL team member so each gets Loop automations
         for (const assignee of ghlUserIds) {
           try {
+            console.log('[schedule-meeting] Creating GHL appointment:', JSON.stringify({ ...appointmentParams, assignedUserId: assignee.ghlUserId }));
             const ghlAppointment = await createAppointment({
-              calendarId,
-              contactId: contact.ghlContactId,
-              startTime,
-              endTime,
-              title,
-              notes,
-              address,
-              status: 'confirmed',
+              ...appointmentParams,
               assignedUserId: assignee.ghlUserId,
             });
+            console.log('[schedule-meeting] GHL response:', JSON.stringify(ghlAppointment).substring(0, 500));
 
             const ghlEventId = extractEventId(ghlAppointment);
             if (!ghlEventId) {
-              errors.push(`GHL appointment for ${contact.name || contact.ghlContactId} (assigned to ${assignee.name}) failed: no ID in response — keys: ${Object.keys(ghlAppointment || {}).join(',')}`);
+              errors.push(`GHL appointment for ${contact.name || contact.ghlContactId} (assigned to ${assignee.name}) failed: no ID in response — keys: ${Object.keys(ghlAppointment || {}).join(',')}, raw: ${JSON.stringify(ghlAppointment).substring(0, 200)}`);
             } else {
               ghlAppointments.push({
                 contactName: contact.name || contact.ghlContactId,
@@ -169,26 +186,20 @@ export async function POST(req: NextRequest) {
               });
             }
           } catch (err: any) {
+            console.error('[schedule-meeting] GHL createAppointment error:', err.message);
             errors.push(`GHL appointment for ${contact.name || contact.ghlContactId} (assigned to ${assignee.name}) failed: ${err.message}`);
           }
         }
       } else {
         // No GHL team members — create unassigned appointment (original behavior)
         try {
-          const ghlAppointment = await createAppointment({
-            calendarId,
-            contactId: contact.ghlContactId,
-            startTime,
-            endTime,
-            title,
-            notes,
-            address,
-            status: 'confirmed',
-          });
+          console.log('[schedule-meeting] Creating GHL appointment (unassigned):', JSON.stringify(appointmentParams));
+          const ghlAppointment = await createAppointment(appointmentParams);
+          console.log('[schedule-meeting] GHL response:', JSON.stringify(ghlAppointment).substring(0, 500));
 
           const ghlEventId = extractEventId(ghlAppointment);
           if (!ghlEventId) {
-            errors.push(`GHL appointment for ${contact.name || contact.ghlContactId} failed: no ID in response — keys: ${Object.keys(ghlAppointment || {}).join(',')}`);
+            errors.push(`GHL appointment for ${contact.name || contact.ghlContactId} failed: no ID in response — keys: ${Object.keys(ghlAppointment || {}).join(',')}, raw: ${JSON.stringify(ghlAppointment).substring(0, 200)}`);
           } else {
             ghlAppointments.push({
               contactName: contact.name || contact.ghlContactId,
@@ -196,6 +207,7 @@ export async function POST(req: NextRequest) {
             });
           }
         } catch (err: any) {
+          console.error('[schedule-meeting] GHL createAppointment error:', err.message);
           errors.push(`GHL appointment for ${contact.name || contact.ghlContactId} failed: ${err.message}`);
         }
       }
@@ -203,9 +215,18 @@ export async function POST(req: NextRequest) {
 
     if (ghlAppointments.length === 0) {
       // Surface the actual error details so the user can see what went wrong
-      const errorDetail = errors.length > 0 ? errors[0] : 'Unknown error';
+      const errorDetail = errors.length > 0 ? errors.join(' | ') : 'Unknown error';
+      console.error('[schedule-meeting] All GHL appointments failed:', errors);
       return NextResponse.json(
-        { error: `Failed to create GHL appointment: ${errorDetail}`, errors },
+        {
+          error: errorDetail,
+          errors,
+          debug: {
+            contactsUsed: contactsToUse.map(c => ({ id: c.ghlContactId?.substring(0, 8) + '...', name: c.name })),
+            calendarId,
+            teamAssigneeCount: ghlUserIds.length,
+          },
+        },
         { status: 500 }
       );
     }
