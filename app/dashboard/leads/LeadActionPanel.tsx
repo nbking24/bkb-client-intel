@@ -279,8 +279,8 @@ export default function LeadActionPanel({ lead, pendingLeads, onSelectLead, onCl
         if (!res.ok) {
           const data = await res.json().catch(() => ({ error: 'Failed to create meeting' }));
           const detail = data.errors?.[0] || data.error || 'Failed to create meeting';
-          // Make slot validation errors more user-friendly
-          if (detail.includes('slot') && detail.includes('no longer available')) {
+          // Make slot validation errors more user-friendly (only for non-custom times)
+          if (!useCustomTime && detail.includes('slot') && detail.includes('no longer available')) {
             throw new Error('This time slot is no longer available. Please pick a different time.');
           }
           throw new Error(detail);
