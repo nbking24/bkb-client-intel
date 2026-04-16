@@ -70,12 +70,15 @@ export async function POST(req: NextRequest) {
       assignees,
     } = await req.json();
 
-    if (!calendarId || !jobId || !title || !startTime || !endTime) {
+    if (!calendarId || !title || !startTime || !endTime) {
       return NextResponse.json(
-        { error: 'calendarId, jobId, title, startTime, and endTime are required' },
+        { error: 'calendarId, title, startTime, and endTime are required' },
         { status: 400 }
       );
     }
+
+    // jobId is optional — leads in early pipeline stages may not have a JT job yet
+    const hasJobId = jobId && jobId !== 'none';
 
     // Determine if we're using new contacts array or old single contactId
     let contactsToUse: Array<{ ghlContactId: string; name: string }> = [];
@@ -191,9 +194,11 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    // 2. Create ONE schedule task in JT (only once for all contacts)
+    // 2. Create ONE schedule task in JT (only once for all contacts, skip if no jobId)
     let jtTaskId: string | null = null;
-    try {
+    if (!hasJobId) {
+      // No JT job linked — skip JT task creation (common for early-stage leads)
+    } else try {
       const startDate = new Date(startTime).toISOString().split('T')[0];
       const endDate = new Date(endTime).toISOString().split('T')[0];
       const formattedTaskName = `${GHL_TASK_PREFIX}${title}`;

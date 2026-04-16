@@ -5,7 +5,7 @@ import { useState, useRef, useEffect } from 'react';
 import {
   X, Calendar, Clock, Loader2, CheckCircle2,
   ArrowRight, MessageSquare, Heart,
-  Phone, Mail, ChevronDown, ChevronRight, FileText, UserPlus, Search,
+  Phone, Mail, ChevronDown, ChevronRight, FileText, Search,
 } from 'lucide-react';
 
 /* ── Types ── */
@@ -57,11 +57,31 @@ const STAGE_COLORS: Record<string, string> = {
   'Estimating': '#c88c00',
 };
 
+/* ── Meeting types (same as dashboard Quick Add) ── */
+const MEETING_TYPES = [
+  { id: 'XAmFYzHwTcxmDRUrJSgJ', label: 'Discovery Call', duration: 30, group: 'Initial Sales' },
+  { id: 'lZJviv1cDQzqDpJGYY9Y', label: 'Informational Phone Call', duration: 20, group: 'Initial Sales' },
+  { id: '0CTk7gHpzgsl9JT53t5y', label: '15 Min Phone Call', duration: 30, group: 'Nathan' },
+  { id: 'DeoYiZ8TjDVoW6bFraUN', label: 'On-Site Visit', duration: 60, group: 'Initial Sales' },
+  { id: '229P4MHIrdFP31JX7EWH', label: 'Design Review Call', duration: 15, group: 'Initial Sales' },
+  { id: 'dvSLpgrnc2RHKI3enJGB', label: 'Virtual Meeting (60 min)', duration: 60, group: 'Nathan' },
+  { id: 'ikgo6jjzJw3j8RRWG0G9', label: 'In-Person Meeting (60-90 min)', duration: 90, group: 'Nathan' },
+  { id: 'Agkb9zIkHOFVvsCgoX8o', label: 'Meeting with Evan', duration: 90, group: 'Evan' },
+];
+
+/* ── Team assignees (same as dashboard Quick Add) ── */
+const TEAM_ASSIGNEES = [
+  { id: '22P5SRwhLaYf', name: 'Nathan King', label: 'Nathan', ghlUserId: 'cFyoFwK0LIr0npmY7W34' },
+  { id: '22P6GTaPEbkh', name: 'Brett King', label: 'Brett', ghlUserId: 'ffCrLZvtipVnvKgSActX' },
+  { id: '22P5nJ7ncFj4', name: 'Evan Harrington', label: 'Evan', ghlUserId: 'YyjcH150scEotXz21lWA' },
+  { id: '22P6GTEnhCre', name: 'Josh King', label: 'Josh', ghlUserId: '' },
+  { id: '22P5SpJkype2', name: 'Terri King', label: 'Terri', ghlUserId: '' },
+  { id: '22P732t6SgNk', name: 'Kim King', label: 'Kim', ghlUserId: '' },
+];
+
 export default function LeadActionPanel({ lead, pendingLeads, onSelectLead, onClose, onComplete, getToken }: LeadActionPanelProps) {
   const [selectedAction, setSelectedAction] = useState<'schedule' | 'nurture' | null>(null);
   const [notes, setNotes] = useState('');
-  const [appointmentDate, setAppointmentDate] = useState('');
-  const [appointmentTime, setAppointmentTime] = useState('');
   const [loading, setLoading] = useState(false);
   const [success, setSuccess] = useState<string | null>(null);
   const [error, setError] = useState('');
@@ -69,25 +89,47 @@ export default function LeadActionPanel({ lead, pendingLeads, onSelectLead, onCl
   const [leadSearch, setLeadSearch] = useState('');
   const searchRef = useRef<HTMLInputElement>(null);
 
+  // Schedule meeting state (mirrors dashboard Quick Add)
+  const [smCalendarId, setSmCalendarId] = useState('');
+  const [smTitle, setSmTitle] = useState('');
+  const [smDate, setSmDate] = useState('');
+  const [smTime, setSmTime] = useState('');
+  const [smDuration, setSmDuration] = useState(60);
+  const [smAssignees, setSmAssignees] = useState<string[]>([]);
+
   // Default date to tomorrow
   useEffect(() => {
     const tomorrow = new Date();
     tomorrow.setDate(tomorrow.getDate() + 1);
-    setAppointmentDate(tomorrow.toISOString().split('T')[0]);
+    setSmDate(tomorrow.toISOString().split('T')[0]);
   }, []);
 
   // Reset when lead changes
   useEffect(() => {
     setSelectedAction(null);
     setNotes('');
-    setAppointmentTime('');
+    setSmCalendarId('');
+    setSmTitle('');
+    setSmTime('');
+    setSmDuration(60);
+    setSmAssignees([]);
     setLoading(false);
     setSuccess(null);
     setError('');
     const tomorrow = new Date();
     tomorrow.setDate(tomorrow.getDate() + 1);
-    setAppointmentDate(tomorrow.toISOString().split('T')[0]);
+    setSmDate(tomorrow.toISOString().split('T')[0]);
   }, [lead?.id]);
+
+  // Auto-generate title when lead + meeting type selected
+  useEffect(() => {
+    if (!lead) return;
+    const mt = MEETING_TYPES.find(m => m.id === smCalendarId);
+    if (mt) {
+      const name = lead.contactName || lead.name;
+      setSmTitle(`${mt.label} - ${name}`);
+    }
+  }, [smCalendarId, lead?.id]);
 
   // Focus search when dropdown opens
   useEffect(() => {
@@ -106,7 +148,7 @@ export default function LeadActionPanel({ lead, pendingLeads, onSelectLead, onCl
 
   const canSubmit = lead && (
     selectedAction === 'nurture' ||
-    (selectedAction === 'schedule' && appointmentDate && appointmentTime)
+    (selectedAction === 'schedule' && smCalendarId && smTitle.trim() && smDate && smTime)
   );
 
   const handleSubmit = async () => {
@@ -115,37 +157,87 @@ export default function LeadActionPanel({ lead, pendingLeads, onSelectLead, onCl
     setError('');
 
     try {
-      const payload: Record<string, any> = {
-        action: selectedAction === 'schedule' ? 'schedule_meeting' : 'move_to_nurture',
-        opportunityId: lead.id,
-        contactId: lead.contactId,
-        contactName,
-      };
-
-      if (notes.trim()) payload.notes = notes.trim();
-
       if (selectedAction === 'schedule') {
-        payload.appointmentDate = appointmentDate;
-        payload.appointmentTime = appointmentTime;
-      }
+        // ── Save call notes first via leads-action ──
+        if (notes.trim()) {
+          try {
+            await fetch('/api/dashboard/leads-action', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${getToken()}` },
+              body: JSON.stringify({
+                action: 'save_notes',
+                opportunityId: lead.id,
+                contactId: lead.contactId,
+                contactName,
+                notes: notes.trim(),
+              }),
+            });
+          } catch (err) {
+            console.warn('Note save failed (non-fatal):', err);
+          }
+        }
 
-      const res = await fetch('/api/dashboard/leads-action', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${getToken()}` },
-        body: JSON.stringify(payload),
-      });
+        // ── Create meeting via schedule-meeting API (GHL + JobTread) ──
+        const startDt = new Date(`${smDate}T${smTime}:00`);
+        const endDt = new Date(startDt.getTime() + smDuration * 60000);
 
-      if (!res.ok) {
+        // Build team assignees with GHL user IDs
+        const selectedTeamMembers = smAssignees
+          .map(id => TEAM_ASSIGNEES.find(a => a.id === id))
+          .filter(Boolean)
+          .map(a => ({ jtMembershipId: a!.id, name: a!.name, ghlUserId: a!.ghlUserId || '' }));
+
+        const res = await fetch('/api/dashboard/schedule-meeting', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${getToken()}` },
+          body: JSON.stringify({
+            calendarId: smCalendarId,
+            contacts: [{ ghlContactId: lead.contactId, name: contactName }],
+            jobId: 'none', // No JT job linked from leads — will auto-resolve or skip
+            title: smTitle.trim(),
+            startTime: startDt.toISOString(),
+            endTime: endDt.toISOString(),
+            notes: notes.trim() || undefined,
+            assignees: selectedTeamMembers.length > 0 ? selectedTeamMembers : undefined,
+          }),
+        });
+
+        if (!res.ok) {
+          const data = await res.json().catch(() => ({ error: 'Failed to create meeting' }));
+          throw new Error(data.error || 'Failed to create meeting');
+        }
+
         const data = await res.json();
-        throw new Error(data.error || 'Failed to process action');
+        const apptCount = data.ghlAppointments?.length || 1;
+        const jtNote = data.jtTaskId ? ' + JT task' : '';
+        const dateLabel = new Date(smDate + 'T12:00:00').toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' });
+        setSuccess(`Meeting scheduled for ${dateLabel} at ${formatTime(smTime)} — ${apptCount} reminder${apptCount > 1 ? 's' : ''} sent${jtNote}`);
+
+      } else {
+        // ── Nurture flow (unchanged) ──
+        const payload: Record<string, any> = {
+          action: 'move_to_nurture',
+          opportunityId: lead.id,
+          contactId: lead.contactId,
+          contactName,
+        };
+        if (notes.trim()) payload.notes = notes.trim();
+
+        const res = await fetch('/api/dashboard/leads-action', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${getToken()}` },
+          body: JSON.stringify(payload),
+        });
+
+        if (!res.ok) {
+          const data = await res.json();
+          throw new Error(data.error || 'Failed to process action');
+        }
+
+        setSuccess(`${contactName} moved to Nurture`);
       }
 
-      const successMsg = selectedAction === 'schedule'
-        ? `Design meeting scheduled for ${new Date(appointmentDate).toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' })} at ${formatTime(appointmentTime)}`
-        : `${contactName} moved to Nurture`;
-
-      setSuccess(successMsg);
-      setTimeout(() => onComplete(), 2000);
+      setTimeout(() => onComplete(), 2500);
     } catch (err: any) {
       setError(err.message || 'Something went wrong');
     } finally {
@@ -312,14 +404,14 @@ export default function LeadActionPanel({ lead, pendingLeads, onSelectLead, onCl
             <textarea
               value={notes}
               onChange={(e) => setNotes(e.target.value)}
-              placeholder="How did the discovery call go? Key details, project scope, budget discussion..."
-              rows={4}
+              placeholder="How did the call go? Key details, project scope, budget discussion..."
+              rows={3}
               className="w-full rounded-lg px-3 py-2.5 text-sm outline-none resize-y"
               style={{
                 background: '#ffffff',
                 border: '1px solid rgba(200,140,0,0.15)',
                 color: '#1a1a1a',
-                minHeight: '80px',
+                minHeight: '60px',
               }}
             />
             {notes.length > 0 && (
@@ -339,7 +431,7 @@ export default function LeadActionPanel({ lead, pendingLeads, onSelectLead, onCl
             </label>
 
             <div className="grid grid-cols-2 gap-2">
-              {/* Schedule Design Meeting */}
+              {/* Schedule Meeting */}
               <button
                 onClick={() => setSelectedAction(selectedAction === 'schedule' ? null : 'schedule')}
                 className="text-left rounded-lg px-3 py-3 transition-all"
@@ -356,7 +448,7 @@ export default function LeadActionPanel({ lead, pendingLeads, onSelectLead, onCl
                   </div>
                   <span className="text-xs font-semibold" style={{ color: '#1a1a1a' }}>Schedule Meeting</span>
                 </div>
-                <p className="text-[11px] ml-8" style={{ color: '#8a8078' }}>Book on-site design consultation</p>
+                <p className="text-[11px] ml-8" style={{ color: '#8a8078' }}>GHL calendar + JT task</p>
               </button>
 
               {/* Move to Nurture */}
@@ -381,51 +473,153 @@ export default function LeadActionPanel({ lead, pendingLeads, onSelectLead, onCl
             </div>
           </div>
 
-          {/* ── Schedule fields ── */}
+          {/* ── Schedule Meeting Fields ── */}
           {selectedAction === 'schedule' && (
-            <div className="mb-4 grid grid-cols-2 gap-3 p-3 rounded-lg" style={{ background: 'rgba(200,140,0,0.03)', border: '1px solid rgba(200,140,0,0.08)' }}>
+            <div className="mb-4 p-3 rounded-lg space-y-3" style={{ background: 'rgba(200,140,0,0.03)', border: '1px solid rgba(200,140,0,0.08)' }}>
+              {/* Meeting Type */}
               <div>
                 <label className="flex items-center gap-1 text-[10px] font-semibold uppercase tracking-wider mb-1.5" style={{ color: '#8a8078' }}>
-                  <Calendar size={9} /> Date
-                </label>
-                <input
-                  type="date"
-                  value={appointmentDate}
-                  onChange={(e) => setAppointmentDate(e.target.value)}
-                  min={new Date().toISOString().split('T')[0]}
-                  className="w-full rounded-lg px-3 py-2 text-sm outline-none"
-                  style={{ background: '#ffffff', border: '1px solid rgba(200,140,0,0.15)', color: '#1a1a1a' }}
-                />
-              </div>
-              <div>
-                <label className="flex items-center gap-1 text-[10px] font-semibold uppercase tracking-wider mb-1.5" style={{ color: '#8a8078' }}>
-                  <Clock size={9} /> Time
+                  Meeting Type
                 </label>
                 <div className="relative">
                   <select
-                    value={appointmentTime}
-                    onChange={(e) => setAppointmentTime(e.target.value)}
+                    value={smCalendarId}
+                    onChange={(e) => {
+                      setSmCalendarId(e.target.value);
+                      const mt = MEETING_TYPES.find(m => m.id === e.target.value);
+                      if (mt) setSmDuration(mt.duration);
+                    }}
                     className="w-full appearance-none rounded-lg px-3 py-2 text-sm outline-none cursor-pointer"
                     style={{
                       background: '#ffffff',
-                      border: `1px solid ${!appointmentTime ? 'rgba(220,80,80,0.3)' : 'rgba(200,140,0,0.15)'}`,
-                      color: appointmentTime ? '#1a1a1a' : '#6a6058',
+                      border: `1px solid ${!smCalendarId ? 'rgba(220,80,80,0.3)' : 'rgba(200,140,0,0.15)'}`,
+                      color: smCalendarId ? '#c88c00' : '#6a6058',
                     }}
                   >
-                    <option value="">Select...</option>
-                    {TIME_SLOTS.map((t) => (
-                      <option key={t} value={t}>{formatTime(t)}</option>
+                    <option value="">Select meeting type...</option>
+                    {MEETING_TYPES.map((mt) => (
+                      <option key={mt.id} value={mt.id}>{mt.label} ({mt.duration} min)</option>
                     ))}
                   </select>
                   <ChevronDown size={12} className="absolute right-3 top-1/2 -translate-y-1/2 pointer-events-none" style={{ color: '#6a6058' }} />
                 </div>
               </div>
-              {appointmentDate && appointmentTime && (
-                <div className="col-span-2 flex items-center gap-2 px-3 py-2 rounded-lg text-xs" style={{ background: 'rgba(34,197,94,0.08)', color: '#16a34a' }}>
+
+              {/* Meeting Title */}
+              <div>
+                <label className="flex items-center gap-1 text-[10px] font-semibold uppercase tracking-wider mb-1.5" style={{ color: '#8a8078' }}>
+                  Meeting Title
+                </label>
+                <input
+                  type="text"
+                  value={smTitle}
+                  onChange={(e) => setSmTitle(e.target.value)}
+                  placeholder="e.g. Design Review - Smith Kitchen"
+                  className="w-full rounded-lg px-3 py-2 text-sm outline-none"
+                  style={{ background: '#ffffff', border: '1px solid rgba(200,140,0,0.15)', color: '#1a1a1a' }}
+                />
+              </div>
+
+              {/* Date, Time, Duration */}
+              <div className="grid grid-cols-3 gap-2">
+                <div>
+                  <label className="flex items-center gap-1 text-[10px] font-semibold uppercase tracking-wider mb-1.5" style={{ color: '#8a8078' }}>
+                    <Calendar size={9} /> Date
+                  </label>
+                  <input
+                    type="date"
+                    value={smDate}
+                    onChange={(e) => setSmDate(e.target.value)}
+                    min={new Date().toISOString().split('T')[0]}
+                    className="w-full rounded-lg px-2 py-2 text-sm outline-none"
+                    style={{ background: '#ffffff', border: '1px solid rgba(200,140,0,0.15)', color: smDate ? '#c88c00' : '#6a6058' }}
+                  />
+                </div>
+                <div>
+                  <label className="flex items-center gap-1 text-[10px] font-semibold uppercase tracking-wider mb-1.5" style={{ color: '#8a8078' }}>
+                    <Clock size={9} /> Time
+                  </label>
+                  <div className="relative">
+                    <select
+                      value={smTime}
+                      onChange={(e) => setSmTime(e.target.value)}
+                      className="w-full appearance-none rounded-lg px-2 py-2 text-sm outline-none cursor-pointer"
+                      style={{
+                        background: '#ffffff',
+                        border: `1px solid ${!smTime ? 'rgba(220,80,80,0.3)' : 'rgba(200,140,0,0.15)'}`,
+                        color: smTime ? '#c88c00' : '#6a6058',
+                      }}
+                    >
+                      <option value="">Select...</option>
+                      {TIME_SLOTS.map((t) => (
+                        <option key={t} value={t}>{formatTime(t)}</option>
+                      ))}
+                    </select>
+                    <ChevronDown size={10} className="absolute right-2 top-1/2 -translate-y-1/2 pointer-events-none" style={{ color: '#6a6058' }} />
+                  </div>
+                </div>
+                <div>
+                  <label className="text-[10px] font-semibold uppercase tracking-wider mb-1.5 block" style={{ color: '#8a8078' }}>
+                    Mins
+                  </label>
+                  <input
+                    type="number"
+                    value={smDuration}
+                    onChange={(e) => setSmDuration(Number(e.target.value))}
+                    min={15} max={180} step={15}
+                    className="w-full rounded-lg px-2 py-2 text-sm outline-none"
+                    style={{ background: '#ffffff', border: '1px solid rgba(200,140,0,0.15)', color: '#c88c00' }}
+                  />
+                </div>
+              </div>
+
+              {/* BKB Attendees */}
+              <div>
+                <label className="text-[10px] font-semibold uppercase tracking-wider mb-1.5 block" style={{ color: '#8a8078' }}>
+                  BKB Attendees
+                </label>
+                <div className="flex flex-wrap gap-1.5">
+                  {TEAM_ASSIGNEES.map((a) => {
+                    const selected = smAssignees.includes(a.id);
+                    return (
+                      <button
+                        key={a.id}
+                        type="button"
+                        onClick={() => {
+                          if (selected) setSmAssignees(prev => prev.filter(id => id !== a.id));
+                          else setSmAssignees(prev => [...prev, a.id]);
+                        }}
+                        className="px-2 py-1 rounded text-xs transition-all"
+                        style={{
+                          background: selected ? 'rgba(200,140,0,0.12)' : '#ffffff',
+                          border: selected ? '1px solid #c88c00' : '1px solid rgba(200,140,0,0.12)',
+                          color: selected ? '#c88c00' : '#8a8078',
+                          fontWeight: selected ? 600 : 400,
+                        }}
+                      >
+                        {a.label}
+                      </button>
+                    );
+                  })}
+                </div>
+              </div>
+
+              {/* Confirmation preview */}
+              {smCalendarId && smDate && smTime && (
+                <div className="flex items-center gap-2 px-3 py-2 rounded-lg text-xs" style={{ background: 'rgba(34,197,94,0.08)', color: '#16a34a' }}>
                   <CheckCircle2 size={12} />
-                  {new Date(appointmentDate + 'T12:00:00').toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric' })} at {formatTime(appointmentTime)}
+                  <span>
+                    {MEETING_TYPES.find(m => m.id === smCalendarId)?.label} —{' '}
+                    {new Date(smDate + 'T12:00:00').toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' })} at {formatTime(smTime)} ({smDuration} min)
+                  </span>
                 </div>
               )}
+
+              {/* How it works note */}
+              <div className="flex items-start gap-2 px-3 py-2 rounded-lg text-[11px]" style={{ background: 'rgba(200,140,0,0.04)', color: '#6a6058', lineHeight: 1.5 }}>
+                <span style={{ color: '#c88c00', fontWeight: 600, whiteSpace: 'nowrap' }}>How it works:</span>
+                <span>Creates the appointment in Loop (GHL) so auto-reminders fire, plus adds a schedule task in JobTread so the team sees it.</span>
+              </div>
             </div>
           )}
 
@@ -460,7 +654,7 @@ export default function LeadActionPanel({ lead, pendingLeads, onSelectLead, onCl
             {loading ? (
               <>
                 <Loader2 size={14} className="animate-spin" />
-                Processing...
+                Creating meeting...
               </>
             ) : !lead ? (
               'Select a lead above'
@@ -469,7 +663,7 @@ export default function LeadActionPanel({ lead, pendingLeads, onSelectLead, onCl
             ) : selectedAction === 'schedule' ? (
               <>
                 <Calendar size={14} />
-                Schedule Design Meeting
+                Schedule Meeting
               </>
             ) : (
               <>
