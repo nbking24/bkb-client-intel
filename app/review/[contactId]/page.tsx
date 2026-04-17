@@ -403,36 +403,33 @@ function FiveStarDone({
   return (
     <div>
       <h1 style={{ margin: 0, fontSize: 22, fontWeight: 700, color: BKB_RED, textAlign: 'center' }}>
-        Thanks, {/* name is not needed here since we have it on the prior page */}that means a lot.
+        Thank you — that means more than you might realize.
       </h1>
 
-      <p
-        style={{
-          color: '#4b4b4b',
-          fontSize: 16,
-          lineHeight: 1.5,
-          margin: '12px 0',
-          textAlign: 'center',
-        }}
-      >
-        One last step to get your review on Google:
+      <p style={{ color: '#4b4b4b', fontSize: 16, lineHeight: 1.6, margin: '14px 0' }}>
+        Would you take a minute to post your review on Google? For a small family
+        business like ours, Google reviews are one of the single biggest ways new families find
+        us when they're starting to think about their own project. Every review genuinely
+        helps — and I don't take that lightly.
       </p>
 
-      <ol style={{ paddingLeft: 22, color: '#333', fontSize: 15, lineHeight: 1.6 }}>
-        {hasText && (
-          <li>
-            Your review is {copied ? 'copied to your clipboard' : 'ready to copy'} — click below if
-            it didn't auto-copy.
-          </li>
-        )}
-        <li>Click <strong>Open Google Review</strong> — it opens in a new tab.</li>
-        {hasText && <li>Paste your review (Cmd+V / Ctrl+V / long-press → Paste) and submit.</li>}
-        {!hasText && (
-          <li>
-            Write a quick note about your experience on Google and click post.
-          </li>
-        )}
-      </ol>
+      {/* Wawa gift card callout */}
+      <div
+        style={{
+          background: '#fff8e6',
+          border: '1px solid #f1d89a',
+          borderRadius: 8,
+          padding: '12px 14px',
+          margin: '14px 0',
+          fontSize: 15,
+          lineHeight: 1.5,
+          color: '#4a3a10',
+        }}
+      >
+        <strong>A small thank-you:</strong> everyone who posts their review on Google gets a{' '}
+        <strong>$25 Wawa gift card</strong> sent their way. We'll send it once we see your
+        review come through.
+      </div>
 
       {hasText && (
         <div style={{ marginTop: 16 }}>
@@ -447,7 +444,7 @@ function FiveStarDone({
               letterSpacing: 0.5,
             }}
           >
-            Your review
+            Your review {copied && <span style={{ color: BKB_GOLD, fontWeight: 700 }}> · copied!</span>}
           </label>
           <div
             style={{
@@ -481,6 +478,10 @@ function FiveStarDone({
           >
             {copied ? '\u2713 Copied! Ready to paste on Google' : 'Copy my review'}
           </button>
+
+          <p style={{ color: '#8a8078', fontSize: 13, margin: '8px 0 0 0', lineHeight: 1.4 }}>
+            When Google opens, just paste (Cmd+V / Ctrl+V / long-press → Paste) and submit.
+          </p>
         </div>
       )}
 
@@ -525,14 +526,15 @@ function LowStarDone() {
           textAlign: 'center',
         }}
       >
-        Got it — thank you.
+        Thank you — your feedback matters to us.
       </h1>
-      <p style={{ color: '#4b4b4b', fontSize: 16, lineHeight: 1.6, margin: '16px 0 8px 0' }}>
-        Your feedback came directly to me. I take this seriously, and I'd like to understand what
-        happened and how we can make it right.
+      <p style={{ color: '#4b4b4b', fontSize: 16, lineHeight: 1.6, margin: '16px 0 12px 0' }}>
+        We read every piece of feedback that comes in, and we take it seriously. We're always
+        looking for ways to improve the way we serve our clients, and honest input like yours
+        is part of how we get better.
       </p>
       <p style={{ color: '#4b4b4b', fontSize: 16, lineHeight: 1.6, margin: '0 0 16px 0' }}>
-        I'll reach out personally within the next day or two.
+        Thank you for taking the time to share it with us.
       </p>
       <p style={{ color: '#8a8078', fontSize: 14, fontStyle: 'italic', textAlign: 'center' }}>
         — Nathan King<br />Brett King Builder-Contractor
