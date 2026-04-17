@@ -27,6 +27,9 @@
                     },
                     "app/api/webhook/ghl-to-jobtread/route.ts": {
                                     "maxDuration": 30
+                    },
+                    "app/api/cron/review-concierge/route.ts": {
+                                    "maxDuration": 120
                     }
         },
         "crons": [
@@ -57,6 +60,10 @@
                     {
                                     "path": "/api/cron/field-kpi-snapshot",
                                     "schedule": "30 6 1,15 * *"
+                    },
+                    {
+                                    "path": "/api/cron/review-concierge",
+                                    "schedule": "0 7 * * *"
                     }
         ]
 }
