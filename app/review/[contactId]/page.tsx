@@ -285,7 +285,7 @@ function WritingStage({
   return (
     <div>
       <h1 style={{ margin: 0, fontSize: 22, fontWeight: 700, color: BKB_RED, textAlign: 'center' }}>
-        {isFiveStar ? 'Awesome — thank you!' : 'Thanks for the honest feedback'}
+        {isFiveStar ? 'Awesome, thank you!' : 'Thanks for the honest feedback'}
       </h1>
 
       <StarPicker
@@ -298,7 +298,7 @@ function WritingStage({
       <p style={{ color: '#4b4b4b', fontSize: 16, lineHeight: 1.5, margin: '0 0 12px 0' }}>
         {isFiveStar
           ? "If you'd share a few words about your experience, it goes a long way for a small family business like ours."
-          : "I take this seriously. Anything you write here comes directly to me and stays private. I'll reach out personally."}
+          : "I take every piece of feedback seriously. Anything you write here comes directly to me and stays private."}
       </p>
 
       <label
@@ -403,14 +403,14 @@ function FiveStarDone({
   return (
     <div>
       <h1 style={{ margin: 0, fontSize: 22, fontWeight: 700, color: BKB_RED, textAlign: 'center' }}>
-        Thank you — that means more than you might realize.
+        Thank you. That means more than you might realize.
       </h1>
 
       <p style={{ color: '#4b4b4b', fontSize: 16, lineHeight: 1.6, margin: '14px 0' }}>
         Would you take a minute to post your review on Google? For a small family
         business like ours, Google reviews are one of the single biggest ways new families find
         us when they're starting to think about their own project. Every review genuinely
-        helps — and I don't take that lightly.
+        helps, and I don't take that lightly.
       </p>
 
       {/* Wawa gift card callout */}
@@ -506,7 +506,7 @@ function FiveStarDone({
       </a>
 
       <p style={{ color: '#8a8078', fontSize: 13, margin: '16px 0 0 0', textAlign: 'center' }}>
-        Thanks again. — Nathan
+        Thanks again. Nathan
       </p>
     </div>
   );
@@ -526,7 +526,7 @@ function LowStarDone() {
           textAlign: 'center',
         }}
       >
-        Thank you — your feedback matters to us.
+        Thank you. Your feedback matters to us.
       </h1>
       <p style={{ color: '#4b4b4b', fontSize: 16, lineHeight: 1.6, margin: '16px 0 12px 0' }}>
         We read every piece of feedback that comes in, and we take it seriously. We're always
@@ -537,7 +537,7 @@ function LowStarDone() {
         Thank you for taking the time to share it with us.
       </p>
       <p style={{ color: '#8a8078', fontSize: 14, fontStyle: 'italic', textAlign: 'center' }}>
-        — Nathan King<br />Brett King Builder-Contractor
+        Nathan King<br />Brett King Builder-Contractor
       </p>
     </div>
   );

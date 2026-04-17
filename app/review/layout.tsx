@@ -4,7 +4,7 @@
  * Independent from /dashboard/* which is behind PIN auth.
  */
 export const metadata = {
-  title: 'Share your experience — Brett King Builder',
+  title: 'Share your experience with Brett King Builder',
   description: 'Leave a review for Brett King Builder-Contractor.',
 };
 
