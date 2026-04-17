@@ -105,7 +105,8 @@ export async function processReviewTrigger(
     return { status: 'failed', error: rrErr?.message || 'insert failed' };
   }
 
-  // 3. Hand off to GHL — fire the appropriate workflow
+  // 3. Hand off to Loop — add the review-request tag on the contact.
+  //    The matching Loop automation workflow fires on tag-added.
   const ghl = await addContactToReviewWorkflow(
     input.clientContactId,
     input.triggerType
@@ -123,36 +124,36 @@ export async function processReviewTrigger(
 
     await logEvent({
       agent: 'review_concierge',
-      eventType: 'workflow_fire_failed',
+      eventType: 'tag_add_failed',
       entityType: 'review_request',
       entityId: rrRow.id,
       outcome: 'failed',
-      detail: { trigger: input.triggerType, error: ghl.error },
+      detail: { trigger: input.triggerType, tag: ghl.tag, error: ghl.error },
     });
 
     return { status: 'failed', reviewRequestId: rrRow.id, error: ghl.error };
   }
 
-  // 4. Mark as sent and log
+  // 4. Mark as sent and log (sent = "handoff to Loop complete")
   await supabase
     .from('review_requests')
     .update({
       status: 'sent',
       sent_at: new Date().toISOString(),
-      ghl_workflow_id: ghl.workflowId,
+      ghl_workflow_id: ghl.tag, // column reused to store the handoff tag name
       updated_at: new Date().toISOString(),
     })
     .eq('id', rrRow.id);
 
   await logEvent({
     agent: 'review_concierge',
-    eventType: 'request_sent',
+    eventType: 'tag_added_handoff',
     entityType: 'review_request',
     entityId: rrRow.id,
     outcome: 'success',
     detail: {
       trigger: input.triggerType,
-      workflow_id: ghl.workflowId,
+      tag: ghl.tag,
       contact_id: input.clientContactId,
     },
   });

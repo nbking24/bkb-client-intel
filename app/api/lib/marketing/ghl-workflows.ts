@@ -1,16 +1,25 @@
 // @ts-nocheck
 /**
- * GHL Workflow helpers — fire a GHL workflow for a contact.
+ * Loop / GHL handoff — tag-based workflow triggering.
  *
- * The three review-engine workflows are set up in GHL by Nathan. Each has a
- * numeric workflow id which we store in env so this code stays generic.
+ * Instead of firing workflows by ID, we add a tag to the GHL contact. The
+ * corresponding Loop Automation workflow listens for that tag being added
+ * and takes over from there (survey, branch on stars, send review links).
+ *
+ * This keeps the Client Hub decoupled from Loop workflow IDs — Nathan or
+ * Terri can rebuild the Loop workflows without changing our code.
+ *
+ * Tag convention:
+ *   completion   → send-review-request-completion
+ *   nurture      → send-review-request-nurture
+ *   post_design  → send-review-request-post-design
+ *   annual       → send-review-request-annual
  *
  * Env required:
  *  - GHL_API_KEY
  *  - GHL_LOCATION_ID
- *  - GHL_REVIEW_WORKFLOW_COMPLETION_ID
- *  - GHL_REVIEW_WORKFLOW_NURTURE_ID
- *  - GHL_REVIEW_WORKFLOW_POST_DESIGN_ID
+ *
+ * (Workflow IDs are NO LONGER needed in env — the tag is the handoff.)
  */
 const GHL_BASE = 'https://services.leadconnectorhq.com';
 
@@ -24,59 +33,70 @@ function headers() {
 
 export type ReviewTrigger = 'completion' | 'nurture' | 'post_design' | 'annual';
 
-function workflowIdForTrigger(trigger: ReviewTrigger): string | null {
-  switch (trigger) {
-    case 'completion':
-      return process.env.GHL_REVIEW_WORKFLOW_COMPLETION_ID || null;
-    case 'nurture':
-      return process.env.GHL_REVIEW_WORKFLOW_NURTURE_ID || null;
-    case 'post_design':
-      return process.env.GHL_REVIEW_WORKFLOW_POST_DESIGN_ID || null;
-    case 'annual':
-      return process.env.GHL_REVIEW_WORKFLOW_ANNUAL_ID || null;
-    default:
-      return null;
-  }
+export function tagForTrigger(trigger: ReviewTrigger): string {
+  return `send-review-request-${trigger.replace('_', '-')}`;
 }
 
 /**
- * Add a GHL contact to a workflow. The workflow itself handles the survey →
- * branch → review-link logic inside GHL.
+ * Add the review-request tag to a GHL contact. The matching Loop workflow
+ * listens for this tag and fires the actual survey + review request send.
  */
 export async function addContactToReviewWorkflow(
   contactId: string,
   trigger: ReviewTrigger
-): Promise<{ success: boolean; workflowId?: string; error?: string }> {
-  const workflowId = workflowIdForTrigger(trigger);
-  if (!workflowId) {
-    return {
-      success: false,
-      error: `No workflow id configured for trigger '${trigger}'`,
-    };
-  }
-
+): Promise<{ success: boolean; tag?: string; error?: string }> {
+  const tag = tagForTrigger(trigger);
   try {
-    const url = `${GHL_BASE}/contacts/${contactId}/workflow/${workflowId}`;
+    const url = `${GHL_BASE}/contacts/${contactId}/tags`;
     const res = await fetch(url, {
       method: 'POST',
       headers: headers(),
-      body: JSON.stringify({}),
+      body: JSON.stringify({ tags: [tag] }),
     });
-
     if (!res.ok) {
       const body = await res.text().catch(() => '');
       return {
         success: false,
-        workflowId,
-        error: `GHL add-to-workflow failed: ${res.status} ${body}`,
+        tag,
+        error: `GHL add-tag failed: ${res.status} ${body}`,
       };
     }
-    return { success: true, workflowId };
+    return { success: true, tag };
   } catch (err: any) {
     return {
       success: false,
-      workflowId,
+      tag,
       error: err?.message || 'unknown error',
     };
+  }
+}
+
+/**
+ * Remove a review-request tag (cleanup after workflow completes, to allow
+ * future re-triggering of the same trigger type if needed).
+ */
+export async function removeReviewTagFromContact(
+  contactId: string,
+  trigger: ReviewTrigger
+): Promise<{ success: boolean; tag?: string; error?: string }> {
+  const tag = tagForTrigger(trigger);
+  try {
+    const url = `${GHL_BASE}/contacts/${contactId}/tags`;
+    const res = await fetch(url, {
+      method: 'DELETE',
+      headers: headers(),
+      body: JSON.stringify({ tags: [tag] }),
+    });
+    if (!res.ok) {
+      const body = await res.text().catch(() => '');
+      return {
+        success: false,
+        tag,
+        error: `GHL remove-tag failed: ${res.status} ${body}`,
+      };
+    }
+    return { success: true, tag };
+  } catch (err: any) {
+    return { success: false, tag, error: err?.message || 'unknown error' };
   }
 }
