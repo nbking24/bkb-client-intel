@@ -2,14 +2,14 @@
 /**
  * POST /api/webhook/new-review
  *
- * Called when a new review is detected on Google / Houzz / Facebook.
+ * Called when a new review is detected on Google / Facebook.
  * Records the review in client_review_history (which dedupes future asks)
  * and closes out any open review_requests for that client.
  *
  * Expected body:
  *   {
  *     contactId: string,            // GHL contact id (required)
- *     platform: 'google' | 'houzz' | 'facebook',
+ *     platform: 'google' | 'facebook',
  *     stars?: number,
  *     url?: string,
  *     reviewedAt?: string,

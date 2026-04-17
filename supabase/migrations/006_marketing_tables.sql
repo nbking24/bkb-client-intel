@@ -22,7 +22,6 @@ create table if not exists public.client_review_history (
 
   -- Where they've reviewed. Example:
   -- { "google":   { "stars": 5, "url": "...", "reviewed_at": "..." },
-  --   "houzz":    { "stars": 5, "url": "...", "reviewed_at": "..." },
   --   "facebook": { "recommends": true, "url": "...", "reviewed_at": "..." } }
   platforms_reviewed jsonb not null default '{}'::jsonb,
 
@@ -30,7 +29,7 @@ create table if not exists public.client_review_history (
   latest_review_at timestamptz,
 
   synced_from text default 'manual_entry'
-    check (synced_from in ('google_api', 'houzz_scrape', 'facebook_api', 'manual_entry', 'agent_detected')),
+    check (synced_from in ('google_api', 'facebook_api', 'manual_entry', 'agent_detected')),
 
   created_at timestamptz default now(),
   updated_at timestamptz default now()
@@ -78,7 +77,7 @@ create table if not exists public.review_requests (
   -- Did they actually leave a review
   review_left_status text default 'pending'
     check (review_left_status in ('pending', 'confirmed', 'none', 'skipped_duplicate')),
-  review_platform text,                   -- google / houzz / facebook
+  review_platform text,                   -- google / facebook
   review_url text,
   review_stars int,
   review_confirmed_at timestamptz,
@@ -106,7 +105,7 @@ create index if not exists idx_rr_recent on public.review_requests(created_at de
 create table if not exists public.review_responses (
   id uuid primary key default gen_random_uuid(),
 
-  platform text not null check (platform in ('google', 'houzz', 'facebook')),
+  platform text not null check (platform in ('google', 'facebook')),
   external_review_id text not null,       -- platform's review id
   reviewer_name text,
   review_stars int,

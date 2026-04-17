@@ -6,7 +6,7 @@
  * POST body:
  *   { id, action: 'approve' | 'edit' | 'skip', editedText?: string }
  *
- * Approved replies are marked as approved; actual posting to Google/Houzz/FB
+ * Approved replies are marked as approved; actual posting to Google/FB
  * happens in a separate step (platform APIs / manual) — we don't auto-post
  * responses in this first iteration.
  */

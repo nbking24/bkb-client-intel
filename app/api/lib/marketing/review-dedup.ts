@@ -3,7 +3,7 @@
  * Review Dedup — single source of truth for "should this client be asked for a review?"
  *
  * Every review-request workflow MUST check eligibility before sending. The hard rule
- * from Nathan: if a client has left a review on ANY platform (Google, Houzz, Facebook),
+ * from Nathan: if a client has left a review on ANY platform (Google or Facebook),
  * they are never asked again.
  */
 import { getSupabase } from '../supabase';
@@ -99,11 +99,11 @@ export async function checkReviewEligibility(
 
 /**
  * Mark a client as having left a review. Called by the webhook that detects
- * new Google/Houzz/Facebook reviews, or by manual sync.
+ * new Google/Facebook reviews, or by manual sync.
  */
 export async function recordReviewLeft(params: {
   clientContactId: string;
-  platform: 'google' | 'houzz' | 'facebook';
+  platform: 'google' | 'facebook';
   stars?: number;
   url?: string;
   reviewedAt?: string;
