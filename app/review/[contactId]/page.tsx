@@ -26,6 +26,17 @@ const BKB_CREAM = '#f8f6f3';
 const BKB_LOGO =
   'https://www.brettkingbuilder.com/wp-content/uploads/2021/08/logowhite.png';
 
+// Team photos pulled directly from brettkingbuilder.com.
+// Easy to swap for a single group photo later: change to a single TEAM_PHOTO src + comment out TEAM array.
+const TEAM = [
+  { name: 'Brett',  src: 'https://www.brettkingbuilder.com/wp-content/uploads/2021/04/brett-king-1-450x500.jpg' },
+  { name: 'Nate',   src: 'https://www.brettkingbuilder.com/wp-content/uploads/2021/04/brett-king-450x500.jpg' },
+  { name: 'Terri',  src: 'https://www.brettkingbuilder.com/wp-content/uploads/2021/03/terri-dalavai-450x500.jpg' },
+  { name: 'Evan',   src: 'https://www.brettkingbuilder.com/wp-content/uploads/2025/05/evan-harrington-450x500.jpg' },
+  { name: 'Josh',   src: 'https://www.brettkingbuilder.com/wp-content/uploads/2025/05/josh-hodnet-1-450x500.jpg' },
+  { name: 'Dave',   src: 'https://www.brettkingbuilder.com/wp-content/uploads/2021/03/dave-detweiler-450x500.jpg' },
+];
+
 type Stage = 'rating' | 'questions' | 'submitting' | 'five_star_done' | 'low_star_done' | 'error';
 
 const QUESTIONS: { key: 'experience' | 'standout' | 'improve'; label: string; placeholder: string }[] = [
@@ -243,6 +254,57 @@ export default function ReviewGatewayPage() {
           "Building upon a solid foundation." (Luke 6:47-49)
         </div>
       </footer>
+    </div>
+  );
+}
+
+// ---------- Team strip (warmth on done pages) ----------
+
+function TeamStrip() {
+  return (
+    <div style={{ marginTop: 24, marginBottom: 8 }}>
+      <p
+        style={{
+          textAlign: 'center',
+          color: '#8a8078',
+          fontSize: 12,
+          letterSpacing: 0.5,
+          textTransform: 'uppercase',
+          fontWeight: 600,
+          margin: '0 0 12px 0',
+        }}
+      >
+        Some of the team behind your project
+      </p>
+      <div
+        style={{
+          display: 'flex',
+          flexWrap: 'wrap',
+          justifyContent: 'center',
+          gap: 14,
+        }}
+      >
+        {TEAM.map((m) => (
+          <div key={m.name} style={{ textAlign: 'center', width: 64 }}>
+            <img
+              src={m.src}
+              alt={m.name}
+              loading="lazy"
+              style={{
+                width: 56,
+                height: 56,
+                borderRadius: '50%',
+                objectFit: 'cover',
+                border: `2px solid ${BKB_GOLD}`,
+                boxShadow: '0 1px 4px rgba(0,0,0,0.08)',
+                display: 'block',
+                margin: '0 auto',
+              }}
+            />
+            <div style={{ fontSize: 12, color: '#555', marginTop: 4, fontWeight: 600 }}>{m.name}</div>
+          </div>
+        ))}
+      </div>
     </div>
   );
 }
@@ -548,6 +610,8 @@ function FiveStarDone({
         Open Google Review →
       </a>
 
+      <TeamStrip />
+
       <p style={{ color: '#8a8078', fontSize: 13, margin: '16px 0 0 0', textAlign: 'center' }}>
         Thanks again,<br />Nathan
       </p>
@@ -579,7 +643,10 @@ function LowStarDone() {
       <p style={{ color: '#4b4b4b', fontSize: 16, lineHeight: 1.6, margin: '0 0 16px 0' }}>
         Thank you for taking the time to help us get better.
       </p>
-      <p style={{ color: '#8a8078', fontSize: 14, fontStyle: 'italic', textAlign: 'center' }}>
+
+      <TeamStrip />
+
+      <p style={{ color: '#8a8078', fontSize: 14, fontStyle: 'italic', textAlign: 'center', marginTop: 16 }}>
         Nathan King<br />Brett King Builder-Contractor
       </p>
     </div>
