@@ -7,10 +7,12 @@
  * Flow:
  *   1. Client lands from an SMS/email link.
  *   2. Picks 1-5 stars.
- *   3. Writes a few words (optional).
- *   4. Submit:
- *      - 5 stars → API logs, text auto-copies to clipboard, redirect to Google in new tab
- *      - 1-4 stars → API logs, shows a warm "I'll reach out personally — Nathan" confirmation
+ *   3. Answers three open-ended questions about their experience.
+ *   4. Clicks a single "Submit Review" button (wording stays constant).
+ *   5. Routing:
+ *        - 5 stars → warm thank-you + show their response + copy-to-clipboard
+ *                    + link to Google + $25 Wawa gift card callout.
+ *        - 1-4 stars → warm thank-you + "we take all feedback seriously" note.
  *
  * No auth. The only identifier is the contactId in the URL.
  */
@@ -24,7 +26,27 @@ const BKB_CREAM = '#f8f6f3';
 const BKB_LOGO =
   'https://www.brettkingbuilder.com/wp-content/uploads/2021/08/logowhite.png';
 
-type Stage = 'rating' | 'writing' | 'submitting' | 'five_star_done' | 'low_star_done' | 'error';
+type Stage = 'rating' | 'questions' | 'submitting' | 'five_star_done' | 'low_star_done' | 'error';
+
+const QUESTIONS: { key: 'experience' | 'standout' | 'improve'; label: string; placeholder: string }[] = [
+  {
+    key: 'experience',
+    label: 'Tell us about your experience working with our team.',
+    placeholder: 'From the first call through the final walkthrough, what was it like?',
+  },
+  {
+    key: 'standout',
+    label: 'What stood out about the finished project?',
+    placeholder: 'Anything specific about craftsmanship, communication, or the result?',
+  },
+  {
+    key: 'improve',
+    label: 'Is there anything we could have done better?',
+    placeholder: 'Honest input helps us get better.',
+  },
+];
+
+type AnswerKey = 'experience' | 'standout' | 'improve';
 
 export default function ReviewGatewayPage() {
   const params = useParams();
@@ -33,15 +55,46 @@ export default function ReviewGatewayPage() {
   const [stage, setStage] = useState<Stage>('rating');
   const [stars, setStars] = useState<number>(0);
   const [hoveredStar, setHoveredStar] = useState<number>(0);
-  const [reviewText, setReviewText] = useState<string>('');
+  const [answers, setAnswers] = useState<Record<AnswerKey, string>>({
+    experience: '',
+    standout: '',
+    improve: '',
+  });
   const [errorMsg, setErrorMsg] = useState<string>('');
   const [googleUrl, setGoogleUrl] = useState<string>('');
   const [copied, setCopied] = useState<boolean>(false);
+  const [publicResponseText, setPublicResponseText] = useState<string>('');
+
+  function updateAnswer(key: AnswerKey, value: string) {
+    setAnswers((prev) => ({ ...prev, [key]: value }));
+  }
+
+  // For Google copy, we share only the positive questions (experience + standout).
+  // The "improve" answer stays private — it goes to the DB but not onto a public review.
+  function buildPublicResponse() {
+    const parts: string[] = [];
+    if (answers.experience.trim()) parts.push(answers.experience.trim());
+    if (answers.standout.trim()) parts.push(answers.standout.trim());
+    return parts.join('\n\n');
+  }
+
+  // For the DB, we save all three answers labeled, so internal readers see the full structured feedback.
+  function buildDbText() {
+    const labeled = QUESTIONS
+      .map((q) => {
+        const val = answers[q.key]?.trim();
+        if (!val) return null;
+        return `${q.label}\n${val}`;
+      })
+      .filter(Boolean);
+    return labeled.join('\n\n');
+  }
 
   async function handleSubmit() {
     if (stars < 1) return;
     setStage('submitting');
     setErrorMsg('');
+    const dbText = buildDbText();
     try {
       const res = await fetch('/api/public/review-submit', {
         method: 'POST',
@@ -49,7 +102,7 @@ export default function ReviewGatewayPage() {
         body: JSON.stringify({
           contactId,
           stars,
-          reviewText: reviewText.trim() || null,
+          reviewText: dbText || null,
         }),
       });
       const data = await res.json();
@@ -59,14 +112,14 @@ export default function ReviewGatewayPage() {
         return;
       }
       if (data.routedTo === 'google') {
+        const publicText = buildPublicResponse();
+        setPublicResponseText(publicText);
         setGoogleUrl(data.googleReviewUrl || '');
-        // Try to copy review text to clipboard automatically
-        if (reviewText.trim()) {
+        if (publicText) {
           try {
-            await navigator.clipboard.writeText(reviewText.trim());
+            await navigator.clipboard.writeText(publicText);
             setCopied(true);
           } catch {
-            // Clipboard may be blocked; the user can click "Copy" manually
             setCopied(false);
           }
         }
@@ -81,9 +134,9 @@ export default function ReviewGatewayPage() {
   }
 
   async function copyToClipboard() {
-    if (!reviewText.trim()) return;
+    if (!publicResponseText.trim()) return;
     try {
-      await navigator.clipboard.writeText(reviewText.trim());
+      await navigator.clipboard.writeText(publicResponseText.trim());
       setCopied(true);
     } catch {
       setCopied(false);
@@ -132,7 +185,7 @@ export default function ReviewGatewayPage() {
             borderRadius: 12,
             boxShadow: '0 2px 12px rgba(0,0,0,0.06)',
             padding: '28px 24px',
-            maxWidth: 560,
+            maxWidth: 600,
             width: '100%',
             border: '1px solid #e8e5e0',
           }}
@@ -141,22 +194,22 @@ export default function ReviewGatewayPage() {
             <RatingStage
               stars={stars}
               hoveredStar={hoveredStar}
-              setStars={(n) => {
+              setStars={(n: number) => {
                 setStars(n);
-                setStage('writing');
+                setStage('questions');
               }}
               setHoveredStar={setHoveredStar}
             />
           )}
 
-          {(stage === 'writing' || stage === 'submitting' || stage === 'error') && (
-            <WritingStage
+          {(stage === 'questions' || stage === 'submitting' || stage === 'error') && (
+            <QuestionsStage
               stars={stars}
               hoveredStar={hoveredStar}
               setStars={setStars}
               setHoveredStar={setHoveredStar}
-              reviewText={reviewText}
-              setReviewText={setReviewText}
+              answers={answers}
+              updateAnswer={updateAnswer}
               onSubmit={handleSubmit}
               submitting={stage === 'submitting'}
               errorMsg={stage === 'error' ? errorMsg : ''}
@@ -165,7 +218,7 @@ export default function ReviewGatewayPage() {
 
           {stage === 'five_star_done' && (
             <FiveStarDone
-              reviewText={reviewText}
+              publicResponseText={publicResponseText}
               googleUrl={googleUrl}
               copied={copied}
               onCopy={copyToClipboard}
@@ -256,7 +309,7 @@ function RatingStage({ stars, hoveredStar, setStars, setHoveredStar }: any) {
           lineHeight: 1.5,
         }}
       >
-        Tap a star to share your honest feedback. Takes 30 seconds.
+        Tap a star to get started. Takes about 60 seconds.
       </p>
       <StarPicker
         stars={stars}
@@ -268,24 +321,23 @@ function RatingStage({ stars, hoveredStar, setStars, setHoveredStar }: any) {
   );
 }
 
-// ---------- Stage: writing (after picking stars) ----------
+// ---------- Stage: questions (3 textareas + submit) ----------
 
-function WritingStage({
+function QuestionsStage({
   stars,
   hoveredStar,
   setStars,
   setHoveredStar,
-  reviewText,
-  setReviewText,
+  answers,
+  updateAnswer,
   onSubmit,
   submitting,
   errorMsg,
 }: any) {
-  const isFiveStar = stars === 5;
   return (
     <div>
       <h1 style={{ margin: 0, fontSize: 22, fontWeight: 700, color: BKB_RED, textAlign: 'center' }}>
-        {isFiveStar ? 'Awesome, thank you!' : 'Thanks for the honest feedback'}
+        Tell us how it went
       </h1>
 
       <StarPicker
@@ -295,56 +347,46 @@ function WritingStage({
         setHoveredStar={setHoveredStar}
       />
 
-      <p style={{ color: '#4b4b4b', fontSize: 16, lineHeight: 1.5, margin: '0 0 12px 0' }}>
-        {isFiveStar
-          ? "If you'd share a few words about your experience, it goes a long way for a small family business like ours."
-          : "I take every piece of feedback seriously. Anything you write here comes directly to me and stays private."}
+      <p style={{ color: '#4b4b4b', fontSize: 15, lineHeight: 1.5, margin: '0 0 18px 0', textAlign: 'center' }}>
+        A few quick questions. Answer what you'd like, then hit Submit.
       </p>
 
-      <label
-        htmlFor="reviewText"
-        style={{
-          display: 'block',
-          fontSize: 13,
-          fontWeight: 600,
-          color: '#555',
-          marginBottom: 6,
-          textTransform: 'uppercase',
-          letterSpacing: 0.5,
-        }}
-      >
-        {isFiveStar ? 'Your review (optional)' : 'What could we have done better?'}
-      </label>
-      <textarea
-        id="reviewText"
-        value={reviewText}
-        onChange={(e) => setReviewText(e.target.value)}
-        rows={6}
-        placeholder={
-          isFiveStar
-            ? 'Brett King Builder did an incredible job on our kitchen renovation. From design through the final walkthrough, the team was...'
-            : 'I want to know what missed the mark.'
-        }
-        style={{
-          width: '100%',
-          border: '1px solid #d8d4cd',
-          borderRadius: 8,
-          padding: '10px 12px',
-          fontFamily: 'inherit',
-          fontSize: 16,
-          lineHeight: 1.5,
-          resize: 'vertical',
-          outline: 'none',
-          boxSizing: 'border-box',
-        }}
-      />
-
-      {isFiveStar && (
-        <p style={{ color: '#8a8078', fontSize: 13, margin: '8px 0 0 0', lineHeight: 1.4 }}>
-          When you hit Continue, we'll copy this to your clipboard and open Google in a new tab so
-          you can paste it without retyping.
-        </p>
-      )}
+      {QUESTIONS.map((q: any) => (
+        <div key={q.key} style={{ marginBottom: 16 }}>
+          <label
+            htmlFor={`q-${q.key}`}
+            style={{
+              display: 'block',
+              fontSize: 14,
+              fontWeight: 600,
+              color: '#333',
+              marginBottom: 6,
+              lineHeight: 1.4,
+            }}
+          >
+            {q.label}
+          </label>
+          <textarea
+            id={`q-${q.key}`}
+            value={answers[q.key]}
+            onChange={(e) => updateAnswer(q.key, e.target.value)}
+            rows={3}
+            placeholder={q.placeholder}
+            style={{
+              width: '100%',
+              border: '1px solid #d8d4cd',
+              borderRadius: 8,
+              padding: '10px 12px',
+              fontFamily: 'inherit',
+              fontSize: 15,
+              lineHeight: 1.5,
+              resize: 'vertical',
+              outline: 'none',
+              boxSizing: 'border-box',
+            }}
+          />
+        </div>
+      ))}
 
       {errorMsg && (
         <div
@@ -355,7 +397,8 @@ function WritingStage({
             padding: '10px 12px',
             borderRadius: 8,
             fontSize: 14,
-            marginTop: 12,
+            marginTop: 4,
+            marginBottom: 12,
           }}
         >
           {errorMsg}
@@ -364,9 +407,9 @@ function WritingStage({
 
       <button
         onClick={onSubmit}
-        disabled={submitting}
+        disabled={submitting || stars < 1}
         style={{
-          marginTop: 16,
+          marginTop: 8,
           width: '100%',
           background: BKB_RED,
           color: '#ffffff',
@@ -375,11 +418,11 @@ function WritingStage({
           borderRadius: 8,
           fontSize: 16,
           fontWeight: 600,
-          cursor: submitting ? 'not-allowed' : 'pointer',
-          opacity: submitting ? 0.7 : 1,
+          cursor: submitting || stars < 1 ? 'not-allowed' : 'pointer',
+          opacity: submitting || stars < 1 ? 0.7 : 1,
         }}
       >
-        {submitting ? 'Submitting...' : isFiveStar ? 'Continue to Google' : 'Send to Nathan'}
+        {submitting ? 'Submitting...' : 'Submit Review'}
       </button>
     </div>
   );
@@ -388,17 +431,17 @@ function WritingStage({
 // ---------- Stage: five_star_done ----------
 
 function FiveStarDone({
-  reviewText,
+  publicResponseText,
   googleUrl,
   copied,
   onCopy,
 }: {
-  reviewText: string;
+  publicResponseText: string;
   googleUrl: string;
   copied: boolean;
   onCopy: () => void;
 }) {
-  const hasText = !!reviewText.trim();
+  const hasText = !!publicResponseText.trim();
 
   return (
     <div>
@@ -407,10 +450,9 @@ function FiveStarDone({
       </h1>
 
       <p style={{ color: '#4b4b4b', fontSize: 16, lineHeight: 1.6, margin: '14px 0' }}>
-        Would you take a minute to post your review on Google? For a small family
-        business like ours, Google reviews are one of the single biggest ways new families find
-        us when they're starting to think about their own project. Every review genuinely
-        helps, and I don't take that lightly.
+        Would you take a minute to share that on Google? For a small family business like ours,
+        Google reviews are one of the biggest ways new families find us when they're thinking
+        about their own project. Every one of them genuinely helps.
       </p>
 
       {/* Wawa gift card callout */}
@@ -427,8 +469,8 @@ function FiveStarDone({
         }}
       >
         <strong>A small thank-you:</strong> everyone who posts their review on Google gets a{' '}
-        <strong>$25 Wawa gift card</strong> sent their way. We'll send it once we see your
-        review come through.
+        <strong>$25 Wawa gift card</strong> sent their way. We'll send it once we see your review
+        come through.
       </div>
 
       {hasText && (
@@ -444,7 +486,8 @@ function FiveStarDone({
               letterSpacing: 0.5,
             }}
           >
-            Your review {copied && <span style={{ color: BKB_GOLD, fontWeight: 700 }}> · copied!</span>}
+            Your response{' '}
+            {copied && <span style={{ color: BKB_GOLD, fontWeight: 700 }}> · copied!</span>}
           </label>
           <div
             style={{
@@ -458,7 +501,7 @@ function FiveStarDone({
               color: '#333',
             }}
           >
-            {reviewText}
+            {publicResponseText}
           </div>
 
           <button
@@ -476,7 +519,7 @@ function FiveStarDone({
               cursor: 'pointer',
             }}
           >
-            {copied ? '\u2713 Copied! Ready to paste on Google' : 'Copy my review'}
+            {copied ? '\u2713 Copied! Ready to paste on Google' : 'Copy my response'}
           </button>
 
           <p style={{ color: '#8a8078', fontSize: 13, margin: '8px 0 0 0', lineHeight: 1.4 }}>
@@ -526,15 +569,15 @@ function LowStarDone() {
           textAlign: 'center',
         }}
       >
-        Thank you. Your feedback matters to us.
+        Thank you. Your feedback matters.
       </h1>
       <p style={{ color: '#4b4b4b', fontSize: 16, lineHeight: 1.6, margin: '16px 0 12px 0' }}>
-        We read every piece of feedback that comes in, and we take it seriously. We're always
-        looking for ways to improve the way we serve our clients, and honest input like yours
-        is part of how we get better.
+        We take all reviews seriously. Our team will go through what you shared carefully, and
+        we're constantly looking for ways to make the experience better for the families who
+        trust us with their homes.
       </p>
       <p style={{ color: '#4b4b4b', fontSize: 16, lineHeight: 1.6, margin: '0 0 16px 0' }}>
-        Thank you for taking the time to share it with us.
+        Thank you for taking the time to help us get better.
       </p>
       <p style={{ color: '#8a8078', fontSize: 14, fontStyle: 'italic', textAlign: 'center' }}>
         Nathan King<br />Brett King Builder-Contractor
