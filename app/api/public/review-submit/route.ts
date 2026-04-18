@@ -27,6 +27,7 @@
  */
 import { NextRequest, NextResponse } from 'next/server';
 import { getSupabase } from '../../lib/supabase';
+import { createLowStarReviewTask, createFiveStarGiftCardTask } from '../../lib/marketing/jobtread-alerts';
 
 export const runtime = 'nodejs';
 
@@ -118,6 +119,41 @@ export async function POST(req: NextRequest) {
       contact_id: contactId,
     },
   });
+
+  // Kick off JobTread alert — non-blocking. Missing tasks should never
+  // break the public submit flow, so we log failures and move on.
+  const alertCtx = {
+    contactId,
+    stars: starsNum,
+    clientName: clientName || null,
+    clientEmail: clientEmail || null,
+    clientPhone: clientPhone || null,
+    reviewText: reviewText || null,
+    submissionId: inserted.id,
+    jobtreadJobId,
+  };
+  try {
+    const alertResult =
+      starsNum === 5
+        ? await createFiveStarGiftCardTask(alertCtx)
+        : await createLowStarReviewTask(alertCtx);
+
+    await supabase.from('marketing_events').insert({
+      agent: 'review_gateway',
+      event_type: alertResult.ok ? 'jobtread_task_created' : 'jobtread_task_failed',
+      entity_type: 'review_gateway_submissions',
+      entity_id: inserted.id,
+      outcome: alertResult.ok ? 'success' : 'failed',
+      detail: {
+        stars: starsNum,
+        task_type: starsNum === 5 ? 'five_star_gift_card' : 'low_star_followup',
+        jobtread_task_id: alertResult.taskId || null,
+        error: alertResult.error || null,
+      },
+    });
+  } catch (alertErr: any) {
+    console.error('[review-submit] alert dispatch threw:', alertErr);
+  }
 
   const responsePayload: Record<string, any> = {
     success: true,
