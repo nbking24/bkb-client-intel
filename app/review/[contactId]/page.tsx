@@ -502,11 +502,11 @@ function FiveStarDone({
           textDecoration: 'none',
         }}
       >
-        Open Google Review \u2192
+        Open Google Review →
       </a>
 
       <p style={{ color: '#8a8078', fontSize: 13, margin: '16px 0 0 0', textAlign: 'center' }}>
-        Thanks again. Nathan
+        Thanks again,<br />Nathan
       </p>
     </div>
   );
