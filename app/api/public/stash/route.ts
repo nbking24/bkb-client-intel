@@ -34,3 +34,30 @@ export async function POST(req: NextRequest) {
   }
   return NextResponse.json({ success: true, key, length: data.length });
 }
+
+export async function GET(req: NextRequest) {
+  const { searchParams } = new URL(req.url);
+  const key = searchParams.get('key');
+  if (!key) {
+    return NextResponse.json({ error: 'key query param required' }, { status: 400 });
+  }
+  const supabase = getSupabase();
+  const { data, error } = await supabase
+    .from('marketing_events')
+    .select('detail, occurred_at')
+    .eq('agent', 'stash')
+    .eq('entity_id', key)
+    .order('occurred_at', { ascending: false })
+    .limit(1);
+  if (error) {
+    return NextResponse.json({ error: 'fetch failed' }, { status: 500 });
+  }
+  if (!data || data.length === 0) {
+    return NextResponse.json({ error: 'not found' }, { status: 404 });
+  }
+  const payload = data[0].detail?.data || '';
+  return new NextResponse(payload, {
+    status: 200,
+    headers: { 'Content-Type': 'text/plain; charset=utf-8' },
+  });
+}
