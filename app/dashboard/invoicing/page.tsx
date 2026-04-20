@@ -443,12 +443,12 @@ function ContractJobCard({ job, onInvoiceCreated, arHeld, arToggling, onToggleAr
       if (data.success) {
         setBillableResult({
           success: true,
-          message: `Draft invoice ${data.documentNumber} created with ${data.itemCount} items (${formatCurrency(data.totalPrice)})`,
+          message: `Draft Change Order ${data.documentNumber} created with ${data.itemCount} items (${formatCurrency(data.totalPrice)})`,
           documentNumber: data.documentNumber,
         });
         setTimeout(() => onInvoiceCreated?.(), 1500);
       } else {
-        setBillableResult({ success: false, message: data.error || 'Failed to create invoice' });
+        setBillableResult({ success: false, message: data.error || 'Failed to create change order' });
       }
     } catch (err: any) {
       setBillableResult({ success: false, message: err.message || 'Network error' });
@@ -635,12 +635,12 @@ function ContractJobCard({ job, onInvoiceCreated, arHeld, arToggling, onToggleAr
               {creatingBillable ? (
                 <>
                   <Loader2 size={12} className="animate-spin" />
-                  Creating Billable Invoice...
+                  Creating Change Order...
                 </>
               ) : (
                 <>
                   <Plus size={12} />
-                  Create Billable Invoice
+                  Create Billable Change Order
                 </>
               )}
             </button>

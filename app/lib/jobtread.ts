@@ -3548,16 +3548,21 @@ export async function createDraftCostPlusInvoice(jobId: string): Promise<{
 }
 
 // ============================================================
-// Fixed-Price / Contract Billable Invoice Creation
+// Fixed-Price / Contract Billable Change Order Creation
 // ============================================================
 
 /**
- * Create a draft customer invoice for a fixed-price (contract) job containing:
- * 1. CC23 (Billable) material & subcontractor costs from vendor bills not yet on customer invoices
+ * Create a draft Change Order (customerOrder) for a fixed-price (contract) job containing:
+ * 1. CC23 (Billable) material & subcontractor costs from vendor bills not yet billed
  * 2. CC23 (Billable) labor hours from time entries not yet billed
  *
- * This mirrors the cost-plus invoice creation but uses the CC23 billable item logic
- * from invoicing-health.ts to identify what needs to be invoiced.
+ * We create a customerOrder (Change Order) rather than a customerInvoice because on
+ * fixed-price jobs we need the new value to flow through JobTread's CO approval →
+ * convert-to-invoice workflow so totalContractAndCOValue and invoicedToDate stay aligned.
+ * The "Change Order" name in the subject is what the CO detection in invoicing-health.ts
+ * and co-tracking.ts keys off of to classify this document as a CO.
+ *
+ * Cost-plus jobs continue to use direct invoice creation (separate code path).
  */
 export async function createDraftBillableInvoice(jobId: string): Promise<{
   documentId: string;
@@ -3849,23 +3854,25 @@ export async function createDraftBillableInvoice(jobId: string): Promise<{
     }
   }
 
-  // 8. Create the document shell with BKB company info and sequential number
-  const allExistingInvoices = allDocs.filter((d: any) => d.type === 'customerInvoice');
-  const invoiceSeq = allExistingInvoices.length + 1;
+  // 8. Create the Change Order (customerOrder) shell with BKB company info and sequential number
+  //    Numbering is against existing customerOrders on the job, not invoices.
+  const allExistingCustomerOrders = allDocs.filter((d: any) => d.type === 'customerOrder');
+  const coSeq = allExistingCustomerOrders.length + 1;
 
   const doc = await createJTDocument({
     jobId,
-    type: 'customerInvoice',
-    name: 'Invoice',
+    type: 'customerOrder',
+    name: 'Change Order',
     fromName: 'Terri (Brett King Builder-Contractor Inc.)',
     toName: customerName,
     toAddress: locationAddress,
     taxRate: '0',
     jobLocationName: locationName,
     jobLocationAddress: locationAddress,
-    dueDays: 2,
-    subject: `Billable Items Invoice #${invoiceSeq} - ${job.name}`,
-    description: 'This invoice covers additional billable items and labor hours incurred on this project beyond the original contract scope.',
+    // dueDays intentionally omitted — CO has no due date; it becomes billable
+    // only after approval and conversion to an invoice in JobTread.
+    subject: `Billable Items Change Order #${coSeq} - ${job.name}`,
+    description: 'This change order covers additional billable items and labor hours incurred on this project beyond the original contract scope. Once approved in JobTread, convert to an invoice to bill the customer.',
   });
 
   // Set company address, org name, and hide QTY column
@@ -3967,7 +3974,7 @@ export async function createDraftBillableInvoice(jobId: string): Promise<{
                 max_tokens: 256,
                 messages: [{
                   role: 'user',
-                  content: `Rewrite this vendor bill description into a brief, professional, client-facing summary for a renovation invoice. Keep it to 1-2 concise sentences. Do not include pricing. Do not use markdown headers (#) or bold (**) formatting. Write in plain text. Do not mention tools, consumables, or crew supplies (gloves, batteries, cords, blades, tape, rags, trash bags, etc.) — only mention materials that become part of the finished project.\n\nOriginal:\n${billDesc}`,
+                  content: `Rewrite this vendor bill description into a brief, professional, client-facing summary for a renovation change order. Keep it to 1-2 concise sentences. Do not include pricing. Do not use markdown headers (#) or bold (**) formatting. Write in plain text. Do not mention tools, consumables, or crew supplies (gloves, batteries, cords, blades, tape, rags, trash bags, etc.) — only mention materials that become part of the finished project.\n\nOriginal:\n${billDesc}`,
                 }],
               }),
             });
@@ -4043,7 +4050,7 @@ export async function createDraftBillableInvoice(jobId: string): Promise<{
                 max_tokens: 256,
                 messages: [{
                   role: 'user',
-                  content: `You are writing the header description for the "${categoryName}" section of a renovation invoice. Summarize the items below into a short, client-facing bullet list that accurately reflects the actual scope — one bullet per distinct type of work or item, at most ${Math.min(billSummaries.length, 4)} bullets total. Do NOT invent items that aren't listed. Do NOT use generic filler like "project costs billed to client" or "third-party vendor costs" — describe the specific scope shown. Output ONLY the bullet points (using • character), nothing else. No intro, no questions. No markdown headers (#). No pricing. For emphasis use single *asterisks* not double **asterisks**.\n\nItems on this invoice:\n${rawDesc}`,
+                  content: `You are writing the header description for the "${categoryName}" section of a renovation change order. Summarize the items below into a short, client-facing bullet list that accurately reflects the actual scope — one bullet per distinct type of work or item, at most ${Math.min(billSummaries.length, 4)} bullets total. Do NOT invent items that aren't listed. Do NOT use generic filler like "project costs billed to client" or "third-party vendor costs" — describe the specific scope shown. Output ONLY the bullet points (using • character), nothing else. No intro, no questions. No markdown headers (#). No pricing. For emphasis use single *asterisks* not double **asterisks**.\n\nItems on this change order:\n${rawDesc}`,
                 }],
               }),
             });
