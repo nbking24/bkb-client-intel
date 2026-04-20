@@ -515,62 +515,35 @@ async function analyzeContractJob(
     .reduce((sum, d) => sum + (d.price || 0), 0);
 
   // --- Change Order awareness ---
-  // Split each approved customerOrder into a base portion and a CO portion
-  // based on its line items:
-  //   - Items whose jobCostItem.costGroup walks up to a CO group under
-  //     "Post Pricing Changes" count toward approvedCOValue.
-  //   - Everything else counts toward totalContractValue.
-  // A document named "Change Order …" is treated as 100% CO even if its
-  // line items don't carry a Post Pricing linkage — the name is an
-  // unambiguous signal from the operator.
+  // Classify each approved customerOrder by its document name:
+  //   - Name matches /change\s*order/i → counts toward approvedCOValue
+  //   - Everything else → counts toward totalContractValue
   //
-  // Rationale: JobTread lets an operator re-generate the Construction
-  // Contract so it pulls in a small scope revision that lives under Post
-  // Pricing. Under the old "any-item-links → whole-doc is a CO" rule,
-  // the full base contract got classified as a CO, and unbilledCOAmount
-  // inflated to the entire contract value. The per-item split here keeps
-  // the base portion where it belongs and only surfaces the actual CO
-  // dollars as approved-but-uninvoiced.
+  // Rationale: per-item budget-linkage splits were peeling portions of the
+  // base Construction Contract into the CO bucket whenever items happened
+  // to link to Post Pricing Changes groups (e.g. for tracking purposes).
+  // That inflated approvedCOValue and shrank the reported contract amount.
+  // Operators already signal CO docs by name — the new billable-items flow
+  // creates docs named "Billable Items Change Order #N", and CO docs in
+  // JT are consistently named "Change Order …". Trust the name.
   const CO_NAME_RE = /change\s*order/i;
   let totalContractValue = 0;
   let approvedCOValue = 0;
   let appliedCOsCount = 0;
   try {
     const coTracking = await getCOTrackingForJob(job.id);
-    const approvedCOs = coTracking.budgetCOs.filter(co => co.isApproved);
-    appliedCOsCount = approvedCOs.length;
-
-    for (const d of estimates) {
-      const price = d.price || 0;
-      const nameIsCO = CO_NAME_RE.test(d.name || '');
-      const split = coTracking.documentSplits[d.id];
-
-      if (nameIsCO) {
-        // Name signal: treat entire document as a CO.
-        approvedCOValue += price;
-      } else if (split) {
-        // Value split from budget linkage. When no items link to a CO group,
-        // baseValue will equal total item price — but we anchor to the
-        // document header price (authoritative) and use the split to
-        // compute the CO fraction. Clamp to handle rounding.
-        const sumSplit = split.coValue + split.baseValue;
-        const coFraction = sumSplit > 0 ? split.coValue / sumSplit : 0;
-        const coPortion = Math.min(price, coFraction * price);
-        approvedCOValue    += coPortion;
-        totalContractValue += (price - coPortion);
-      } else {
-        // No tracking data for this doc → treat as pure base contract.
-        totalContractValue += price;
-      }
-    }
+    appliedCOsCount = coTracking.budgetCOs.filter(co => co.isApproved).length;
   } catch (err: any) {
     console.error(`[Invoicing] CO tracking error for ${job.id}:`, err?.message || err);
-    // Fallback: name-only classification so we still split base vs CO
-    // even when CO tracking fails.
-    const baseOrders = estimates.filter((d) => !CO_NAME_RE.test(d.name || ''));
-    const coOrders   = estimates.filter((d) =>  CO_NAME_RE.test(d.name || ''));
-    totalContractValue = baseOrders.reduce((sum, d) => sum + (d.price || 0), 0);
-    approvedCOValue    = coOrders.reduce((sum, d) => sum + (d.price || 0), 0);
+  }
+
+  for (const d of estimates) {
+    const price = d.price || 0;
+    if (CO_NAME_RE.test(d.name || '')) {
+      approvedCOValue += price;
+    } else {
+      totalContractValue += price;
+    }
   }
 
   const totalContractAndCOValue = totalContractValue + approvedCOValue;
