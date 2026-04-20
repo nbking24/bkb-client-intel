@@ -3,7 +3,8 @@
  * /api/tickets
  *
  * POST — create a new ticket (multipart form with optional screenshot file).
- * GET  — list tickets. Terri sees her own; Nathan sees all.
+ * GET  — list tickets. All authenticated team members see every ticket.
+ *        Pass `?mine=true` to scope to the caller's own tickets.
  */
 import { NextRequest, NextResponse } from 'next/server';
 import { validateAuth, validateAgentOrUser } from '../lib/auth';
@@ -139,8 +140,9 @@ export async function GET(req: NextRequest) {
     const sb = createServerClient();
     let q = sb.from('tickets').select('*').order('created_at', { ascending: false }).limit(limit);
 
-    // Non-owners only see their own tickets. Nathan sees everything.
-    if (auth.role !== 'owner' || mineOnly) {
+    // Tickets are a shared team queue. Every authenticated user sees them all.
+    // Callers can opt into a personal view with ?mine=true (used for "my tickets" widgets).
+    if (mineOnly && auth.userId) {
       q = q.eq('submitter_user_id', auth.userId);
     }
 

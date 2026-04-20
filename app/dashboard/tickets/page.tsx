@@ -4,7 +4,8 @@
 /**
  * /dashboard/tickets
  *
- * Ticket queue + history. Admins (Terri) see their own. Owner (Nathan) sees all.
+ * Shared ticket queue + history. Every authenticated team member sees all
+ * tickets and can comment; only the owner can change status / resolve.
  * Click any row to open the detail drawer with screenshot + event timeline.
  *
  * Query param ?open=<ticketId> deep-links a specific ticket (used by email CTAs).
@@ -196,7 +197,7 @@ export default function TicketsPage() {
         <div>
           <h1 className="text-2xl font-semibold" style={{ color: '#1a1a1a' }}>Tickets</h1>
           <div className="text-sm mt-1" style={{ color: '#8a8078' }}>
-            Issues submitted from the dashboard. {auth.role === 'owner' ? 'Showing all tickets.' : 'Showing your tickets.'}
+            Shared ticket queue. Showing all tickets submitted by the team.
           </div>
         </div>
         <button
@@ -526,27 +527,33 @@ function TicketDetail({
             <div style={{ color: '#8a8078' }}><Loader2 size={14} className="inline-block animate-spin" /> Loading...</div>
           ) : (
             <div className="space-y-3">
-              {events.map((e) => (
-                <div key={e.id} className="flex items-start gap-3 text-sm">
-                  <div
-                    className="flex-shrink-0 w-2 h-2 rounded-full mt-1.5"
-                    style={{ background: eventColor(e) }}
-                  />
-                  <div className="flex-1">
-                    <div style={{ color: '#1a1a1a' }}>
-                      <strong style={{ color: actorColor(e.actor) }}>{e.actor}</strong>
-                      {' '}
-                      {describeEvent(e)}
-                    </div>
-                    {e.note && (
-                      <div className="text-sm mt-1 whitespace-pre-wrap" style={{ color: '#5a5550' }}>{e.note}</div>
-                    )}
-                    <div className="text-xs mt-1" style={{ color: '#8a8078' }}>
-                      {formatRelative(e.created_at)}
+              {events.map((e) => {
+                // Comments render as prominent message cards so replies are easy to spot.
+                if (e.event_type === 'commented' && e.note) {
+                  return <CommentCard key={e.id} event={e} />;
+                }
+                return (
+                  <div key={e.id} className="flex items-start gap-3 text-sm">
+                    <div
+                      className="flex-shrink-0 w-2 h-2 rounded-full mt-1.5"
+                      style={{ background: eventColor(e) }}
+                    />
+                    <div className="flex-1">
+                      <div style={{ color: '#1a1a1a' }}>
+                        <strong style={{ color: actorColor(e.actor) }}>{actorLabel(e.actor)}</strong>
+                        {' '}
+                        {describeEvent(e)}
+                      </div>
+                      {e.note && (
+                        <div className="text-sm mt-1 whitespace-pre-wrap" style={{ color: '#5a5550' }}>{e.note}</div>
+                      )}
+                      <div className="text-xs mt-1" style={{ color: '#8a8078' }}>
+                        {formatRelative(e.created_at)}
+                      </div>
                     </div>
                   </div>
-                </div>
-              ))}
+                );
+              })}
             </div>
           )}
         </div>
@@ -580,8 +587,56 @@ function TicketDetail({
 }
 
 // ----------------------------------------------------------------
+// Comment card: a chat-bubble style card so replies and questions
+// in the timeline stand out from dry status transitions.
+// ----------------------------------------------------------------
+
+function CommentCard({ event }: { event: TicketEvent }) {
+  const isAgent = event.actor === 'claude' || event.actor_role === 'agent';
+  const isSystem = event.actor === 'system' || event.actor_role === 'system';
+  const accent = isAgent ? '#1e40af' : isSystem ? '#8a8078' : '#68050a';
+  const bg     = isAgent ? '#eff6ff' : isSystem ? '#f8f6f3' : '#fef6f6';
+  const border = isAgent ? '#dbeafe' : isSystem ? '#e8e5e0' : '#f4d4d6';
+  return (
+    <div
+      className="rounded-lg p-3.5 text-sm"
+      style={{ background: bg, border: `1px solid ${border}` }}
+    >
+      <div className="flex items-center justify-between gap-3 mb-1.5">
+        <div className="flex items-center gap-2">
+          <span
+            className="text-xs font-semibold px-2 py-0.5 rounded-full"
+            style={{ background: '#ffffff', color: accent, border: `1px solid ${border}` }}
+          >
+            {actorLabel(event.actor)}
+          </span>
+          <span className="text-xs" style={{ color: '#8a8078' }}>commented</span>
+        </div>
+        <span className="text-xs" style={{ color: '#8a8078' }}>
+          {formatRelative(event.created_at)}
+        </span>
+      </div>
+      <div className="whitespace-pre-wrap leading-relaxed" style={{ color: '#1a1a1a' }}>
+        {event.note}
+      </div>
+    </div>
+  );
+}
+
+// ----------------------------------------------------------------
 // Helpers
 // ----------------------------------------------------------------
+
+function actorLabel(actor: string): string {
+  if (!actor) return 'Unknown';
+  if (actor === 'claude') return 'Claude';
+  if (actor === 'system') return 'System';
+  if (actor === 'nathan') return 'Nathan';
+  if (actor === 'terri') return 'Terri';
+  if (actor === 'evan') return 'Evan';
+  if (actor === 'josh') return 'Josh';
+  return actor.charAt(0).toUpperCase() + actor.slice(1);
+}
 
 function describeEvent(e: TicketEvent): string {
   switch (e.event_type) {
