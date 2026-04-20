@@ -23,10 +23,7 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
     const { data: ticket } = await sb.from('tickets').select('submitter_user_id').eq('id', params.id).single();
     if (!ticket) return NextResponse.json({ error: 'Ticket not found' }, { status: 404 });
 
-    // Only owner or the submitter can comment
-    if (auth.role !== 'owner' && ticket.submitter_user_id !== auth.userId) {
-      return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
-    }
+    // Tickets are a shared team queue. Any authenticated team member can comment.
 
     const actor = body?.actor || auth.userId || 'system';
     await logTicketEvent({

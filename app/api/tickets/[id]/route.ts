@@ -23,10 +23,7 @@ export async function GET(req: NextRequest, { params }: { params: { id: string }
     const { data: ticket, error } = await sb.from('tickets').select('*').eq('id', params.id).single();
     if (error || !ticket) return NextResponse.json({ error: 'Ticket not found' }, { status: 404 });
 
-    // Non-owners can only see their own tickets
-    if (auth.role !== 'owner' && ticket.submitter_user_id !== auth.userId) {
-      return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
-    }
+    // Tickets are a shared team queue. Any authenticated team member can view any ticket.
 
     const { data: events } = await sb
       .from('ticket_events')
