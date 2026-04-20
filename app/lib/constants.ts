@@ -143,9 +143,11 @@ export interface TeamUser {
   initials: string;
   role: TeamRole;
   membershipId: string;
+  email?: string;  // used by the tickets system for status notifications
 }
 export const TEAM_USERS: Record<string, TeamUser> = {
-  nathan:      { name: 'Nathan King',      initials: 'NK', role: 'owner',     membershipId: JT_MEMBERS.nathan },
+  nathan:      { name: 'Nathan King',      initials: 'NK', role: 'owner',     membershipId: JT_MEMBERS.nathan, email: 'nathan@brettkingbuilder.com' },
+  // Terri's email is configured via TICKET_NOTIFY_TERRI env var so it's easy to change without a deploy
   terri:       { name: 'Terri King',       initials: 'TK', role: 'admin',     membershipId: JT_MEMBERS.terri },
   evan:        { name: 'Evan Harrington',  initials: 'EH', role: 'field_sup', membershipId: JT_MEMBERS.evan },
   josh:        { name: 'Josh King',        initials: 'JK', role: 'field_sup', membershipId: JT_MEMBERS.josh },

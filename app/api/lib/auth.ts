@@ -21,6 +21,28 @@ export function isFieldStaffRole(role?: string): boolean {
   return FIELD_ROLES.has(role || '');
 }
 
+/**
+ * Agent-aware auth wrapper.
+ *
+ * For server-to-server use (Cowork / Claude working the ticket queue), we accept
+ * an `x-agent-token` header that matches the TICKET_AGENT_TOKEN env var. When
+ * that token is present and valid, the request is treated as 'claude' acting
+ * with owner-level privileges.
+ *
+ * Pass the whole Request (or NextRequest) in, and we'll check both.
+ */
+export function validateAgentOrUser(req: Request | { headers: Headers | { get: (k: string) => string | null } }): AuthResult {
+  // Agent token path
+  const agentToken = (req as any).headers?.get?.('x-agent-token') || null;
+  const expected = process.env.TICKET_AGENT_TOKEN;
+  if (agentToken && expected && agentToken === expected) {
+    return { valid: true, userId: 'claude', role: 'owner' };
+  }
+  // Fall through to user auth
+  const authHeader = (req as any).headers?.get?.('authorization') || null;
+  return validateAuth(authHeader);
+}
+
 export function validateAuth(authHeader: string | null): AuthResult {
   if (!authHeader || !authHeader.startsWith('Bearer ')) return { valid: false };
   const token = authHeader.slice(7);

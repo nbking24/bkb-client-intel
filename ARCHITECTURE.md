@@ -1182,6 +1182,40 @@ The Leads Dashboard (`/dashboard/leads`) is Terri's lead management workspace �
 
 ## 19. Changelog
 
+### 2026-04-20 — Tickets System (Terri-driven issue reporting)
+
+Added a ticket reporting + resolution workflow so Terri (and any admin) can flag dashboard glitches directly from any page. Claude works the queue from Cowork, emails Terri on status changes, and escalates to Nathan when it can't resolve autonomously.
+
+- **New migration `009_tickets.sql`** adds two tables + one view:
+  - `tickets` — main record (ticket_number, submitter, title, description, severity, page_url, screenshot_url, status, claude_branch/commit/pr_url, claude_notes, resolution_note, timestamps)
+  - `ticket_events` — append-only audit timeline (actor, event_type, from/to status, note, metadata)
+  - View `ticket_open_queue` — severity-ordered open queue that Claude pulls from
+- **New API routes (`app/api/tickets/*`):**
+  - `POST /api/tickets` — create ticket with optional screenshot file upload
+  - `GET /api/tickets?status=...&mine=true` — list with filters (scope enforced by role)
+  - `GET /api/tickets/[id]` — single ticket + event timeline
+  - `PATCH /api/tickets/[id]` — update status/notes/branch/PR (owner or agent only)
+  - `POST /api/tickets/[id]/events` — append comment to timeline
+  - `POST /api/tickets/[id]/resolve` — mark deployed, email Terri
+  - `POST /api/tickets/[id]/escalate` — hand off to Nathan with context
+- **New helpers:**
+  - `app/api/lib/email.ts` — dependency-free Resend wrapper + BKB-branded email template
+  - `app/api/lib/tickets.ts` — shared logTicketEvent, notify helpers, bucket setup
+  - `app/api/lib/auth.ts` — added `validateAgentOrUser` which accepts `x-agent-token` header for server-to-server (Cowork) access at owner-level privilege
+- **New frontend:**
+  - `app/dashboard/components/TicketReporter.tsx` — floating bug-icon button in bottom-right, modal with title/description/severity/screenshot-paste support. Rendered by dashboard layout, visible only to roles `admin` and `owner`.
+  - `app/dashboard/tickets/page.tsx` — queue dashboard with status chips, filter pills, search, detail drawer with screenshot + event timeline + comment box. Added "Tickets" link to admin sidebar nav.
+- **Storage bucket:** `ticket-screenshots` (public, 10MB limit, auto-created on first upload)
+- **Env vars to configure on Vercel:**
+  - `RESEND_API_KEY` — API key from resend.com
+  - `RESEND_FROM_EMAIL` — e.g. `BKB Hub <hub@brettkingbuilder.com>`
+  - `TICKET_NOTIFY_NATHAN` — defaults to `nathan@brettkingbuilder.com`
+  - `TICKET_NOTIFY_TERRI` — Terri's email for fix-deployed / escalation emails
+  - `TICKET_AGENT_TOKEN` — long random string; Cowork includes this as `x-agent-token` header so Claude can hit the ticket APIs without Nathan's PIN
+  - `NEXT_PUBLIC_APP_URL` — base URL used in email CTA links (defaults to vercel.app)
+- **Cowork workflow** — see `/sessions/epic-loving-volta/mnt/BKB/BKB-Ticket-Queue-Workflow.md`. Nathan says "work the ticket queue" → Claude pulls open tickets, proposes fix per ticket, waits for Nathan to approve the diff, pushes, marks deployed, emails Terri. Escalates when stuck.
+- **Autonomy:** Queue-for-review (safest). Claude never pushes without Nathan's explicit approval. Discussion on 2026-04-20 captured this preference.
+
 ### 2026-04-17 — Marketing Agents Phase 1 Scaffold (Review Engine)
 
 - **New `/dashboard/marketing` section** with four tabs: Overview, Reviews, Newsletter, Facebook. Marketing added to admin sidebar nav.

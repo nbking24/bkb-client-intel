@@ -7,10 +7,11 @@ import { usePathname, useRouter } from 'next/navigation';
 import {
   LayoutDashboard, FolderKanban, Menu, X, ChevronRight,
   DollarSign, Calculator, MessageSquare, ClipboardList, LogOut, Users, FileText, BarChart3,
-  Megaphone,
+  Megaphone, Bug,
 } from 'lucide-react';
 import { useAuth } from '../hooks/useAuth';
 import AskAgentPanel from './components/AskAgentPanel';
+import TicketReporter from './components/TicketReporter';
 
 // Full nav for admin/owner roles
 const ADMIN_NAV = [
@@ -22,6 +23,7 @@ const ADMIN_NAV = [
   { href: '/dashboard/job-costing', label: 'Job Costing', icon: BarChart3 },
   { href: '/dashboard/spec-writer', label: 'Spec Writer', icon: FileText },
   { href: '/dashboard/marketing', label: 'Marketing', icon: Megaphone },
+  { href: '/dashboard/tickets', label: 'Tickets', icon: Bug },
 ];
 
 // Simplified nav for field staff
@@ -226,6 +228,9 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
 
       {/* Ask Agent slide-out panel — available from any dashboard page */}
       <AskAgentPanel isOpen={chatOpen} onClose={() => setChatOpen(false)} />
+
+      {/* Floating "Report an issue" button + modal (admins + owner only) */}
+      <TicketReporter />
     </div>
   );
 }
