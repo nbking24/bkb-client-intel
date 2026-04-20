@@ -815,10 +815,12 @@ export default function DashboardOverview() {
   const [showSection, setShowSection] = useState<string | false>(false);
   const [collapsedJobs, setCollapsedJobs] = useState<Set<string>>(new Set());
   // Calendar task popup
-  const [selectedCalTask, setSelectedCalTask] = useState<{ id: string; name: string; description?: string; jobId: string; jobName: string; jobNumber: string; endDate: string | null; progress: number } | null>(null);
+  const [selectedCalTask, setSelectedCalTask] = useState<{ id: string; name: string; description?: string; jobId: string; jobName: string; jobNumber: string; endDate: string | null; progress: number; assignedMembershipIds?: string[] } | null>(null);
   const [calEditingDate, setCalEditingDate] = useState('');
   const [calSavingDate, setCalSavingDate] = useState(false);
   const [calCompleting, setCalCompleting] = useState(false);
+  const [calEditingAssignees, setCalEditingAssignees] = useState<string[]>([]);
+  const [calSavingAssignees, setCalSavingAssignees] = useState(false);
   // Task comments (lazy-loaded)
   const [taskComments, setTaskComments] = useState<Array<{ id: string; message: string; name: string; createdAt: string; isPinned: boolean }>>([]);
   const [taskCommentsOpen, setTaskCommentsOpen] = useState(false);
@@ -1170,6 +1172,8 @@ export default function DashboardOverview() {
     setTaskCommentsOpen(false);
     setTaskComments([]);
     setTaskCommentText('');
+    // Initialize assignee editor from the currently selected task
+    setCalEditingAssignees(selectedCalTask?.assignedMembershipIds || []);
   }, [selectedCalTask?.id]);
 
   // Task comments — lazy load
@@ -1441,6 +1445,44 @@ export default function DashboardOverview() {
       console.error('Save cal date failed:', err);
     } finally {
       setCalSavingDate(false);
+    }
+  }
+
+  async function saveCalAssignees() {
+    if (!selectedCalTask) return;
+    setCalSavingAssignees(true);
+    try {
+      const res = await fetch('/api/dashboard/tasks', {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${getToken()}` },
+        body: JSON.stringify({
+          taskId: selectedCalTask.id,
+          action: 'assignees',
+          assignedMembershipIds: calEditingAssignees,
+        }),
+      });
+      if (!res.ok) throw new Error('Failed');
+      // Compute updated assignee display name from TEAM_ASSIGNEES
+      const assigneeNames = calEditingAssignees
+        .map(id => TEAM_ASSIGNEES.find(a => a.id === id)?.name || '')
+        .filter(Boolean)
+        .join(', ');
+      if (overview) {
+        const updatedTasks = (overview.data.tasks || []).map((t: any) =>
+          t.id === selectedCalTask.id
+            ? { ...t, assignedMembershipIds: [...calEditingAssignees], assignee: assigneeNames || undefined }
+            : t
+        );
+        setOverview({ ...overview, data: { ...overview.data, tasks: updatedTasks } });
+      }
+      // Update the in-memory selected task so the dirty check resets
+      setSelectedCalTask({ ...selectedCalTask, assignedMembershipIds: [...calEditingAssignees] });
+      // Trigger downstream refresh (e.g., Waiting On ribbon, All Tasks list)
+      window.dispatchEvent(new Event('refreshDashboard'));
+    } catch (err: any) {
+      console.error('Save cal assignees failed:', err);
+    } finally {
+      setCalSavingAssignees(false);
     }
   }
 
@@ -3155,6 +3197,57 @@ export default function DashboardOverview() {
                   );
                 })}
               </div>
+            </div>
+
+            {/* Assignees edit */}
+            <div style={{ marginBottom: 12 }}>
+              {(() => {
+                const original = (selectedCalTask.assignedMembershipIds || []).slice().sort().join(',');
+                const current = calEditingAssignees.slice().sort().join(',');
+                const dirty = original !== current;
+                return (
+                  <>
+                    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 4 }}>
+                      <label style={{ fontSize: 12, color: '#6a6058', fontWeight: 600 }}>ASSIGNED TO</label>
+                      {dirty && (
+                        <button onClick={saveCalAssignees} disabled={calSavingAssignees}
+                          style={{
+                            background: '#c88c00', color: '#ffffff', fontSize: 12, fontWeight: 600,
+                            padding: '3px 10px', borderRadius: 6, border: 'none', cursor: 'pointer',
+                            opacity: calSavingAssignees ? 0.5 : 1,
+                          }}>
+                          {calSavingAssignees ? 'Saving...' : 'Save'}
+                        </button>
+                      )}
+                    </div>
+                    <div style={{ display: 'flex', flexWrap: 'wrap', gap: 4 }}>
+                      {TEAM_ASSIGNEES.map((a) => {
+                        const on = calEditingAssignees.includes(a.id);
+                        return (
+                          <button
+                            key={a.id}
+                            onClick={() => {
+                              setCalEditingAssignees(prev => on ? prev.filter(id => id !== a.id) : [...prev, a.id]);
+                            }}
+                            style={{
+                              fontSize: 12, padding: '4px 10px', borderRadius: 14, cursor: 'pointer',
+                              background: on ? 'rgba(200,140,0,0.15)' : 'rgba(200,140,0,0.04)',
+                              color: on ? '#c88c00' : '#6a6058',
+                              border: `1px solid ${on ? 'rgba(200,140,0,0.35)' : 'rgba(200,140,0,0.12)'}`,
+                              fontWeight: on ? 600 : 500,
+                            }}
+                          >
+                            {on ? '✓ ' : ''}{a.label}
+                          </button>
+                        );
+                      })}
+                    </div>
+                    {calEditingAssignees.length === 0 && (
+                      <div style={{ fontSize: 11, color: '#8a8078', marginTop: 4, fontStyle: 'italic' }}>No assignees — task will be unassigned.</div>
+                    )}
+                  </>
+                );
+              })()}
             </div>
 
             {/* Actions */}

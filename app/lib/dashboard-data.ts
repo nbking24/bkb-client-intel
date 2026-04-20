@@ -38,6 +38,7 @@ export interface DashboardTask {
   urgency: 'urgent' | 'high' | 'normal';
   daysUntilDue: number | null;
   assignee?: string;
+  assignedMembershipIds?: string[];
 }
 
 export interface DashboardMessage {
@@ -504,11 +505,15 @@ export async function buildUserDashboardData(userId: string): Promise<UserDashbo
 
   const tasks: DashboardTask[] = rawTasks.map((t: any) => {
     const { urgency, daysUntilDue } = classifyUrgency(t.endDate, t.progress ?? 0);
-    // Extract assignee names from membership data
-    const assigneeNames = (t.assignedMemberships?.nodes || [])
+    // Extract assignee names and membership IDs from membership data
+    const membershipNodes = t.assignedMemberships?.nodes || [];
+    const assigneeNames = membershipNodes
       .map((m: any) => m.user?.name || '')
       .filter(Boolean)
       .join(', ');
+    const assignedMembershipIds = membershipNodes
+      .map((m: any) => m.id)
+      .filter(Boolean);
     return {
       id: t.id,
       name: t.name,
@@ -522,6 +527,7 @@ export async function buildUserDashboardData(userId: string): Promise<UserDashbo
       urgency,
       daysUntilDue,
       assignee: assigneeNames || t.assignee || undefined,
+      assignedMembershipIds: assignedMembershipIds.length ? assignedMembershipIds : undefined,
     };
   });
 

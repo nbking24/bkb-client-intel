@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { getOpenTasksForMember, getAllOpenTasks, updateTaskProgress, pave } from '@/app/lib/jobtread';
+import { getOpenTasksForMember, getAllOpenTasks, updateTaskProgress, updateTaskFull, pave } from '@/app/lib/jobtread';
 
 // GET /api/dashboard/tasks?membershipId=xxx
 // GET /api/dashboard/tasks?all=true  (Nathan's team view)
@@ -58,13 +58,18 @@ export async function GET(req: NextRequest) {
 
 /**
  * PATCH /api/dashboard/tasks
- * Update a task — supports completing (progress=1) and updating due date.
- * Body: { taskId: string, action: 'complete' | 'update', endDate?: string }
+ * Update a task — supports completing (progress=1), updating due date, and changing assignees.
+ * Body: {
+ *   taskId: string,
+ *   action: 'complete' | 'update' | 'assignees',
+ *   endDate?: string,
+ *   assignedMembershipIds?: string[],
+ * }
  */
 export async function PATCH(req: NextRequest) {
   try {
     const body = await req.json();
-    const { taskId, action, endDate } = body;
+    const { taskId, action, endDate, assignedMembershipIds } = body;
 
     if (!taskId) {
       return NextResponse.json({ error: 'taskId is required' }, { status: 400 });
@@ -87,7 +92,26 @@ export async function PATCH(req: NextRequest) {
       return NextResponse.json({ success: true, taskId, action: 'updated', endDate });
     }
 
-    return NextResponse.json({ error: 'action must be "complete" or "update"' }, { status: 400 });
+    if (action === 'assignees') {
+      if (!Array.isArray(assignedMembershipIds)) {
+        return NextResponse.json(
+          { error: 'assignedMembershipIds must be an array of membership IDs' },
+          { status: 400 }
+        );
+      }
+      await updateTaskFull(taskId, { assignedMembershipIds });
+      return NextResponse.json({
+        success: true,
+        taskId,
+        action: 'assignees',
+        assignedMembershipIds,
+      });
+    }
+
+    return NextResponse.json(
+      { error: 'action must be "complete", "update", or "assignees"' },
+      { status: 400 }
+    );
   } catch (err: any) {
     console.error('Dashboard task update error:', err);
     return NextResponse.json({ error: err.message }, { status: 500 });
