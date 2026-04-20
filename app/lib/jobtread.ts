@@ -3861,15 +3861,32 @@ export async function createDraftBillableInvoice(jobId: string): Promise<{
     }
   }
 
-  // 8. Create the Change Order (customerOrder) shell with BKB company info and sequential number
-  //    Numbering is against existing customerOrders on the job, not invoices.
-  const allExistingCustomerOrders = allDocs.filter((d: any) => d.type === 'customerOrder');
-  const coSeq = allExistingCustomerOrders.length + 1;
+  // 8. Create the Change Order (customerOrder) shell with BKB company info.
+  //    Name uses today's date (MM/DD/YY) instead of a running count — counts
+  //    became inconsistent if a CO was deleted and recreated (the "next"
+  //    number could repeat). Date is an intrinsic property, immune to churn.
+  //    If another billable CO was already created today (rare), append a
+  //    numeric suffix so names stay unique.
+  const now = new Date();
+  const mm = String(now.getMonth() + 1).padStart(2, '0');
+  const dd = String(now.getDate()).padStart(2, '0');
+  const yy = String(now.getFullYear()).slice(-2);
+  const dateStamp = `${mm}/${dd}/${yy}`;
+  const baseCOName = `Billable CO ${dateStamp}`;
+
+  const sameDayCOs = allDocs.filter((d: any) =>
+    d.type === 'customerOrder' &&
+    typeof d.name === 'string' &&
+    d.name.startsWith(baseCOName)
+  );
+  const coName = sameDayCOs.length > 0
+    ? `${baseCOName} (${sameDayCOs.length + 1})`
+    : baseCOName;
 
   const doc = await createJTDocument({
     jobId,
     type: 'customerOrder',
-    name: 'Change Order',
+    name: coName,
     fromName: 'Terri (Brett King Builder-Contractor Inc.)',
     toName: customerName,
     toAddress: locationAddress,
@@ -3879,7 +3896,7 @@ export async function createDraftBillableInvoice(jobId: string): Promise<{
     // dueDays required by JT PAVE — must provide either dueDate or dueDays (not both).
     // 14 days gives the customer a reasonable window to review and approve the CO.
     dueDays: 14,
-    subject: `Billable Items Change Order #${coSeq} - ${job.name}`,
+    subject: `Change Order - ${job.name}`,
     description: 'This change order covers additional billable items and labor hours incurred on this project beyond the original contract scope. Once approved in JobTread, convert to an invoice to bill the customer.',
   });
 

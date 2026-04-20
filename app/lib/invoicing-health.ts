@@ -516,17 +516,19 @@ async function analyzeContractJob(
 
   // --- Change Order awareness ---
   // Classify each approved customerOrder by its document name:
-  //   - Name matches /change\s*order/i → counts toward approvedCOValue
+  //   - Name matches a CO signal → counts toward approvedCOValue
   //   - Everything else → counts toward totalContractValue
   //
   // Rationale: per-item budget-linkage splits were peeling portions of the
   // base Construction Contract into the CO bucket whenever items happened
   // to link to Post Pricing Changes groups (e.g. for tracking purposes).
   // That inflated approvedCOValue and shrank the reported contract amount.
-  // Operators already signal CO docs by name — the new billable-items flow
-  // creates docs named "Billable Items Change Order #N", and CO docs in
-  // JT are consistently named "Change Order …". Trust the name.
-  const CO_NAME_RE = /change\s*order/i;
+  // Operators already signal CO docs by name — trust the name.
+  //
+  // Match both the long "Change Order" wording and the short "Billable CO"
+  // prefix (the billable-items flow creates docs named
+  // "Billable CO MM/DD/YY").
+  const CO_NAME_RE = /change\s*order|\bbillable\s+co\b/i;
   let totalContractValue = 0;
   let approvedCOValue = 0;
   let appliedCOsCount = 0;

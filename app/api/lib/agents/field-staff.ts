@@ -716,7 +716,7 @@ const fieldStaff: AgentModule = {
           }
 
           const coDocs = docs.filter((d: any) =>
-            d.type === 'customerOrder' && /change\s*order|^co\b/i.test(d.name || '')
+            d.type === 'customerOrder' && /change\s*order|\bbillable\s+co\b|^co\b/i.test(d.name || '')
           );
 
           return JSON.stringify({
