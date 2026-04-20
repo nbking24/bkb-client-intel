@@ -3598,17 +3598,32 @@ export async function createDraftBillableInvoice(jobId: string): Promise<{
     }
   }
 
-  // 2. Get all documents for the job to identify vendor bills and customer invoices
-  const docsData = await pave({
-    job: {
-      $: { id: jobId },
-      documents: {
-        $: { size: 50 },
-        nodes: { id: {}, name: {}, type: {}, status: {}, number: {} },
+  // 2. Get all documents for the job to identify vendor bills and customer invoices.
+  // Paginate: large contract jobs (e.g. Halvorsen with 115+ docs) silently
+  // dropped bills past the first page, leading to "no uninvoiced CC23 items"
+  // errors even when the dashboard showed thousands of dollars uninvoiced.
+  const DOCS_PAGE_SIZE = 50;
+  const allDocs: any[] = [];
+  let docsNextPage: string | null = null;
+  for (let page = 0; page < 10; page++) {
+    const pageParams: Record<string, unknown> = { size: DOCS_PAGE_SIZE };
+    if (docsNextPage) pageParams.page = docsNextPage;
+    const docsData = await pave({
+      job: {
+        $: { id: jobId },
+        documents: {
+          $: pageParams,
+          nextPage: {},
+          nodes: { id: {}, name: {}, type: {}, status: {}, number: {} },
+        },
       },
-    },
-  });
-  const allDocs = (docsData as any)?.job?.documents?.nodes || [];
+    });
+    const docsPage = (docsData as any)?.job?.documents;
+    const nodes = docsPage?.nodes || [];
+    allDocs.push(...nodes);
+    docsNextPage = docsPage?.nextPage || null;
+    if (!docsNextPage || nodes.length < DOCS_PAGE_SIZE) break;
+  }
   const vendorBills = allDocs.filter(
     (d: any) => d.type === 'vendorBill' && d.status !== 'denied'
   );
@@ -3616,37 +3631,44 @@ export async function createDraftBillableInvoice(jobId: string): Promise<{
     (d: any) => d.type === 'customerInvoice' && d.status !== 'draft'
   );
 
-  // 3. Get CC23 items from vendor bills (costs incurred)
-  // These items reference budget items via jobCostItemId
-  const vendorBillItemResults = await Promise.all(
-    vendorBills.map(async (doc: any) => {
-      try {
-        const data = await pave({
-          document: {
-            $: { id: doc.id },
-            costItems: {
-              $: { size: 50 },
-              nodes: {
-                id: {}, name: {}, cost: {}, price: {}, quantity: {},
-                unitCost: {}, unitPrice: {},
-                costCode: { id: {}, number: {}, name: {} },
-                costType: { id: {}, name: {} },
-                jobCostItem: { id: {} },
+  // 3. Get CC23 items from vendor bills (costs incurred).
+  // Batch to 5 at a time to avoid rate-limit / 413 errors on large contract
+  // jobs (Halvorsen has ~95 bills; firing them all in parallel was silently
+  // returning empty arrays for some, masking uninvoiced items).
+  const BILL_BATCH_SIZE = 5;
+  const allVendorBillItems: any[] = [];
+  for (let i = 0; i < vendorBills.length; i += BILL_BATCH_SIZE) {
+    const batch = vendorBills.slice(i, i + BILL_BATCH_SIZE);
+    const batchResults = await Promise.all(
+      batch.map(async (doc: any) => {
+        try {
+          const data = await pave({
+            document: {
+              $: { id: doc.id },
+              costItems: {
+                $: { size: 50 },
+                nodes: {
+                  id: {}, name: {}, cost: {}, price: {}, quantity: {},
+                  unitCost: {}, unitPrice: {},
+                  costCode: { id: {}, number: {}, name: {} },
+                  costType: { id: {}, name: {} },
+                  jobCostItem: { id: {} },
+                },
               },
             },
-          },
-        });
-        const items = (data as any)?.document?.costItems?.nodes || [];
-        return items.map((item: any) => ({
-          ...item,
-          sourceDoc: { id: doc.id, number: doc.number, name: doc.name },
-        }));
-      } catch {
-        return [];
-      }
-    })
-  );
-  const allVendorBillItems = vendorBillItemResults.flat();
+          });
+          const items = (data as any)?.document?.costItems?.nodes || [];
+          return items.map((item: any) => ({
+            ...item,
+            sourceDoc: { id: doc.id, number: doc.number, name: doc.name },
+          }));
+        } catch {
+          return [];
+        }
+      })
+    );
+    for (const items of batchResults) allVendorBillItems.push(...items);
+  }
   const cc23VendorBillItems = allVendorBillItems.filter(
     (item: any) => item.costCode?.number === BILLABLE_COST_CODE_NUMBER
   );
@@ -3724,21 +3746,11 @@ export async function createDraftBillableInvoice(jobId: string): Promise<{
     (item: any) => BILLABLE_COST_TYPE_NAMES.includes(item.costType?.name ?? '')
   );
 
-  // 6. Calculate unbilled CC23 labor hours from time entries
-  const teData = await pave({
-    job: {
-      $: { id: jobId },
-      timeEntries: {
-        $: { size: 100 },
-        nodes: {
-          id: {}, startedAt: {}, endedAt: {}, notes: {}, type: {},
-          user: { name: {} },
-          costItem: { id: {}, name: {}, costCode: { number: {} } },
-        },
-      },
-    },
-  });
-  const timeEntries = (teData as any)?.job?.timeEntries?.nodes || [];
+  // 6. Calculate unbilled CC23 labor hours from time entries.
+  // Use the paginated helper — PAVE caps at 100 per query, and Halvorsen has
+  // 145+ entries, so a single-page fetch was silently dropping the newest
+  // (often the CC23 billables we need to invoice).
+  const timeEntries = await getTimeEntriesForJob(jobId);
   const cc23TimeEntries = timeEntries.filter(
     (e: any) => e.costItem?.costCode?.number === BILLABLE_COST_CODE_NUMBER
   );
