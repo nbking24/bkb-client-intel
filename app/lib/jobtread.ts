@@ -3884,8 +3884,11 @@ export async function createDraftBillableInvoice(jobId: string): Promise<{
       byBill[key].items.push(item);
     }
 
-    // Collect descriptions for category-level AI summary
-    const itemDescriptions: string[] = [];
+    // Collect per-bill summaries (vendor + finalized description) to feed
+    // the category-level AI prompt. Using the actual bill descriptions keeps
+    // the category summary grounded in what's shown below instead of letting
+    // the AI hallucinate generic boilerplate from sparse cost-code names.
+    const billSummaries: { vendor: string; desc: string }[] = [];
 
     for (const [_billId, billInfo] of Object.entries(byBill)) {
       // Find the vendor name from the documents list
@@ -3912,7 +3915,9 @@ export async function createDraftBillableInvoice(jobId: string): Promise<{
         billDesc = descs.join('\n');
       } catch (_e) { /* skip */ }
 
-      // AI-rewrite the bill description
+      // AI-rewrite the bill description and capture the final version used
+      // on the sub-group, so we can reuse it for the category-level summary.
+      let finalBillDesc = '';
       if (billDesc) {
         try {
           const apiKey = process.env.ANTHROPIC_API_KEY;
@@ -3938,21 +3943,25 @@ export async function createDraftBillableInvoice(jobId: string): Promise<{
               const rewritten = sanitizeAiDescription((aiData.content?.[0]?.text || '').trim());
               if (isValidAiDescription(rewritten)) {
                 await updateJTCostGroup(subGroup.id, { description: rewritten });
+                finalBillDesc = rewritten;
               }
             }
           }
         } catch (_e) { /* skip AI errors */ }
       }
 
+      // Fallback: if AI didn't produce a valid summary, use the first line of
+      // the raw bill description so the category summary still has something
+      // real to work with.
+      if (!finalBillDesc && billDesc) {
+        finalBillDesc = billDesc.split('\n')[0].slice(0, 240).trim();
+      }
+      if (finalBillDesc) {
+        billSummaries.push({ vendor: vendorAccount, desc: finalBillDesc });
+      }
+
       // Hide line items on the sub-group
       await pave({ updateCostGroup: { $: { id: subGroup.id, showChildren: false } } });
-
-      // Collect for category description
-      for (const item of billInfo.items) {
-        const codeName = item.costCode?.name || item.name || '';
-        const cleaned = codeName.replace(/:\d+\s*-\s*(Sub|Materials?)/i, '').replace(/^\d+-/, '').trim();
-        if (cleaned && !itemDescriptions.includes(cleaned)) itemDescriptions.push(cleaned);
-      }
 
       // Create cost items with bill reference in description
       for (const item of billInfo.items) {
@@ -3973,35 +3982,58 @@ export async function createDraftBillableInvoice(jobId: string): Promise<{
       }
     }
 
-    // AI-rewrite the category-level description
-    if (itemDescriptions.length > 0) {
-      const rawDesc = itemDescriptions.map((d: string) => `â¢ ${d}`).join('\n');
-      try {
-        const apiKey = process.env.ANTHROPIC_API_KEY;
-        if (apiKey) {
-          const aiRes = await fetch('https://api.anthropic.com/v1/messages', {
-            method: 'POST',
-            headers: {
-              'Content-Type': 'application/json',
-              'x-api-key': apiKey,
-              'anthropic-version': '2023-06-01',
-            },
-            body: JSON.stringify({
-              model: 'claude-haiku-4-5-20251001',
-              max_tokens: 256,
-              messages: [{
-                role: 'user',
-                content: `Rewrite these construction invoice category items into a bullet-point list. Each bullet should be a brief, professional, client-facing description. Output ONLY the bullet points (using â¢ character), nothing else. No intro text, no questions, no explanations. Do not use markdown headers (#). For emphasis use single *asterisks* not double **asterisks**.\n\nItems:\n${rawDesc}`,
-              }],
-            }),
-          });
-          if (aiRes.ok) {
-            const aiData = await aiRes.json();
-            const rewritten = sanitizeAiDescription((aiData.content?.[0]?.text || '').trim());
-            if (isValidAiDescription(rewritten)) await updateJTCostGroup(categoryGroup.id, { description: rewritten });
+    // Build category-level description that genuinely summarizes the items
+    // shown below (instead of feeding the AI sparse cost-code names, which
+    // led to hallucinated boilerplate bullets like "Project costs billed to
+    // client account").
+    if (billSummaries.length > 0) {
+      // If there's only one bill in this category, reuse its description
+      // directly — no need to ask the AI to "summarize" a single line.
+      if (billSummaries.length === 1) {
+        await updateJTCostGroup(categoryGroup.id, { description: billSummaries[0].desc });
+      } else {
+        const rawDesc = billSummaries
+          .map(b => `• ${b.vendor}: ${b.desc}`)
+          .join('\n');
+        try {
+          const apiKey = process.env.ANTHROPIC_API_KEY;
+          if (apiKey) {
+            const aiRes = await fetch('https://api.anthropic.com/v1/messages', {
+              method: 'POST',
+              headers: {
+                'Content-Type': 'application/json',
+                'x-api-key': apiKey,
+                'anthropic-version': '2023-06-01',
+              },
+              body: JSON.stringify({
+                model: 'claude-haiku-4-5-20251001',
+                max_tokens: 256,
+                messages: [{
+                  role: 'user',
+                  content: `You are writing the header description for the "${categoryName}" section of a renovation invoice. Summarize the items below into a short, client-facing bullet list that accurately reflects the actual scope — one bullet per distinct type of work or item, at most ${Math.min(billSummaries.length, 4)} bullets total. Do NOT invent items that aren't listed. Do NOT use generic filler like "project costs billed to client" or "third-party vendor costs" — describe the specific scope shown. Output ONLY the bullet points (using • character), nothing else. No intro, no questions. No markdown headers (#). No pricing. For emphasis use single *asterisks* not double **asterisks**.\n\nItems on this invoice:\n${rawDesc}`,
+                }],
+              }),
+            });
+            if (aiRes.ok) {
+              const aiData = await aiRes.json();
+              const rewritten = sanitizeAiDescription((aiData.content?.[0]?.text || '').trim());
+              if (isValidAiDescription(rewritten)) {
+                await updateJTCostGroup(categoryGroup.id, { description: rewritten });
+              } else {
+                // Fallback: use the raw per-bill bullet list if AI output is invalid
+                await updateJTCostGroup(categoryGroup.id, { description: rawDesc });
+              }
+            } else {
+              await updateJTCostGroup(categoryGroup.id, { description: rawDesc });
+            }
+          } else {
+            await updateJTCostGroup(categoryGroup.id, { description: rawDesc });
           }
+        } catch (_e) {
+          // Fallback on any error: show the concrete per-bill bullets
+          try { await updateJTCostGroup(categoryGroup.id, { description: rawDesc }); } catch { /* skip */ }
         }
-      } catch (_e) { /* skip */ }
+      }
     }
 
     return itemCount;
@@ -4061,7 +4093,7 @@ export async function createDraftBillableInvoice(jobId: string): Promise<{
     }
 
     // AI-rewrite labor description
-    let laborDesc = laborNotes.map((n: string) => `â¢ ${n}`).join('\n');
+    let laborDesc = laborNotes.map((n: string) => `• ${n}`).join('\n');
     try {
       const apiKey = process.env.ANTHROPIC_API_KEY;
       if (apiKey && laborNotes.length > 0) {
@@ -4077,7 +4109,7 @@ export async function createDraftBillableInvoice(jobId: string): Promise<{
             max_tokens: 256,
             messages: [{
               role: 'user',
-              content: `Rewrite these labor notes into a bullet-point list for a renovation invoice. Each bullet should be a brief, professional, client-facing description. Output ONLY the bullet points (using â¢ character), nothing else. No intro text, no questions, no explanations. Do not use markdown headers (#). For emphasis use single *asterisks* not double **asterisks**.\n\nNotes:\n${laborDesc}`,
+              content: `Rewrite these labor notes into a bullet-point list for a renovation invoice. Each bullet should be a brief, professional, client-facing description. Output ONLY the bullet points (using • character), nothing else. No intro text, no questions, no explanations. Do not use markdown headers (#). For emphasis use single *asterisks* not double **asterisks**.\n\nNotes:\n${laborDesc}`,
             }],
           }),
         });
@@ -4267,7 +4299,7 @@ export async function reorganizeCostPlusInvoice(documentId: string, jobId: strin
         .map((i: any) => (i.costCode?.name || i.name || '').replace(/:\d+\s*-\s*(Sub|Materials?)/i, '').replace(/^\d+-/, '').trim())
         .filter((n: string, i: number, arr: string[]) => n && arr.indexOf(n) === i);
       if (adminDescs.length > 0) {
-        await updateJTCostGroup(existingVendorBills.id, { description: adminDescs.map((n: string) => `â¢ ${n}`).join('\n') });
+        await updateJTCostGroup(existingVendorBills.id, { description: adminDescs.map((n: string) => `• ${n}`).join('\n') });
       }
       for (const bg of adminBills) {
         await pave({ updateCostGroup: { $: { id: bg.id, showChildren: false } } });
@@ -4280,7 +4312,7 @@ export async function reorganizeCostPlusInvoice(documentId: string, jobId: strin
         .map((i: any) => (i.costCode?.name || i.name || '').replace(/:\d+\s*-\s*Materials?/i, '').replace(/^\d+-/, '').trim())
         .filter((n: string, i: number, arr: string[]) => n && arr.indexOf(n) === i);
       if (matDescs.length > 0) {
-        await updateJTCostGroup(existingVendorBills.id, { description: matDescs.map((n: string) => `â¢ ${n}`).join('\n') });
+        await updateJTCostGroup(existingVendorBills.id, { description: matDescs.map((n: string) => `• ${n}`).join('\n') });
       }
       for (const bg of materialBills) {
         await pave({ updateCostGroup: { $: { id: bg.id, showChildren: false } } });
@@ -4325,7 +4357,7 @@ LABOR NOTES (from time entries â describe the work performed):
 ${laborDesc || '(none)'}
 
 Respond in this exact JSON format:
-{"admin": "â¢ bullet1\\nâ¢ bullet2", "materials": "â¢ bullet1\\nâ¢ bullet2", "labor": "â¢ bullet1\\nâ¢ bullet2"}
+{"admin": "• bullet1\\n• bullet2", "materials": "• bullet1\\n• bullet2", "labor": "• bullet1\\n• bullet2"}
 
 If a section is "(none)", return empty string for that key.`;
 
@@ -4481,7 +4513,7 @@ If a section is "(none)", return empty string for that key.`;
     }
   }
   const laborDescription = laborNotes.length > 0
-    ? laborNotes.map(n => `â¢ ${n}`).join('\n')
+    ? laborNotes.map(n => `• ${n}`).join('\n')
     : '';
 
   // Build materials description from cost code names on material items
@@ -4496,7 +4528,7 @@ If a section is "(none)", return empty string for that key.`;
     })
     .filter((n: string, i: number, arr: string[]) => n && arr.indexOf(n) === i);
   const materialsDescription = materialItemDescriptions.length > 0
-    ? materialItemDescriptions.map((n: string) => `â¢ ${n}`).join('\n')
+    ? materialItemDescriptions.map((n: string) => `• ${n}`).join('\n')
     : '';
 
   // Build admin description from admin item names
@@ -4511,7 +4543,7 @@ If a section is "(none)", return empty string for that key.`;
     })
     .filter((n: string, i: number, arr: string[]) => n && arr.indexOf(n) === i);
   const adminDescription = adminItemDescriptions.length > 0
-    ? adminItemDescriptions.map((n: string) => `â¢ ${n}`).join('\n')
+    ? adminItemDescriptions.map((n: string) => `• ${n}`).join('\n')
     : '';
 
   // 4. Delete existing category groups from a previous run (idempotency)
@@ -4662,7 +4694,7 @@ LABOR NOTES (from time entries â describe the work performed):
 ${laborDescription || '(none)'}
 
 Respond in this exact JSON format:
-{"admin": "â¢ bullet1\\nâ¢ bullet2", "materials": "â¢ bullet1\\nâ¢ bullet2", "labor": "â¢ bullet1\\nâ¢ bullet2"}
+{"admin": "• bullet1\\n• bullet2", "materials": "• bullet1\\n• bullet2", "labor": "• bullet1\\n• bullet2"}
 
 If a section is "(none)", return empty string for that key.`;
 
