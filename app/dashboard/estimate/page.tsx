@@ -40,8 +40,9 @@ interface ProposedBudget {
 interface UploadedFile {
   name: string;
   type: string;
-  content: string; // base64 or extracted text
+  content: string; // extracted text (PDFs go through /api/extract-pdf; txt/csv read directly)
   size: number;
+  extracting?: boolean; // true while PDF extraction is in flight
 }
 
 interface StructuredQuestion {
@@ -384,16 +385,14 @@ export default function EstimatePage() {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
   }, [messages, loading]);
 
-  /* Handle file upload */
+  /* Handle file upload — text files read directly, PDFs extracted via /api/extract-pdf */
   const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const files = e.target.files;
     if (!files) return;
 
     for (const file of Array.from(files)) {
-      // Read file as text for text files, base64 for others
-      const reader = new FileReader();
-
       if (file.type === 'text/plain' || file.type === 'text/csv' || file.name.endsWith('.txt')) {
+        const reader = new FileReader();
         reader.onload = () => {
           setUploadedFiles(prev => [...prev, {
             name: file.name,
@@ -403,18 +402,42 @@ export default function EstimatePage() {
           }]);
         };
         reader.readAsText(file);
-      } else {
-        // For PDFs and other files, read as base64
-        reader.onload = () => {
-          const base64 = (reader.result as string).split(',')[1] || '';
-          setUploadedFiles(prev => [...prev, {
-            name: file.name,
-            type: file.type,
-            content: base64,
-            size: file.size,
-          }]);
+      } else if (file.type === 'application/pdf' || file.name.toLowerCase().endsWith('.pdf')) {
+        // Placeholder while extraction is in flight so the chip shows immediately
+        setUploadedFiles(prev => [...prev, {
+          name: file.name, type: 'application/pdf', content: '', size: file.size, extracting: true,
+        }]);
+
+        const reader = new FileReader();
+        reader.onload = async () => {
+          try {
+            const base64 = (reader.result as string).split(',')[1] || '';
+            const res = await fetch('/api/extract-pdf', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${getAuthToken()}` },
+              body: JSON.stringify({ fileName: file.name, base64 }),
+            });
+            const data = await res.json();
+            const extracted = (data.text && data.text.trim()) || '[PDF appeared empty — Claude could not read any text from it]';
+            setUploadedFiles(prev => prev.map(f =>
+              f.name === file.name && f.extracting
+                ? { name: file.name, type: 'application/pdf', content: extracted, size: file.size, extracting: false }
+                : f
+            ));
+          } catch {
+            setUploadedFiles(prev => prev.map(f =>
+              f.name === file.name && f.extracting
+                ? { name: file.name, type: 'application/pdf', content: '[Error extracting PDF — please paste the content manually]', size: file.size, extracting: false }
+                : f
+            ));
+          }
         };
         reader.readAsDataURL(file);
+      } else {
+        // Unsupported binary type — attach name only so user sees it didn't get ingested
+        setUploadedFiles(prev => [...prev, {
+          name: file.name, type: file.type, content: '[Unsupported file type — only .pdf, .txt, .csv are read]', size: file.size,
+        }]);
       }
     }
 
@@ -434,12 +457,15 @@ export default function EstimatePage() {
       parts.push(scopeText.trim());
     }
 
-    // Include text from uploaded files
+    // Include extracted text from uploaded files (PDFs already extracted via /api/extract-pdf)
     for (const file of uploadedFiles) {
-      if (file.type === 'text/plain' || file.type === 'text/csv' || file.name.endsWith('.txt')) {
+      if (file.extracting) {
+        // Defensive: submit should be disabled while extracting, but guard anyway
+        parts.push(`\n[Attached: ${file.name} — still extracting, please wait]`);
+      } else if (file.content) {
         parts.push(`\n--- Attached: ${file.name} ---\n${file.content}`);
       } else {
-        parts.push(`\n[Attached file: ${file.name} (${(file.size / 1024).toFixed(0)} KB)]`);
+        parts.push(`\n[Attached file: ${file.name} (${(file.size / 1024).toFixed(0)} KB) — no content extracted]`);
       }
     }
 
@@ -731,7 +757,8 @@ export default function EstimatePage() {
   };
 
   const hasStarted = messages.length > 0;
-  const canStartEstimate = selectedJob && (scopeText.trim() || uploadedFiles.length > 0);
+  const anyFileExtracting = uploadedFiles.some(f => f.extracting);
+  const canStartEstimate = selectedJob && !anyFileExtracting && (scopeText.trim() || uploadedFiles.length > 0);
 
   return (
     <div className="flex h-[calc(100vh-3.5rem)]">

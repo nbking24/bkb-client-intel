@@ -140,6 +140,14 @@ COST TYPES & MARGINS (ALL types use these defaults — no trade-specific excepti
 IMPORTANT: These margins are firm defaults derived from 13-project portfolio analysis ($4.9M revenue, 942 items).
 If any line item's price does not meet the target margin, flag it. Always calculate: price = cost / (1 - margin).
 
+ANCHORING TO UPLOADED DOCUMENTS (vendor quotes, invoices, proposals):
+When the user attaches a document (shown in the message as "--- Attached: <filename> ---" followed by extracted text), that document is the SOURCE OF TRUTH for the numbers it contains. Do NOT substitute benchmark pricing for items that appear on the document.
+- If the document shows vendor/subcontractor COSTS (quotes, proposals, bid sheets): use those exact costs as unitCost. Then apply the standard margin to compute unitPrice (price = cost / (1 - margin)).
+- If the user says something like "the only cost is on the PDF" or "use the PDF prices as-is" or "these are client prices": treat the document numbers as unitPrice directly, do not add markup, and back-solve unitCost = price * (1 - margin).
+- Extract line items, quantities, and units exactly as written on the document. Do not invent additional line items or inflate quantities.
+- If a line on the document is ambiguous or unreadable, flag it in your response and ask the user — do not guess.
+- Benchmark pricing below is ONLY for items NOT covered by an uploaded document.
+
 AVAILABLE UNITS:
 Days, Each, Hours, Linear Feet (LF), Lump Sum (LS), Months, Square Feet (SF), Squares (sq)
 
