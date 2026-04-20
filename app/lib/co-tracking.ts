@@ -101,7 +101,9 @@ export async function getCOTrackingForJob(jobId: string): Promise<COTrackingResu
           $: { id: jobId },
           documents: {
             $: { size: 50 },
-            nodes: { id: {}, type: {}, status: {} },
+            // includeInBudget=false means the doc has "Exclude from Budget"
+            // toggled on in JT — those docs must NOT contribute to CO tracking.
+            nodes: { id: {}, type: {}, status: {}, includeInBudget: {} },
           },
         },
       }),
@@ -128,9 +130,17 @@ export async function getCOTrackingForJob(jobId: string): Promise<COTrackingResu
     }
 
     // --- Phase 2: Identify approved customerOrder documents ---
+    // Filter out docs with "Exclude from Budget" (includeInBudget=false) toggled
+    // on in JT — these represent pricing reviews/options that the user explicitly
+    // flagged as NOT part of the contract total. Treating them as approved COs
+    // double-counted ~$78k on Berntsen and inflated totalContractAndCOValue.
     const allDocs = (docData as any)?.job?.documents?.nodes || [];
     const approvedCODocIds = allDocs
-      .filter((d: any) => d.type === 'customerOrder' && d.status === 'approved')
+      .filter((d: any) =>
+        d.type === 'customerOrder' &&
+        d.status === 'approved' &&
+        d.includeInBudget !== false
+      )
       .map((d: any) => d.id as string);
 
     // --- Phase 3: Find ALL "Post Pricing Changes" roots and their CO groups ---

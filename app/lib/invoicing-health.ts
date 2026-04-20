@@ -279,9 +279,16 @@ async function analyzeContractJob(
     };
   });
 
-  // Get estimates for total contract value
+  // Get estimates for total contract value.
+  // Exclude docs with "Exclude from Budget" toggled on in JT (includeInBudget=false).
+  // These are typically pricing-review options the user explicitly flagged as NOT
+  // part of the contract — treating them as approved COs double-counted value on
+  // jobs like Berntsen (doc #6 "Pricing Review" added a phantom $78,865).
   const estimates = documents.filter(
-    (d) => d.type === 'customerOrder' && d.status === 'approved'
+    (d) =>
+      d.type === 'customerOrder' &&
+      d.status === 'approved' &&
+      d.includeInBudget !== false
   );
 
   // Find payment-related schedule tasks (tasks with $ prefix)
@@ -500,8 +507,11 @@ async function analyzeContractJob(
     if (health === 'healthy') health = 'warning';
   }
 
-  // invoicedToDate = sum of approved (paid) + pending (sent/open) customer invoices
+  // invoicedToDate = sum of approved (paid) + pending (sent/open) customer invoices.
+  // Skip invoices with "Exclude from Budget" toggled on in JT — the user has
+  // explicitly flagged them as outside the contract accounting.
   const invoicedToDate = [...approvedInvoices, ...pendingInvoicesDocs]
+    .filter((d) => d.includeInBudget !== false)
     .reduce((sum, d) => sum + (d.price || 0), 0);
 
   // --- Change Order awareness ---
@@ -842,11 +852,12 @@ async function analyzeCostPlusJob(
     isLinkedToTask: false,
   }));
 
-  // Total invoiced (actual dollar amounts from approved + pending invoices)
+  // Total invoiced (actual dollar amounts from approved + pending invoices).
+  // Skip invoices excluded from budget in JT (includeInBudget=false).
   const pendingInvoices = customerInvoices.filter((d) => d.status === 'pending');
-  const totalInvoiced = [...approvedInvoices, ...pendingInvoices].reduce(
-    (sum, d) => sum + (d.price || 0), 0
-  );
+  const totalInvoiced = [...approvedInvoices, ...pendingInvoices]
+    .filter((d) => d.includeInBudget !== false)
+    .reduce((sum, d) => sum + (d.price || 0), 0);
 
   // Released invoices (paid + open) for collapsible detail list
   const releasedInvoiceInfos: ReleasedInvoiceInfo[] = [

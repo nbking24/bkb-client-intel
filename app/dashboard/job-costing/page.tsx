@@ -741,24 +741,26 @@ export default function JobCostingDashboard() {
                     label: 'Proposals/COs',
                     items: detail.docSummary.customerOrders,
                     type: 'revenue',
-                    // Only show approved customer orders total (the committed contract)
+                    // Only show approved customer orders total (the committed contract).
+                    // Skip docs with "Exclude from Budget" toggled on in JT.
                     totalOverride: detail.docSummary.customerOrders
-                      .filter((d: any) => d.status === 'approved')
+                      .filter((d: any) => d.status === 'approved' && d.includeInBudget !== false)
                       .reduce((s: number, d: any) => s + (d.price || 0), 0),
-                    countOverride: detail.docSummary.customerOrders.filter((d: any) => d.status === 'approved').length,
+                    countOverride: detail.docSummary.customerOrders.filter((d: any) => d.status === 'approved' && d.includeInBudget !== false).length,
                     sublabel: 'approved',
                   },
                   {
                     label: 'Invoices',
                     items: detail.docSummary.customerInvoices,
                     type: 'revenue',
-                    // Show sent (non-draft) invoice total; draft invoices noted separately
+                    // Show sent (non-draft) invoice total; draft invoices noted separately.
+                    // Skip invoices excluded from budget in JT.
                     totalOverride: detail.docSummary.customerInvoices
-                      .filter((d: any) => d.status !== 'draft')
+                      .filter((d: any) => d.status !== 'draft' && d.includeInBudget !== false)
                       .reduce((s: number, d: any) => s + (d.price || 0), 0),
-                    countOverride: detail.docSummary.customerInvoices.filter((d: any) => d.status !== 'draft').length,
+                    countOverride: detail.docSummary.customerInvoices.filter((d: any) => d.status !== 'draft' && d.includeInBudget !== false).length,
                     sublabel: (() => {
-                      const drafts = detail.docSummary.customerInvoices.filter((d: any) => d.status === 'draft');
+                      const drafts = detail.docSummary.customerInvoices.filter((d: any) => d.status === 'draft' && d.includeInBudget !== false);
                       return drafts.length > 0 ? `sent · ${drafts.length} draft ($${fmt(drafts.reduce((s: number, d: any) => s + (d.price || 0), 0))})` : 'sent';
                     })(),
                   },

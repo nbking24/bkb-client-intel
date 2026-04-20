@@ -1110,6 +1110,9 @@ export interface JTDocument {
   createdAt: string;
   issueDate: string | null;
   signedAt: string | null;
+  // false when "Exclude from Budget" is toggled on in JobTread. Any budget/
+  // contract/CO calculation must treat includeInBudget === false as excluded.
+  includeInBudget?: boolean;
   job: { id: string; name: string };
 }
 
@@ -1142,6 +1145,9 @@ export async function getDocumentsForJob(jobId: string): Promise<JTDocument[]> {
             createdAt: {},
             issueDate: {},
             signedAt: {},
+            // includeInBudget=false means "Exclude from Budget" is toggled on
+            // in JT — all budget/contract/CO calculations must skip these docs.
+            includeInBudget: {},
           },
         },
       },
@@ -1161,7 +1167,7 @@ export async function getDocumentsForJob(jobId: string): Promise<JTDocument[]> {
  * Lightweight query: get just document IDs, names, and statuses for a job.
  * Much smaller payload than getDocumentsForJob â used for filtering cost items by approval status.
  */
-export async function getDocumentStatusesForJob(jobId: string): Promise<Array<{ id: string; name: string; number: string; status: string; type: string; createdAt?: string }>> {
+export async function getDocumentStatusesForJob(jobId: string): Promise<Array<{ id: string; name: string; number: string; status: string; type: string; createdAt?: string; includeInBudget?: boolean }>> {
   const data = await pave({
     job: {
       $: { id: jobId },
@@ -1174,6 +1180,7 @@ export async function getDocumentStatusesForJob(jobId: string): Promise<Array<{ 
           status: {},
           type: {},
           createdAt: {},
+          includeInBudget: {},
         },
       },
     },
@@ -3869,8 +3876,9 @@ export async function createDraftBillableInvoice(jobId: string): Promise<{
     taxRate: '0',
     jobLocationName: locationName,
     jobLocationAddress: locationAddress,
-    // dueDays intentionally omitted — CO has no due date; it becomes billable
-    // only after approval and conversion to an invoice in JobTread.
+    // dueDays required by JT PAVE — must provide either dueDate or dueDays (not both).
+    // 14 days gives the customer a reasonable window to review and approve the CO.
+    dueDays: 14,
     subject: `Billable Items Change Order #${coSeq} - ${job.name}`,
     description: 'This change order covers additional billable items and labor hours incurred on this project beyond the original contract scope. Once approved in JobTread, convert to an invoice to bill the customer.',
   });

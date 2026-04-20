@@ -83,24 +83,29 @@ export async function POST(req: Request) {
             // ---- Approved budget from customer order documents ----
             // Sum cost/price from approved customer orders (proposals + COs).
             // This represents the committed/approved estimated budget.
+            // Skip docs with "Exclude from Budget" toggled on in JT (includeInBudget=false).
             let estimatedCost = 0;
             let estimatedPrice = 0;
 
+            // Build the set of doc IDs that ARE in the budget so we can mirror
+            // the filter when walking cost items below.
+            const budgetedApprovedOrderIds = new Set<string>();
             for (const doc of documents) {
-              if (doc.type === 'customerOrder' && doc.status === 'approved') {
+              if (doc.type === 'customerOrder' && doc.status === 'approved' && doc.includeInBudget !== false) {
+                budgetedApprovedOrderIds.add(doc.id);
                 estimatedCost += Number(doc.cost) || 0;
                 estimatedPrice += Number(doc.price) || 0;
               }
             }
 
             // Estimated labor hours from APPROVED customer order cost items only
-            // (matches how estimatedCost/estimatedPrice are calculated above)
+            // (matches how estimatedCost/estimatedPrice are calculated above).
+            // Skip items from excluded-from-budget docs.
             let estimatedHours = 0;
             for (const ci of costItems) {
               const costType = ci.costType?.name?.toLowerCase() || '';
               if (costType.includes('labor') || costType.includes('time')) {
-                // Only count hours from approved customer orders (proposals + COs)
-                if (ci.document?.type === 'customerOrder' && ci.document?.status === 'approved') {
+                if (ci.document?.id && budgetedApprovedOrderIds.has(ci.document.id)) {
                   estimatedHours += Number(ci.quantity) || 0;
                 }
               }
@@ -125,7 +130,10 @@ export async function POST(req: Request) {
                   pendingCost += docCost;
                 }
               } else if (doc.type === 'customerInvoice') {
-                if (doc.status === 'approved') {
+                // Skip invoices explicitly excluded from budget.
+                if (doc.includeInBudget === false) {
+                  // intentional no-op
+                } else if (doc.status === 'approved') {
                   invoicedAmount += docPrice;
                   collectedAmount += docPrice;
                 } else if (doc.status === 'pending') {

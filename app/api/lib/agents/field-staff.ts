@@ -485,7 +485,9 @@ const fieldStaff: AgentModule = {
           const baseName = doc.name || doc.type || 'Document';
           const docLabel = docNum ? baseName + ' #' + docNum : baseName;
           docNameMap.set(doc.id, docLabel);
-          if (doc.status === 'approved') {
+          // Skip docs flagged "Exclude from Budget" in JT — their items don't
+          // belong to the committed/approved project scope surfaced to staff.
+          if (doc.status === 'approved' && (doc as any).includeInBudget !== false) {
             approvedDocIds.add(doc.id);
             if (doc.type === 'customerOrder') approvedCustomerOrderIds.push(doc.id);
           }

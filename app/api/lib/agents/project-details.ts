@@ -532,7 +532,9 @@ const projectDetails: AgentModule = {
           const baseName = doc.name || doc.type || 'Document';
           const docLabel = docNum ? `${baseName} #${docNum}` : baseName;
           docNameMap.set(doc.id, docLabel);
-          if (doc.status === 'approved') {
+          // Skip docs flagged "Exclude from Budget" in JT — they are not part
+          // of the committed project scope for budget/contract reporting.
+          if (doc.status === 'approved' && (doc as any).includeInBudget !== false) {
             approvedDocIds.add(doc.id);
             // Track approved customer orders (contracts & COs) separately
             if (doc.type === 'customerOrder') {

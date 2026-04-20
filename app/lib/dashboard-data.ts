@@ -326,6 +326,7 @@ async function fetchARandCOData(
               nodes: {
                 id: {}, number: {}, status: {}, type: {},
                 price: {}, createdAt: {}, issueDate: {},
+                includeInBudget: {},
               },
             },
           },
@@ -335,6 +336,8 @@ async function fetchARandCOData(
 
         // --- Outstanding Invoices (AR) ---
         for (const doc of docs) {
+          // Skip invoices flagged "Exclude from Budget" in JT.
+          if (doc.includeInBudget === false) continue;
           if (doc.type === 'customerInvoice' && doc.status === 'pending') {
             // Use issueDate (when invoice was sent) for age; fall back to createdAt
             const referenceDate = new Date(doc.issueDate || doc.createdAt);

@@ -44,10 +44,13 @@ export async function POST(req: Request) {
     //
     // Summary totals: use approved customer order document-level totals
     // (these are the committed/approved budget numbers).
+    // Skip docs with "Exclude from Budget" toggled on in JT (includeInBudget=false).
     let totalEstimatedCost = 0;
     let totalEstimatedPrice = 0;
+    const budgetedApprovedOrderIds = new Set<string>();
     for (const doc of documents) {
-      if (doc.type === 'customerOrder' && doc.status === 'approved') {
+      if (doc.type === 'customerOrder' && doc.status === 'approved' && doc.includeInBudget !== false) {
+        budgetedApprovedOrderIds.add(doc.id);
         totalEstimatedCost += Number(doc.cost) || 0;
         totalEstimatedPrice += Number(doc.price) || 0;
       }
@@ -70,9 +73,9 @@ export async function POST(req: Request) {
 
     for (const ci of costItems) {
       // Only include items from approved customer orders in the budget breakdown.
-      // Items on draft/pending proposals or unassigned items are NOT part of the
-      // committed budget and should not inflate cost code budgets or AI analysis.
-      const isApprovedBudget = ci.document?.type === 'customerOrder' && ci.document?.status === 'approved';
+      // Items on draft/pending proposals, unassigned items, or docs flagged
+      // "Exclude from Budget" in JT are NOT part of the committed budget.
+      const isApprovedBudget = !!ci.document?.id && budgetedApprovedOrderIds.has(ci.document.id);
       if (!isApprovedBudget) continue;
 
       const ccName = ci.costCode?.name || 'Uncoded';
@@ -301,6 +304,7 @@ export async function POST(req: Request) {
     let contractTotal = 0;
 
     for (const doc of documents) {
+      const inBudget = doc.includeInBudget !== false;
       const entry = {
         id: doc.id,
         name: doc.name,
@@ -309,19 +313,23 @@ export async function POST(req: Request) {
         price: Number(doc.price) || 0,
         cost: Number(doc.cost) || 0,
         createdAt: doc.createdAt,
+        // false = "Exclude from Budget" toggled on in JT. UI surfaces the
+        // entry but totals skip it.
+        includeInBudget: inBudget,
       };
 
       if (doc.type === 'customerOrder') {
         docSummary.customerOrders.push(entry);
-        if (doc.status === 'approved') contractTotal += entry.price;
+        if (doc.status === 'approved' && inBudget) contractTotal += entry.price;
       } else if (doc.type === 'customerInvoice') {
         docSummary.customerInvoices.push(entry);
         // Draft invoices haven't been sent to the client — they should NOT
         // count as "invoiced" for remaining-to-bill calculations.
+        // Also skip invoices excluded from budget.
         if (doc.status === 'draft') {
-          draftInvoiceTotal += entry.price;
+          if (inBudget) draftInvoiceTotal += entry.price;
         } else {
-          invoicedTotal += entry.price;
+          if (inBudget) invoicedTotal += entry.price;
         }
       } else if (doc.type === 'vendorBill') {
         docSummary.vendorBills.push(entry);
