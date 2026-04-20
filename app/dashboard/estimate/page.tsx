@@ -867,7 +867,6 @@ export default function EstimatePage() {
                   rows={8}
                   className="w-full mt-1 px-3 py-2 rounded-lg text-xs resize-none outline-none"
                   style={{ ...CARD, color: TEXT, lineHeight: '1.6' }}
-                  disabled={!selectedJob}
                 />
               </div>
 
