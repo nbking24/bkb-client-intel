@@ -497,7 +497,8 @@ export async function buildUserDashboardData(userId: string): Promise<UserDashbo
   try {
     rawTasks = await getOpenTasksForMemberAcrossJobs(
       membershipId,
-      activeJobs.map(j => j.id)
+      activeJobs.map(j => j.id),
+      userName ? userName.split(' ')[0] : undefined
     );
   } catch (err: any) {
     console.error('[DashboardData] Failed to fetch tasks:', err.message);

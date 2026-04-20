@@ -277,10 +277,19 @@ export async function getOpenTasksForMember(membershipId: string): Promise<JTTas
  */
 export async function getOpenTasksForMemberAcrossJobs(
   membershipId: string,
-  activeJobIds: string[]
+  activeJobIds: string[],
+  firstName?: string
 ): Promise<JTTask[]> {
   // Pass 1: Scan active jobs for task IDs assigned to this member (lightweight per-job query)
   const matchedTaskIds: string[] = [];
+
+  // Waiting On tasks follow the naming convention "\u23F3 <FirstName>: ..." where
+  // <FirstName> is the person being waited on. Historical tasks do not always
+  // include that person in assignedMemberships, so when firstName is passed we
+  // also match any tasks whose name addresses this user.
+  const woPrefixes = firstName
+    ? [`\u23F3 ${firstName}:`.toLowerCase(), `\u00e2\u008f\u00b3 ${firstName}:`.toLowerCase()]
+    : [];
 
   // Batch jobs to reduce total API calls â query 5 jobs at a time in parallel
   const BATCH_SIZE = 5;
@@ -295,6 +304,7 @@ export async function getOpenTasksForMemberAcrossJobs(
               $: { size: 100 },
               nodes: {
                 id: {},
+                name: {},
                 progress: {},
                 isGroup: {},
                 assignedMemberships: { nodes: { id: {} } },
@@ -310,7 +320,10 @@ export async function getOpenTasksForMemberAcrossJobs(
           const isAssigned = t.assignedMemberships?.nodes?.some(
             (m: any) => m.id === membershipId
           );
-          if (isAssigned) {
+          const nameLower = typeof t.name === 'string' ? t.name.toLowerCase() : '';
+          const isWaitingOnUser =
+            woPrefixes.length > 0 && woPrefixes.some((p) => nameLower.startsWith(p));
+          if (isAssigned || isWaitingOnUser) {
             matchedTaskIds.push(t.id);
           }
         }
