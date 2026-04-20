@@ -793,6 +793,15 @@ async function analyzeCostPlusJob(
     }
   });
 
+  // Round FIFO accumulators to cents / tenths of an hour.
+  // Without this, floating-point residues (~1e-13) from subtracting bill costs
+  // leave non-zero "unbilled" values that pass `> 0` checks but render as "$0",
+  // incorrectly flagging fully-invoiced jobs as critical. Fix: eliminate the
+  // noise before the health determination.
+  unbilledCosts = Math.round(unbilledCosts * 100) / 100;
+  unbilledTimeCost = Math.round(unbilledTimeCost * 100) / 100;
+  unbilledHours = Math.round(unbilledHours * 10) / 10;
+
   // Draft invoices
   const draftInvoices = customerInvoices.filter((d) => d.status === 'draft');
   const draftInvoiceInfos: DraftInvoiceInfo[] = draftInvoices.map((d) => ({
