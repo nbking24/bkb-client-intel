@@ -1113,6 +1113,13 @@ export interface JTDocument {
   // false when "Exclude from Budget" is toggled on in JobTread. Any budget/
   // contract/CO calculation must treat includeInBudget === false as excluded.
   includeInBudget?: boolean;
+  // JT-computed outstanding balance. For customerOrders: price minus the
+  // sum of prices of linked customerInvoices (draft + pending + approved).
+  // For customerInvoices: price minus payments received.
+  // Use this as the authoritative "what's left" signal — formulas that
+  // derive it from totals cannot tell which invoice was created from which
+  // CO and misclassify direct CO-invoicing.
+  balance?: number | null;
   job: { id: string; name: string };
 }
 
@@ -1142,6 +1149,7 @@ export async function getDocumentsForJob(jobId: string): Promise<JTDocument[]> {
             number: {},
             price: {},
             cost: {},
+            balance: {},
             createdAt: {},
             issueDate: {},
             signedAt: {},

@@ -539,19 +539,29 @@ async function analyzeContractJob(
     console.error(`[Invoicing] CO tracking error for ${job.id}:`, err?.message || err);
   }
 
+  // Track which CO docs still have outstanding balance (no invoice yet
+  // created for them in JT) — those are the truly "unbilled" COs.
+  let unbilledCOAmount = 0;
   for (const d of estimates) {
     const price = d.price || 0;
     if (CO_NAME_RE.test(d.name || '')) {
       approvedCOValue += price;
+      // JT's `balance` on a customerOrder = price minus the sum of linked
+      // invoice prices (any status: draft, pending, approved). If balance
+      // is 0 or missing, treat the CO as invoiced; if positive, that's
+      // the still-unbilled portion. This replaces a derived formula that
+      // assumed invoicing flowed "contract first, then CO" — the old
+      // formula misclassified direct CO-invoicing whenever the base
+      // contract wasn't yet fully invoiced (e.g. fixed-price jobs on
+      // progress invoices).
+      const bal = typeof d.balance === 'number' ? d.balance : price;
+      unbilledCOAmount += Math.max(0, Math.min(price, bal));
     } else {
       totalContractValue += price;
     }
   }
 
   const totalContractAndCOValue = totalContractValue + approvedCOValue;
-  const unbilledCOAmount = approvedCOValue > 0
-    ? Math.max(0, approvedCOValue - Math.max(0, invoicedToDate - totalContractValue))
-    : 0;
 
   // Released invoices (paid + open) for collapsible detail list
   const releasedInvoiceInfos: ReleasedInvoiceInfo[] = [
