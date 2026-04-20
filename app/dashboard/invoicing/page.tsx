@@ -508,7 +508,7 @@ function ContractJobCard({ job, onInvoiceCreated, arHeld, arToggling, onToggleAr
       {(job.unbilledCOAmount ?? 0) > 0 && (
         <div className="flex items-center gap-1 text-[11px] py-0.5 mb-1" style={{ color: '#f97316' }}>
           <AlertCircle size={10} className="flex-shrink-0" />
-          <span>{formatCurrency(job.unbilledCOAmount ?? 0)} in approved but uninvoiced COs</span>
+          <span>{formatCurrency(job.unbilledCOAmount ?? 0)} in approved change orders not yet invoiced</span>
         </div>
       )}
 
