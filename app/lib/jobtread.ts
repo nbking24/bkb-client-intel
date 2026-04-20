@@ -1941,8 +1941,10 @@ export interface JTCostItem {
   files?: JTCostItemFile[];
   // Document association: null = Estimating, otherwise attached to a proposal/invoice
   document?: { id: string; name: string; type: string; status?: string } | null;
-  // Budget item this document cost item is linked to
-  jobCostItem?: { id: string } | null;
+  // Budget item this document cost item is linked to. costCode on the linked
+  // budget item is preferred over the line-level costCode for bucket filtering,
+  // because the budget link is what drives budget-vs-actual reports.
+  jobCostItem?: { id: string; costCode?: { number?: string; name?: string } | null } | null;
   // Custom fields (Status, Internal Notes, Vendor)
   status?: string | null;
   internalNotes?: string | null;
@@ -2076,7 +2078,10 @@ export async function getDocumentCostItemsById(documentId: string): Promise<JTCo
           quantity: {},
           costCode: { number: {}, name: {} },
           costType: { id: {}, name: {} },
-          jobCostItem: { id: {} },
+          // Fetch the linked budget item's costCode so downstream filters can
+          // key off the budget bucket (source of truth) rather than the
+          // line-level costCode.
+          jobCostItem: { id: {}, costCode: { number: {}, name: {} } },
         },
       },
     },
@@ -2084,6 +2089,27 @@ export async function getDocumentCostItemsById(documentId: string): Promise<JTCo
 
   const items = (data as any)?.document?.costItems?.nodes || [];
   return items as JTCostItem[];
+}
+
+/**
+ * Return the effective cost code number for a document cost item.
+ *
+ * Prefer the cost code of the linked budget item (jobCostItem.costCode.number)
+ * because that's what drives budget-vs-actual reports — if the dashboard filters
+ * by budget bucket, its numbers will always agree with the budget side.
+ *
+ * Fall back to the line-level costCode if there's no budget link (some hand-entered
+ * rows aren't linked to a budget item) so we don't silently drop coded lines.
+ */
+export function getEffectiveCostCodeNumber(item: {
+  costCode?: { number?: string | null } | null;
+  jobCostItem?: { costCode?: { number?: string | null } | null } | null;
+}): string | undefined {
+  return (
+    item.jobCostItem?.costCode?.number ??
+    item.costCode?.number ??
+    undefined
+  );
 }
 
 /**
@@ -3542,7 +3568,10 @@ export async function createDraftBillableInvoice(jobId: string): Promise<{
   totalPrice: number;
 }> {
   const BILLABLE_COST_CODE_NUMBER = '23';
-  const BILLABLE_COST_TYPE_NAMES = ['Materials', 'Subcontractor'];
+  // Keep in sync with BILLABLE_COST_TYPE_NAMES in app/lib/invoicing-health.ts.
+  // 'Other' is included so mistakenly-coded billable items still get swept into
+  // the draft invoice instead of being silently dropped.
+  const BILLABLE_COST_TYPE_NAMES = ['Materials', 'Subcontractor', 'Other'];
 
   // 1. Get job details including location, customer info, and custom fields (Margin, Hourly Rate)
   const jobData = await pave({
@@ -3665,7 +3694,9 @@ export async function createDraftBillableInvoice(jobId: string): Promise<{
                   unitCost: {}, unitPrice: {},
                   costCode: { id: {}, number: {}, name: {} },
                   costType: { id: {}, name: {} },
-                  jobCostItem: { id: {} },
+                  // Pull the linked budget item's costCode so the CC23 filter
+                  // can prefer the budget bucket over the line-level code.
+                  jobCostItem: { id: {}, costCode: { number: {}, name: {} } },
                 },
               },
             },
@@ -3683,7 +3714,7 @@ export async function createDraftBillableInvoice(jobId: string): Promise<{
     for (const items of batchResults) allVendorBillItems.push(...items);
   }
   const cc23VendorBillItems = allVendorBillItems.filter(
-    (item: any) => item.costCode?.number === BILLABLE_COST_CODE_NUMBER
+    (item: any) => getEffectiveCostCodeNumber(item) === BILLABLE_COST_CODE_NUMBER
   );
 
   // 4. Get CC23 items already on customer invoices (already billed)
@@ -3699,7 +3730,9 @@ export async function createDraftBillableInvoice(jobId: string): Promise<{
                 id: {}, name: {}, cost: {}, price: {}, quantity: {},
                 costCode: { number: {} },
                 costType: { name: {} },
-                jobCostItem: { id: {} },
+                // Pull the linked budget item's costCode so the CC23 filter
+                // can prefer the budget bucket over the line-level code.
+                jobCostItem: { id: {}, costCode: { number: {} } },
               },
             },
           },
@@ -3712,7 +3745,7 @@ export async function createDraftBillableInvoice(jobId: string): Promise<{
   );
   const allCustomerInvoiceItems = customerInvoiceItemResults.flat();
   const cc23InvoicedItems = allCustomerInvoiceItems.filter(
-    (item: any) => item.costCode?.number === BILLABLE_COST_CODE_NUMBER
+    (item: any) => getEffectiveCostCodeNumber(item) === BILLABLE_COST_CODE_NUMBER
   );
 
   // 5. FIFO deduction to find uninvoiced CC23 vendor bill items

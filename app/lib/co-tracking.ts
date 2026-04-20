@@ -21,11 +21,19 @@ export interface BudgetCO {
 
 export interface COTrackingResult {
   budgetCOs: BudgetCO[];
+  /**
+   * IDs of approved customerOrder documents whose line items link (via
+   * jobCostItem.costGroup parent chain) to a Post Pricing CO group. These
+   * are the "change order" documents, distinct from the base-contract
+   * approved customerOrders. Empty when the job has no Post Pricing roots.
+   */
+  coDocumentIds: string[];
 }
 
 export interface JobCOResult {
   jobId: string;
   budgetCOs: BudgetCO[];
+  coDocumentIds: string[];
 }
 
 // Org/status groups are direct children of Post Pricing that organize COs:
@@ -110,7 +118,7 @@ export async function getCOTrackingForJob(jobId: string): Promise<COTrackingResu
     const postPricingRoots = allGroups.filter((g: any) =>
       /post\s*pricing/i.test(g.name || '')
     );
-    if (postPricingRoots.length === 0) return { budgetCOs: [] };
+    if (postPricingRoots.length === 0) return { budgetCOs: [], coDocumentIds: [] };
 
     const ppRootIds = new Set(postPricingRoots.map((g: any) => g.id));
     const orgGroupIds = new Set<string>();
@@ -142,7 +150,7 @@ export async function getCOTrackingForJob(jobId: string): Promise<COTrackingResu
         }
       }
     }
-    if (coGroups.length === 0) return { budgetCOs: [] };
+    if (coGroups.length === 0) return { budgetCOs: [], coDocumentIds: [] };
 
     // Build a comprehensive set of ALL CO group IDs across ALL PP roots
     // (same-named COs under different PP roots have different IDs, but we
@@ -200,6 +208,9 @@ export async function getCOTrackingForJob(jobId: string): Promise<COTrackingResu
     // Post Pricing each item belongs to. We match against ALL CO group IDs across
     // ALL PP roots, then map back to the canonical CO entry for deduplication.
     const approvedCOIds = new Set<string>();
+    // Track which approved customerOrder docs actually link to a CO group
+    // (i.e. are change-order documents, not the base contract).
+    const coDocIdSet = new Set<string>();
 
     if (approvedCODocIds.length > 0) {
       const docItemResults = await Promise.all(
@@ -228,11 +239,13 @@ export async function getCOTrackingForJob(jobId: string): Promise<COTrackingResu
                 },
               },
             },
-          }).then((r: any) => r?.document?.costItems?.nodes || []).catch(() => [])
+          }).then((r: any) => ({ docId, items: r?.document?.costItems?.nodes || [] }))
+            .catch(() => ({ docId, items: [] as any[] }))
         )
       );
 
-      for (const items of docItemResults) {
+      for (const { docId, items } of docItemResults) {
+        let docTouchesCO = false;
         for (const item of items) {
           const cg = item?.jobCostItem?.costGroup;
           if (!cg) continue;
@@ -244,12 +257,13 @@ export async function getCOTrackingForJob(jobId: string): Promise<COTrackingResu
             if (allCOGroupIds.has(curr.id)) {
               const canonicalId = coIdToCanonicalId.get(curr.id) || curr.id;
               approvedCOIds.add(canonicalId);
+              docTouchesCO = true;
               break;
             }
             curr = curr.parentCostGroup;
           }
         }
-        if (approvedCOIds.size === coGroups.length) break;
+        if (docTouchesCO) coDocIdSet.add(docId);
       }
     }
 
@@ -259,10 +273,11 @@ export async function getCOTrackingForJob(jobId: string): Promise<COTrackingResu
         name: (co.name || '').replace(/^✅\s*/, ''), // Strip approval emoji for clean display
         isApproved: approvedCOIds.has(co.id),
       })),
+      coDocumentIds: Array.from(coDocIdSet),
     };
   } catch (err: any) {
     console.error(`[CO-TRACK] ERROR for job ${jobId}:`, err?.message || err);
-    return { budgetCOs: [] };
+    return { budgetCOs: [], coDocumentIds: [] };
   }
 }
 
@@ -281,7 +296,11 @@ export async function getCOTrackingForJobs(
     const batchResults = await Promise.allSettled(
       batch.map(async (jobId) => {
         const tracking = await getCOTrackingForJob(jobId);
-        return { jobId, budgetCOs: tracking.budgetCOs };
+        return {
+          jobId,
+          budgetCOs: tracking.budgetCOs,
+          coDocumentIds: tracking.coDocumentIds,
+        };
       })
     );
 

@@ -18,6 +18,7 @@ import {
   getJobSchedule,
   getDocumentCostItemsById,
   getDocumentCostItemsForJob,
+  getEffectiveCostCodeNumber,
   type JTJob,
   type JTDocument,
   type JTCostItem,
@@ -33,8 +34,14 @@ import { getCOTrackingForJob } from './co-tracking';
 const BILLABLE_COST_CODE_NUMBER = '23';
 /** Name prefix filter — only items whose name starts with "23 Billable" are counted (Cost-Plus jobs) */
 const BILLABLE_NAME_PREFIX = '23 Billable';
-/** Cost types that qualify as billable on Fixed-Price jobs (costCode 23 + one of these) */
-const BILLABLE_COST_TYPE_NAMES = ['Materials', 'Subcontractor'];
+/**
+ * Cost types that qualify as billable on Fixed-Price jobs (costCode 23 + one of these).
+ * 'Other' is included so an item mistakenly coded as Other still shows up as
+ * uninvoiced billable rather than silently disappearing. Labor is tracked
+ * separately via unbilledLaborHours. Allowance is excluded by design (allowance
+ * draws are accounted for through their own budget mechanism, not as pass-through).
+ */
+const BILLABLE_COST_TYPE_NAMES = ['Materials', 'Subcontractor', 'Other'];
 
 /** Cost Plus jobs should be invoiced every 14 days */
 const COST_PLUS_BILLING_CADENCE_DAYS = 14;
@@ -380,10 +387,12 @@ async function analyzeContractJob(
   );
   const allDocCostItems = docCostItemResults.flat();
 
-  // Fixed-Price billable filter: Cost Code 23 + costType "Materials" or "Subcontractor"
-  // Any CC23 item with a qualifying cost type counts as billable, regardless of item name.
+  // Fixed-Price billable filter: Cost Code 23 (by BUDGET bucket) + qualifying costType.
+  // We key off the linked budget item's cost code (via getEffectiveCostCodeNumber)
+  // so the dashboard always agrees with the CC23 Billable bucket in budget-vs-actual.
+  // Falls back to the line-level costCode when a line isn't linked to a budget item.
   const allCC23 = allDocCostItems.filter(
-    (item) => item.costCode?.number === BILLABLE_COST_CODE_NUMBER
+    (item) => getEffectiveCostCodeNumber(item) === BILLABLE_COST_CODE_NUMBER
   );
 
   // Billable costs: CC23 items with Materials or Subcontractor cost type
@@ -491,47 +500,52 @@ async function analyzeContractJob(
     if (health === 'healthy') health = 'warning';
   }
 
-  // Calculate invoiced amounts from document prices
-  // totalContractValue = sum of all approved customer orders (estimates)
-  const totalContractValue = estimates.reduce((sum, d) => sum + (d.price || 0), 0);
   // invoicedToDate = sum of approved (paid) + pending (sent/open) customer invoices
   const invoicedToDate = [...approvedInvoices, ...pendingInvoicesDocs]
     .reduce((sum, d) => sum + (d.price || 0), 0);
 
   // --- Change Order awareness ---
-  // Use shared CO tracking to identify approved COs, then calculate their value
-  // by matching approved CO group names against approved customerOrder documents.
+  // An approved customerOrder is classified as a Change Order if EITHER:
+  //   1. Its line items link (via jobCostItem.costGroup parent chain) to a
+  //      Post Pricing CO group — the budget-linkage signal from CO tracking, OR
+  //   2. Its document name matches /change\s*order/i — the naming signal.
+  // Anything else in `estimates` is the base contract.
+  //
+  // Both signals exist because neither is reliable alone. JobTread's data
+  // sometimes has CO-named docs that don't link to Post Pricing (budget
+  // misses the CO) and Post-Pricing-linked docs that aren't explicitly named
+  // "Change Order" (e.g. added-scope pricing reviews). Treating either as a
+  // CO is the most conservative choice — it won't understate approvedCOValue.
+  //
+  // totalContractValue = sum of base-contract approved customerOrders
+  // approvedCOValue    = sum of approved customerOrders identified as COs
+  // totalContractAndCOValue = base + COs (full billable to customer)
+  const CO_NAME_RE = /change\s*order/i;
+  let totalContractValue = 0;
   let approvedCOValue = 0;
   let appliedCOsCount = 0;
   try {
     const coTracking = await getCOTrackingForJob(job.id);
+    const coDocIdSet = new Set(coTracking.coDocumentIds);
     const approvedCOs = coTracking.budgetCOs.filter(co => co.isApproved);
     appliedCOsCount = approvedCOs.length;
 
-    if (approvedCOs.length > 0) {
-      // Build a set of approved CO names (normalized) for matching against documents
-      const approvedCONameSet = new Set(
-        approvedCOs.map(co => co.name.toLowerCase().trim())
-      );
+    const isCO = (d: JTDocument) =>
+      coDocIdSet.has(d.id) || CO_NAME_RE.test(d.name || '');
 
-      // Sum approved customerOrder document prices that correspond to COs
-      // CO documents have cost groups whose names match CO budget groups.
-      // We need document cost group names — re-fetch docs with cost groups for matching.
-      const allApprovedOrders = documents.filter(
-        (d) => d.type === 'customerOrder' && d.status === 'approved'
-      );
+    const baseOrders = estimates.filter((d) => !isCO(d));
+    const coOrders   = estimates.filter((d) =>  isCO(d));
 
-      // The base estimates are the original contract — COs are additional approved orders
-      // whose cost groups match Post Pricing CO names.
-      // Since we already have `estimates` (all approved customerOrders), we can identify
-      // which are COs by checking if any of their cost group names match approved CO names.
-      // But we don't have cost group data on documents in this context...
-      // Instead, use a simpler heuristic: total approved orders - original estimate = CO value
-      const allApprovedOrderValue = allApprovedOrders.reduce((sum, d) => sum + (d.price || 0), 0);
-      approvedCOValue = Math.max(0, allApprovedOrderValue - totalContractValue);
-    }
+    totalContractValue = baseOrders.reduce((sum, d) => sum + (d.price || 0), 0);
+    approvedCOValue    = coOrders.reduce((sum, d) => sum + (d.price || 0), 0);
   } catch (err: any) {
     console.error(`[Invoicing] CO tracking error for ${job.id}:`, err?.message || err);
+    // Fallback: name-only classification so we still split base vs CO
+    // even when CO tracking fails.
+    const baseOrders = estimates.filter((d) => !CO_NAME_RE.test(d.name || ''));
+    const coOrders   = estimates.filter((d) =>  CO_NAME_RE.test(d.name || ''));
+    totalContractValue = baseOrders.reduce((sum, d) => sum + (d.price || 0), 0);
+    approvedCOValue    = coOrders.reduce((sum, d) => sum + (d.price || 0), 0);
   }
 
   const totalContractAndCOValue = totalContractValue + approvedCOValue;
