@@ -505,39 +505,54 @@ async function analyzeContractJob(
     .reduce((sum, d) => sum + (d.price || 0), 0);
 
   // --- Change Order awareness ---
-  // An approved customerOrder is classified as a Change Order if EITHER:
-  //   1. Its line items link (via jobCostItem.costGroup parent chain) to a
-  //      Post Pricing CO group — the budget-linkage signal from CO tracking, OR
-  //   2. Its document name matches /change\s*order/i — the naming signal.
-  // Anything else in `estimates` is the base contract.
+  // Split each approved customerOrder into a base portion and a CO portion
+  // based on its line items:
+  //   - Items whose jobCostItem.costGroup walks up to a CO group under
+  //     "Post Pricing Changes" count toward approvedCOValue.
+  //   - Everything else counts toward totalContractValue.
+  // A document named "Change Order …" is treated as 100% CO even if its
+  // line items don't carry a Post Pricing linkage — the name is an
+  // unambiguous signal from the operator.
   //
-  // Both signals exist because neither is reliable alone. JobTread's data
-  // sometimes has CO-named docs that don't link to Post Pricing (budget
-  // misses the CO) and Post-Pricing-linked docs that aren't explicitly named
-  // "Change Order" (e.g. added-scope pricing reviews). Treating either as a
-  // CO is the most conservative choice — it won't understate approvedCOValue.
-  //
-  // totalContractValue = sum of base-contract approved customerOrders
-  // approvedCOValue    = sum of approved customerOrders identified as COs
-  // totalContractAndCOValue = base + COs (full billable to customer)
+  // Rationale: JobTread lets an operator re-generate the Construction
+  // Contract so it pulls in a small scope revision that lives under Post
+  // Pricing. Under the old "any-item-links → whole-doc is a CO" rule,
+  // the full base contract got classified as a CO, and unbilledCOAmount
+  // inflated to the entire contract value. The per-item split here keeps
+  // the base portion where it belongs and only surfaces the actual CO
+  // dollars as approved-but-uninvoiced.
   const CO_NAME_RE = /change\s*order/i;
   let totalContractValue = 0;
   let approvedCOValue = 0;
   let appliedCOsCount = 0;
   try {
     const coTracking = await getCOTrackingForJob(job.id);
-    const coDocIdSet = new Set(coTracking.coDocumentIds);
     const approvedCOs = coTracking.budgetCOs.filter(co => co.isApproved);
     appliedCOsCount = approvedCOs.length;
 
-    const isCO = (d: JTDocument) =>
-      coDocIdSet.has(d.id) || CO_NAME_RE.test(d.name || '');
+    for (const d of estimates) {
+      const price = d.price || 0;
+      const nameIsCO = CO_NAME_RE.test(d.name || '');
+      const split = coTracking.documentSplits[d.id];
 
-    const baseOrders = estimates.filter((d) => !isCO(d));
-    const coOrders   = estimates.filter((d) =>  isCO(d));
-
-    totalContractValue = baseOrders.reduce((sum, d) => sum + (d.price || 0), 0);
-    approvedCOValue    = coOrders.reduce((sum, d) => sum + (d.price || 0), 0);
+      if (nameIsCO) {
+        // Name signal: treat entire document as a CO.
+        approvedCOValue += price;
+      } else if (split) {
+        // Value split from budget linkage. When no items link to a CO group,
+        // baseValue will equal total item price — but we anchor to the
+        // document header price (authoritative) and use the split to
+        // compute the CO fraction. Clamp to handle rounding.
+        const sumSplit = split.coValue + split.baseValue;
+        const coFraction = sumSplit > 0 ? split.coValue / sumSplit : 0;
+        const coPortion = Math.min(price, coFraction * price);
+        approvedCOValue    += coPortion;
+        totalContractValue += (price - coPortion);
+      } else {
+        // No tracking data for this doc → treat as pure base contract.
+        totalContractValue += price;
+      }
+    }
   } catch (err: any) {
     console.error(`[Invoicing] CO tracking error for ${job.id}:`, err?.message || err);
     // Fallback: name-only classification so we still split base vs CO

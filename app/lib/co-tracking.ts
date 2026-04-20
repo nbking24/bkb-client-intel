@@ -19,21 +19,42 @@ export interface BudgetCO {
   isApproved: boolean;
 }
 
+/**
+ * Price split for an approved customerOrder document. A single document can
+ * mix base-contract items with post-pricing (CO) items — e.g. a re-generated
+ * "Construction Contract" that rolls a small scope revision into the original
+ * contract. In that case the base portion should stay with `totalContractValue`
+ * and only the CO portion should feed `approvedCOValue`.
+ */
+export interface DocumentPriceSplit {
+  /** Sum of item prices that walk up (via jobCostItem.costGroup parent chain) to a CO group under Post Pricing. */
+  coValue: number;
+  /** Sum of item prices that do NOT link to a CO group — i.e. base-contract scope. */
+  baseValue: number;
+}
+
 export interface COTrackingResult {
   budgetCOs: BudgetCO[];
   /**
    * IDs of approved customerOrder documents whose line items link (via
-   * jobCostItem.costGroup parent chain) to a Post Pricing CO group. These
-   * are the "change order" documents, distinct from the base-contract
-   * approved customerOrders. Empty when the job has no Post Pricing roots.
+   * jobCostItem.costGroup parent chain) to at least one Post Pricing CO group.
+   * Kept for callers that only need a yes/no signal; for value math use
+   * `documentSplits` instead.
    */
   coDocumentIds: string[];
+  /**
+   * Map of approved customerOrder docId → per-document price split.
+   * Use this to avoid double-counting a document as "100% CO" when it only
+   * partially links to Post Pricing.
+   */
+  documentSplits: Record<string, DocumentPriceSplit>;
 }
 
 export interface JobCOResult {
   jobId: string;
   budgetCOs: BudgetCO[];
   coDocumentIds: string[];
+  documentSplits: Record<string, DocumentPriceSplit>;
 }
 
 // Org/status groups are direct children of Post Pricing that organize COs:
@@ -118,7 +139,7 @@ export async function getCOTrackingForJob(jobId: string): Promise<COTrackingResu
     const postPricingRoots = allGroups.filter((g: any) =>
       /post\s*pricing/i.test(g.name || '')
     );
-    if (postPricingRoots.length === 0) return { budgetCOs: [], coDocumentIds: [] };
+    if (postPricingRoots.length === 0) return { budgetCOs: [], coDocumentIds: [], documentSplits: {} };
 
     const ppRootIds = new Set(postPricingRoots.map((g: any) => g.id));
     const orgGroupIds = new Set<string>();
@@ -150,7 +171,7 @@ export async function getCOTrackingForJob(jobId: string): Promise<COTrackingResu
         }
       }
     }
-    if (coGroups.length === 0) return { budgetCOs: [], coDocumentIds: [] };
+    if (coGroups.length === 0) return { budgetCOs: [], coDocumentIds: [], documentSplits: {} };
 
     // Build a comprehensive set of ALL CO group IDs across ALL PP roots
     // (same-named COs under different PP roots have different IDs, but we
@@ -211,6 +232,11 @@ export async function getCOTrackingForJob(jobId: string): Promise<COTrackingResu
     // Track which approved customerOrder docs actually link to a CO group
     // (i.e. are change-order documents, not the base contract).
     const coDocIdSet = new Set<string>();
+    // Per-document price split: coValue = sum of item prices linked to a CO
+    // group under Post Pricing; baseValue = everything else on that document.
+    // This lets callers handle mixed documents (a base contract that also
+    // rolls in a scope revision) without flipping the whole doc to "CO".
+    const documentSplits: Record<string, DocumentPriceSplit> = {};
 
     if (approvedCODocIds.length > 0) {
       const docItemResults = await Promise.all(
@@ -221,6 +247,7 @@ export async function getCOTrackingForJob(jobId: string): Promise<COTrackingResu
               costItems: {
                 $: { size: 100 },
                 nodes: {
+                  price: {},
                   jobCostItem: {
                     costGroup: {
                       id: {}, name: {},
@@ -246,24 +273,34 @@ export async function getCOTrackingForJob(jobId: string): Promise<COTrackingResu
 
       for (const { docId, items } of docItemResults) {
         let docTouchesCO = false;
+        let coValue = 0;
+        let baseValue = 0;
         for (const item of items) {
+          const itemPrice = typeof item?.price === 'number' ? item.price : 0;
           const cg = item?.jobCostItem?.costGroup;
-          if (!cg) continue;
 
-          // Walk up the parent chain to find which CO group this item belongs to
-          // Match against ALL CO group IDs (from any PP root), then map to canonical
-          let curr = cg;
-          while (curr?.id) {
-            if (allCOGroupIds.has(curr.id)) {
-              const canonicalId = coIdToCanonicalId.get(curr.id) || curr.id;
-              approvedCOIds.add(canonicalId);
-              docTouchesCO = true;
-              break;
+          let isCOItem = false;
+          if (cg) {
+            // Walk up the parent chain to find which CO group this item belongs to
+            // Match against ALL CO group IDs (from any PP root), then map to canonical
+            let curr = cg;
+            while (curr?.id) {
+              if (allCOGroupIds.has(curr.id)) {
+                const canonicalId = coIdToCanonicalId.get(curr.id) || curr.id;
+                approvedCOIds.add(canonicalId);
+                docTouchesCO = true;
+                isCOItem = true;
+                break;
+              }
+              curr = curr.parentCostGroup;
             }
-            curr = curr.parentCostGroup;
           }
+
+          if (isCOItem) coValue += itemPrice;
+          else baseValue += itemPrice;
         }
         if (docTouchesCO) coDocIdSet.add(docId);
+        documentSplits[docId] = { coValue, baseValue };
       }
     }
 
@@ -274,10 +311,11 @@ export async function getCOTrackingForJob(jobId: string): Promise<COTrackingResu
         isApproved: approvedCOIds.has(co.id),
       })),
       coDocumentIds: Array.from(coDocIdSet),
+      documentSplits,
     };
   } catch (err: any) {
     console.error(`[CO-TRACK] ERROR for job ${jobId}:`, err?.message || err);
-    return { budgetCOs: [], coDocumentIds: [] };
+    return { budgetCOs: [], coDocumentIds: [], documentSplits: {} };
   }
 }
 
@@ -300,6 +338,7 @@ export async function getCOTrackingForJobs(
           jobId,
           budgetCOs: tracking.budgetCOs,
           coDocumentIds: tracking.coDocumentIds,
+          documentSplits: tracking.documentSplits,
         };
       })
     );
