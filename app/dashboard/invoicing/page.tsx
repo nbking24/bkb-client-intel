@@ -1001,9 +1001,16 @@ function NeedsInvoicingSection({
 
   if (needsAction.length === 0) return null;
 
-  const criticalCount = needsAction.filter(j => j.health === 'critical').length;
-  const overdueCount = needsAction.filter(j => j.health === 'overdue').length;
-  const warningCount = needsAction.filter(j => j.health === 'warning').length;
+  // Split by status for the three-column layout, alpha sort within each column
+  const byName = (a: NeedsInvoicingJob, b: NeedsInvoicingJob) =>
+    (a.jobName || '').toLowerCase().localeCompare((b.jobName || '').toLowerCase());
+  const criticalJobs = needsAction.filter(j => j.health === 'critical').sort(byName);
+  const overdueJobs = needsAction.filter(j => j.health === 'overdue').sort(byName);
+  const warningJobs = needsAction.filter(j => j.health === 'warning').sort(byName);
+
+  const criticalCount = criticalJobs.length;
+  const overdueCount = overdueJobs.length;
+  const warningCount = warningJobs.length;
 
   return (
     <div
@@ -1058,10 +1065,112 @@ function NeedsInvoicingSection({
         </div>
       </button>
 
-      {/* Job rows — collapsible */}
+      {/* Job rows — collapsible, grouped into three status columns */}
       {expanded && (
-        <div className="divide-y" style={{ borderColor: 'rgba(200,140,0,0.06)' }}>
-          {needsAction.map((job) => (
+        <div className="grid grid-cols-1 md:grid-cols-3">
+          <NeedsInvoicingColumn
+            label="Critical"
+            color="#ef4444"
+            bgTint="rgba(239,68,68,0.04)"
+            borderTint="rgba(239,68,68,0.15)"
+            jobs={criticalJobs}
+            arHolds={arHolds}
+            arToggling={arToggling}
+            onToggleArHold={onToggleArHold}
+            rightBorder
+          />
+          <NeedsInvoicingColumn
+            label="Overdue"
+            color="#f97316"
+            bgTint="rgba(249,115,22,0.04)"
+            borderTint="rgba(249,115,22,0.15)"
+            jobs={overdueJobs}
+            arHolds={arHolds}
+            arToggling={arToggling}
+            onToggleArHold={onToggleArHold}
+            rightBorder
+          />
+          <NeedsInvoicingColumn
+            label="Warning"
+            color="#eab308"
+            bgTint="rgba(234,179,8,0.04)"
+            borderTint="rgba(234,179,8,0.15)"
+            jobs={warningJobs}
+            arHolds={arHolds}
+            arToggling={arToggling}
+            onToggleArHold={onToggleArHold}
+          />
+        </div>
+      )}
+    </div>
+  );
+}
+
+function NeedsInvoicingColumn({
+  label,
+  color,
+  bgTint,
+  borderTint,
+  jobs,
+  arHolds,
+  arToggling,
+  onToggleArHold,
+  rightBorder,
+}: {
+  label: string;
+  color: string;
+  bgTint: string;
+  borderTint: string;
+  jobs: NeedsInvoicingJob[];
+  arHolds: Record<string, boolean>;
+  arToggling: string | null;
+  onToggleArHold: (jobId: string, jobName: string) => void;
+  rightBorder?: boolean;
+}) {
+  return (
+    <div
+      className="flex flex-col"
+      style={{
+        borderRight: rightBorder ? '1px solid rgba(200,140,0,0.08)' : undefined,
+      }}
+    >
+      {/* Column sub-header */}
+      <div
+        className="px-4 py-2 flex items-center gap-2"
+        style={{
+          background: bgTint,
+          borderBottom: `1px solid ${borderTint}`,
+        }}
+      >
+        <span
+          className="w-2 h-2 rounded-full flex-shrink-0"
+          style={{ background: color }}
+        />
+        <span
+          className="text-[11px] font-semibold uppercase tracking-wide"
+          style={{ color }}
+        >
+          {label}
+        </span>
+        <span
+          className="text-[10px] ml-auto px-1.5 py-0.5 rounded-full font-medium"
+          style={{ background: 'rgba(200,140,0,0.08)', color: '#8a8078' }}
+        >
+          {jobs.length}
+        </span>
+      </div>
+
+      {/* Column rows */}
+      {jobs.length === 0 ? (
+        <div
+          className="px-4 py-8 text-xs text-center flex-1"
+          style={{ color: '#b8a99c' }}
+        >
+          No {label.toLowerCase()} jobs
+        </div>
+      ) : (
+        <div className="divide-y flex-1" style={{ borderColor: 'rgba(200,140,0,0.06)' }}>
+          {jobs.map((job) => (
             <NeedsInvoicingRow
               key={job.jobId}
               job={job}
