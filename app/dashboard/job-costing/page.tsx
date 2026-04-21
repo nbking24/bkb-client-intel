@@ -767,7 +767,7 @@ export default function JobCostingDashboard() {
                   { label: 'Vendor Bills', items: detail.docSummary.vendorBills, type: 'cost' },
                   { label: 'Purchase Orders', items: detail.docSummary.vendorOrders, type: 'cost' },
                 ].map((cat: any) => (
-                  <div key={cat.label} className="p-2 rounded" style={{ background: '#0d0d0d' }}>
+                  <div key={cat.label} className="p-2 rounded" style={{ background: '#ffffff', border: '1px solid rgba(200,140,0,0.1)' }}>
                     <p className="text-xs mb-1" style={{ color: '#8a8078' }}>{cat.label}</p>
                     <p className="text-lg font-bold" style={{ color: '#1a1a1a' }}>{cat.countOverride ?? cat.items.length}</p>
                     <p className="text-xs" style={{ color: '#8a8078' }}>
