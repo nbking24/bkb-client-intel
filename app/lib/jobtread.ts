@@ -2978,7 +2978,21 @@ export async function createDailyLogWithCache(params: Parameters<typeof createDa
 async function createJTDocument(params: {
   jobId: string;
   type: 'customerInvoice' | 'customerOrder' | 'vendorOrder' | 'vendorBill' | 'bidRequest';
-  name: string;  // Must be one of: "Deposit", "Invoice", "Progress Invoice"
+  // For customerInvoice: typically "Invoice" / "Deposit" / "Progress Invoice".
+  // For customerOrder: must match a document template name configured in JT
+  // (e.g., "Change Order", "Change Order (Cost-Plus)"). Template sets vary
+  // per job; see fallbackNamePattern.
+  name: string;
+  // JT template ID. Optional — when provided, associates the doc with that
+  // template. Will be dropped on retry if the primary `name` is rejected
+  // and we fall back to another allowed name (the fallback name may belong
+  // to a different template).
+  documentTemplateId?: string;
+  // If the primary `name` is rejected by PAVE with a "Name must be one of ..."
+  // error, we parse the allowed names out of the error and retry with the
+  // first one matching this pattern. Lets callers on different job template
+  // sets auto-resolve (e.g., "Change Order" vs "Change Order (Cost-Plus)").
+  fallbackNamePattern?: RegExp;
   fromName: string;
   toName: string;
   toAddress?: string;
@@ -2991,36 +3005,82 @@ async function createJTDocument(params: {
   footer?: string;
 }) {
   const {
-    jobId, type, name, fromName, toName, toAddress, taxRate,
+    jobId, type, name, documentTemplateId, fallbackNamePattern,
+    fromName, toName, toAddress, taxRate,
     jobLocationName, jobLocationAddress, dueDays,
     subject, description, footer,
   } = params;
-  const data = await pave({
-    createDocument: {
-      $: {
-        jobId,
-        type,
-        name,
-        fromName,
-        toName,
-        taxRate,
-        jobLocationName,
-        jobLocationAddress,
-        ...(toAddress ? { toAddress } : {}),
-        ...(dueDays !== undefined ? { dueDays } : {}),
-        ...(subject ? { subject } : {}),
-        ...(description !== undefined ? { description } : {}),
-        ...(footer !== undefined ? { footer } : {}),
-      },
-      createdDocument: {
-        id: {},
-        name: {},
-        number: {},
-        status: {},
-        type: {},
-      },
-    },
+
+  const buildArgs = (nm: string, tplId?: string) => ({
+    jobId,
+    type,
+    name: nm,
+    fromName,
+    toName,
+    taxRate,
+    jobLocationName,
+    jobLocationAddress,
+    ...(toAddress ? { toAddress } : {}),
+    ...(dueDays !== undefined ? { dueDays } : {}),
+    ...(subject ? { subject } : {}),
+    ...(description !== undefined ? { description } : {}),
+    ...(footer !== undefined ? { footer } : {}),
+    ...(tplId ? { documentTemplateId: tplId } : {}),
   });
+
+  const runCreate = async (nm: string, tplId?: string) => {
+    return pave({
+      createDocument: {
+        $: buildArgs(nm, tplId),
+        createdDocument: {
+          id: {},
+          name: {},
+          number: {},
+          status: {},
+          type: {},
+        },
+      },
+    });
+  };
+
+  let data: any;
+  try {
+    data = await runCreate(name, documentTemplateId);
+  } catch (err: any) {
+    // Parse PAVE's "Name must be one of X, Y, Z" error and retry with the
+    // first allowed name that matches `fallbackNamePattern`. Different job
+    // template sets (e.g., Design-Build vs standard) expose different sets
+    // of customerOrder names — we can't hardcode.
+    const msg = String(err?.message || '');
+    const match = msg.match(/Name must be one of\s+([^$]+?)(?:\s*$)/i);
+    if (fallbackNamePattern && match) {
+      // Split by comma; strip whitespace. Names themselves may contain
+      // parens/underscores (e.g., "Pricing Review _ Selections") but not
+      // unescaped commas in BKB's current template set.
+      const allowed = match[1]
+        .split(',')
+        .map((s) => s.trim())
+        .filter(Boolean);
+      // Dedupe while preserving order (PAVE sometimes repeats names).
+      const seen = new Set<string>();
+      const unique = allowed.filter((n) => (seen.has(n) ? false : (seen.add(n), true)));
+      const candidate = unique.find((n) => fallbackNamePattern.test(n));
+      if (candidate) {
+        console.log(
+          `[createJTDocument] Primary name '${name}' rejected for job ${jobId}; ` +
+          `falling back to '${candidate}' (from allowed: ${unique.join(' | ')})`
+        );
+        // Drop templateId: it was tied to the primary name's template and
+        // likely doesn't match the fallback template.
+        data = await runCreate(candidate, undefined);
+      } else {
+        throw err;
+      }
+    } else {
+      throw err;
+    }
+  }
+
   const doc = (data as any)?.createDocument?.createdDocument;
   if (!doc?.id) throw new Error('Document creation failed: ' + JSON.stringify(data));
   return doc as { id: string; name: string; number: string; status: string; type: string };
@@ -3677,7 +3737,10 @@ export async function createDraftBillableInvoice(jobId: string): Promise<{
         documents: {
           $: pageParams,
           nextPage: {},
-          nodes: { id: {}, name: {}, type: {}, status: {}, number: {} },
+          // `subject` pulled so same-day "Billable CO MM/DD/YY" detection works
+          // — starting 2026-04-21, the billable-items flow stores its date
+          // stamp in subject (name is the JT template name like "Change Order").
+          nodes: { id: {}, name: {}, subject: {}, type: {}, status: {}, number: {} },
         },
       },
     });
@@ -3871,31 +3934,45 @@ export async function createDraftBillableInvoice(jobId: string): Promise<{
   }
 
   // 8. Create the Change Order (customerOrder) shell with BKB company info.
-  //    Name uses today's date (MM/DD/YY) instead of a running count — counts
-  //    became inconsistent if a CO was deleted and recreated (the "next"
-  //    number could repeat). Date is an intrinsic property, immune to churn.
-  //    If another billable CO was already created today (rare), append a
-  //    numeric suffix so names stay unique.
+  //    PAVE requires `name` to match a document template name configured in
+  //    the job's template set (e.g., "Change Order" or, on Design-Build jobs,
+  //    "Change Order (Cost-Plus)"). `createJTDocument` will fall back to an
+  //    allowed CO-like template name if the primary is rejected.
+  //
+  //    The human-readable "Billable CO MM/DD/YY" identifier goes in `subject`
+  //    — that's what CO detection in invoicing-health.ts keys off of to
+  //    distinguish billable-items COs from scope COs. Date stamp is immune
+  //    to deletion/recreation churn (counts could repeat). Same-day suffix
+  //    is added if multiple billable COs are created on the same date.
   const now = new Date();
   const mm = String(now.getMonth() + 1).padStart(2, '0');
   const dd = String(now.getDate()).padStart(2, '0');
   const yy = String(now.getFullYear()).slice(-2);
   const dateStamp = `${mm}/${dd}/${yy}`;
-  const baseCOName = `Billable CO ${dateStamp}`;
+  const baseCOSubject = `Billable CO ${dateStamp}`;
 
+  // Look across existing CO docs on this job — match both legacy docs where
+  // the date stamp lived in `name` and new docs where it lives in `subject`.
   const sameDayCOs = allDocs.filter((d: any) =>
     d.type === 'customerOrder' &&
-    typeof d.name === 'string' &&
-    d.name.startsWith(baseCOName)
+    ((typeof d.name === 'string' && d.name.startsWith(baseCOSubject)) ||
+     (typeof d.subject === 'string' && d.subject.startsWith(baseCOSubject)))
   );
-  const coName = sameDayCOs.length > 0
-    ? `${baseCOName} (${sameDayCOs.length + 1})`
-    : baseCOName;
+  const coSubject = sameDayCOs.length > 0
+    ? `${baseCOSubject} (${sameDayCOs.length + 1})`
+    : baseCOSubject;
 
   const doc = await createJTDocument({
     jobId,
     type: 'customerOrder',
-    name: coName,
+    // Primary: plain "Change Order" template. documentTemplateId 22PKqytScJpC
+    // is BKB's "Change Order" template (from: Terri, due: 5 days).
+    name: 'Change Order',
+    documentTemplateId: '22PKqytScJpC',
+    // If the job's template set doesn't include plain "Change Order" (e.g.,
+    // Design-Build jobs like Bartholomew only expose "Change Order
+    // (Cost-Plus)"), retry with the first allowed name matching /change\s*order/i.
+    fallbackNamePattern: /change\s*order/i,
     fromName: 'Terri (Brett King Builder-Contractor Inc.)',
     toName: customerName,
     toAddress: locationAddress,
@@ -3905,7 +3982,7 @@ export async function createDraftBillableInvoice(jobId: string): Promise<{
     // dueDays required by JT PAVE — must provide either dueDate or dueDays (not both).
     // 14 days gives the customer a reasonable window to review and approve the CO.
     dueDays: 14,
-    subject: `Change Order - ${job.name}`,
+    subject: coSubject,
     description: 'This change order covers additional billable items and labor hours incurred on this project beyond the original contract scope. Once approved in JobTread, convert to an invoice to bill the customer.',
   });
 

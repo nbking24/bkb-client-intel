@@ -525,10 +525,16 @@ async function analyzeContractJob(
   // That inflated approvedCOValue and shrank the reported contract amount.
   // Operators already signal CO docs by name — trust the name.
   //
-  // Match both the long "Change Order" wording and the short "Billable CO"
-  // prefix (the billable-items flow creates docs named
-  // "Billable CO MM/DD/YY").
+  // Match the "Change Order" wording (covers plain "Change Order" and
+  // template variants like "Change Order (Cost-Plus)") OR the short
+  // "Billable CO" prefix used by the billable-items flow. Starting
+  // 2026-04-21, billable-items COs use a JT template name like "Change
+  // Order" in `name` and store "Billable CO MM/DD/YY" in `subject`, so
+  // check both fields. Older docs (pre-2026-04-21) had "Billable CO..."
+  // in `name` — matching `name` OR `subject` covers both eras.
   const CO_NAME_RE = /change\s*order|\bbillable\s+co\b/i;
+  const isCODoc = (d: any) =>
+    CO_NAME_RE.test(d.name || '') || CO_NAME_RE.test(d.subject || '');
   let totalContractValue = 0;
   let approvedCOValue = 0;
   let appliedCOsCount = 0;
@@ -544,7 +550,7 @@ async function analyzeContractJob(
   let unbilledCOAmount = 0;
   for (const d of estimates) {
     const price = d.price || 0;
-    if (CO_NAME_RE.test(d.name || '')) {
+    if (isCODoc(d)) {
       approvedCOValue += price;
       // JT's `balance` on a customerOrder = price minus the sum of linked
       // invoice prices (any status: draft, pending, approved). If balance
