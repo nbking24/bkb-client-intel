@@ -640,19 +640,34 @@ const knowItAll: AgentModule = {
       '=== TOOL USAGE (CRITICAL) ===\n' +
       'You operate under a strict time budget. ALWAYS prefer the SINGLE most efficient tool:\n' +
       (ctx.jtJobId
-        ? '- "list open tasks" → get_job_tasks with jobId (scoped to selected job).\n'
-        : '- "list open tasks" → get_all_open_tasks (ONE call). NEVER loop through jobs.\n') +
+        ? '- "list open tasks" (broad overview) → get_job_tasks with jobId (scoped to selected job).\n'
+        : '- "list open tasks" (broad overview only) → get_all_open_tasks (ONE call). NEVER loop through jobs.\n') +
+      '- User references a SPECIFIC task by name fragment → find_task (NOT get_all_open_tasks). See "SPECIFIC TASK REFERENCE" below.\n' +
       '- "active jobs" → search_jobs (ONE call).\n' +
       '- "tasks for [person]" → get_member_tasks (ONE call).\n' +
-      '- NEVER make more than 2 tool calls for a simple query.\n' +
+      '- NEVER make more than 2 tool calls for a simple query (except the specific-task flow, which may chain find_task → write tool).\n' +
       '- Present results IMMEDIATELY after tool call. No "Let me check..." filler.\n\n' +
+      '=== SPECIFIC TASK REFERENCE (CRITICAL) ===\n' +
+      'If the user names a task by fragment ("the Kontz invoice task", "that task about the permit", "the drywall punch", or quotes a task name) OR uses a pronoun referring to a task just discussed ("it", "that one", "post a comment on it"), treat this as a SPECIFIC-TASK query — do NOT dump the full task list.\n' +
+      'Flow:\n' +
+      '  1. Call find_task with a short fragment (1-3 words) from the user\'s message.\n' +
+      '  2. If 0 matches → tell the user "I don\'t see an open task matching \'X\'." — do not guess.\n' +
+      '  3. If exactly 1 match → state which task you found (name + job + due date) and, for read-only asks, answer directly. Remember its taskId for the rest of the turn.\n' +
+      '  4. If 2+ matches → LIST the matches (name + job + due date, numbered) and ASK which one. This is one of the rare cases where a clarifying question IS the right answer.\n' +
+      'Once a task is resolved, carry its taskId forward across follow-up messages in the same conversation. If the user says "post a comment to Terri on that task" or "push it to Friday", use the taskId you already identified — do NOT search again.\n\n' +
       '=== RESPONSE STYLE (CRITICAL) ===\n' +
-      'For READ queries (lookups, "is there a task...", "show me...", "what is the status of..."), answer the question DIRECTLY. ' +
-      'Do NOT offer multiple options or ask what the user wants to do next. Do NOT ask "Would you like me to..." after a simple lookup. ' +
-      'If a schedule is empty or a task does not exist, just say so clearly. ' +
-      'Only ask clarifying questions if the user\'s intent is genuinely ambiguous (e.g., multiple matching jobs).\n' +
+      'For GENERIC READ queries ("is there a task...", "show me open tasks", "what is the status of..."), answer the question DIRECTLY. Do NOT offer multiple options or ask "Would you like me to..." after a simple lookup. If a schedule is empty or a task does not exist, just say so clearly.\n' +
+      'Clarifying questions ARE appropriate in two situations:\n' +
+      '  (a) The user\'s reference is ambiguous — e.g. find_task returned multiple matches, or multiple jobs match a name fragment. Enumerate the options and ask which one.\n' +
+      '  (b) A write action is about to happen and any field is missing or uncertain (target, recipient, date).\n' +
       'Keep answers concise — 2-4 sentences for simple lookups. No walls of text.\n\n' +
-      'WRITE OPERATIONS: ALWAYS confirm with user before any create/update/delete.\n\n' +
+      '=== WRITE OPERATIONS (CRITICAL) ===\n' +
+      'Before calling ANY write tool (create_comment, update_task, update_task_progress, update_task_full, delete_task, update_job with closedOn, create_daily_log, update_daily_log, delete_daily_log, move_task_to_phase), you MUST:\n' +
+      '  1. Have a confirmed target (taskId / jobId / logId). If uncertain, run find_task or search_jobs first.\n' +
+      '  2. Echo back the exact action in plain English — e.g. "I\'ll post this comment on the Kontz permit task, assigned to Terri: \'Any update from the township?\' — proceed?" — and wait for an affirmative from the user ("yes", "go", "do it", "confirm", "proceed") before calling the tool.\n' +
+      '  3. For close/delete/major-date-change actions, always state explicitly what will change and wait for confirmation.\n' +
+      'NEVER batch a write into the same turn as an ambiguous task lookup. Identify the task first, confirm the action second, execute third.\n' +
+      'Task CREATION has its own stricter flow — see TASK CREATION section below (@@TASK_CONFIRM@@ block is mandatory for NEW tasks).\n\n' +
       'TEAM: Nathan King, Terri Dalavai, David Steich, Evan Harrington, John Molnar, Karen Molnar, Chrissy Zajick\n\n' +
       'BKB 9-PHASE SCHEDULE: 1.Admin 2.Concept 3.Design Development 4.Contract 5.Pre-Construction 6.Production 7.Inspections 8.Punch/Closeout 9.Project Closeout\n\n' +
       '=== SELECTIONS & ORDERING STATUS ===\n' +
@@ -754,13 +769,25 @@ const knowItAll: AgentModule = {
   tools: [
     {
       name: 'get_all_open_tasks',
-      description: 'Get all open (incomplete) tasks across ALL active jobs in JobTread. Returns task name, dates, progress, job name, and assigned team members.',
+      description: 'Dump ALL open (incomplete) tasks across all active jobs. Use ONLY when the user asks for a broad overview ("what is open", "show me all tasks"). Each row includes taskId and jobId so follow-up actions can reference them. Do NOT use this when the user is asking about ONE specific task — use find_task instead.',
       input_schema: { type: 'object', properties: {}, required: [] },
     },
     {
       name: 'get_job_tasks',
-      description: 'Get all tasks for a specific JobTread job. Returns task name, dates, progress, and assignees.',
+      description: 'Get all tasks for a specific JobTread job. Returns taskId, name, dates, and progress for each task.',
       input_schema: { type: 'object', properties: { jobId: { type: 'string', description: 'The JobTread Job ID' } }, required: ['jobId'] },
+    },
+    {
+      name: 'find_task',
+      description: 'Search open tasks by name fragment — the right tool when the user mentions a SPECIFIC task (e.g. "the Kontz invoice task", "that thing about the permit", "the drywall punch"). Returns matching tasks with taskId and jobId. If 2+ matches come back, ASK the user which one before acting. If exactly 1 match, lock onto that taskId for the rest of the conversation. If 0 matches, tell the user plainly.',
+      input_schema: {
+        type: 'object',
+        properties: {
+          fragment: { type: 'string', description: 'Short keyword or phrase from the task name (case-insensitive, all words must appear). Keep it short — 1-3 words is usually enough.' },
+          jobId: { type: 'string', description: 'Optional — limit search to one job. If the dashboard has a job selected, the search is auto-scoped to it even without this.' },
+        },
+        required: ['fragment'],
+      },
     },
     {
       name: 'get_job_schedule',
@@ -1340,18 +1367,20 @@ const knowItAll: AgentModule = {
           if (!tasks || tasks.length === 0) return JSON.stringify({ success: true, count: 0, message: 'No open tasks found for this job.' });
           const lines = tasks.map((t: any) => {
             const status = t.progress >= 1 ? 'DONE' : t.progress > 0 ? 'IN PROGRESS' : 'NOT STARTED';
-            return `- [${status}] "${t.name}" | Due: ${t.endDate || 'No date'} | Start: ${t.startDate || 'No date'}`;
+            return `- [${status}] taskId=${t.id} | "${t.name}" | Due: ${t.endDate || 'No date'} | Start: ${t.startDate || 'No date'}`;
           });
-          return JSON.stringify({ success: true, count: tasks.length, scopedToJob: true, tasks: lines.join('\n') });
+          return JSON.stringify({ success: true, count: tasks.length, scopedToJob: true, jobId: ctx.jtJobId, tasks: lines.join('\n') });
         }
         const tasks = await getAllOpenTasks();
         if (!tasks || tasks.length === 0) return JSON.stringify({ success: true, count: 0, message: 'No open tasks found.' });
-        // Compact format to reduce token count
+        // Compact format to reduce token count — but ALWAYS include taskId + jobId so
+        // follow-up actions (create_comment, update_task, etc.) have a handle to work with.
         const lines = tasks.map((t: any) => {
           const pct = Math.round((t.progress || 0) * 100);
           const assigned = t.assignedMemberships?.nodes?.map((m: any) => m.user?.name || '?').join('/') || '-';
           const job = t.job?.name || '-';
-          return `${t.name} | ${job} | ${assigned} | ${pct}% | ${t.endDate || '-'}`;
+          const jobId = t.job?.id || '-';
+          return `taskId=${t.id} | jobId=${jobId} | "${t.name}" | ${job} | ${assigned} | ${pct}% | Due: ${t.endDate || '-'}`;
         });
         return JSON.stringify({ count: tasks.length, tasks: lines.join('\n') });
       }
@@ -1361,9 +1390,40 @@ const knowItAll: AgentModule = {
         if (!tasks || tasks.length === 0) return JSON.stringify({ success: true, count: 0, message: 'No tasks found.' });
         const lines = tasks.map((t: any) => {
           const status = t.progress >= 1 ? 'DONE' : t.progress > 0 ? 'IN PROGRESS' : 'NOT STARTED';
-          return `- [${status}] "${t.name}" | Due: ${t.endDate || 'No date'} | Start: ${t.startDate || 'No date'}`;
+          return `- [${status}] taskId=${t.id} | "${t.name}" | Due: ${t.endDate || 'No date'} | Start: ${t.startDate || 'No date'}`;
         });
-        return JSON.stringify({ success: true, count: tasks.length, tasks: lines.join('\n') });
+        return JSON.stringify({ success: true, count: tasks.length, jobId: input.jobId, tasks: lines.join('\n') });
+      }
+
+      if (name === 'find_task') {
+        // Fuzzy-match open tasks by name fragment. Scoped to a job if provided or
+        // if a job is currently selected in the dashboard.
+        const fragment = String(input.fragment || '').trim().toLowerCase();
+        if (!fragment) return JSON.stringify({ success: false, error: 'fragment is required' });
+        const scopeJobId = input.jobId || ctx.jtJobId;
+        const rawTasks: any[] = scopeJobId
+          ? await getTasksForJob(scopeJobId)
+          : await getAllOpenTasks();
+        if (!rawTasks || rawTasks.length === 0) {
+          return JSON.stringify({ success: true, count: 0, message: 'No open tasks to search.' });
+        }
+        // Tokenize fragment and require ALL tokens to appear in task name (order-independent).
+        const tokens = fragment.split(/\s+/).filter(Boolean);
+        const matches = rawTasks.filter((t: any) => {
+          const n = String(t.name || '').toLowerCase();
+          return tokens.every(tok => n.includes(tok));
+        });
+        if (matches.length === 0) {
+          return JSON.stringify({ success: true, count: 0, fragment, message: `No open tasks match "${input.fragment}".` });
+        }
+        const lines = matches.map((t: any) => {
+          const pct = Math.round((t.progress || 0) * 100);
+          const assigned = t.assignedMemberships?.nodes?.map((m: any) => m.user?.name || '?').join('/') || '-';
+          const job = t.job?.name || '-';
+          const jobId = t.job?.id || scopeJobId || '-';
+          return `taskId=${t.id} | jobId=${jobId} | "${t.name}" | ${job} | ${assigned} | ${pct}% | Due: ${t.endDate || '-'} | Start: ${t.startDate || '-'}`;
+        });
+        return JSON.stringify({ success: true, count: matches.length, fragment, matches: lines.join('\n') });
       }
 
       if (name === 'get_job_schedule') {
