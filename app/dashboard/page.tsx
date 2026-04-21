@@ -835,6 +835,12 @@ export default function DashboardOverview() {
     activeJobs: number;
     recentReminders: Array<{ jobName: string; tier: string; date: string }>;
   } | null>(null);
+  // Bill-review queue (surfaced as a banner above the KPI grid)
+  const [billReviewStats, setBillReviewStats] = useState<{
+    pendingTotal: number;
+    pendingByType: { uncategorized: number; miscategorized: number; budget_gap: number };
+  } | null>(null);
+
   // Task search and creation
   const [taskSearch, setTaskSearch] = useState('');
   const [newTaskForm, setNewTaskForm] = useState<{ jobId: string; jobName: string } | null>(null);
@@ -1518,6 +1524,13 @@ export default function DashboardOverview() {
     if (auth.userId) {
       fetchOverview();
       fetch('/api/dashboard/invoicing/ar-stats').then(r => r.ok ? r.json() : null).then(d => { if (d) setArStats(d); }).catch(() => {});
+      // Bill-review queue stats for the banner (cheap — just counts)
+      fetch('/api/dashboard/bill-review?limit=0&includeStats=1', {
+        headers: { Authorization: `Bearer ${getToken()}` },
+      })
+        .then(r => r.ok ? r.json() : null)
+        .then(d => { if (d?.stats) setBillReviewStats({ pendingTotal: d.stats.pendingTotal, pendingByType: d.stats.pendingByType }); })
+        .catch(() => {});
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [auth.userId]);
@@ -2051,6 +2064,50 @@ export default function DashboardOverview() {
               </div>
         );
       })()}
+
+      {/* BILL REVIEW BANNER — flagged vendor-bill lines from the nightly 4am scan */}
+      {billReviewStats && billReviewStats.pendingTotal > 0 && (
+        <a
+          href="/dashboard/bill-review"
+          style={{
+            display: 'flex',
+            alignItems: 'center',
+            gap: 10,
+            padding: '8px 12px',
+            marginBottom: isTouch ? 10 : 6,
+            background: '#fef3c7',
+            border: '1px solid rgba(200,140,0,0.25)',
+            borderRadius: 8,
+            textDecoration: 'none',
+            color: 'inherit',
+          }}
+        >
+          <Receipt size={14} style={{ color: '#c88c00', flexShrink: 0 }} />
+          <div style={{ flex: 1, minWidth: 0 }}>
+            <div style={{ fontSize: 13, fontWeight: 600, color: '#1a1a1a' }}>
+              {billReviewStats.pendingTotal} bill line{billReviewStats.pendingTotal === 1 ? '' : 's'} need review
+            </div>
+            <div style={{ fontSize: 11, color: '#5a5550', marginTop: 1 }}>
+              {billReviewStats.pendingByType.uncategorized > 0 && (
+                <>{billReviewStats.pendingByType.uncategorized} uncategorized</>
+              )}
+              {billReviewStats.pendingByType.miscategorized > 0 && (
+                <>{billReviewStats.pendingByType.uncategorized > 0 ? ' · ' : ''}
+                  {billReviewStats.pendingByType.miscategorized} possibly miscategorized
+                </>
+              )}
+              {billReviewStats.pendingByType.budget_gap > 0 && (
+                <>{(billReviewStats.pendingByType.uncategorized + billReviewStats.pendingByType.miscategorized) > 0 ? ' · ' : ''}
+                  {billReviewStats.pendingByType.budget_gap} budget gap{billReviewStats.pendingByType.budget_gap === 1 ? '' : 's'}
+                </>
+              )}
+            </div>
+          </div>
+          <span style={{ fontSize: 11, color: '#c88c00', fontWeight: 600, letterSpacing: '0.04em' }}>
+            REVIEW →
+          </span>
+        </a>
+      )}
 
       {/* KPI GRID — Terri-specific: Active Jobs, Unread Emails, Due Today, Overdue, Pending COs, Outstanding Invoices */}
       <div style={{ display: 'grid', gridTemplateColumns: isMobile ? 'repeat(3, 1fr)' : 'repeat(6, 1fr)', gap: isTouch ? 6 : 4, marginBottom: isTouch ? 10 : 6 }}>

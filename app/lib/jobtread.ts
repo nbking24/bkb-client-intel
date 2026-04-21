@@ -5023,3 +5023,261 @@ export async function getJobActivitySummary(jobId: string): Promise<JobActivityS
 
   return { lastActivity, nextTask, hasUpcomingTasks, daysSinceActivity };
 }
+
+// ============================================================
+// BILL CATEGORIZATION SCANNER
+//
+// Support for the daily bill-categorization agent (4am cron).
+// Helpers to:
+//   - pull every vendor bill line on a job with vendor + budget
+//     link info in one shot
+//   - pull the job's approved budget items (the valid targets)
+//   - update a bill line's budget link + cost code when Nathan
+//     approves a match from the review card
+//
+// The line shape is deliberately flat so the matcher module can
+// stay dumb about PAVE query shapes.
+// ============================================================
+
+export interface JobBillLine {
+  /** JT cost item id on the vendor bill */
+  costItemId: string;
+  lineName: string | null;
+  lineDescription: string | null;
+  cost: number;
+  quantity: number;
+
+  /** Cost code that was stamped on the line itself */
+  lineCostCodeId: string | null;
+  lineCostCodeNumber: string | null;
+  lineCostCodeName: string | null;
+
+  /** Budget bucket the line is linked to (null = orphan / uncategorized) */
+  jobCostItemId: string | null;
+  budgetCostCodeId: string | null;
+  budgetCostCodeNumber: string | null;
+  budgetCostCodeName: string | null;
+  budgetItemName: string | null;
+
+  /** Document (vendor bill) context */
+  documentId: string;
+  documentNumber: string | null;
+  documentName: string | null;
+  documentStatus: string | null;
+  documentIssueDate: string | null;
+
+  /** Vendor context (from the issuing organization) */
+  vendorAccountId: string | null;
+  vendorName: string | null;
+}
+
+/**
+ * Return every line on every vendor bill for a job, flat, with vendor
+ * and budget-link info attached.
+ *
+ * Uses a small page size (10 documents per page) because each document
+ * expansion can balloon quickly and 413s are the common failure mode.
+ */
+export async function getJobBillLines(jobId: string): Promise<JobBillLine[]> {
+  const PAGE_SIZE = 10;
+  const out: JobBillLine[] = [];
+  let nextPage: string | null = null;
+
+  for (let page = 0; page < 30; page++) {
+    const pageParams: Record<string, unknown> = {
+      size: PAGE_SIZE,
+      where: ['type', '=', 'vendorBill'],
+    };
+    if (nextPage) pageParams.page = nextPage;
+
+    const data = await pave({
+      job: {
+        $: { id: jobId },
+        documents: {
+          $: pageParams,
+          nextPage: {},
+          nodes: {
+            id: {},
+            number: {},
+            name: {},
+            status: {},
+            issueDate: {},
+            // Vendor is the "issuer" account on the bill
+            issuer: {
+              account: { id: {}, name: {} },
+            },
+            costItems: {
+              $: { size: 50 },
+              nodes: {
+                id: {},
+                name: {},
+                description: {},
+                quantity: {},
+                cost: {},
+                costCode: { id: {}, number: {}, name: {} },
+                jobCostItem: {
+                  id: {},
+                  name: {},
+                  costCode: { id: {}, number: {}, name: {} },
+                },
+              },
+            },
+          },
+        },
+      },
+    });
+
+    const docsPage = (data as any)?.job?.documents;
+    const docs = docsPage?.nodes || [];
+
+    for (const doc of docs) {
+      // Skip denied / voided bills — they shouldn't drive review queue noise
+      if (doc.status === 'denied') continue;
+
+      const vendorAcct = doc?.issuer?.account || null;
+      const items = doc?.costItems?.nodes || [];
+
+      for (const item of items) {
+        out.push({
+          costItemId: item.id,
+          lineName: item.name || null,
+          lineDescription: item.description || null,
+          cost: Number(item.cost) || 0,
+          quantity: Number(item.quantity) || 0,
+          lineCostCodeId: item.costCode?.id || null,
+          lineCostCodeNumber: item.costCode?.number || null,
+          lineCostCodeName: item.costCode?.name || null,
+          jobCostItemId: item.jobCostItem?.id || null,
+          budgetCostCodeId: item.jobCostItem?.costCode?.id || null,
+          budgetCostCodeNumber: item.jobCostItem?.costCode?.number || null,
+          budgetCostCodeName: item.jobCostItem?.costCode?.name || null,
+          budgetItemName: item.jobCostItem?.name || null,
+          documentId: doc.id,
+          documentNumber: doc.number != null ? String(doc.number) : null,
+          documentName: doc.name || null,
+          documentStatus: doc.status || null,
+          documentIssueDate: doc.issueDate || null,
+          vendorAccountId: vendorAcct?.id || null,
+          vendorName: vendorAcct?.name || null,
+        });
+      }
+    }
+
+    nextPage = docsPage?.nextPage || null;
+    if (!nextPage || docs.length < PAGE_SIZE) break;
+  }
+
+  return out;
+}
+
+export interface JobBudgetItem {
+  id: string;                        // jobCostItem id (target for bill links)
+  name: string | null;
+  description: string | null;
+  costCodeId: string | null;
+  costCodeNumber: string | null;     // "1002", "1902", etc
+  costCodeName: string | null;
+  costTypeName: string | null;
+  cost: number;                      // approved budget amount
+  isSpecification: boolean | null;
+}
+
+/**
+ * Return the approved budget items for a job. These are job-level cost
+ * items where `document` is null (as opposed to document-level items
+ * that live on bills or invoices). They are the valid targets for
+ * linking a bill line.
+ */
+export async function getJobBudgetItems(jobId: string): Promise<JobBudgetItem[]> {
+  const PAGE_SIZE = 50;
+  const out: JobBudgetItem[] = [];
+  let nextPage: string | null = null;
+
+  for (let page = 0; page < 20; page++) {
+    const pageParams: Record<string, unknown> = { size: PAGE_SIZE };
+    if (nextPage) pageParams.page = nextPage;
+
+    const data = await pave({
+      job: {
+        $: { id: jobId },
+        costItems: {
+          $: pageParams,
+          nextPage: {},
+          nodes: {
+            id: {},
+            name: {},
+            description: {},
+            cost: {},
+            isSpecification: {},
+            costCode: { id: {}, number: {}, name: {} },
+            costType: { id: {}, name: {} },
+            document: { id: {} },
+          },
+        },
+      },
+    });
+
+    const costItemPage = (data as any)?.job?.costItems;
+    const nodes = costItemPage?.nodes || [];
+
+    for (const node of nodes) {
+      // Only job-level (budget) items — skip any that are doc-scoped.
+      if (node.document && node.document.id) continue;
+      out.push({
+        id: node.id,
+        name: node.name || null,
+        description: node.description || null,
+        costCodeId: node.costCode?.id || null,
+        costCodeNumber: node.costCode?.number || null,
+        costCodeName: node.costCode?.name || null,
+        costTypeName: node.costType?.name || null,
+        cost: Number(node.cost) || 0,
+        isSpecification: node.isSpecification ?? null,
+      });
+    }
+
+    nextPage = costItemPage?.nextPage || null;
+    if (!nextPage || nodes.length < PAGE_SIZE) break;
+  }
+
+  return out;
+}
+
+/**
+ * Update a document cost item (typically a vendor-bill line) to point
+ * at a different budget bucket and/or cost code. Used by the review
+ * API when Nathan approves a suggestion.
+ *
+ * Fields are all optional — pass only what you want to change.
+ */
+export async function updateDocumentCostItem(
+  costItemId: string,
+  fields: {
+    jobCostItemId?: string | null;
+    costCodeId?: string | null;
+    name?: string;
+    description?: string;
+  }
+): Promise<{ id: string; name: string | null }> {
+  const params: Record<string, unknown> = { id: costItemId };
+  if (fields.jobCostItemId !== undefined) params.jobCostItemId = fields.jobCostItemId;
+  if (fields.costCodeId !== undefined) params.costCodeId = fields.costCodeId;
+  if (fields.name !== undefined) params.name = fields.name;
+  if (fields.description !== undefined) params.description = fields.description;
+
+  const data = await pave({
+    updateCostItem: {
+      $: params,
+      updatedCostItem: {
+        id: {},
+        name: {},
+      },
+    },
+  });
+
+  const updated = (data as any)?.updateCostItem?.updatedCostItem;
+  if (!updated?.id) {
+    throw new Error('updateCostItem failed: ' + JSON.stringify(data));
+  }
+  return { id: updated.id, name: updated.name || null };
+}
