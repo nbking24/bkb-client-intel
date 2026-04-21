@@ -283,13 +283,17 @@ export async function getOpenTasksForMemberAcrossJobs(
   // Pass 1: Scan active jobs for task IDs assigned to this member (lightweight per-job query)
   const matchedTaskIds: string[] = [];
 
-  // Waiting On tasks follow the naming convention "\u23F3 <FirstName>: ..." where
-  // <FirstName> is the person being waited on. Historical tasks do not always
-  // include that person in assignedMemberships, so when firstName is passed we
-  // also match any tasks whose name addresses this user.
-  const woPrefixes = firstName
-    ? [`\u23F3 ${firstName}:`.toLowerCase(), `\u00e2\u008f\u00b3 ${firstName}:`.toLowerCase()]
-    : [];
+  // Membership-only match. A previous revision also included tasks whose
+  // name started with "⏳ <FirstName>:" as a backwards-compat fallback for
+  // old Waiting On tasks that didn't have the assignee in
+  // assignedMemberships. The /api/dashboard/waiting-on POST flow now
+  // always adds both creator and assignee to the task's memberships, so
+  // the fallback is no longer needed — and it produced false positives
+  // whenever someone manually created or renamed a JT task to use the
+  // "⏳ <FirstName>:" prefix without also assigning that person.
+  // Any legitimate older task that stops appearing after this change
+  // can be fixed by adding the right person to its assignees in JT.
+  void firstName; // kept in signature for callers; no longer used
 
   // Batch jobs to reduce total API calls â query 5 jobs at a time in parallel
   const BATCH_SIZE = 5;
@@ -320,10 +324,7 @@ export async function getOpenTasksForMemberAcrossJobs(
           const isAssigned = t.assignedMemberships?.nodes?.some(
             (m: any) => m.id === membershipId
           );
-          const nameLower = typeof t.name === 'string' ? t.name.toLowerCase() : '';
-          const isWaitingOnUser =
-            woPrefixes.length > 0 && woPrefixes.some((p) => nameLower.startsWith(p));
-          if (isAssigned || isWaitingOnUser) {
+          if (isAssigned) {
             matchedTaskIds.push(t.id);
           }
         }
