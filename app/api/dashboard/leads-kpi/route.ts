@@ -254,8 +254,9 @@ export async function GET() {
       }));
 
     // ── Pending Leads (open leads in early pipeline stages needing action) ──
-    // Includes Estimating so users can schedule design review meetings from Post-Call Actions
-    const PENDING_STAGES = ['New Inquiry', 'Initial Call Scheduled', 'Discovery Scheduled', 'No Show', 'Estimating'];
+    // Excludes 'Estimating' because those leads live in the Estimating Tracker
+    // column, so we don't show them as duplicates across both columns.
+    const PENDING_STAGES = ['New Inquiry', 'Initial Call Scheduled', 'Discovery Scheduled', 'No Show'];
     const PENDING_STAGE_IDS = new Set(
       Object.entries(STAGES)
         .filter(([, name]) => PENDING_STAGES.includes(name))
