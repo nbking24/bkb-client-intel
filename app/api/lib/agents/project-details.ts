@@ -552,16 +552,28 @@ const projectDetails: AgentModule = {
         // Step 2c: Also fetch cost items directly from approved customer orders.
         // This catches Change Order items whose budget-level items don't have a document reference.
         // IMPORTANT: Document-level items include `isSelected` which identifies unselected options.
-        // In JobTread, documents can have options (alternative selections) — only selected ones should appear.
+        // In JobTread, documents can have options (alternative selections) at either the
+        // ITEM level (item.isSelected === false) OR the GROUP level (item.costGroup.isSelected === false).
+        // Only items that are selected AND whose cost group is selected should appear.
         const docItemPromises = approvedCustomerOrderIds.map(docId => getDocumentCostItemsLightById(docId));
         const docItemArrays = await Promise.all(docItemPromises);
+
+        // An item is "unselected" if either the item itself OR its cost group is unselected.
+        // Example: Marrero kitchen had optional upper cabinets as a cost group with
+        // isSelected=false; the items inside that group may not each have isSelected=false,
+        // so group-level check is required to exclude them.
+        const isItemUnselected = (item: any): boolean => {
+          if (item?.isSelected === false) return true;
+          if (item?.costGroup?.isSelected === false) return true;
+          return false;
+        };
 
         // Build a set of unselected item IDs from document queries.
         // These are items belonging to document options the client did NOT select.
         const unselectedItemIds = new Set<string>();
         for (const items of docItemArrays) {
           for (const item of items) {
-            if (item.isSelected === false) {
+            if (isItemUnselected(item)) {
               unselectedItemIds.add(item.id);
             }
           }
@@ -576,8 +588,8 @@ const projectDetails: AgentModule = {
         const docLevelItems: any[] = [];
         for (const items of docItemArrays) {
           for (const item of items) {
-            // Skip unselected options
-            if (item.isSelected === false) continue;
+            // Skip unselected options (item-level OR group-level)
+            if (isItemUnselected(item)) continue;
             // Skip if we already have this item from the budget query
             if (!seenIds.has(item.id)) {
               seenIds.add(item.id);
