@@ -761,10 +761,10 @@ export default function EstimatePage() {
   const canStartEstimate = selectedJob && !anyFileExtracting && (scopeText.trim() || uploadedFiles.length > 0);
 
   return (
-    <div className="flex h-[calc(100vh-3.5rem)]">
+    <div className="flex flex-col md:flex-row md:h-[calc(100vh-3.5rem)]">
       {/* ── LEFT PANEL: Config & Scope Input ── */}
       <div
-        className="w-80 flex-shrink-0 flex flex-col border-r overflow-y-auto"
+        className="w-full md:w-80 md:flex-shrink-0 flex flex-col border-b md:border-b-0 md:border-r md:overflow-y-auto"
         style={{ background: DARK_BG, borderColor: 'rgba(200,140,0,0.12)' }}
       >
         <div className="p-4 space-y-4">
@@ -1055,7 +1055,7 @@ export default function EstimatePage() {
       </div>
 
       {/* ── CENTER PANEL: Chat ── */}
-      <div className="flex-1 flex flex-col min-w-0">
+      <div className="flex-1 flex flex-col min-w-0 min-h-[70vh] md:min-h-0">
         {/* Messages */}
         <div className="flex-1 overflow-y-auto p-4 space-y-4">
           {!hasStarted && (
@@ -1157,7 +1157,7 @@ export default function EstimatePage() {
 
       {/* ── RIGHT PANEL: Budget Preview ── */}
       <div
-        className="w-80 flex-shrink-0 flex flex-col border-l overflow-y-auto"
+        className="w-full md:w-80 md:flex-shrink-0 flex flex-col border-t md:border-t-0 md:border-l md:overflow-y-auto"
         style={{ background: DARK_BG, borderColor: 'rgba(200,140,0,0.12)' }}
       >
         <div className="p-3 border-b" style={{ borderColor: 'rgba(200,140,0,0.08)' }}>
