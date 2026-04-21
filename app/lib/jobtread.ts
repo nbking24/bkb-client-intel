@@ -3052,7 +3052,9 @@ async function createJTDocument(params: {
     // template sets (e.g., Design-Build vs standard) expose different sets
     // of customerOrder names — we can't hardcode.
     const msg = String(err?.message || '');
+    console.log(`[createJTDocument v2] Primary create failed for job ${jobId}, name='${name}'. Error: ${msg}`);
     const match = msg.match(/Name must be one of\s+([^$]+?)(?:\s*$)/i);
+    console.log(`[createJTDocument v2] Has fallback? ${!!fallbackNamePattern}. Regex match? ${!!match}`);
     if (fallbackNamePattern && match) {
       // Split by comma; strip whitespace. Names themselves may contain
       // parens/underscores (e.g., "Pricing Review _ Selections") but not
@@ -3065,19 +3067,25 @@ async function createJTDocument(params: {
       const seen = new Set<string>();
       const unique = allowed.filter((n) => (seen.has(n) ? false : (seen.add(n), true)));
       const candidate = unique.find((n) => fallbackNamePattern.test(n));
+      console.log(`[createJTDocument v2] Allowed: ${unique.join(' | ')} | Candidate: ${candidate}`);
       if (candidate) {
         console.log(
-          `[createJTDocument] Primary name '${name}' rejected for job ${jobId}; ` +
+          `[createJTDocument v2] Primary name '${name}' rejected for job ${jobId}; ` +
           `falling back to '${candidate}' (from allowed: ${unique.join(' | ')})`
         );
         // Drop templateId: it was tied to the primary name's template and
         // likely doesn't match the fallback template.
-        data = await runCreate(candidate, undefined);
+        try {
+          data = await runCreate(candidate, undefined);
+        } catch (retryErr: any) {
+          const retryMsg = String(retryErr?.message || '');
+          throw new Error(`[fallback-v2 retry failed] Tried '${candidate}'. Original: ${msg} // Retry: ${retryMsg}`);
+        }
       } else {
-        throw err;
+        throw new Error(`[fallback-v2 no-candidate] Allowed names did not match pattern ${fallbackNamePattern}. Original: ${msg}`);
       }
     } else {
-      throw err;
+      throw new Error(`[fallback-v2 skipped] hasFallback=${!!fallbackNamePattern} matched=${!!match}. Original: ${msg}`);
     }
   }
 
