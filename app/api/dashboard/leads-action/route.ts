@@ -18,6 +18,8 @@
  *     notes?: string,
  *     appointmentDate?: string,   // required for schedule_meeting (YYYY-MM-DD)
  *     appointmentTime?: string,   // required for schedule_meeting (HH:MM)
+ *     reason?: string,            // for move_to_nurture: why the lead did not move forward
+ *     jtJobId?: string,           // for move_to_nurture: JT job to close + comment on
  *   }
  */
 
@@ -30,11 +32,12 @@ import {
   GHL_CALENDARS,
 } from '@/app/lib/ghl';
 import { createProjectEvent } from '@/app/lib/project-memory';
+import { updateJob, createComment } from '@/app/lib/jobtread';
 
 export async function POST(req: NextRequest) {
   try {
     const body = await req.json();
-    const { action, opportunityId, contactId, contactName, notes, appointmentDate, appointmentTime } = body;
+    const { action, opportunityId, contactId, contactName, notes, appointmentDate, appointmentTime, reason, jtJobId } = body;
 
     if (!opportunityId || !contactId) {
       return NextResponse.json({ error: 'opportunityId and contactId are required' }, { status: 400 });
@@ -43,12 +46,24 @@ export async function POST(req: NextRequest) {
     const results: Record<string, any> = { success: true, action };
 
     // ── Save call notes (shared across all actions) ──
-    if (notes && notes.trim()) {
-      const trimmedNotes = notes.trim();
+    // For move_to_nurture, we build a composite body so the reason is always persisted
+    // to GHL notes + Project Memory even when the user didn't type free-form notes.
+    const trimmedNotes = (notes || '').trim();
+    const trimmedReason = (reason || '').trim();
+    const hasNoteworthyContent = !!trimmedNotes || (action === 'move_to_nurture' && !!trimmedReason);
+
+    if (hasNoteworthyContent) {
+      const ghlNoteBody = action === 'move_to_nurture'
+        ? [
+            'Moved to Nurture',
+            trimmedReason ? `Reason: ${trimmedReason}` : null,
+            trimmedNotes ? `Notes: ${trimmedNotes}` : null,
+          ].filter(Boolean).join('\n')
+        : `Discovery Call Notes:\n${trimmedNotes}`;
 
       // 1. Save to GHL contact notes
       try {
-        await createContactNote(contactId, `Discovery Call Notes:\n${trimmedNotes}`);
+        await createContactNote(contactId, ghlNoteBody);
         results.notesSaved = true;
       } catch (err: any) {
         console.warn('[leads-action] GHL note creation failed (non-fatal):', err.message);
@@ -57,13 +72,23 @@ export async function POST(req: NextRequest) {
 
       // 2. Save to Project Memory Layer (same as Ask Agent transcripts)
       try {
+        const pmlSummary = action === 'schedule_meeting'
+          ? `Discovery call with ${contactName || 'lead'} — scheduling design meeting`
+          : action === 'move_to_nurture'
+            ? `Lead did not move forward — ${contactName || 'lead'}${trimmedReason ? ` — reason: ${trimmedReason}` : ''}`
+            : `Discovery call with ${contactName || 'lead'}`;
+
         await createProjectEvent({
           channel: 'phone',
-          event_type: 'meeting_held',
-          summary: `Discovery call with ${contactName || 'lead'}${action === 'schedule_meeting' ? ' — scheduling design meeting' : action === 'move_to_nurture' ? ' — moved to nurture' : ''}`,
-          detail: trimmedNotes,
+          event_type: action === 'move_to_nurture' ? 'decision_made' : 'meeting_held',
+          summary: pmlSummary,
+          detail: trimmedNotes || null,
           participants: contactName ? ['Nathan', contactName] : ['Nathan'],
-          source_ref: { ghl_opportunity_id: opportunityId, ghl_contact_id: contactId },
+          source_ref: {
+            ghl_opportunity_id: opportunityId,
+            ghl_contact_id: contactId,
+            ...(action === 'move_to_nurture' ? { nurture_reason: trimmedReason || null, jt_job_id: jtJobId || null } : {}),
+          },
           event_date: new Date().toISOString().split('T')[0],
         });
         results.projectEventSaved = true;
@@ -116,6 +141,11 @@ export async function POST(req: NextRequest) {
 
     // ── Action: Move to Nurture ──
     if (action === 'move_to_nurture') {
+      // Reason is required so we can track why leads don't move forward
+      if (!trimmedReason) {
+        return NextResponse.json({ error: 'A reason is required when moving a lead to Nurture' }, { status: 400 });
+      }
+
       try {
         await moveOpportunityStage({
           opportunityId,
@@ -126,6 +156,39 @@ export async function POST(req: NextRequest) {
       } catch (err: any) {
         console.error('[leads-action] Move to nurture failed:', err.message);
         return NextResponse.json({ error: 'Failed to move to nurture: ' + err.message }, { status: 500 });
+      }
+
+      // If a JT job was linked, close it and drop a comment capturing the reason.
+      // Both operations are non-fatal so a JT hiccup doesn't block the GHL move.
+      if (jtJobId) {
+        const today = new Date().toISOString().split('T')[0]; // YYYY-MM-DD
+
+        try {
+          await updateJob(jtJobId, { closedOn: today });
+          results.jtJobClosed = true;
+        } catch (err: any) {
+          console.warn('[leads-action] JT job close failed (non-fatal):', err.message);
+          results.jtJobClosed = false;
+          results.jtJobCloseError = err.message;
+        }
+
+        try {
+          const commentBody = [
+            `Job closed — lead moved to Nurture`,
+            `Reason: ${trimmedReason}`,
+            trimmedNotes ? `Notes: ${trimmedNotes}` : null,
+          ].filter(Boolean).join('\n');
+          await createComment({
+            targetId: jtJobId,
+            targetType: 'job',
+            message: commentBody,
+            name: 'BKB Client Hub',
+          });
+          results.jtCommentAdded = true;
+        } catch (err: any) {
+          console.warn('[leads-action] JT comment creation failed (non-fatal):', err.message);
+          results.jtCommentAdded = false;
+        }
       }
 
       return NextResponse.json(results);

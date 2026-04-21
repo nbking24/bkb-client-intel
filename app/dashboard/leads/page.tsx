@@ -7,7 +7,7 @@ import {
   Calendar, Clock, Loader2, CheckCircle2, AlertCircle, ChevronDown, ChevronRight,
   TrendingUp, Target, PhoneCall, BarChart3, Users, ArrowRight, RefreshCw,
   Shield, Eye, Trash2, AlertTriangle, ExternalLink, MessageSquare, ClipboardList,
-  HardHat, FileCheck, X, Ban,
+  HardHat, FileCheck, X, Ban, Heart,
 } from 'lucide-react';
 import LeadActionPanel from './LeadActionPanel';
 import LeadDetailModal from './LeadDetailModal';
@@ -478,6 +478,77 @@ export default function LeadsPage() {
   const [estimatingJobs, setEstimatingJobs] = useState<EstimatingJob[]>([]);
   const [estimatingLoading, setEstimatingLoading] = useState(true);
   const [estimatingExpanded, setEstimatingExpanded] = useState(true);
+
+  // Nurture-from-Estimating inline panel state
+  // Tracks which row has the panel open + form state for that row
+  const [nurtureOpen, setNurtureOpen] = useState<string | null>(null); // opportunityId currently editing
+  const [nurtureReason, setNurtureReason] = useState<string>('');
+  const [nurtureReasonOther, setNurtureReasonOther] = useState<string>('');
+  const [nurtureNotes, setNurtureNotes] = useState<string>('');
+  const [nurtureSaving, setNurtureSaving] = useState<string | null>(null); // opportunityId being saved
+  const [nurtureError, setNurtureError] = useState<string>('');
+
+  const NURTURE_REASONS = [
+    'Budget too high',
+    'Chose another contractor',
+    'Timeline does not work',
+    'Scope changed / project canceled',
+    'Unable to reach / ghosted',
+    'Not ready yet — delayed project',
+    'Other',
+  ];
+
+  const resetNurturePanel = () => {
+    setNurtureOpen(null);
+    setNurtureReason('');
+    setNurtureReasonOther('');
+    setNurtureNotes('');
+    setNurtureError('');
+  };
+
+  const handleMoveToNurture = async (job: EstimatingJob) => {
+    const resolvedReason = nurtureReason === 'Other'
+      ? nurtureReasonOther.trim()
+      : nurtureReason.trim();
+
+    if (!resolvedReason) {
+      setNurtureError('Please select or enter a reason.');
+      return;
+    }
+    if (!job.ghlContactId) {
+      setNurtureError('No GHL contact linked to this opportunity — cannot move stages.');
+      return;
+    }
+
+    setNurtureSaving(job.ghlOpportunityId);
+    setNurtureError('');
+    try {
+      const res = await fetch('/api/dashboard/leads-action', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${getToken()}` },
+        body: JSON.stringify({
+          action: 'move_to_nurture',
+          opportunityId: job.ghlOpportunityId,
+          contactId: job.ghlContactId,
+          contactName: job.contactName || job.ghlName,
+          reason: resolvedReason,
+          notes: nurtureNotes.trim() || undefined,
+          jtJobId: job.jtJobId || undefined,
+        }),
+      });
+      if (!res.ok) {
+        const data = await res.json().catch(() => ({}));
+        throw new Error(data.error || 'Failed to move to Nurture');
+      }
+      resetNurturePanel();
+      await loadEstimatingData();
+      await loadKpis();
+    } catch (err: any) {
+      setNurtureError(err.message || 'Something went wrong');
+    } finally {
+      setNurtureSaving(null);
+    }
+  };
 
   const loadEstimatingData = async () => {
     setEstimatingLoading(true);
@@ -1409,18 +1480,46 @@ export default function LeadsPage() {
                             <AlertTriangle size={8} /> No upcoming tasks
                           </span>
                         )}
-                        {/* JT external link */}
-                        {job.jtJobId && (
-                          <a
-                            href={`https://app.jobtread.com/jobs/${job.jtJobId}`}
-                            target="_blank"
-                            rel="noopener noreferrer"
-                            className="ml-auto flex items-center gap-1 text-[10px] hover:opacity-80 flex-shrink-0"
-                            style={{ color: '#c88c00' }}
-                          >
-                            JT <ExternalLink size={9} />
-                          </a>
-                        )}
+                        {/* Right-aligned actions: Move to Nurture + JT link */}
+                        <div className="ml-auto flex items-center gap-2 flex-shrink-0">
+                          {/* Move to Nurture button — only when we have the GHL IDs to do the move */}
+                          {job.ghlContactId && (
+                            <button
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                if (nurtureOpen === job.ghlOpportunityId) {
+                                  resetNurturePanel();
+                                } else {
+                                  setNurtureOpen(job.ghlOpportunityId);
+                                  setNurtureReason('');
+                                  setNurtureReasonOther('');
+                                  setNurtureNotes('');
+                                  setNurtureError('');
+                                }
+                              }}
+                              className="flex items-center gap-1 text-[10px] px-2 py-0.5 rounded transition-all hover:opacity-80"
+                              style={{
+                                background: nurtureOpen === job.ghlOpportunityId ? 'rgba(167,139,250,0.15)' : 'rgba(167,139,250,0.08)',
+                                color: '#a78bfa',
+                                border: '1px solid rgba(167,139,250,0.25)',
+                              }}
+                              title="Move this lead to Nurture (closes JT job)"
+                            >
+                              <Heart size={9} /> Nurture
+                            </button>
+                          )}
+                          {job.jtJobId && (
+                            <a
+                              href={`https://app.jobtread.com/jobs/${job.jtJobId}`}
+                              target="_blank"
+                              rel="noopener noreferrer"
+                              className="flex items-center gap-1 text-[10px] hover:opacity-80"
+                              style={{ color: '#c88c00' }}
+                            >
+                              JT <ExternalLink size={9} />
+                            </a>
+                          )}
+                        </div>
                       </div>
 
                       {/* Row 2: Contact + Activity + Next Task */}
@@ -1502,6 +1601,105 @@ export default function LeadsPage() {
                           return null;
                         })()}
                       </div>
+
+                      {/* Inline "Move to Nurture" confirmation panel */}
+                      {nurtureOpen === job.ghlOpportunityId && (
+                        <div className="mt-3 rounded-lg p-3" style={{ background: 'rgba(167,139,250,0.05)', border: '1px solid rgba(167,139,250,0.2)' }}>
+                          <div className="flex items-center gap-2 mb-2">
+                            <Heart size={12} style={{ color: '#a78bfa' }} />
+                            <span className="text-xs font-semibold" style={{ color: '#1a1a1a' }}>
+                              Move to Nurture
+                            </span>
+                            <span className="text-[10px]" style={{ color: '#8a8078' }}>
+                              {job.jtJobId ? '· closes the JT job' : ''}
+                            </span>
+                            <button
+                              onClick={() => resetNurturePanel()}
+                              className="ml-auto p-0.5 rounded hover:opacity-70"
+                              style={{ color: '#8a8078' }}
+                            >
+                              <X size={12} />
+                            </button>
+                          </div>
+
+                          {/* Reason (required) */}
+                          <div className="mb-2">
+                            <label className="block text-[10px] font-semibold uppercase tracking-wider mb-1" style={{ color: '#8a8078' }}>
+                              Reason did not move forward <span style={{ color: '#ef4444' }}>*</span>
+                            </label>
+                            <select
+                              value={nurtureReason}
+                              onChange={(e) => { setNurtureReason(e.target.value); setNurtureError(''); }}
+                              className="w-full rounded-md px-2 py-1.5 text-xs outline-none"
+                              style={{ background: '#ffffff', border: '1px solid rgba(200,140,0,0.2)', color: nurtureReason ? '#1a1a1a' : '#8a8078' }}
+                            >
+                              <option value="">Select a reason...</option>
+                              {NURTURE_REASONS.map((r) => (
+                                <option key={r} value={r}>{r}</option>
+                              ))}
+                            </select>
+                            {nurtureReason === 'Other' && (
+                              <input
+                                type="text"
+                                value={nurtureReasonOther}
+                                onChange={(e) => { setNurtureReasonOther(e.target.value); setNurtureError(''); }}
+                                placeholder="Specify reason..."
+                                className="mt-1.5 w-full rounded-md px-2 py-1.5 text-xs outline-none"
+                                style={{ background: '#ffffff', border: '1px solid rgba(200,140,0,0.2)', color: '#1a1a1a' }}
+                              />
+                            )}
+                          </div>
+
+                          {/* Optional notes */}
+                          <div className="mb-2">
+                            <label className="block text-[10px] font-semibold uppercase tracking-wider mb-1" style={{ color: '#8a8078' }}>
+                              Additional notes (optional)
+                            </label>
+                            <textarea
+                              value={nurtureNotes}
+                              onChange={(e) => setNurtureNotes(e.target.value)}
+                              rows={2}
+                              placeholder="Any context that would help when we follow up later..."
+                              className="w-full rounded-md px-2 py-1.5 text-xs outline-none resize-y"
+                              style={{ background: '#ffffff', border: '1px solid rgba(200,140,0,0.2)', color: '#1a1a1a', minHeight: 48 }}
+                            />
+                          </div>
+
+                          {nurtureError && (
+                            <div className="text-[11px] mb-2 flex items-center gap-1" style={{ color: '#ef4444' }}>
+                              <AlertCircle size={10} /> {nurtureError}
+                            </div>
+                          )}
+
+                          {/* Action buttons */}
+                          <div className="flex items-center gap-2 justify-end">
+                            <button
+                              onClick={() => resetNurturePanel()}
+                              disabled={nurtureSaving === job.ghlOpportunityId}
+                              className="text-[11px] px-2.5 py-1 rounded-md hover:opacity-80"
+                              style={{ background: 'transparent', color: '#8a8078' }}
+                            >
+                              Cancel
+                            </button>
+                            <button
+                              onClick={() => handleMoveToNurture(job)}
+                              disabled={nurtureSaving === job.ghlOpportunityId}
+                              className="flex items-center gap-1.5 text-[11px] font-semibold px-3 py-1 rounded-md transition-all"
+                              style={{
+                                background: nurtureSaving === job.ghlOpportunityId ? 'rgba(167,139,250,0.5)' : '#a78bfa',
+                                color: '#ffffff',
+                                cursor: nurtureSaving === job.ghlOpportunityId ? 'wait' : 'pointer',
+                              }}
+                            >
+                              {nurtureSaving === job.ghlOpportunityId ? (
+                                <><Loader2 size={11} className="animate-spin" /> Moving...</>
+                              ) : (
+                                <><Heart size={11} /> Confirm</>
+                              )}
+                            </button>
+                          </div>
+                        </div>
+                      )}
                     </div>
                   );
                 })}
