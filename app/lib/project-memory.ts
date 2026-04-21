@@ -152,6 +152,22 @@ export async function updateProjectEvent(eventId: string, updates: UpdateEventIn
   return data as ProjectEvent;
 }
 
+// ── Delete Event ───────────────────────────────────────────────
+
+export async function deleteProjectEvent(eventId: string): Promise<ProjectEvent> {
+  // Fetch first so we can return what was removed (useful for confirmation messaging)
+  const existing = await getProjectEventById(eventId);
+  if (!existing) throw new Error('Project event not found: ' + eventId);
+
+  const { error } = await getSupabase()
+    .from('project_events')
+    .delete()
+    .eq('id', eventId);
+
+  if (error) throw new Error('Failed to delete project event: ' + error.message);
+  return existing;
+}
+
 // ── Get Project Memory ─────────────────────────────────────────
 
 export interface GetProjectMemoryOptions {

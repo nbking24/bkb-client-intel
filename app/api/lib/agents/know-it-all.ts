@@ -81,6 +81,7 @@ import { getBrandVoicePrompt } from '@/app/lib/bkb-brand-voice';
 import {
   createProjectEvent,
   updateProjectEvent,
+  deleteProjectEvent,
   getProjectMemory,
   getProjectEventById,
   getOpenItems,
@@ -686,7 +687,9 @@ const knowItAll: AgentModule = {
       '- resolve_open_item: Mark an open item as resolved when Nathan says "I got the answer" or "they got back to me".\n' +
       '- search_project_events: Search across all project communications by keyword.\n' +
       '- get_project_intelligence: Get a full intelligence report across all active projects. Shows stalled projects, projects needing attention, health scores. Use for "which projects have gone quiet?", "any stalled projects?", "project health overview".\n' +
-      '- get_project_status: Get a detailed status summary for a single project with health score, communication breakdown, and recent highlights.\n\n' +
+      '- get_project_status: Get a detailed status summary for a single project with health score, communication breakdown, and recent highlights.\n' +
+      '- update_project_event: Update an existing event (summary, date, participants). Use to finalize an auto-saved transcript or correct a mistaken entry.\n' +
+      '- delete_project_event: PERMANENTLY delete a project event (e.g. wrong transcript uploaded, duplicate log, mistakenly logged note). MANDATORY CONFIRMATION FLOW: (1) When Nathan asks to delete a transcript or event, first identify the exact event — use get_project_memory or search_project_events to find it if you don\'t already know the ID. (2) Show Nathan the event you intend to delete (summary, date, channel, job) and ASK FOR EXPLICIT CONFIRMATION (e.g. "Delete this transcript? This is permanent."). (3) ONLY after Nathan confirms ("yes", "delete it", "confirmed", etc.), call delete_project_event with confirmed=true. NEVER call this tool with confirmed=true on the first turn. If multiple events match (e.g. two transcripts on the same job), list them and ask Nathan which one to delete before confirming.\n\n' +
       'LOGGING RULES:\n' +
       '- When Nathan says "I spoke with [person] about [project]" or "I heard back from..." → ALWAYS log it as a project event.\n' +
       '- When Nathan pastes a meeting transcript → Process it: extract summary, key decisions, action items. Log the meeting and decisions as separate events.\n' +
@@ -1219,6 +1222,18 @@ const knowItAll: AgentModule = {
       },
     },
     {
+      name: 'delete_project_event',
+      description: 'Permanently delete a project event from the Project Memory Layer. Use when Nathan asks to delete a transcript, meeting log, note, or other event that was logged incorrectly (e.g. wrong transcript uploaded). ALWAYS confirm with the user before executing — show the event summary, date, and job, then ask for explicit confirmation. Only call this tool AFTER the user has confirmed deletion.',
+      input_schema: {
+        type: 'object',
+        properties: {
+          eventId: { type: 'string', description: 'The project event ID to delete' },
+          confirmed: { type: 'boolean', description: 'Must be true — set only after the user has explicitly confirmed deletion in conversation' },
+        },
+        required: ['eventId', 'confirmed'],
+      },
+    },
+    {
       name: 'get_project_intelligence',
       description: 'Generate a full intelligence report across all active projects. Shows stalled projects, projects needing attention, health scores, open item counts. Use for "which projects have gone quiet?", "any stalled projects?", "project health overview", "what needs attention?"',
       input_schema: {
@@ -1269,6 +1284,7 @@ const knowItAll: AgentModule = {
     // IMPORTANT: These must come BEFORE selections/fixture patterns so PML logging wins over fixture lookups
     if (/(i\s+(?:just\s+)?spoke|i\s+(?:just\s+)?talked|i\s+(?:just\s+)?met|i\s+(?:just\s+)?called|they\s+(?:just\s+)?called|got back to me|heard back|got an answer|they replied|vendor said|supplier said|client said|he said|she said|dave said|brett said|josh said)/i.test(lower)) return 0.95;
     if (/(transcript|meeting notes|here'?s the transcript|meeting with|meeting summary)/i.test(lower)) return 0.95;
+    if (/(delete|remove|wrong|incorrect).*(transcript|meeting log|project event|event log|note|entry)/i.test(lower)) return 0.95;
     if (/(waiting on|pending|follow.?up|open item|what am i waiting|any replies|unresolved|stalled)/i.test(lower)) return 0.9;
     if (/(which projects.*quiet|gone quiet|stalled projects|project health|projects need.*attention|intelligence report|what needs attention)/i.test(lower)) return 0.95;
     if (/(communication|correspondence|what happened|what.?s happening|project status|full story|timeline)/i.test(lower)) return 0.85;
@@ -2154,6 +2170,35 @@ const knowItAll: AgentModule = {
           eventId: updated.id,
           message: 'Event updated: ' + updated.summary,
         });
+      }
+
+      if (name === 'delete_project_event') {
+        if (!input.confirmed) {
+          return JSON.stringify({
+            success: false,
+            requiresConfirmation: true,
+            message: 'Deletion not executed — confirmed flag was not true. Confirm with the user (show the event summary, date, and job), then call this tool again with confirmed=true.',
+          });
+        }
+        try {
+          const deleted = await deleteProjectEvent(input.eventId);
+          return JSON.stringify({
+            success: true,
+            eventId: input.eventId,
+            message:
+              'Event deleted: "' +
+              (deleted.summary || '(no summary)') +
+              '"' +
+              (deleted.job_name ? ' from ' + deleted.job_name : '') +
+              (deleted.event_date ? ' (event date ' + deleted.event_date + ')' : '') +
+              '. This is permanent and cannot be undone from the agent.',
+          });
+        } catch (err: any) {
+          return JSON.stringify({
+            success: false,
+            message: 'Failed to delete event: ' + (err?.message || String(err)),
+          });
+        }
       }
 
       if (name === 'get_event_detail') {
