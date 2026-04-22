@@ -16,9 +16,12 @@
  *     jtJobName?: string,           // optional — for logging
  *   }
  *
- * Security: shared secret in X-Webhook-Secret header (JT_WEBHOOK_SECRET env var).
- *   Falls back to GHL_WEBHOOK_SECRET if JT_WEBHOOK_SECRET is unset (same secret
- *   used by the other GHL→JT webhook in this repo) so we don't need two secrets.
+ * Security: optional shared secret in X-Webhook-Secret header (JT_WEBHOOK_SECRET env var).
+ *   If JT_WEBHOOK_SECRET is not set on Vercel, the endpoint is unauthenticated.
+ *   Action is non-destructive (moves a lead to In Design + writes audit logs)
+ *   so running open during bootstrap is acceptable. Add JT_WEBHOOK_SECRET to
+ *   Vercel env vars to turn on auth — then update the JT workflow's HTTP action
+ *   to send the same value as the X-Webhook-Secret header.
  */
 
 import { NextRequest, NextResponse } from 'next/server';
@@ -36,8 +39,10 @@ import { STATUS_VALUES } from '@/app/lib/constants';
 // Custom field ID on GHL opportunities that stores the JT job id
 const GHL_CF_JT_JOB_ID = 'GjwWvbGyh7CQfGmFir5p';
 
-const WEBHOOK_SECRET =
-  process.env.JT_WEBHOOK_SECRET || process.env.GHL_WEBHOOK_SECRET || '';
+// Intentionally does NOT fall back to GHL_WEBHOOK_SECRET — this endpoint uses
+// its own dedicated secret so the JT workflow can be configured independently.
+// If JT_WEBHOOK_SECRET is not set, the endpoint is unauthenticated.
+const WEBHOOK_SECRET = process.env.JT_WEBHOOK_SECRET || '';
 
 /** Find a GHL opportunity whose "JT Job ID" custom field equals the given JT job id.
  *  Scans Estimating + In Design stages since those are the only places a design-agreement
