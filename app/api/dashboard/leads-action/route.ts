@@ -3,23 +3,24 @@
  * POST /api/dashboard/leads-action
  *
  * Quick post-call actions for the Leads dashboard.
- * Handles two workflows after a discovery call:
+ * Handles workflows after a discovery call:
  *   1. Schedule initial design meeting (on-site visit) + save notes
- *   2. Move to nurture pipeline + save notes
+ *   2. Move to nurture pipeline + save notes (requires reason)
+ *   3. Move to design phase (GHL → In Design, JT Status → '5. Design Phase')
  *
  * Also supports saving call notes independently.
  *
  * Body:
  *   {
- *     action: 'schedule_meeting' | 'move_to_nurture' | 'save_notes',
+ *     action: 'schedule_meeting' | 'move_to_nurture' | 'move_to_design' | 'save_notes',
  *     opportunityId: string,
  *     contactId: string,
  *     contactName?: string,
  *     notes?: string,
  *     appointmentDate?: string,   // required for schedule_meeting (YYYY-MM-DD)
  *     appointmentTime?: string,   // required for schedule_meeting (HH:MM)
- *     reason?: string,            // for move_to_nurture: why the lead did not move forward
- *     jtJobId?: string,           // for move_to_nurture: JT job to close + comment on
+ *     reason?: string,            // required for move_to_nurture
+ *     jtJobId?: string,           // for move_to_nurture + move_to_design: JT job to update
  *   }
  */
 
@@ -32,7 +33,8 @@ import {
   GHL_CALENDARS,
 } from '@/app/lib/ghl';
 import { createProjectEvent } from '@/app/lib/project-memory';
-import { updateJob, createComment } from '@/app/lib/jobtread';
+import { updateJob, createComment, setJobStatus } from '@/app/lib/jobtread';
+import { STATUS_VALUES } from '@/app/lib/constants';
 
 export async function POST(req: NextRequest) {
   try {
@@ -50,7 +52,10 @@ export async function POST(req: NextRequest) {
     // to GHL notes + Project Memory even when the user didn't type free-form notes.
     const trimmedNotes = (notes || '').trim();
     const trimmedReason = (reason || '').trim();
-    const hasNoteworthyContent = !!trimmedNotes || (action === 'move_to_nurture' && !!trimmedReason);
+    const hasNoteworthyContent =
+      !!trimmedNotes ||
+      (action === 'move_to_nurture' && !!trimmedReason) ||
+      action === 'move_to_design';
 
     if (hasNoteworthyContent) {
       const ghlNoteBody = action === 'move_to_nurture'
@@ -59,7 +64,12 @@ export async function POST(req: NextRequest) {
             trimmedReason ? `Reason: ${trimmedReason}` : null,
             trimmedNotes ? `Notes: ${trimmedNotes}` : null,
           ].filter(Boolean).join('\n')
-        : `Discovery Call Notes:\n${trimmedNotes}`;
+        : action === 'move_to_design'
+          ? [
+              'Moved to Design (design agreement signed / approved)',
+              trimmedNotes ? `Notes: ${trimmedNotes}` : null,
+            ].filter(Boolean).join('\n')
+          : `Discovery Call Notes:\n${trimmedNotes}`;
 
       // 1. Save to GHL contact notes
       try {
@@ -76,11 +86,13 @@ export async function POST(req: NextRequest) {
           ? `Discovery call with ${contactName || 'lead'} — scheduling design meeting`
           : action === 'move_to_nurture'
             ? `Lead did not move forward — ${contactName || 'lead'}${trimmedReason ? ` — reason: ${trimmedReason}` : ''}`
-            : `Discovery call with ${contactName || 'lead'}`;
+            : action === 'move_to_design'
+              ? `Lead moved to Design — ${contactName || 'lead'}`
+              : `Discovery call with ${contactName || 'lead'}`;
 
         await createProjectEvent({
           channel: 'phone',
-          event_type: action === 'move_to_nurture' ? 'decision_made' : 'meeting_held',
+          event_type: (action === 'move_to_nurture' || action === 'move_to_design') ? 'decision_made' : 'meeting_held',
           summary: pmlSummary,
           detail: trimmedNotes || null,
           participants: contactName ? ['Nathan', contactName] : ['Nathan'],
@@ -88,6 +100,7 @@ export async function POST(req: NextRequest) {
             ghl_opportunity_id: opportunityId,
             ghl_contact_id: contactId,
             ...(action === 'move_to_nurture' ? { nurture_reason: trimmedReason || null, jt_job_id: jtJobId || null } : {}),
+            ...(action === 'move_to_design' ? { jt_job_id: jtJobId || null } : {}),
           },
           event_date: new Date().toISOString().split('T')[0],
         });
@@ -176,6 +189,57 @@ export async function POST(req: NextRequest) {
           const commentBody = [
             `Job closed — lead moved to Nurture`,
             `Reason: ${trimmedReason}`,
+            trimmedNotes ? `Notes: ${trimmedNotes}` : null,
+          ].filter(Boolean).join('\n');
+          await createComment({
+            targetId: jtJobId,
+            targetType: 'job',
+            message: commentBody,
+            name: 'BKB Client Hub',
+          });
+          results.jtCommentAdded = true;
+        } catch (err: any) {
+          console.warn('[leads-action] JT comment creation failed (non-fatal):', err.message);
+          results.jtCommentAdded = false;
+        }
+      }
+
+      return NextResponse.json(results);
+    }
+
+    // ── Action: Move to Design ──
+    if (action === 'move_to_design') {
+      // 1. Move GHL opportunity to the In Design stage (also triggers any
+      //    configured GHL workflow for IN_DESIGN via STAGE_WORKFLOWS).
+      try {
+        await moveOpportunityStage({
+          opportunityId,
+          contactId,
+          stageId: PIPELINE_STAGES.IN_DESIGN,
+        });
+        results.stageMoved = 'In Design';
+      } catch (err: any) {
+        console.error('[leads-action] Move to design failed:', err.message);
+        return NextResponse.json({ error: 'Failed to move to design: ' + err.message }, { status: 500 });
+      }
+
+      // 2. Update the JT job's Status custom field to '5. Design Phase'
+      //    + drop a comment marking the transition. Both non-fatal.
+      if (jtJobId) {
+        const designStatusValue = STATUS_VALUES.IN_DESIGN[0]; // '5. Design Phase'
+        try {
+          await setJobStatus(jtJobId, designStatusValue);
+          results.jtStatusUpdated = designStatusValue;
+        } catch (err: any) {
+          console.warn('[leads-action] JT Status update failed (non-fatal):', err.message);
+          results.jtStatusUpdated = false;
+          results.jtStatusError = err.message;
+        }
+
+        try {
+          const commentBody = [
+            `Moved to Design Phase`,
+            `JT Status updated → ${designStatusValue}`,
             trimmedNotes ? `Notes: ${trimmedNotes}` : null,
           ].filter(Boolean).join('\n');
           await createComment({

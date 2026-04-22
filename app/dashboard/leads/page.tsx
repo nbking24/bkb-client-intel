@@ -1,7 +1,7 @@
 // @ts-nocheck
 'use client';
 
-import { useState, useRef, useEffect } from 'react';
+import { useState, useRef, useEffect, useMemo } from 'react';
 import {
   UserPlus, Check, Phone, Mail, MapPin, Home, FileText,
   Calendar, Clock, Loader2, CheckCircle2, AlertCircle, ChevronDown, ChevronRight,
@@ -43,6 +43,7 @@ interface PendingLead {
   createdAt: string;
   daysPending: number;
   stage: string;
+  jtJobId?: string | null;   // populated for Estimating (Pending Approval) leads so we can update JT on Design/Nurture
 }
 
 interface SourceItem {
@@ -506,7 +507,16 @@ export default function LeadsPage() {
     setNurtureError('');
   };
 
-  const handleMoveToNurture = async (job: EstimatingJob) => {
+  // Unified row-shape: accepts either an EstimatingJob or a PendingLead row,
+  // extracts the GHL opportunityId/contactId + optional JT job id.
+  type RowForAction = {
+    opportunityId: string;
+    contactId: string | null;
+    contactName: string;
+    jtJobId?: string | null;
+  };
+
+  const handleMoveToNurture = async (row: RowForAction) => {
     const resolvedReason = nurtureReason === 'Other'
       ? nurtureReasonOther.trim()
       : nurtureReason.trim();
@@ -515,12 +525,12 @@ export default function LeadsPage() {
       setNurtureError('Please select or enter a reason.');
       return;
     }
-    if (!job.ghlContactId) {
+    if (!row.contactId) {
       setNurtureError('No GHL contact linked to this opportunity — cannot move stages.');
       return;
     }
 
-    setNurtureSaving(job.ghlOpportunityId);
+    setNurtureSaving(row.opportunityId);
     setNurtureError('');
     try {
       const res = await fetch('/api/dashboard/leads-action', {
@@ -528,12 +538,12 @@ export default function LeadsPage() {
         headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${getToken()}` },
         body: JSON.stringify({
           action: 'move_to_nurture',
-          opportunityId: job.ghlOpportunityId,
-          contactId: job.ghlContactId,
-          contactName: job.contactName || job.ghlName,
+          opportunityId: row.opportunityId,
+          contactId: row.contactId,
+          contactName: row.contactName,
           reason: resolvedReason,
           notes: nurtureNotes.trim() || undefined,
-          jtJobId: job.jtJobId || undefined,
+          jtJobId: row.jtJobId || undefined,
         }),
       });
       if (!res.ok) {
@@ -547,6 +557,53 @@ export default function LeadsPage() {
       setNurtureError(err.message || 'Something went wrong');
     } finally {
       setNurtureSaving(null);
+    }
+  };
+
+  // ── Move to Design — parallel to Move to Nurture ──
+  // Unlike Nurture, no reason is required (success path). Notes are optional.
+  const [designOpen, setDesignOpen] = useState<string | null>(null);      // opportunityId currently confirming
+  const [designNotes, setDesignNotes] = useState<string>('');
+  const [designSaving, setDesignSaving] = useState<string | null>(null);  // opportunityId being saved
+  const [designError, setDesignError] = useState<string>('');
+
+  const resetDesignPanel = () => {
+    setDesignOpen(null);
+    setDesignNotes('');
+    setDesignError('');
+  };
+
+  const handleMoveToDesign = async (row: RowForAction) => {
+    if (!row.contactId) {
+      setDesignError('No GHL contact linked to this opportunity — cannot move stages.');
+      return;
+    }
+    setDesignSaving(row.opportunityId);
+    setDesignError('');
+    try {
+      const res = await fetch('/api/dashboard/leads-action', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${getToken()}` },
+        body: JSON.stringify({
+          action: 'move_to_design',
+          opportunityId: row.opportunityId,
+          contactId: row.contactId,
+          contactName: row.contactName,
+          notes: designNotes.trim() || undefined,
+          jtJobId: row.jtJobId || undefined,
+        }),
+      });
+      if (!res.ok) {
+        const data = await res.json().catch(() => ({}));
+        throw new Error(data.error || 'Failed to move to Design');
+      }
+      resetDesignPanel();
+      await loadEstimatingData();
+      await loadKpis();
+    } catch (err: any) {
+      setDesignError(err.message || 'Something went wrong');
+    } finally {
+      setDesignSaving(null);
     }
   };
 
@@ -565,6 +622,37 @@ export default function LeadsPage() {
   };
 
   useEffect(() => { loadKpis(); loadEstimatingData(); }, []);
+
+  // ── Combined lead list for the Post-Call Actions dropdown ──
+  // Merges Pending Discovery leads (from GHL) with Pending Approval (Estimating) jobs
+  // so that both categories show up in the Post-Call Actions panel's lead selector.
+  const combinedPendingLeads = useMemo(() => {
+    const discovery = kpiData?.pendingNewLeads || [];
+
+    // Normalize Estimating jobs to PendingLead shape
+    const estimatingAsPending = (estimatingJobs || [])
+      .filter((j) => !!j.ghlOpportunityId && !!j.ghlContactId)
+      .map((j) => ({
+        id: j.ghlOpportunityId,
+        name: j.ghlName || j.contactName || 'Estimating lead',
+        contactId: j.ghlContactId as string,
+        contactName: j.contactName || j.ghlName || 'Lead',
+        phone: j.contactPhone || '',
+        email: j.contactEmail || '',
+        source: '',
+        tags: [],
+        createdAt: j.enteredEstimatingAt || '',
+        daysPending: j.daysInEstimating || 0,
+        stage: 'Estimating',
+        jtJobId: j.jtJobId || null,
+      }));
+
+    // De-dupe on opportunity id — Estimating wins if both exist, since it carries jtJobId
+    const byId: Record<string, typeof estimatingAsPending[number]> = {};
+    for (const l of discovery) byId[l.id] = l as any;
+    for (const l of estimatingAsPending) byId[l.id] = l;
+    return Object.values(byId);
+  }, [kpiData?.pendingNewLeads, estimatingJobs]);
 
   // Debounced contact search for duplicate detection
   useEffect(() => {
@@ -736,7 +824,7 @@ export default function LeadsPage() {
         <div className="mb-6">
           <LeadActionPanel
             lead={actionPanelLead}
-            pendingLeads={kpiData?.pendingNewLeads || []}
+            pendingLeads={combinedPendingLeads}
             onSelectLead={(lead) => setActionPanelLead(lead)}
             onClose={() => { setActionPanelExpanded(false); setActionPanelLead(null); }}
             onComplete={() => { loadKpis(); loadEstimatingData(); setActionPanelExpanded(false); setActionPanelLead(null); }}
@@ -1173,10 +1261,10 @@ export default function LeadsPage() {
         </>
       ) : null}
 
-      {/* ═══ Pending Leads + Estimating Tracker — Side by Side ═══ */}
+      {/* ═══ Pending Discovery + Pending Approval — Side by Side ═══ */}
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 mb-6 items-start">
 
-      {/* ═══ Pending New Leads ═══ */}
+      {/* ═══ Pending Discovery (previously "Pending Leads") ═══ */}
       {kpiData && kpiData.pendingNewLeads && kpiData.pendingNewLeads.length > 0 && (
         <div className="rounded-xl overflow-hidden" style={{ background: '#ffffff', border: '1px solid rgba(200,140,0,0.12)' }}>
           <button
@@ -1185,12 +1273,12 @@ export default function LeadsPage() {
             style={{ background: '#f8f6f3', borderBottom: pendingCollapsed ? 'none' : '1px solid rgba(200,140,0,0.08)' }}
           >
             <AlertTriangle size={14} style={{ color: '#f59e0b' }} />
-            <span className="text-sm font-semibold" style={{ color: '#1a1a1a' }}>Pending Leads</span>
+            <span className="text-sm font-semibold" style={{ color: '#1a1a1a' }}>Pending Discovery</span>
             <span className="text-xs px-2 py-0.5 rounded-full ml-1" style={{ background: 'rgba(245,158,11,0.15)', color: '#f59e0b' }}>
               {kpiData.pendingNewLeads.length} active
             </span>
             <span className="text-xs ml-auto mr-2" style={{ color: '#6a6058' }}>
-              {pendingCollapsed ? 'Click to expand' : 'Not yet in design'}
+              {pendingCollapsed ? 'Click to expand' : 'Awaiting discovery call'}
             </span>
             <div className="transition-transform duration-200" style={{ transform: pendingCollapsed ? 'rotate(0deg)' : 'rotate(90deg)' }}>
               <ChevronRight size={14} style={{ color: '#8a8078' }} />
@@ -1198,7 +1286,8 @@ export default function LeadsPage() {
           </button>
           {!pendingCollapsed && <div className="divide-y" style={{ borderColor: 'rgba(200,140,0,0.06)' }}>
             {kpiData.pendingNewLeads.map((lead) => (
-              <div key={lead.id} className="px-5 py-3 flex items-start gap-4">
+              <div key={lead.id}>
+              <div className="px-5 py-3 flex items-start gap-4">
                 {/* Lead Info */}
                 <div className="flex-1 min-w-0">
                   <div className="flex items-center gap-2 mb-1">
@@ -1371,14 +1460,232 @@ export default function LeadsPage() {
                       </button>
                     )}
                   </div>
+
+                  {/* Design + Nurture row — same actions as Pending Approval column */}
+                  {lead.contactId && (
+                    <div className="flex items-center gap-1.5 mt-1">
+                      <button
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          if (designOpen === lead.id) {
+                            resetDesignPanel();
+                          } else {
+                            setDesignOpen(lead.id);
+                            setDesignNotes('');
+                            setDesignError('');
+                            resetNurturePanel();
+                            setStageDropdown(null); setCloseConfirm(null); setSpamConfirm(null);
+                          }
+                        }}
+                        className="flex items-center gap-1 text-[10px] px-2 py-0.5 rounded transition-all hover:opacity-80"
+                        style={{
+                          background: designOpen === lead.id ? 'rgba(34,197,94,0.15)' : 'rgba(34,197,94,0.08)',
+                          color: '#22c55e',
+                          border: '1px solid rgba(34,197,94,0.25)',
+                        }}
+                        title="Move this lead to Design Phase (updates JT Status to 5. Design Phase if JT job linked)"
+                      >
+                        <CheckCircle2 size={9} /> Design
+                      </button>
+                      <button
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          if (nurtureOpen === lead.id) {
+                            resetNurturePanel();
+                          } else {
+                            setNurtureOpen(lead.id);
+                            setNurtureReason('');
+                            setNurtureReasonOther('');
+                            setNurtureNotes('');
+                            setNurtureError('');
+                            resetDesignPanel();
+                            setStageDropdown(null); setCloseConfirm(null); setSpamConfirm(null);
+                          }
+                        }}
+                        className="flex items-center gap-1 text-[10px] px-2 py-0.5 rounded transition-all hover:opacity-80"
+                        style={{
+                          background: nurtureOpen === lead.id ? 'rgba(167,139,250,0.15)' : 'rgba(167,139,250,0.08)',
+                          color: '#a78bfa',
+                          border: '1px solid rgba(167,139,250,0.25)',
+                        }}
+                        title="Move this lead to Nurture (requires reason)"
+                      >
+                        <Heart size={9} /> Nurture
+                      </button>
+                    </div>
+                  )}
                 </div>
               </div>
+
+              {/* Inline Design panel for this Pending Discovery row */}
+              {designOpen === lead.id && (
+                <div className="px-5 pb-3 -mt-1">
+                  <div className="rounded-lg p-3" style={{ background: 'rgba(34,197,94,0.05)', border: '1px solid rgba(34,197,94,0.2)' }}>
+                    <div className="flex items-center gap-2 mb-2">
+                      <CheckCircle2 size={12} style={{ color: '#22c55e' }} />
+                      <span className="text-xs font-semibold" style={{ color: '#1a1a1a' }}>Move to Design Phase</span>
+                      <button
+                        onClick={() => resetDesignPanel()}
+                        className="ml-auto p-0.5 rounded hover:opacity-70"
+                        style={{ color: '#8a8078' }}
+                      >
+                        <X size={12} />
+                      </button>
+                    </div>
+                    <div className="mb-2">
+                      <label className="block text-[10px] font-semibold uppercase tracking-wider mb-1" style={{ color: '#8a8078' }}>
+                        Notes (optional)
+                      </label>
+                      <textarea
+                        value={designNotes}
+                        onChange={(e) => setDesignNotes(e.target.value)}
+                        rows={2}
+                        placeholder="Anything to capture about the agreement or handoff..."
+                        className="w-full rounded-md px-2 py-1.5 text-xs outline-none resize-y"
+                        style={{ background: '#ffffff', border: '1px solid rgba(34,197,94,0.2)', color: '#1a1a1a', minHeight: 48 }}
+                      />
+                    </div>
+                    {designError && (
+                      <div className="text-[11px] mb-2 flex items-center gap-1" style={{ color: '#ef4444' }}>
+                        <AlertCircle size={10} /> {designError}
+                      </div>
+                    )}
+                    <div className="flex items-center gap-2 justify-end">
+                      <button
+                        onClick={() => resetDesignPanel()}
+                        disabled={designSaving === lead.id}
+                        className="text-[11px] px-2.5 py-1 rounded-md hover:opacity-80"
+                        style={{ background: 'transparent', color: '#8a8078' }}
+                      >
+                        Cancel
+                      </button>
+                      <button
+                        onClick={() => handleMoveToDesign({
+                          opportunityId: lead.id,
+                          contactId: lead.contactId,
+                          contactName: lead.contactName || lead.name,
+                          jtJobId: lead.jtJobId || undefined,
+                        })}
+                        disabled={designSaving === lead.id}
+                        className="flex items-center gap-1.5 text-[11px] font-semibold px-3 py-1 rounded-md transition-all"
+                        style={{
+                          background: designSaving === lead.id ? 'rgba(34,197,94,0.5)' : '#22c55e',
+                          color: '#ffffff',
+                          cursor: designSaving === lead.id ? 'wait' : 'pointer',
+                        }}
+                      >
+                        {designSaving === lead.id ? (
+                          <><Loader2 size={11} className="animate-spin" /> Moving...</>
+                        ) : (
+                          <><CheckCircle2 size={11} /> Confirm</>
+                        )}
+                      </button>
+                    </div>
+                  </div>
+                </div>
+              )}
+
+              {/* Inline Nurture panel for this Pending Discovery row */}
+              {nurtureOpen === lead.id && (
+                <div className="px-5 pb-3 -mt-1">
+                  <div className="rounded-lg p-3" style={{ background: 'rgba(167,139,250,0.05)', border: '1px solid rgba(167,139,250,0.2)' }}>
+                    <div className="flex items-center gap-2 mb-2">
+                      <Heart size={12} style={{ color: '#a78bfa' }} />
+                      <span className="text-xs font-semibold" style={{ color: '#1a1a1a' }}>Move to Nurture</span>
+                      <button
+                        onClick={() => resetNurturePanel()}
+                        className="ml-auto p-0.5 rounded hover:opacity-70"
+                        style={{ color: '#8a8078' }}
+                      >
+                        <X size={12} />
+                      </button>
+                    </div>
+                    {/* Reason (required) */}
+                    <div className="mb-2">
+                      <label className="block text-[10px] font-semibold uppercase tracking-wider mb-1" style={{ color: '#8a8078' }}>
+                        Reason did not move forward <span style={{ color: '#ef4444' }}>*</span>
+                      </label>
+                      <select
+                        value={nurtureReason}
+                        onChange={(e) => { setNurtureReason(e.target.value); setNurtureError(''); }}
+                        className="w-full rounded-md px-2 py-1.5 text-xs outline-none"
+                        style={{ background: '#ffffff', border: '1px solid rgba(200,140,0,0.2)', color: nurtureReason ? '#1a1a1a' : '#8a8078' }}
+                      >
+                        <option value="">Select a reason...</option>
+                        {NURTURE_REASONS.map((r) => (
+                          <option key={r} value={r}>{r}</option>
+                        ))}
+                      </select>
+                      {nurtureReason === 'Other' && (
+                        <input
+                          type="text"
+                          value={nurtureReasonOther}
+                          onChange={(e) => { setNurtureReasonOther(e.target.value); setNurtureError(''); }}
+                          placeholder="Specify reason..."
+                          className="mt-1.5 w-full rounded-md px-2 py-1.5 text-xs outline-none"
+                          style={{ background: '#ffffff', border: '1px solid rgba(200,140,0,0.2)', color: '#1a1a1a' }}
+                        />
+                      )}
+                    </div>
+                    <div className="mb-2">
+                      <label className="block text-[10px] font-semibold uppercase tracking-wider mb-1" style={{ color: '#8a8078' }}>
+                        Additional notes (optional)
+                      </label>
+                      <textarea
+                        value={nurtureNotes}
+                        onChange={(e) => setNurtureNotes(e.target.value)}
+                        rows={2}
+                        placeholder="Any context that would help when we follow up later..."
+                        className="w-full rounded-md px-2 py-1.5 text-xs outline-none resize-y"
+                        style={{ background: '#ffffff', border: '1px solid rgba(200,140,0,0.2)', color: '#1a1a1a', minHeight: 48 }}
+                      />
+                    </div>
+                    {nurtureError && (
+                      <div className="text-[11px] mb-2 flex items-center gap-1" style={{ color: '#ef4444' }}>
+                        <AlertCircle size={10} /> {nurtureError}
+                      </div>
+                    )}
+                    <div className="flex items-center gap-2 justify-end">
+                      <button
+                        onClick={() => resetNurturePanel()}
+                        disabled={nurtureSaving === lead.id}
+                        className="text-[11px] px-2.5 py-1 rounded-md hover:opacity-80"
+                        style={{ background: 'transparent', color: '#8a8078' }}
+                      >
+                        Cancel
+                      </button>
+                      <button
+                        onClick={() => handleMoveToNurture({
+                          opportunityId: lead.id,
+                          contactId: lead.contactId,
+                          contactName: lead.contactName || lead.name,
+                          jtJobId: lead.jtJobId || undefined,
+                        })}
+                        disabled={nurtureSaving === lead.id}
+                        className="flex items-center gap-1.5 text-[11px] font-semibold px-3 py-1 rounded-md transition-all"
+                        style={{
+                          background: nurtureSaving === lead.id ? 'rgba(167,139,250,0.5)' : '#a78bfa',
+                          color: '#ffffff',
+                          cursor: nurtureSaving === lead.id ? 'wait' : 'pointer',
+                        }}
+                      >
+                        {nurtureSaving === lead.id ? (
+                          <><Loader2 size={11} className="animate-spin" /> Moving...</>
+                        ) : (
+                          <><Heart size={11} /> Confirm</>
+                        )}
+                      </button>
+                    </div>
+                  </div>
+                </div>
+              )}
+            </div>
             ))}
           </div>}
         </div>
       )}
 
-      {/* ═══ Estimating Tracker ═══ */}
+      {/* ═══ Pending Approval (previously "Estimating Tracker") ═══ */}
       <div className="rounded-xl overflow-hidden" style={{ background: '#ffffff', border: '1px solid rgba(200,140,0,0.12)' }}>
         <button
           onClick={() => setEstimatingExpanded(!estimatingExpanded)}
@@ -1386,7 +1693,7 @@ export default function LeadsPage() {
           style={{ background: '#f8f6f3', borderBottom: estimatingExpanded ? '1px solid rgba(200,140,0,0.08)' : 'none' }}
         >
           <HardHat size={14} style={{ color: '#c88c00' }} />
-          <span className="text-sm font-semibold" style={{ color: '#1a1a1a' }}>Estimating Tracker</span>
+          <span className="text-sm font-semibold" style={{ color: '#1a1a1a' }}>Pending Approval</span>
           {!estimatingLoading && (
             <span className="text-xs px-2 py-0.5 rounded-full ml-1" style={{ background: 'rgba(200,140,0,0.12)', color: '#c88c00' }}>
               {estimatingJobs.length} {estimatingJobs.length === 1 ? 'job' : 'jobs'}
@@ -1480,9 +1787,35 @@ export default function LeadsPage() {
                             <AlertTriangle size={8} /> No upcoming tasks
                           </span>
                         )}
-                        {/* Right-aligned actions: Move to Nurture + JT link */}
+                        {/* Right-aligned actions: Move to Design + Move to Nurture + JT link */}
                         <div className="ml-auto flex items-center gap-2 flex-shrink-0">
-                          {/* Move to Nurture button — only when we have the GHL IDs to do the move */}
+                          {/* Move to Design — only when we have GHL IDs */}
+                          {job.ghlContactId && (
+                            <button
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                if (designOpen === job.ghlOpportunityId) {
+                                  resetDesignPanel();
+                                } else {
+                                  setDesignOpen(job.ghlOpportunityId);
+                                  setDesignNotes('');
+                                  setDesignError('');
+                                  // close the other panel if open
+                                  resetNurturePanel();
+                                }
+                              }}
+                              className="flex items-center gap-1 text-[10px] px-2 py-0.5 rounded transition-all hover:opacity-80"
+                              style={{
+                                background: designOpen === job.ghlOpportunityId ? 'rgba(34,197,94,0.15)' : 'rgba(34,197,94,0.08)',
+                                color: '#22c55e',
+                                border: '1px solid rgba(34,197,94,0.25)',
+                              }}
+                              title="Move this lead to Design Phase (updates JT Status to 5. Design Phase)"
+                            >
+                              <CheckCircle2 size={9} /> Design
+                            </button>
+                          )}
+                          {/* Move to Nurture — only when we have GHL IDs */}
                           {job.ghlContactId && (
                             <button
                               onClick={(e) => {
@@ -1495,6 +1828,8 @@ export default function LeadsPage() {
                                   setNurtureReasonOther('');
                                   setNurtureNotes('');
                                   setNurtureError('');
+                                  // close the other panel if open
+                                  resetDesignPanel();
                                 }
                               }}
                               className="flex items-center gap-1 text-[10px] px-2 py-0.5 rounded transition-all hover:opacity-80"
@@ -1682,7 +2017,12 @@ export default function LeadsPage() {
                               Cancel
                             </button>
                             <button
-                              onClick={() => handleMoveToNurture(job)}
+                              onClick={() => handleMoveToNurture({
+                                opportunityId: job.ghlOpportunityId,
+                                contactId: job.ghlContactId,
+                                contactName: job.contactName || job.ghlName,
+                                jtJobId: job.jtJobId,
+                              })}
                               disabled={nurtureSaving === job.ghlOpportunityId}
                               className="flex items-center gap-1.5 text-[11px] font-semibold px-3 py-1 rounded-md transition-all"
                               style={{
@@ -1695,6 +2035,81 @@ export default function LeadsPage() {
                                 <><Loader2 size={11} className="animate-spin" /> Moving...</>
                               ) : (
                                 <><Heart size={11} /> Confirm</>
+                              )}
+                            </button>
+                          </div>
+                        </div>
+                      )}
+
+                      {/* Inline "Move to Design" confirmation panel */}
+                      {designOpen === job.ghlOpportunityId && (
+                        <div className="mt-3 rounded-lg p-3" style={{ background: 'rgba(34,197,94,0.05)', border: '1px solid rgba(34,197,94,0.2)' }}>
+                          <div className="flex items-center gap-2 mb-2">
+                            <CheckCircle2 size={12} style={{ color: '#22c55e' }} />
+                            <span className="text-xs font-semibold" style={{ color: '#1a1a1a' }}>
+                              Move to Design Phase
+                            </span>
+                            <span className="text-[10px]" style={{ color: '#8a8078' }}>
+                              {job.jtJobId ? '· updates JT Status → 5. Design Phase' : '· GHL only (no JT job linked)'}
+                            </span>
+                            <button
+                              onClick={() => resetDesignPanel()}
+                              className="ml-auto p-0.5 rounded hover:opacity-70"
+                              style={{ color: '#8a8078' }}
+                            >
+                              <X size={12} />
+                            </button>
+                          </div>
+
+                          {/* Optional notes */}
+                          <div className="mb-2">
+                            <label className="block text-[10px] font-semibold uppercase tracking-wider mb-1" style={{ color: '#8a8078' }}>
+                              Notes (optional)
+                            </label>
+                            <textarea
+                              value={designNotes}
+                              onChange={(e) => setDesignNotes(e.target.value)}
+                              rows={2}
+                              placeholder="Anything to capture about the agreement or handoff to design..."
+                              className="w-full rounded-md px-2 py-1.5 text-xs outline-none resize-y"
+                              style={{ background: '#ffffff', border: '1px solid rgba(34,197,94,0.2)', color: '#1a1a1a', minHeight: 48 }}
+                            />
+                          </div>
+
+                          {designError && (
+                            <div className="text-[11px] mb-2 flex items-center gap-1" style={{ color: '#ef4444' }}>
+                              <AlertCircle size={10} /> {designError}
+                            </div>
+                          )}
+
+                          <div className="flex items-center gap-2 justify-end">
+                            <button
+                              onClick={() => resetDesignPanel()}
+                              disabled={designSaving === job.ghlOpportunityId}
+                              className="text-[11px] px-2.5 py-1 rounded-md hover:opacity-80"
+                              style={{ background: 'transparent', color: '#8a8078' }}
+                            >
+                              Cancel
+                            </button>
+                            <button
+                              onClick={() => handleMoveToDesign({
+                                opportunityId: job.ghlOpportunityId,
+                                contactId: job.ghlContactId,
+                                contactName: job.contactName || job.ghlName,
+                                jtJobId: job.jtJobId,
+                              })}
+                              disabled={designSaving === job.ghlOpportunityId}
+                              className="flex items-center gap-1.5 text-[11px] font-semibold px-3 py-1 rounded-md transition-all"
+                              style={{
+                                background: designSaving === job.ghlOpportunityId ? 'rgba(34,197,94,0.5)' : '#22c55e',
+                                color: '#ffffff',
+                                cursor: designSaving === job.ghlOpportunityId ? 'wait' : 'pointer',
+                              }}
+                            >
+                              {designSaving === job.ghlOpportunityId ? (
+                                <><Loader2 size={11} className="animate-spin" /> Moving...</>
+                              ) : (
+                                <><CheckCircle2 size={11} /> Confirm</>
                               )}
                             </button>
                           </div>

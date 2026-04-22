@@ -1930,6 +1930,101 @@ export async function updateJob(jobId: string, fields: {
 }
 
 // ============================================================
+// CUSTOM FIELD VALUES — Set/update a custom field on an entity
+// (Status field ID on jobs: 22P5SRxYPb7Q — see constants.ts STATUS_VALUES)
+// ============================================================
+
+/**
+ * Well-known custom field IDs for the BKB org.
+ * Discovered via live PAVE query on job 22PPpru4HpCa (2026-04-22).
+ */
+export const JT_CUSTOM_FIELD_IDS = {
+  JOB_STATUS: '22P5SRxYPb7Q',
+} as const;
+
+/**
+ * Set (upsert) a custom field value on an entity (job/task/account/etc).
+ *
+ * If a customFieldValue already exists for (targetId, customFieldId), updates it.
+ * Otherwise creates a new one.
+ *
+ * @param targetId - The entity ID (e.g. jobId)
+ * @param targetType - 'job' | 'task' | 'account' | 'contact' | 'costItem'
+ * @param customFieldId - The custom field definition ID
+ * @param value - The value to set (string for option/text fields)
+ */
+export async function setCustomFieldValue(params: {
+  targetId: string;
+  targetType: string;
+  customFieldId: string;
+  value: string;
+}): Promise<{ success: true; cfvId: string; created: boolean }> {
+  const { targetId, targetType, customFieldId, value } = params;
+
+  // Look up existing CFV by querying the entity's customFieldValues
+  // (PAVE exposes customFieldValues as a sub-collection on most entities)
+  const entityKey =
+    targetType === 'job' ? 'job' :
+    targetType === 'task' ? 'task' :
+    targetType === 'account' ? 'account' :
+    targetType === 'contact' ? 'contact' :
+    targetType === 'costItem' ? 'costItem' :
+    'job';
+
+  const lookup = await pave({
+    [entityKey]: {
+      $: { id: targetId },
+      customFieldValues: {
+        nodes: {
+          id: {},
+          customField: { id: {} },
+        },
+      },
+    },
+  });
+
+  const existingNodes = (lookup as any)?.[entityKey]?.customFieldValues?.nodes || [];
+  const existing = existingNodes.find((n: any) => n.customField?.id === customFieldId);
+
+  if (existing?.id) {
+    // Update existing CFV
+    await pave({
+      updateCustomFieldValue: {
+        $: { id: existing.id, value },
+      },
+    });
+    return { success: true, cfvId: existing.id, created: false };
+  }
+
+  // Create new CFV
+  const createData = await pave({
+    createCustomFieldValue: {
+      $: { customFieldId, targetId, targetType, value },
+      createdCustomFieldValue: { id: {} },
+    },
+  });
+  const created = (createData as any)?.createCustomFieldValue?.createdCustomFieldValue;
+  if (!created?.id) {
+    throw new Error('createCustomFieldValue returned no id: ' + JSON.stringify(createData).slice(0, 300));
+  }
+  return { success: true, cfvId: created.id, created: true };
+}
+
+/**
+ * Convenience: set the "Status" custom field on a job.
+ * Use the canonical STATUS_VALUES strings from constants.ts
+ * (e.g. '5. Design Phase', '10. Ready', '6. In Production').
+ */
+export async function setJobStatus(jobId: string, statusValue: string) {
+  return setCustomFieldValue({
+    targetId: jobId,
+    targetType: 'job',
+    customFieldId: JT_CUSTOM_FIELD_IDS.JOB_STATUS,
+    value: statusValue,
+  });
+}
+
+// ============================================================
 // COST ITEMS & SPECIFICATIONS
 // ============================================================
 

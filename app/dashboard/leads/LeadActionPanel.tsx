@@ -22,6 +22,7 @@ interface PendingLead {
   createdAt: string;
   daysPending: number;
   stage: string;
+  jtJobId?: string | null;
 }
 
 interface LeadActionPanelProps {
@@ -92,8 +93,9 @@ const TEAM_ASSIGNEES = [
 ];
 
 export default function LeadActionPanel({ lead, pendingLeads, onSelectLead, onClose, onComplete, getToken }: LeadActionPanelProps) {
-  const [selectedAction, setSelectedAction] = useState<'schedule' | 'nurture' | null>(null);
+  const [selectedAction, setSelectedAction] = useState<'schedule' | 'nurture' | 'design' | null>(null);
   const [notes, setNotes] = useState('');
+  const [nurtureReason, setNurtureReason] = useState('');
   const [loading, setLoading] = useState(false);
   const [success, setSuccess] = useState<string | null>(null);
   const [error, setError] = useState('');
@@ -127,6 +129,7 @@ export default function LeadActionPanel({ lead, pendingLeads, onSelectLead, onCl
   useEffect(() => {
     setSelectedAction(null);
     setNotes('');
+    setNurtureReason('');
     setSmCalendarId('');
     setSmTitle('');
     setSmTime('');
@@ -205,7 +208,8 @@ export default function LeadActionPanel({ lead, pendingLeads, onSelectLead, onCl
   });
 
   const canSubmit = lead && (
-    selectedAction === 'nurture' ||
+    (selectedAction === 'nurture' && nurtureReason.trim().length > 0) ||
+    selectedAction === 'design' ||
     (selectedAction === 'schedule' && smCalendarId && smTitle.trim() && smDate && smTime)
   );
 
@@ -292,15 +296,17 @@ export default function LeadActionPanel({ lead, pendingLeads, onSelectLead, onCl
         const dateLabel = new Date(smDate + 'T12:00:00').toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' });
         setSuccess(`Meeting scheduled for ${dateLabel} at ${formatTime(smTime)} — ${apptCount} reminder${apptCount > 1 ? 's' : ''} sent${jtNote}`);
 
-      } else {
-        // ── Nurture flow (unchanged) ──
+      } else if (selectedAction === 'nurture') {
+        // ── Move to Nurture (reason required, jtJobId closes JT job if linked) ──
         const payload: Record<string, any> = {
           action: 'move_to_nurture',
           opportunityId: lead.id,
           contactId: lead.contactId,
           contactName,
+          reason: nurtureReason.trim(),
         };
         if (notes.trim()) payload.notes = notes.trim();
+        if (lead.jtJobId) payload.jtJobId = lead.jtJobId;
 
         const res = await fetch('/api/dashboard/leads-action', {
           method: 'POST',
@@ -314,6 +320,29 @@ export default function LeadActionPanel({ lead, pendingLeads, onSelectLead, onCl
         }
 
         setSuccess(`${contactName} moved to Nurture`);
+      } else if (selectedAction === 'design') {
+        // ── Move to Design (updates JT Status → "5. Design Phase" when linked) ──
+        const payload: Record<string, any> = {
+          action: 'move_to_design',
+          opportunityId: lead.id,
+          contactId: lead.contactId,
+          contactName,
+        };
+        if (notes.trim()) payload.notes = notes.trim();
+        if (lead.jtJobId) payload.jtJobId = lead.jtJobId;
+
+        const res = await fetch('/api/dashboard/leads-action', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${getToken()}` },
+          body: JSON.stringify(payload),
+        });
+
+        if (!res.ok) {
+          const data = await res.json();
+          throw new Error(data.error || 'Failed to process action');
+        }
+
+        setSuccess(`${contactName} moved to Design`);
       }
 
       setTimeout(() => onComplete(), 2500);
@@ -509,7 +538,7 @@ export default function LeadActionPanel({ lead, pendingLeads, onSelectLead, onCl
               Next Step
             </label>
 
-            <div className="grid grid-cols-2 gap-2">
+            <div className="grid grid-cols-3 gap-2">
               {/* Schedule Meeting */}
               <button
                 onClick={() => setSelectedAction(selectedAction === 'schedule' ? null : 'schedule')}
@@ -525,9 +554,29 @@ export default function LeadActionPanel({ lead, pendingLeads, onSelectLead, onCl
                   }}>
                     <Calendar size={12} style={{ color: selectedAction === 'schedule' ? '#fff' : '#c88c00' }} />
                   </div>
-                  <span className="text-xs font-semibold" style={{ color: '#1a1a1a' }}>Schedule Meeting</span>
+                  <span className="text-xs font-semibold" style={{ color: '#1a1a1a' }}>Schedule</span>
                 </div>
-                <p className="text-[11px] ml-8" style={{ color: '#8a8078' }}>GHL calendar + JT task</p>
+                <p className="text-[11px] ml-8" style={{ color: '#8a8078' }}>GHL + JT task</p>
+              </button>
+
+              {/* Move to Design */}
+              <button
+                onClick={() => setSelectedAction(selectedAction === 'design' ? null : 'design')}
+                className="text-left rounded-lg px-3 py-3 transition-all"
+                style={{
+                  background: selectedAction === 'design' ? 'rgba(34,197,94,0.08)' : '#ffffff',
+                  border: selectedAction === 'design' ? '2px solid #22c55e' : '1px solid rgba(200,140,0,0.15)',
+                }}
+              >
+                <div className="flex items-center gap-2 mb-1">
+                  <div className="w-6 h-6 rounded-full flex items-center justify-center flex-shrink-0" style={{
+                    background: selectedAction === 'design' ? '#22c55e' : 'rgba(34,197,94,0.1)',
+                  }}>
+                    <CheckCircle2 size={12} style={{ color: selectedAction === 'design' ? '#fff' : '#22c55e' }} />
+                  </div>
+                  <span className="text-xs font-semibold" style={{ color: '#1a1a1a' }}>Design</span>
+                </div>
+                <p className="text-[11px] ml-8" style={{ color: '#8a8078' }}>Agreement signed</p>
               </button>
 
               {/* Move to Nurture */}
@@ -547,7 +596,7 @@ export default function LeadActionPanel({ lead, pendingLeads, onSelectLead, onCl
                   </div>
                   <span className="text-xs font-semibold" style={{ color: '#1a1a1a' }}>Nurture</span>
                 </div>
-                <p className="text-[11px] ml-8" style={{ color: '#8a8078' }}>Not ready — keep in touch</p>
+                <p className="text-[11px] ml-8" style={{ color: '#8a8078' }}>Not ready yet</p>
               </button>
             </div>
           </div>
@@ -753,11 +802,45 @@ export default function LeadActionPanel({ lead, pendingLeads, onSelectLead, onCl
             </div>
           )}
 
-          {/* Nurture confirmation */}
+          {/* Nurture confirmation — reason required */}
           {selectedAction === 'nurture' && (
-            <div className="mb-4 flex items-center gap-2 px-3 py-2 rounded-lg text-xs" style={{ background: 'rgba(167,139,250,0.08)', color: '#7c3aed' }}>
-              <Heart size={12} />
-              Will be moved to the Nurture pipeline stage
+            <div className="mb-4 p-3 rounded-lg space-y-2" style={{ background: 'rgba(167,139,250,0.05)', border: '1px solid rgba(167,139,250,0.2)' }}>
+              <div className="flex items-center gap-2 text-xs font-semibold" style={{ color: '#7c3aed' }}>
+                <Heart size={12} />
+                Why is this lead moving to Nurture?
+              </div>
+              <input
+                type="text"
+                value={nurtureReason}
+                onChange={(e) => setNurtureReason(e.target.value)}
+                placeholder="Reason (required) — e.g. budget not ready, timing off, competing contractor"
+                className="w-full rounded-lg px-3 py-2 text-sm outline-none"
+                style={{
+                  background: '#ffffff',
+                  border: `1px solid ${nurtureReason.trim() ? 'rgba(167,139,250,0.3)' : 'rgba(220,80,80,0.3)'}`,
+                  color: '#1a1a1a',
+                }}
+              />
+              <p className="text-[11px]" style={{ color: '#6a6058' }}>
+                {lead?.jtJobId
+                  ? 'GHL stage → Nurture · closes the JT job · saved to Project Memory'
+                  : 'GHL stage → Nurture · saved to Project Memory'}
+              </p>
+            </div>
+          )}
+
+          {/* Design confirmation */}
+          {selectedAction === 'design' && (
+            <div className="mb-4 p-3 rounded-lg space-y-2" style={{ background: 'rgba(34,197,94,0.05)', border: '1px solid rgba(34,197,94,0.2)' }}>
+              <div className="flex items-center gap-2 text-xs font-semibold" style={{ color: '#16a34a' }}>
+                <CheckCircle2 size={12} />
+                Design agreement signed — move to Design
+              </div>
+              <p className="text-[11px]" style={{ color: '#6a6058' }}>
+                {lead?.jtJobId
+                  ? 'GHL stage → In Design · JT Status → 5. Design Phase · saved to Project Memory'
+                  : 'GHL stage → In Design · saved to Project Memory (no JT job linked)'}
+              </p>
             </div>
           )}
 
@@ -775,7 +858,11 @@ export default function LeadActionPanel({ lead, pendingLeads, onSelectLead, onCl
             className="w-full flex items-center justify-center gap-2 px-4 py-2.5 rounded-lg text-sm font-medium transition-all"
             style={{
               background: canSubmit && !loading
-                ? (selectedAction === 'nurture' ? '#a78bfa' : '#c88c00')
+                ? (selectedAction === 'nurture'
+                    ? '#a78bfa'
+                    : selectedAction === 'design'
+                      ? '#22c55e'
+                      : '#c88c00')
                 : 'rgba(200,140,0,0.12)',
               color: canSubmit && !loading ? '#ffffff' : '#8a8078',
               cursor: canSubmit && !loading ? 'pointer' : 'not-allowed',
@@ -784,7 +871,11 @@ export default function LeadActionPanel({ lead, pendingLeads, onSelectLead, onCl
             {loading ? (
               <>
                 <Loader2 size={14} className="animate-spin" />
-                Creating meeting...
+                {selectedAction === 'schedule'
+                  ? 'Creating meeting...'
+                  : selectedAction === 'design'
+                    ? 'Moving to Design...'
+                    : 'Moving to Nurture...'}
               </>
             ) : !lead ? (
               'Select a lead above'
@@ -795,10 +886,15 @@ export default function LeadActionPanel({ lead, pendingLeads, onSelectLead, onCl
                 <Calendar size={14} />
                 Schedule Meeting
               </>
+            ) : selectedAction === 'design' ? (
+              <>
+                <CheckCircle2 size={14} />
+                Move to Design
+              </>
             ) : (
               <>
                 <Heart size={14} />
-                Move to Nurture
+                {nurtureReason.trim() ? 'Move to Nurture' : 'Add a reason first'}
               </>
             )}
           </button>
