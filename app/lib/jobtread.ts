@@ -5205,17 +5205,31 @@ export interface JobBillLine {
  * Return every line on every vendor bill for a job, flat, with vendor
  * and budget-link info attached.
  *
- * Uses a small page size (10 documents per page) because each document
- * expansion can balloon quickly and 413s are the common failure mode.
+ * Two-pass to avoid JT's 413 errors: first fetch just document metadata
+ * (id, number, name, status, issueDate, account) in pages of 50, then
+ * fetch cost items one document at a time. Expanding costItems inline
+ * against `job.documents` balloons the payload past JT's size limit
+ * on jobs with many bills.
  */
 export async function getJobBillLines(jobId: string): Promise<JobBillLine[]> {
-  const PAGE_SIZE = 10;
+  const DOCS_PAGE_SIZE = 50;
   const out: JobBillLine[] = [];
+
+  // ── Pass 1: list vendor bill documents (metadata only) ──
+  type BillDoc = {
+    id: string;
+    number: string | null;
+    name: string | null;
+    status: string | null;
+    issueDate: string | null;
+    account: { id: string | null; name: string | null } | null;
+  };
+  const docs: BillDoc[] = [];
   let nextPage: string | null = null;
 
   for (let page = 0; page < 30; page++) {
     const pageParams: Record<string, unknown> = {
-      size: PAGE_SIZE,
+      size: DOCS_PAGE_SIZE,
       where: ['type', '=', 'vendorBill'],
     };
     if (nextPage) pageParams.page = nextPage;
@@ -5235,37 +5249,63 @@ export async function getJobBillLines(jobId: string): Promise<JobBillLine[]> {
             // Vendor is the account on the bill document.
             // JT's schema exposes this directly as doc.account, not doc.issuer.account.
             account: { id: {}, name: {} },
-            costItems: {
-              $: { size: 50 },
-              nodes: {
-                id: {},
-                name: {},
-                description: {},
-                quantity: {},
-                cost: {},
-                costCode: { id: {}, number: {}, name: {} },
-                jobCostItem: {
-                  id: {},
-                  name: {},
-                  costCode: { id: {}, number: {}, name: {} },
-                },
-              },
-            },
           },
         },
       },
     });
 
     const docsPage = (data as any)?.job?.documents;
-    const docs = docsPage?.nodes || [];
+    const nodes = (docsPage?.nodes || []) as BillDoc[];
+    docs.push(...nodes);
 
-    for (const doc of docs) {
-      // Skip denied / voided bills — they shouldn't drive review queue noise
-      if (doc.status === 'denied') continue;
+    nextPage = docsPage?.nextPage || null;
+    if (!nextPage || nodes.length < DOCS_PAGE_SIZE) break;
+  }
 
-      const vendorAcct = doc?.account || null;
-      const items = doc?.costItems?.nodes || [];
+  // ── Pass 2: expand cost items in batches of 5 ──
+  // Per-doc query keeps each payload small enough to dodge 413. Batching
+  // at 5 concurrent matches what getUninvoicedCC23ForJob uses safely.
+  const BILL_BATCH_SIZE = 5;
+  const activeDocs = docs.filter(d => d.status !== 'denied');
 
+  for (let i = 0; i < activeDocs.length; i += BILL_BATCH_SIZE) {
+    const batch = activeDocs.slice(i, i + BILL_BATCH_SIZE);
+    const batchResults = await Promise.all(
+      batch.map(async (doc) => {
+        try {
+          const itemData = await pave({
+            document: {
+              $: { id: doc.id },
+              costItems: {
+                $: { size: 100 },
+                nodes: {
+                  id: {},
+                  name: {},
+                  description: {},
+                  quantity: {},
+                  cost: {},
+                  costCode: { id: {}, number: {}, name: {} },
+                  jobCostItem: {
+                    id: {},
+                    name: {},
+                    costCode: { id: {}, number: {}, name: {} },
+                  },
+                },
+              },
+            },
+          });
+          const items = (itemData as any)?.document?.costItems?.nodes || [];
+          return { doc, items };
+        } catch (err: any) {
+          // Surface but don't kill the whole job — skip this bill.
+          console.warn(`[getJobBillLines] doc ${doc.id} cost items failed:`, err?.message || err);
+          return { doc, items: [] as any[] };
+        }
+      })
+    );
+
+    for (const { doc, items } of batchResults) {
+      const vendorAcct = doc.account || null;
       for (const item of items) {
         out.push({
           costItemId: item.id,
@@ -5291,9 +5331,6 @@ export async function getJobBillLines(jobId: string): Promise<JobBillLine[]> {
         });
       }
     }
-
-    nextPage = docsPage?.nextPage || null;
-    if (!nextPage || docs.length < PAGE_SIZE) break;
   }
 
   return out;
