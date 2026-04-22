@@ -7,7 +7,7 @@ import { usePathname, useRouter } from 'next/navigation';
 import {
   LayoutDashboard, FolderKanban, Menu, X, ChevronRight,
   DollarSign, Calculator, MessageSquare, ClipboardList, LogOut, Users, FileText, BarChart3,
-  Megaphone, Bug,
+  Megaphone, Bug, Receipt,
 } from 'lucide-react';
 import { useAuth } from '../hooks/useAuth';
 import AskAgentPanel from './components/AskAgentPanel';
@@ -21,6 +21,7 @@ const ADMIN_NAV = [
   { href: '/dashboard/estimate', label: 'Estimating', icon: Calculator },
   { href: '/dashboard/invoicing', label: 'Invoicing', icon: DollarSign },
   { href: '/dashboard/job-costing', label: 'Job Costing', icon: BarChart3 },
+  { href: '/dashboard/bill-review', label: 'Bill Review', icon: Receipt },
   { href: '/dashboard/spec-writer', label: 'Spec Writer', icon: FileText },
   { href: '/dashboard/marketing', label: 'Marketing', icon: Megaphone },
   { href: '/dashboard/tickets', label: 'Tickets', icon: Bug },
