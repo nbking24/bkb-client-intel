@@ -4250,7 +4250,8 @@ ${billDesc}`,
 
     const roundedHours = Math.round(unbilledLaborHours * 100) / 100;
 
-    // Build labor date range header so clients know what dates are being billed
+    // Build labor date range header so clients know what dates are being billed.
+    // Include total hours so the client sees both the period and the volume at a glance.
     const cc23LaborDates = cc23TimeEntries
       .filter((e: any) => e.startedAt)
       .map((e: any) => new Date(e.startedAt))
@@ -4259,7 +4260,11 @@ ${billDesc}`,
     if (cc23LaborDates.length > 0) {
       const cc23First = cc23LaborDates[0].toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
       const cc23Last = cc23LaborDates[cc23LaborDates.length - 1].toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
-      cc23DateHeader = cc23First === cc23Last ? `Labor dates: ${cc23First}` : `Labor dates: ${cc23First} \u2013 ${cc23Last}`;
+      const dateRange = cc23First === cc23Last ? cc23First : `${cc23First} \u2013 ${cc23Last}`;
+      cc23DateHeader = `Labor dates: ${dateRange}\nTotal labor hours: ${roundedHours}`;
+    } else if (roundedHours > 0) {
+      // No dated entries but we still have hours — surface the total on its own.
+      cc23DateHeader = `Total labor hours: ${roundedHours}`;
     }
 
     // Build labor description from time entry notes
