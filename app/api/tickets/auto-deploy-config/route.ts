@@ -9,15 +9,16 @@
  *
  * Response shape:
  * {
- *   enabled: boolean,           // TICKETS_AUTO_DEPLOY env var, defaults on
- *   deploys_today: number,      // count of today's auto-deploys
- *   cap: number,                // TICKETS_DAILY_CAP, defaults 3
+ *   enabled: boolean,                  // TICKETS_AUTO_DEPLOY env var, defaults on
+ *   deploys_today: number,             // count of today's auto-deploys
+ *   cap: number,                       // TICKETS_DAILY_CAP, defaults 3
  *   cap_reached: boolean,
- *   paused_reason: string|null, // human-readable reason if !enabled
- *   green_lane_line_cap: number,
- *   green_lane_file_cap: number,
- *   yellow_lane_line_cap: number,
- *   timezone: string,           // the tz used to bound "today"
+ *   paused_reason: string|null,        // human-readable reason if !enabled
+ *   green_lane_line_cap: number,       // defaults 150
+ *   green_lane_file_cap: number,       // defaults 2
+ *   yellow_autodeploy_line_cap: number,// defaults 75 (over -> Yellow PR)
+ *   yellow_lane_line_cap: number,      // defaults 150 (over -> auto-escalate)
+ *   timezone: string,                  // the tz used to bound "today"
  *   as_of: string,
  * }
  *
@@ -32,8 +33,9 @@ export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
 
 const DEFAULT_CAP = 3;
-const DEFAULT_GREEN_LINE_CAP = 50;
+const DEFAULT_GREEN_LINE_CAP = 150;
 const DEFAULT_GREEN_FILE_CAP = 2;
+const DEFAULT_YELLOW_AUTODEPLOY_LINE_CAP = 75;
 const DEFAULT_YELLOW_LINE_CAP = 150;
 const TZ = 'America/Chicago';
 
@@ -114,6 +116,10 @@ export async function GET(req: NextRequest) {
   const cap = numEnv('TICKETS_DAILY_CAP', DEFAULT_CAP);
   const greenLineCap = numEnv('TICKETS_GREEN_LANE_LINE_CAP', DEFAULT_GREEN_LINE_CAP);
   const greenFileCap = numEnv('TICKETS_GREEN_LANE_FILE_CAP', DEFAULT_GREEN_FILE_CAP);
+  const yellowAutodeployLineCap = numEnv(
+    'TICKETS_YELLOW_AUTODEPLOY_LINE_CAP',
+    DEFAULT_YELLOW_AUTODEPLOY_LINE_CAP,
+  );
   const yellowLineCap = numEnv('TICKETS_YELLOW_LANE_LINE_CAP', DEFAULT_YELLOW_LINE_CAP);
 
   const deploysToday = await countDeploysToday();
@@ -132,6 +138,7 @@ export async function GET(req: NextRequest) {
     paused_reason: pausedReason,
     green_lane_line_cap: greenLineCap,
     green_lane_file_cap: greenFileCap,
+    yellow_autodeploy_line_cap: yellowAutodeployLineCap,
     yellow_lane_line_cap: yellowLineCap,
     timezone: TZ,
     as_of: new Date().toISOString(),
