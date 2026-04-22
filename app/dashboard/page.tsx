@@ -1476,6 +1476,35 @@ export default function DashboardOverview() {
       if (!res.ok) { const t = await res.text(); throw new Error(t); }
       const data = await res.json();
       const apptCount = data.ghlAppointments?.length || 1;
+      const errs: string[] = Array.isArray(data.errors) ? data.errors : [];
+      if (errs.length > 0) {
+        // Partial failure: the meeting was created for some invitees but not others.
+        // Surface who was dropped so Terri knows the meeting only landed on some calendars.
+        const calTeamMisses: string[] = [];
+        const otherIssues: string[] = [];
+        for (const raw of errs) {
+          if (/user id (?:not|is not) part of calendar team/i.test(raw)) {
+            const m = raw.match(/assigned to ([^)]+)\)/);
+            const who = m ? m[1].trim() : 'A team member';
+            if (!calTeamMisses.includes(who)) calTeamMisses.push(who);
+          } else {
+            otherIssues.push(raw);
+          }
+        }
+        let friendly: string;
+        if (calTeamMisses.length > 0) {
+          const who = calTeamMisses.join(', ');
+          const single = calTeamMisses.length === 1;
+          friendly = `Meeting created, but ${who} ${single ? 'is' : 'are'} not on the Loop calendar team for this meeting type, so nothing was added to their calendar. Ask Nathan to add them in Loop admin, then try again.`;
+        } else {
+          const first = (otherIssues[0] || '').split(':').slice(0, 2).join(':').trim();
+          friendly = `Meeting created, but ${errs.length} reminder${errs.length > 1 ? 's' : ''} could not be sent. ${first || 'Check server logs.'}`;
+        }
+        setSmSuccess('❌ ' + friendly);
+        // Do not reset the form or auto-clear the banner on partial failure: Terri needs time to read it.
+        window.dispatchEvent(new Event('refreshDashboard'));
+        return;
+      }
       setSmSuccess(`Meeting created — ${apptCount} reminder${apptCount > 1 ? 's' : ''} sent${data.jtTaskId ? ' + JT task' : ''}`);
       // Reset form
       setSmTitle(''); setSmDate(''); setSmTime('09:00'); setSmNotes(''); setSmAddress('');
