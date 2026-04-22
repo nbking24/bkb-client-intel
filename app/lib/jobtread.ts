@@ -5232,10 +5232,9 @@ export async function getJobBillLines(jobId: string): Promise<JobBillLine[]> {
             name: {},
             status: {},
             issueDate: {},
-            // Vendor is the "issuer" account on the bill
-            issuer: {
-              account: { id: {}, name: {} },
-            },
+            // Vendor is the account on the bill document.
+            // JT's schema exposes this directly as doc.account, not doc.issuer.account.
+            account: { id: {}, name: {} },
             costItems: {
               $: { size: 50 },
               nodes: {
@@ -5264,7 +5263,7 @@ export async function getJobBillLines(jobId: string): Promise<JobBillLine[]> {
       // Skip denied / voided bills — they shouldn't drive review queue noise
       if (doc.status === 'denied') continue;
 
-      const vendorAcct = doc?.issuer?.account || null;
+      const vendorAcct = doc?.account || null;
       const items = doc?.costItems?.nodes || [];
 
       for (const item of items) {
