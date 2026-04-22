@@ -3188,6 +3188,9 @@ async function createJTCostItem(params: {
  */
 
 // Helper: validate AI-rewritten description is actual content, not meta-commentary
+// or client-alarming negations. Client-facing CO docs must never contain
+// phrases that suggest "you're being billed for nothing" — even if the AI's
+// intent was to report an empty filter result, the client reads it as a red flag.
 function isValidAiDescription(text: string): boolean {
   if (!text || text.length < 3) return false;
   const lower = text.toLowerCase();
@@ -3198,6 +3201,14 @@ function isValidAiDescription(text: string): boolean {
     "unfortunately", "it seems", "it appears", "there is no",
     "there are no", "i need", "i cannot", "i can't", "however,",
     "note:", "sorry", "here is", "here's the rewrite",
+    // Client-alarming negations — never surface "nothing to bill" style output
+    // on a customer-facing change order. Even if the AI meant "no finish
+    // materials, only consumables", the client will read it as "why am I
+    // being charged for this line then?" — kill it and fall back to the raw
+    // bill description (or a safe generic) instead.
+    "no billable", "no items to report", "no items to bill",
+    "no materials to report", "no project materials",
+    "nothing to report", "nothing to bill",
   ];
   return !badPatterns.some(p => lower.startsWith(p) || lower.includes(p));
 }
@@ -3751,7 +3762,7 @@ export async function createDraftBillableInvoice(jobId: string): Promise<{
           // `subject` pulled so same-day "Billable CO MM/DD/YY" detection works
           // — starting 2026-04-21, the billable-items flow stores its date
           // stamp in subject (name is the JT template name like "Change Order").
-          nodes: { id: {}, name: {}, subject: {}, type: {}, status: {}, number: {} },
+          nodes: { id: {}, name: {}, subject: {}, type: {}, status: {}, number: {}, account: { name: {} } },
         },
       },
     });
@@ -4096,7 +4107,12 @@ export async function createDraftBillableInvoice(jobId: string): Promise<{
                 max_tokens: 256,
                 messages: [{
                   role: 'user',
-                  content: `Rewrite this vendor bill description into a brief, professional, client-facing summary for a renovation change order. Keep it to 1-2 concise sentences. Do not include pricing. Do not use markdown headers (#) or bold (**) formatting. Write in plain text. Do not mention tools, consumables, or crew supplies (gloves, batteries, cords, blades, tape, rags, trash bags, etc.) — only mention materials that become part of the finished project.\n\nOriginal:\n${billDesc}`,
+                  content: `Rewrite this vendor bill description into a brief, professional, client-facing summary for a renovation change order. Keep it to 1-2 concise sentences. Do not include pricing. Do not use markdown headers (#) or bold (**) formatting. Write in plain text.
+
+Always describe SOMETHING that was provided by this bill — the client is being billed for it, so the description must reflect real content. If the bill consists entirely of small tools, blades, caulk, fasteners, tape, or other consumable project supplies, describe it generically as "project supplies and consumables used on site" or similar. Never respond with phrases like "no billable materials", "nothing to report", or any language that suggests there is nothing to bill for — the line item exists and the client will see the charge, so the description must match.
+
+Original:
+${billDesc}`,
                 }],
               }),
             });
@@ -4118,9 +4134,20 @@ export async function createDraftBillableInvoice(jobId: string): Promise<{
       if (!finalBillDesc && billDesc) {
         finalBillDesc = billDesc.split('\n')[0].slice(0, 240).trim();
       }
-      if (finalBillDesc) {
-        billSummaries.push({ vendor: vendorAccount, desc: finalBillDesc });
+      // Final safety net: if we STILL have nothing (bill had no item-level
+      // description AND AI output was rejected), write a neutral generic
+      // description rather than leaving the sub-group blank or — worse —
+      // letting an earlier rejected AI phrase leak through. The customer is
+      // being billed for this line, so it must describe something plausible.
+      if (!finalBillDesc) {
+        finalBillDesc = 'Project materials and supplies used on site.';
       }
+      // Always ensure the sub-group carries a description, even when the
+      // primary AI path didn't write one (e.g., rejected by isValidAiDescription).
+      try {
+        await updateJTCostGroup(subGroup.id, { description: finalBillDesc });
+      } catch (_e) { /* non-critical */ }
+      billSummaries.push({ vendor: vendorAccount, desc: finalBillDesc });
 
       // Hide line items on the sub-group
       await pave({ updateCostGroup: { $: { id: subGroup.id, showChildren: false } } });
@@ -4201,22 +4228,12 @@ export async function createDraftBillableInvoice(jobId: string): Promise<{
     return itemCount;
   }
 
-  // Get vendor account names for bill sub-group naming
-  const docsWithAccounts = await pave({
-    job: {
-      $: { id: jobId },
-      documents: {
-        $: { size: 50 },
-        nodes: { id: {}, name: {}, type: {}, number: {}, account: { name: {} } },
-      },
-    },
-  });
-  const allDocsWithAccounts = (docsWithAccounts as any)?.job?.documents?.nodes || [];
-  // Merge account names into allDocs
-  for (const d of allDocsWithAccounts) {
-    const existing = allDocs.find((e: any) => e.id === d.id);
-    if (existing) existing.account = d.account;
-  }
+  // Vendor account names for bill sub-group naming are now fetched directly
+  // on the paginated documents query above (nodes selection includes
+  // `account: { name: {} }`), so no secondary fetch is needed. This fixes a
+  // bug where jobs with >50 bills (e.g. Bartholomew) dropped vendor names
+  // off the newest bills, producing sub-group titles like "Bill 144-104"
+  // instead of "Wehrung's Lumber Bill 144-104".
 
   // Create Trade Partners group (subcontractors)
   createdItemCount += await createBillCategory('Billable Items', uninvoicedSubs, doc.id);
