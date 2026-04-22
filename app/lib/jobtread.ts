@@ -3025,7 +3025,10 @@ async function createJTDocument(params: {
     ...(subject ? { subject } : {}),
     ...(description !== undefined ? { description } : {}),
     ...(footer !== undefined ? { footer } : {}),
-    ...(tplId ? { documentTemplateId: tplId } : {}),
+    // NOTE: PAVE's createDocument does NOT accept documentTemplateId; the
+    // template is resolved by matching `name` against the job's allowed
+    // template set. The `tplId` parameter is intentionally unused in the
+    // mutation; we keep it in the signature to avoid touching call sites.
   });
 
   const runCreate = async (nm: string, tplId?: string) => {
