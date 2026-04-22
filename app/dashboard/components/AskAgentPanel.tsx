@@ -3,13 +3,17 @@
 
 import { useState, useRef, useEffect, useCallback } from 'react';
 import { useAuth } from '@/app/hooks/useAuth';
-import { X, Send, Loader2, MessageSquare, ChevronDown, Search, Bot, Brain, FileSearch } from 'lucide-react';
+import { X, Send, Loader2, MessageSquare, ChevronDown, Search, Bot, Brain, FileSearch, CheckCircle, XCircle } from 'lucide-react';
+import type { ActionConfirmData, TaskConfirmData } from '@/app/hooks/useAskAgent';
 
 /* ── Types ── */
 interface ChatMessage {
   role: 'user' | 'assistant';
   content: string;
   agent?: string;
+  needsConfirmation?: boolean;
+  taskConfirm?: TaskConfirmData;
+  actionConfirm?: ActionConfirmData;
 }
 
 interface JobOption {
@@ -153,7 +157,14 @@ export default function AskAgentPanel({
         setLastAgent(data.agent || '');
         setMessages((prev) => [
           ...prev,
-          { role: 'assistant', content: data.reply, agent: data.agent },
+          {
+            role: 'assistant',
+            content: data.reply,
+            agent: data.agent,
+            needsConfirmation: data.needsConfirmation || false,
+            taskConfirm: data.taskConfirm || undefined,
+            actionConfirm: data.actionConfirm || undefined,
+          },
         ]);
       } catch {
         setMessages((prev) => [
@@ -173,6 +184,48 @@ export default function AskAgentPanel({
       sendMessage();
     }
   };
+
+  /* ── Approval handlers ── */
+  const handleActionApprove = useCallback(async () => {
+    const lastMsg = messages[messages.length - 1];
+    const action = lastMsg?.actionConfirm;
+    setMessages((prev) =>
+      prev.map((m, i) => (i === prev.length - 1 ? { ...m, needsConfirmation: false } : m))
+    );
+    if (!action) return;
+    const confirmMsg =
+      'Approved.\n\n[APPROVED ACTION - execute tool "' + action.tool + '" with the payload below]\n' +
+      JSON.stringify({
+        tool: action.tool,
+        title: action.title,
+        summary: action.summary,
+        payload: action.payload,
+      });
+    await sendMessage(confirmMsg);
+  }, [messages, sendMessage]);
+
+  const handleTaskApprove = useCallback(async () => {
+    const lastMsg = messages[messages.length - 1];
+    const taskData = lastMsg?.taskConfirm;
+    setMessages((prev) =>
+      prev.map((m, i) => (i === prev.length - 1 ? { ...m, needsConfirmation: false } : m))
+    );
+    let confirmMsg = 'Yes, proceed.';
+    if (taskData) {
+      confirmMsg +=
+        '\n\n[APPROVED TASK DATA - execute this now using create_phase_task tool]\n' +
+        JSON.stringify(taskData);
+    }
+    await sendMessage(confirmMsg);
+  }, [messages, sendMessage]);
+
+  const handleDecline = useCallback(() => {
+    setMessages((prev) => [
+      ...prev.map((m, i) => (i === prev.length - 1 ? { ...m, needsConfirmation: false } : m)),
+      { role: 'user', content: 'No, cancel that.' },
+      { role: 'assistant', content: 'No problem, action cancelled.' },
+    ]);
+  }, []);
 
   const clearChat = () => {
     setMessages([]);
@@ -415,36 +468,294 @@ export default function AskAgentPanel({
             </div>
           )}
 
-          {messages.map((msg, i) => (
-            <div
-              key={i}
-              className={`flex ${msg.role === 'user' ? 'justify-end' : 'justify-start'}`}
-            >
-              <div className={`max-w-[88%] ${msg.role === 'assistant' ? 'space-y-1' : ''}`}>
+          {messages.map((msg, i) => {
+            const isLast = i === messages.length - 1;
+            const showActionCard =
+              isLast && !loading && msg.role === 'assistant' && msg.needsConfirmation && msg.actionConfirm;
+            const showTaskCard =
+              isLast && !loading && msg.role === 'assistant' && msg.needsConfirmation && msg.taskConfirm;
+            return (
+              <div key={i} className="space-y-2">
                 <div
-                  className="px-3 py-2 rounded-xl text-sm"
-                  style={
-                    msg.role === 'user'
-                      ? { background: '#c88c00', color: '#ffffff' }
-                      : {
-                          background: '#f8f6f3',
-                          color: '#1a1a1a',
-                          border: '1px solid rgba(200,140,0,0.08)',
-                        }
-                  }
+                  className={`flex ${msg.role === 'user' ? 'justify-end' : 'justify-start'}`}
                 >
-                  {renderContent(msg.content)}
-                </div>
-                {msg.agent && (
-                  <div className="text-right">
-                    <span className="text-[10px]" style={{ color: '#6a6058' }}>
-                      via {msg.agent}
-                    </span>
+                  <div className={`max-w-[88%] ${msg.role === 'assistant' ? 'space-y-1' : ''}`}>
+                    <div
+                      className="px-3 py-2 rounded-xl text-sm"
+                      style={
+                        msg.role === 'user'
+                          ? { background: '#c88c00', color: '#ffffff' }
+                          : {
+                              background: '#f8f6f3',
+                              color: '#1a1a1a',
+                              border: '1px solid rgba(200,140,0,0.08)',
+                            }
+                      }
+                    >
+                      {renderContent(msg.content)}
+                    </div>
+                    {msg.agent && (
+                      <div className="text-right">
+                        <span className="text-[10px]" style={{ color: '#6a6058' }}>
+                          via {msg.agent}
+                        </span>
+                      </div>
+                    )}
                   </div>
-                )}
+                </div>
+
+                {/* Generic JobTread write approval card (comments, daily logs, task updates/deletes, etc.) */}
+                {showActionCard && (() => {
+                  const act = msg.actionConfirm!;
+                  return (
+                    <div className="flex justify-start">
+                      <div style={{ maxWidth: '92%', width: '100%' }}>
+                        <div
+                          style={{
+                            background: '#f8f6f3',
+                            borderRadius: 10,
+                            padding: 12,
+                            marginBottom: 8,
+                            border: '1px solid rgba(200,140,0,0.25)',
+                          }}
+                        >
+                          <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 6 }}>
+                            <div
+                              style={{
+                                fontSize: 10,
+                                fontWeight: 700,
+                                letterSpacing: 0.6,
+                                textTransform: 'uppercase',
+                                color: '#c88c00',
+                              }}
+                            >
+                              Approval needed
+                            </div>
+                            <div style={{ fontSize: 9, color: '#8a8078', marginLeft: 'auto' }}>
+                              Writes to JobTread
+                            </div>
+                          </div>
+                          <div
+                            style={{
+                              fontSize: 13,
+                              fontWeight: 600,
+                              color: '#1a1a1a',
+                              marginBottom: 4,
+                            }}
+                          >
+                            {act.title || 'Confirm write'}
+                          </div>
+                          <div
+                            style={{
+                              fontSize: 12,
+                              color: '#3a3530',
+                              marginBottom: act.details && act.details.length > 0 ? 8 : 0,
+                              lineHeight: '18px',
+                            }}
+                          >
+                            {act.summary}
+                          </div>
+                          {Array.isArray(act.details) && act.details.length > 0 && (
+                            <div
+                              style={{
+                                display: 'grid',
+                                gridTemplateColumns: 'auto 1fr',
+                                gap: '3px 10px',
+                                fontSize: 11,
+                                paddingTop: 6,
+                                borderTop: '1px solid rgba(200,140,0,0.12)',
+                              }}
+                            >
+                              {act.details.map((d, di) => (
+                                <div key={di} style={{ display: 'contents' }}>
+                                  <div style={{ color: '#8a8078', fontWeight: 600 }}>{d.label}</div>
+                                  <div
+                                    style={{
+                                      color: '#1a1a1a',
+                                      wordBreak: 'break-word',
+                                      whiteSpace: 'pre-wrap',
+                                    }}
+                                  >
+                                    {d.value}
+                                  </div>
+                                </div>
+                              ))}
+                            </div>
+                          )}
+                        </div>
+                        <div style={{ display: 'flex', gap: 6 }}>
+                          <button
+                            onClick={handleActionApprove}
+                            style={{
+                              display: 'flex',
+                              alignItems: 'center',
+                              gap: 6,
+                              padding: '6px 12px',
+                              borderRadius: 6,
+                              fontSize: 12,
+                              fontWeight: 700,
+                              background: '#22c55e',
+                              color: '#ffffff',
+                              border: 'none',
+                              cursor: 'pointer',
+                              boxShadow: '0 1px 3px rgba(34,197,94,0.35)',
+                            }}
+                          >
+                            <CheckCircle size={13} /> Approve &amp; send to JobTread
+                          </button>
+                          <button
+                            onClick={handleDecline}
+                            style={{
+                              display: 'flex',
+                              alignItems: 'center',
+                              gap: 6,
+                              padding: '6px 12px',
+                              borderRadius: 6,
+                              fontSize: 12,
+                              fontWeight: 600,
+                              background: 'rgba(239,68,68,0.1)',
+                              color: '#ef4444',
+                              border: 'none',
+                              cursor: 'pointer',
+                            }}
+                          >
+                            <XCircle size={13} /> Cancel
+                          </button>
+                        </div>
+                      </div>
+                    </div>
+                  );
+                })()}
+
+                {/* Task creation approval card */}
+                {showTaskCard && (() => {
+                  const t = msg.taskConfirm!;
+                  return (
+                    <div className="flex justify-start">
+                      <div style={{ maxWidth: '92%', width: '100%' }}>
+                        <div
+                          style={{
+                            background: '#f8f6f3',
+                            borderRadius: 10,
+                            padding: 12,
+                            marginBottom: 8,
+                            border: '1px solid rgba(200,140,0,0.25)',
+                          }}
+                        >
+                          <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 6 }}>
+                            <div
+                              style={{
+                                fontSize: 10,
+                                fontWeight: 700,
+                                letterSpacing: 0.6,
+                                textTransform: 'uppercase',
+                                color: '#c88c00',
+                              }}
+                            >
+                              Approval needed
+                            </div>
+                            <div style={{ fontSize: 9, color: '#8a8078', marginLeft: 'auto' }}>
+                              Creates task in JobTread
+                            </div>
+                          </div>
+                          <div
+                            style={{
+                              fontSize: 13,
+                              fontWeight: 600,
+                              color: '#1a1a1a',
+                              marginBottom: 6,
+                            }}
+                          >
+                            {t.name || 'Confirm task'}
+                          </div>
+                          <div
+                            style={{
+                              display: 'grid',
+                              gridTemplateColumns: 'auto 1fr',
+                              gap: '3px 10px',
+                              fontSize: 11,
+                            }}
+                          >
+                            {t.phase && (
+                              <>
+                                <div style={{ color: '#8a8078', fontWeight: 600 }}>Phase</div>
+                                <div style={{ color: '#1a1a1a' }}>{t.phase}</div>
+                              </>
+                            )}
+                            {t.startDate && (
+                              <>
+                                <div style={{ color: '#8a8078', fontWeight: 600 }}>Start</div>
+                                <div style={{ color: '#1a1a1a' }}>{t.startDate}</div>
+                              </>
+                            )}
+                            {t.endDate && (
+                              <>
+                                <div style={{ color: '#8a8078', fontWeight: 600 }}>End</div>
+                                <div style={{ color: '#1a1a1a' }}>{t.endDate}</div>
+                              </>
+                            )}
+                            {t.assignee && (
+                              <>
+                                <div style={{ color: '#8a8078', fontWeight: 600 }}>Assignee</div>
+                                <div style={{ color: '#1a1a1a' }}>{t.assignee}</div>
+                              </>
+                            )}
+                            {t.description && (
+                              <>
+                                <div style={{ color: '#8a8078', fontWeight: 600 }}>Notes</div>
+                                <div style={{ color: '#1a1a1a', whiteSpace: 'pre-wrap' }}>
+                                  {t.description}
+                                </div>
+                              </>
+                            )}
+                          </div>
+                        </div>
+                        <div style={{ display: 'flex', gap: 6 }}>
+                          <button
+                            onClick={handleTaskApprove}
+                            style={{
+                              display: 'flex',
+                              alignItems: 'center',
+                              gap: 6,
+                              padding: '6px 12px',
+                              borderRadius: 6,
+                              fontSize: 12,
+                              fontWeight: 700,
+                              background: '#22c55e',
+                              color: '#ffffff',
+                              border: 'none',
+                              cursor: 'pointer',
+                              boxShadow: '0 1px 3px rgba(34,197,94,0.35)',
+                            }}
+                          >
+                            <CheckCircle size={13} /> Approve &amp; create task
+                          </button>
+                          <button
+                            onClick={handleDecline}
+                            style={{
+                              display: 'flex',
+                              alignItems: 'center',
+                              gap: 6,
+                              padding: '6px 12px',
+                              borderRadius: 6,
+                              fontSize: 12,
+                              fontWeight: 600,
+                              background: 'rgba(239,68,68,0.1)',
+                              color: '#ef4444',
+                              border: 'none',
+                              cursor: 'pointer',
+                            }}
+                          >
+                            <XCircle size={13} /> Cancel
+                          </button>
+                        </div>
+                      </div>
+                    </div>
+                  );
+                })()}
               </div>
-            </div>
-          ))}
+            );
+          })}
 
           {loading && (
             <div className="flex justify-start">

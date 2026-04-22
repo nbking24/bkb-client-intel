@@ -40,6 +40,19 @@ export interface COProposalData {
   };
 }
 
+export interface ActionConfirmDetail {
+  label: string;
+  value: string;
+}
+
+export interface ActionConfirmData {
+  tool: string;
+  title: string;
+  summary: string;
+  details?: ActionConfirmDetail[];
+  payload: Record<string, any>;
+}
+
 export interface ChatMessage {
   role: 'user' | 'assistant';
   content: string;
@@ -47,6 +60,7 @@ export interface ChatMessage {
   needsConfirmation?: boolean;
   taskConfirm?: TaskConfirmData;
   coProposal?: COProposalData;
+  actionConfirm?: ActionConfirmData;
 }
 
 export interface ConversationSummary {
@@ -393,6 +407,7 @@ export function useAskAgent() {
           agent: data.agent,
           needsConfirmation: data.needsConfirmation || false,
           taskConfirm: data.taskConfirm || undefined,
+          actionConfirm: data.actionConfirm || undefined,
         },
       ]);
 
@@ -526,6 +541,20 @@ export function useAskAgent() {
     ]);
   };
 
+  /* ── Approve a generic JT write action (from @@ACTION_CONFIRM@@ card) ── */
+  const handleActionApprove = async () => {
+    const lastMsg = messages[messages.length - 1];
+    const action = lastMsg?.actionConfirm;
+    setMessages(prev => prev.map((m, i) =>
+      i === prev.length - 1 ? { ...m, needsConfirmation: false } : m
+    ));
+    if (!action) return;
+    const confirmMsg =
+      'Approved.\n\n[APPROVED ACTION — execute tool "' + action.tool + '" with the payload below]\n' +
+      JSON.stringify({ tool: action.tool, title: action.title, summary: action.summary, payload: action.payload });
+    await sendMessage(confirmMsg);
+  };
+
   /* ── Computed values ── */
   const lastMsgNeedsConfirm = messages.length > 0 &&
     messages[messages.length - 1].role === 'assistant' &&
@@ -566,6 +595,7 @@ export function useAskAgent() {
     handleSubmit,
     handleConfirm,
     handleDecline,
+    handleActionApprove,
 
     // Computed
     lastMsgNeedsConfirm,

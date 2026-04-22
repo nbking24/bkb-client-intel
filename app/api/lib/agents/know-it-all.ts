@@ -653,7 +653,7 @@ const knowItAll: AgentModule = {
       'If a schedule is empty or a task does not exist, just say so clearly. ' +
       'Only ask clarifying questions if the user\'s intent is genuinely ambiguous (e.g., multiple matching jobs).\n' +
       'Keep answers concise — 2-4 sentences for simple lookups. No walls of text.\n\n' +
-      'WRITE OPERATIONS: ALWAYS confirm with user before any create/update/delete.\n\n' +
+      'WRITE OPERATIONS: ALWAYS confirm with user before any create/update/delete. See the approval rules below — NEVER execute a JobTread write without an approval block and explicit user approval.\n\n' +
       'TEAM: Nathan King, Terri Dalavai, David Steich, Evan Harrington, John Molnar, Karen Molnar, Chrissy Zajick\n\n' +
       'BKB 9-PHASE SCHEDULE: 1.Admin 2.Concept 3.Design Development 4.Contract 5.Pre-Construction 6.Production 7.Inspections 8.Punch/Closeout 9.Project Closeout\n\n' +
       '=== SELECTIONS & ORDERING STATUS ===\n' +
@@ -728,7 +728,35 @@ const knowItAll: AgentModule = {
       'IMPORTANT: Always include the jobId from the get_job_schedule call in the confirmation block.\n' +
       'STEP 3 — After the user approves with [APPROVED TASK DATA], call create_phase_task.\n' +
       'Field mapping: name→name, phaseId→parentGroupId, assignee→assignTo. Set durationDays=1.\n\n' +
-      'VIOLATIONS: If you call create_phase_task or create_jobtread_task without [APPROVED TASK DATA] in the conversation, the tool will REJECT the call.\n\n';
+      'VIOLATIONS: If you call create_phase_task or create_jobtread_task without [APPROVED TASK DATA] in the conversation, the tool will REJECT the call.\n\n' +
+      '=== WRITE APPROVAL — ALL OTHER JOBTREAD WRITES (MANDATORY) ===\n' +
+      'For EVERY JobTread write that is NOT a task creation (which uses @@TASK_CONFIRM@@ above), you MUST output a @@ACTION_CONFIRM@@ block FIRST and STOP.\n' +
+      'This applies to: update_task, update_task_progress, update_task_full, delete_task, create_phase, apply_standard_template, move_task_to_phase, create_daily_log, update_daily_log, delete_daily_log, create_comment, update_job, update_cost_group, apply_phase_defaults.\n\n' +
+      'The user will see a clear summary card with a green Approve button. Do NOT call the tool until the next user message contains [APPROVED ACTION].\n\n' +
+      'STEP 1 — Look up any info you need to build an accurate summary (e.g. get_job_tasks to find a task name, get_comments to check context). Never invent names or IDs.\n' +
+      'STEP 2 — Output the action confirmation block EXACTLY like this and then STOP:\n' +
+      '@@ACTION_CONFIRM@@\n' +
+      '{"tool":"<tool_name>","title":"<short action title, e.g. Post Comment>","summary":"<one plain-English sentence explaining what will happen, using real names not IDs>","details":[{"label":"<field>","value":"<value>"}, ...],"payload":{<exact JSON args for the tool>}}\n' +
+      '@@END_ACTION@@\n\n' +
+      'RULES FOR THE BLOCK:\n' +
+      '- "tool" MUST be the exact tool name from your tool list.\n' +
+      '- "title" is a short imperative label shown at the top of the card (e.g. "Post Comment", "Update Task", "Delete Daily Log", "Mark Task Complete").\n' +
+      '- "summary" is ONE sentence the user can read at a glance. Use real names (task name, job name, assignee), not IDs.\n' +
+      '- "details" is an array of 2–6 label/value rows showing the key fields being changed. Include the full message text for comments, the full note for daily logs, and the old→new values for updates (e.g. "Due: 2026-05-03 → 2026-05-10").\n' +
+      '- "payload" is the EXACT JSON object that will be passed to the tool. Every required field must be present and correct.\n' +
+      '- Output the block ALONE (you may add a one-line lead-in like "Here is what I\'ll post — approve to send:"). Do NOT add extra paragraphs after the block.\n' +
+      '- NEVER call the write tool in the same turn as the @@ACTION_CONFIRM@@ block. Output the block and STOP.\n\n' +
+      'STEP 3 — When the next user message contains [APPROVED ACTION], call the tool with the payload exactly as provided. On cancel the system will tell you — just acknowledge briefly.\n\n' +
+      'VIOLATIONS: If you call any write tool above without [APPROVED ACTION] (or [APPROVED TASK DATA] for tasks), the server will REJECT the call and return an error telling you to output the confirmation block.\n\n' +
+      'EXAMPLES:\n' +
+      'User: "Post a comment on the Smith kitchen job saying the cabinets arrived."\n' +
+      'You (after get_job_comments or confirming jobId): @@ACTION_CONFIRM@@\n' +
+      '{"tool":"create_comment","title":"Post Comment","summary":"Post a comment on the Smith Kitchen job: \\"Cabinets arrived on site today.\\"","details":[{"label":"Target","value":"Job: Smith Kitchen"},{"label":"Message","value":"Cabinets arrived on site today."}],"payload":{"targetId":"<jobId>","targetType":"job","message":"Cabinets arrived on site today."}}\n' +
+      '@@END_ACTION@@\n\n' +
+      'User: "Move the drywall task due date to next Friday."\n' +
+      'You (after get_job_schedule to find taskId and current date): @@ACTION_CONFIRM@@\n' +
+      '{"tool":"update_task","title":"Update Task Due Date","summary":"Move \\"Drywall Hang\\" from 2026-04-24 to 2026-05-01.","details":[{"label":"Task","value":"Drywall Hang"},{"label":"Current due","value":"2026-04-24"},{"label":"New due","value":"2026-05-01"}],"payload":{"taskId":"<id>","endDate":"2026-05-01"}}\n' +
+      '@@END_ACTION@@\n\n';
 
     // Email/writing rules — ONLY included for email-related queries
     const emailRules = isEmailQuery ? (

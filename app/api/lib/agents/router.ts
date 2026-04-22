@@ -51,6 +51,28 @@ const EXTENDED_CONFIRM_PATTERN = /^yes[,.]?\s*(proceed|go ahead|do it|please)[.!
 // Matches messages that contain approved task data (from the confirmation card)
 const APPROVED_TASK_PATTERN = /\[APPROVED TASK DATA/;
 
+// Matches messages that contain an approved generic write action (from the confirmation card)
+const APPROVED_ACTION_PATTERN = /\[APPROVED ACTION/;
+
+// Every JobTread write tool that MUST go through the @@ACTION_CONFIRM@@ flow.
+// (Task creation uses its own @@TASK_CONFIRM@@ flow and is gated separately.)
+const GATED_WRITE_TOOLS = new Set<string>([
+  'update_task',
+  'update_task_progress',
+  'update_task_full',
+  'delete_task',
+  'create_phase',
+  'apply_standard_template',
+  'move_task_to_phase',
+  'create_daily_log',
+  'update_daily_log',
+  'delete_daily_log',
+  'create_comment',
+  'update_job',
+  'update_cost_group',
+  'apply_phase_defaults',
+]);
+
 // Follow-up pattern: short messages that look like the user is providing info requested by the last agent
 const FOLLOWUP_PATTERN = /^[^?]{1,80}$/;
 
@@ -71,6 +93,10 @@ function selectAgent(message: string, lastAgentName?: string, forcedAgent?: stri
     }
     // Messages with approved task data always go back to the agent that proposed them
     if (APPROVED_TASK_PATTERN.test(trimmed)) {
+      return AGENT_MAP[lastAgentName];
+    }
+    // Messages with approved generic actions also stick to the proposing agent
+    if (APPROVED_ACTION_PATTERN.test(trimmed)) {
       return AGENT_MAP[lastAgentName];
     }
     // Short follow-ups (< 80 chars, no question mark) stick with the last agent
@@ -400,6 +426,76 @@ async function tryTaskCreationFastPath(msg: string, ctx: AgentContext, messages?
   }
 }
 
+// ── FAST PATH: Execute a confirmed generic write action without the full Claude tool loop ──
+// When the user approves an action via the @@ACTION_CONFIRM@@ card, we have everything
+// needed to run the tool directly — no Claude reasoning required. This also guarantees
+// the tool args exactly match what the user saw on screen (no hallucination drift).
+async function tryActionApprovalFastPath(
+  msg: string,
+  ctx: AgentContext,
+  lastAgent?: string
+): Promise<AgentResult | null> {
+  if (!APPROVED_ACTION_PATTERN.test(msg)) return null;
+
+  // Extract: [APPROVED ACTION <anything>]\n<JSON payload>
+  const match = msg.match(/\[APPROVED ACTION[^\]]*\]\s*([\s\S]*?)$/);
+  if (!match) return null;
+
+  let approved: any;
+  try {
+    approved = JSON.parse(match[1].trim());
+  } catch {
+    console.error('[FAST-ACTION] Failed to parse approved action JSON');
+    return null;
+  }
+
+  const tool: string | undefined = approved?.tool;
+  const payload: any = approved?.payload ?? approved?.input ?? {};
+  if (!tool || typeof tool !== 'string') {
+    console.error('[FAST-ACTION] Missing tool name on approved action');
+    return null;
+  }
+
+  if (!GATED_WRITE_TOOLS.has(tool)) {
+    // Not a tool we gate — fall through to normal agent handling
+    return null;
+  }
+
+  // Pick the agent that owns the tool (defaults to know-it-all — the only agent that registers these writes)
+  const agent = (lastAgent && AGENT_MAP[lastAgent]) || knowItAll;
+
+  console.log('[FAST-ACTION] Executing approved write:', tool, 'summary:', approved.summary);
+
+  try {
+    const result = await agent.executeTool(tool, payload, ctx);
+    // The tool result is already JSON. Build a short user-facing confirmation.
+    let parsed: any = null;
+    try { parsed = JSON.parse(result); } catch { /* non-JSON — fine */ }
+    const title = approved.title || 'Action';
+    if (parsed && parsed.success === false) {
+      return {
+        agentName: agent.name,
+        reply: '❌ ' + title + ' failed: ' + (parsed.error || 'Unknown error'),
+        needsConfirmation: false,
+      };
+    }
+    // Prefer a human-readable confirmation using the original summary
+    const summary = approved.summary ? ' ' + approved.summary.replace(/\.$/, '') + '.' : '';
+    return {
+      agentName: agent.name,
+      reply: '✅ ' + title + ' completed.' + summary,
+      needsConfirmation: false,
+    };
+  } catch (err: any) {
+    console.error('[FAST-ACTION] Tool execution error:', err?.message);
+    return {
+      agentName: agent.name,
+      reply: '❌ Could not complete that action: ' + (err?.message || 'Unknown error'),
+      needsConfirmation: false,
+    };
+  }
+}
+
 export async function routeMessage(
   messages: Array<{ role: string; content: string }>,
   ctx: AgentContext,
@@ -415,6 +511,10 @@ export async function routeMessage(
   // Fast-path for confirmed task creation (after user approves via confirmation card)
   const taskResult = await tryTaskCreationFastPath(lastMsg, ctx, messages);
   if (taskResult) return taskResult;
+
+  // Fast-path for any other confirmed JT write (after user approves via action card)
+  const actionResult = await tryActionApprovalFastPath(lastMsg, ctx, lastAgent);
+  if (actionResult) return actionResult;
 
   // ── TRANSCRIPT PRE-SAVE BYPASS ──
   // If the message looks like a transcript (long + keywords), save the raw text
@@ -563,6 +663,27 @@ export async function routeMessage(
               content: JSON.stringify({
                 success: false,
                 error: 'TASK CREATION BLOCKED: You must output a @@TASK_CONFIRM@@ block first and wait for user approval. Do NOT call create_phase_task or create_jobtread_task directly. Output the confirmation block now with the task details so the user can review and approve.',
+              }),
+            });
+            continue;
+          }
+        }
+
+        // GUARDRAIL: Block every OTHER JobTread write tool without an approval marker.
+        // Forces the agent to output an @@ACTION_CONFIRM@@ block and wait for the
+        // user to click Approve on the summary card.
+        if (GATED_WRITE_TOOLS.has(block.name)) {
+          const hasApproval = claudeMessages.some(
+            (m: any) => m.role === 'user' && typeof m.content === 'string' && m.content.includes('[APPROVED ACTION')
+          );
+          if (!hasApproval) {
+            console.log('[ROUTER] BLOCKED:', block.name, '— no [APPROVED ACTION] found in conversation');
+            toolResults.push({
+              type: 'tool_result',
+              tool_use_id: block.id,
+              content: JSON.stringify({
+                success: false,
+                error: 'WRITE BLOCKED: ' + block.name + ' is a JobTread write and requires user approval. Output a @@ACTION_CONFIRM@@ block with {tool, title, summary, details, payload} describing exactly what will happen, then STOP. The user will click the green Approve button on the summary card. Do NOT call this tool again until the next user message contains [APPROVED ACTION].',
               }),
             });
             continue;

@@ -18,6 +18,7 @@ import {
   type ChatMessage,
   type TaskConfirmData,
   type COProposalData,
+  type ActionConfirmData,
 } from '@/app/hooks/useAskAgent';
 
 
@@ -450,6 +451,7 @@ function InlineAskAgent({ pmJobs, screen, hideToggle, defaultOpen }: { pmJobs: {
           needsConfirmation: data.needsConfirmation || false,
           taskConfirm: data.taskConfirm || undefined,
           coProposal: data.coProposal || undefined,
+          actionConfirm: data.actionConfirm || undefined,
         },
       ]);
     } catch (err) {
@@ -492,6 +494,18 @@ function InlineAskAgent({ pmJobs, screen, hideToggle, defaultOpen }: { pmJobs: {
       { role: 'user', content: 'No, cancel that.' },
       { role: 'assistant', content: 'No problem â action cancelled.' },
     ]);
+  };
+
+  /* Approve a generic JobTread write (comment, daily log, update, delete, etc.) proposed via @@ACTION_CONFIRM@@. */
+  const handleActionApprove = async () => {
+    const lastMsg = messages[messages.length - 1];
+    const action = lastMsg?.actionConfirm;
+    setMessages(prev => prev.map((m, i) => i === prev.length - 1 ? { ...m, needsConfirmation: false } : m));
+    if (!action) return;
+    const confirmMsg =
+      'Approved.\n\n[APPROVED ACTION - execute tool "' + action.tool + '" with the payload below]\n' +
+      JSON.stringify({ tool: action.tool, title: action.title, summary: action.summary, payload: action.payload });
+    await sendMessage(confirmMsg);
   };
 
   const lastMsgNeedsConfirm = messages.length > 0 && messages[messages.length - 1].role === 'assistant' && messages[messages.length - 1].needsConfirmation && !loading;
@@ -621,6 +635,51 @@ function InlineAskAgent({ pmJobs, screen, hideToggle, defaultOpen }: { pmJobs: {
                     </button>
                   </div>
                 )}
+
+                {/* Generic JobTread write approval card (comments, daily logs, task updates/deletes, schedule edits, etc.) */}
+                {msg.needsConfirmation && msg.actionConfirm && i === messages.length - 1 && !loading && (() => {
+                  const act = msg.actionConfirm!;
+                  return (
+                    <div style={{ marginLeft: isTouch ? 32 : 24, marginTop: isTouch ? 8 : 6 }}>
+                      <div style={{ background: '#f8f6f3', borderRadius: 8, padding: isTouch ? 12 : 10, marginBottom: 8, border: '1px solid rgba(200,140,0,0.25)' }}>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 6 }}>
+                          <div style={{ fontSize: 10, fontWeight: 700, letterSpacing: 0.6, textTransform: 'uppercase', color: '#c88c00' }}>
+                            Approval needed
+                          </div>
+                          <div style={{ fontSize: 9, color: '#8a8078', marginLeft: 'auto' }}>
+                            Writes to JobTread
+                          </div>
+                        </div>
+                        <div style={{ fontSize: isTouch ? 14 : 13, fontWeight: 600, color: '#1a1a1a', marginBottom: 4 }}>
+                          {act.title || 'Confirm write'}
+                        </div>
+                        <div style={{ fontSize: isTouch ? 13 : 12, color: '#3a3530', marginBottom: (act.details && act.details.length > 0) ? 8 : 0, lineHeight: '18px' }}>
+                          {act.summary}
+                        </div>
+                        {Array.isArray(act.details) && act.details.length > 0 && (
+                          <div style={{ display: 'grid', gridTemplateColumns: 'auto 1fr', gap: '3px 10px', fontSize: isTouch ? 12 : 11, paddingTop: 6, borderTop: '1px solid rgba(200,140,0,0.12)' }}>
+                            {act.details.map((d: any, di: number) => (
+                              <>
+                                <div key={'l' + di} style={{ color: '#8a8078', fontWeight: 600 }}>{d.label}</div>
+                                <div key={'v' + di} style={{ color: '#1a1a1a', wordBreak: 'break-word', whiteSpace: 'pre-wrap' }}>{d.value}</div>
+                              </>
+                            ))}
+                          </div>
+                        )}
+                      </div>
+                      <div style={{ display: 'flex', gap: isTouch ? 10 : 6 }}>
+                        <button onClick={handleActionApprove}
+                          style={{ display: 'flex', alignItems: 'center', gap: 6, padding: isTouch ? '10px 18px' : '5px 12px', borderRadius: isTouch ? 8 : 5, fontSize: isTouch ? 14 : 11, fontWeight: 700, background: '#22c55e', color: '#ffffff', border: 'none', cursor: 'pointer', boxShadow: '0 1px 3px rgba(34,197,94,0.35)' }}>
+                          <CheckCircle size={isTouch ? 16 : 12} /> Approve &amp; send to JobTread
+                        </button>
+                        <button onClick={handleDecline}
+                          style={{ display: 'flex', alignItems: 'center', gap: 6, padding: isTouch ? '10px 18px' : '5px 12px', borderRadius: isTouch ? 8 : 5, fontSize: isTouch ? 14 : 11, fontWeight: 600, background: 'rgba(239,68,68,0.1)', color: '#ef4444', border: 'none', cursor: 'pointer' }}>
+                          <XCircle size={isTouch ? 16 : 12} /> Cancel
+                        </button>
+                      </div>
+                    </div>
+                  );
+                })()}
 
                 {/* CO Proposal approval UI */}
                 {msg.coProposal && i === messages.length - 1 && msg.needsConfirmation && !loading && (() => {

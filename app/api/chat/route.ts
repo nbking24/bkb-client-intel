@@ -107,12 +107,32 @@ export async function POST(req: NextRequest) {
       reply = reply.trim();
     }
 
+    // Extract generic write-action confirmation block (if present) —
+    // any JobTread write that isn't a task creation uses this pattern.
+    let actionConfirm = null;
+    const acFencedMatch = reply.match(/```\w*\s*@@ACTION_CONFIRM@@\s*([\s\S]*?)\s*@@END_ACTION@@\s*```/);
+    const acRawMatch = reply.match(/@@ACTION_CONFIRM@@\s*([\s\S]*?)\s*@@END_ACTION@@/);
+    const acMatch = acFencedMatch || acRawMatch;
+    if (acMatch) {
+      try {
+        actionConfirm = JSON.parse(acMatch[1].trim());
+      } catch { /* non-fatal: malformed JSON — fall through */ }
+      reply = reply.replace(/```\w*\s*@@ACTION_CONFIRM@@[\s\S]*?@@END_ACTION@@\s*```/g, '');
+      reply = reply.replace(/@@ACTION_CONFIRM@@[\s\S]*?@@END_ACTION@@/g, '');
+      reply = reply.trim();
+      // If the reply is now empty, give the user a neutral lead-in so the card is never orphaned.
+      if (!reply) {
+        reply = 'Here is what I\'m about to write to JobTread — approve below to proceed.';
+      }
+    }
+
     return NextResponse.json({
       reply,
       agent: result.agentName,
-      needsConfirmation: result.needsConfirmation || !!taskConfirm || !!coProposal,
+      needsConfirmation: result.needsConfirmation || !!taskConfirm || !!coProposal || !!actionConfirm,
       taskConfirm,
       coProposal,
+      actionConfirm,
     });
   } catch (err) {
     console.error('Chat error:', err);
