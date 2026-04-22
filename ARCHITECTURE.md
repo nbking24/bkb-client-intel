@@ -299,11 +299,17 @@ JobTread documents (estimates, contracts) can have **options** ÃÂ¢ÃÂ�
 - `isSelected` on budget-level (job) cost items always returns `false` ÃÂ¢ÃÂÃÂ it's only meaningful at the document level
 - `approvedPrice` does NOT exist in the PAVE API (not a valid field)
 
-**Filtering logic** (in `project-details.ts`):
-1. Fetch document items from all approved customer orders
-2. Build a `unselectedItemIds` set from items where `isSelected === false`
-3. Filter budget items to exclude IDs in that set
-4. When processing document-level items, skip any where `isSelected === false`
+**Options can live at any level of the cost group hierarchy.** BKB contracts express options two ways:
+1. Item-level options — two line items under one group where only one is checked (e.g. two paint brands).
+2. Group-level options — sibling cost groups where only one is checked (e.g. Marrero Kitchen Cabinetry: "Island with Base Cabinets" vs "Island, Base & Upper Cabinets"). Individual items inside the unselected group have `isSelected === null`; the `false` lives on their parent cost group.
+
+Filtering must consider all three fields (`item.isSelected`, `item.costGroup.isSelected`, `item.costGroup.parentCostGroup.isSelected`) or the agent will surface unapproved options as though they were part of the contract.
+
+**Filtering logic** (in `project-details.ts`, mirrored in `field-staff.ts`):
+1. Fetch document items from all approved customer orders.
+2. Build `unselectedItemIds` via `isUnselectedOption(item)` which returns true when any of the three `isSelected` fields is `false`.
+3. Filter budget items to exclude IDs in that set.
+4. When processing document-level items, skip any where `isUnselectedOption(item)` is true.
 
 ### 6.3 File Links
 

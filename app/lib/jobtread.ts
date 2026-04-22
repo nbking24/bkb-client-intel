@@ -2246,6 +2246,7 @@ export async function getDocumentCostItemsLightById(documentId: string): Promise
             files: { nodes: { id: {}, name: {}, url: {} } },
             parentCostGroup: {
               id: {}, name: {}, description: {},
+              isSelected: {},
               files: { nodes: { id: {}, name: {}, url: {} } },
             },
           },
@@ -2288,6 +2289,7 @@ export async function getDocumentCostItemsLightById(documentId: string): Promise
         files: node.costGroup.files?.nodes || [],
         parentCostGroup: node.costGroup.parentCostGroup ? {
           ...node.costGroup.parentCostGroup,
+          isSelected: node.costGroup.parentCostGroup.isSelected,
           files: node.costGroup.parentCostGroup.files?.nodes || [],
         } : null,
       } : null,

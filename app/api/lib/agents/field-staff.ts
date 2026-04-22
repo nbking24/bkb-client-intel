@@ -498,16 +498,26 @@ const fieldStaff: AgentModule = {
         });
         const docItemPromises = approvedCustomerOrderIds.map(docId => getDocumentCostItemsLightById(docId));
         const docItemArrays = await Promise.all(docItemPromises);
+        // Unselected options can live at the item level OR at the (parent) cost group level —
+        // e.g. sibling cost groups "Base Cabinets" vs "Base + Upper Cabinets" where only one
+        // group is checked. Filter all three levels so the field crew never sees unapproved
+        // options mixed in with approved scope.
+        const isUnselectedOption = (item: any): boolean => {
+          if (item.isSelected === false) return true;
+          if (item.costGroup?.isSelected === false) return true;
+          if (item.costGroup?.parentCostGroup?.isSelected === false) return true;
+          return false;
+        };
         const unselectedItemIds = new Set<string>();
         for (const items of docItemArrays) {
-          for (const item of items) { if (item.isSelected === false) unselectedItemIds.add(item.id); }
+          for (const item of items) { if (isUnselectedOption(item)) unselectedItemIds.add(item.id); }
         }
         const filteredBudgetItems = budgetItemsWithApprovedDoc.filter((item: any) => !unselectedItemIds.has(item.id));
         const seenIds = new Set(filteredBudgetItems.map((item: any) => item.id));
         const docLevelItems: any[] = [];
         for (const items of docItemArrays) {
           for (const item of items) {
-            if (item.isSelected === false) continue;
+            if (isUnselectedOption(item)) continue;
             if (!seenIds.has(item.id)) { seenIds.add(item.id); docLevelItems.push(item); }
           }
         }

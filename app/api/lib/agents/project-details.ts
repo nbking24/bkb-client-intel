@@ -551,17 +551,31 @@ const projectDetails: AgentModule = {
 
         // Step 2c: Also fetch cost items directly from approved customer orders.
         // This catches Change Order items whose budget-level items don't have a document reference.
-        // IMPORTANT: Document-level items include `isSelected` which identifies unselected options.
-        // In JobTread, documents can have options (alternative selections) — only selected ones should appear.
+        // IMPORTANT: Document-level items (and their cost groups) include `isSelected` which
+        // identifies unselected options. In JobTread, options can live at either the ITEM level
+        // (e.g. two alternative line items in one group, only one selected) OR the GROUP level
+        // (e.g. sibling cost groups like "Base Cabinets" vs "Base + Upper Cabinets" where only
+        // one group is checked). We must filter out items in either case — otherwise the Specs
+        // agent will report unapproved options as if they were part of the approved contract.
         const docItemPromises = approvedCustomerOrderIds.map(docId => getDocumentCostItemsLightById(docId));
         const docItemArrays = await Promise.all(docItemPromises);
+
+        // Returns true if this document-level item belongs to an unselected option —
+        // either the item itself is unselected, or it lives inside a cost group (or parent
+        // cost group) that the client did not select.
+        const isUnselectedOption = (item: any): boolean => {
+          if (item.isSelected === false) return true;
+          if (item.costGroup?.isSelected === false) return true;
+          if (item.costGroup?.parentCostGroup?.isSelected === false) return true;
+          return false;
+        };
 
         // Build a set of unselected item IDs from document queries.
         // These are items belonging to document options the client did NOT select.
         const unselectedItemIds = new Set<string>();
         for (const items of docItemArrays) {
           for (const item of items) {
-            if (item.isSelected === false) {
+            if (isUnselectedOption(item)) {
               unselectedItemIds.add(item.id);
             }
           }
@@ -576,8 +590,8 @@ const projectDetails: AgentModule = {
         const docLevelItems: any[] = [];
         for (const items of docItemArrays) {
           for (const item of items) {
-            // Skip unselected options
-            if (item.isSelected === false) continue;
+            // Skip unselected options (item-level, group-level, or parent-group-level)
+            if (isUnselectedOption(item)) continue;
             // Skip if we already have this item from the budget query
             if (!seenIds.has(item.id)) {
               seenIds.add(item.id);
