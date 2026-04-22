@@ -498,16 +498,20 @@ const fieldStaff: AgentModule = {
         });
         const docItemPromises = approvedCustomerOrderIds.map(docId => getDocumentCostItemsLightById(docId));
         const docItemArrays = await Promise.all(docItemPromises);
+        // An item is unselected if either the item itself OR its cost group is unselected.
+        // Options can be modeled at the group level, so the item-level flag alone is not enough.
+        const isItemUnselected = (item: any): boolean =>
+          item?.isSelected === false || item?.costGroup?.isSelected === false;
         const unselectedItemIds = new Set<string>();
         for (const items of docItemArrays) {
-          for (const item of items) { if (item.isSelected === false) unselectedItemIds.add(item.id); }
+          for (const item of items) { if (isItemUnselected(item)) unselectedItemIds.add(item.id); }
         }
         const filteredBudgetItems = budgetItemsWithApprovedDoc.filter((item: any) => !unselectedItemIds.has(item.id));
         const seenIds = new Set(filteredBudgetItems.map((item: any) => item.id));
         const docLevelItems: any[] = [];
         for (const items of docItemArrays) {
           for (const item of items) {
-            if (item.isSelected === false) continue;
+            if (isItemUnselected(item)) continue;
             if (!seenIds.has(item.id)) { seenIds.add(item.id); docLevelItems.push(item); }
           }
         }
