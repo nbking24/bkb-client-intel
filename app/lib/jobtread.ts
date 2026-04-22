@@ -1274,6 +1274,8 @@ export async function getDocumentContent(documentId: string): Promise<JTDocument
             name: {},
             description: {},
             quantity: {},
+            isSelected: {},
+            parentCostGroup: { id: {}, name: {}, isSelected: {} },
             costItems: {
               nodes: {
                 id: {},
@@ -1283,6 +1285,7 @@ export async function getDocumentContent(documentId: string): Promise<JTDocument
                 unitCost: {},
                 unitPrice: {},
                 unitId: {},
+                isSelected: {},
                 costCode: { name: {}, number: {} },
               },
             },
@@ -1298,36 +1301,60 @@ export async function getDocumentContent(documentId: string): Promise<JTDocument
             unitCost: {},
             unitPrice: {},
             unitId: {},
+            isSelected: {},
             costCode: { name: {}, number: {} },
-            costGroup: { id: {}, name: {} },
+            costGroup: {
+              id: {},
+              name: {},
+              isSelected: {},
+              parentCostGroup: { id: {}, name: {}, isSelected: {} },
+            },
           },
         },
       },
     });
     const doc = (data as any)?.document;
     if (!doc) return null;
-    return {
-      id: doc.id,
-      name: doc.name || '',
-      type: doc.type || '',
-      status: doc.status || '',
-      description: doc.description || '',
-      footer: doc.footer || '',
-      costGroups: (doc.costGroups?.nodes || []).map((g: any) => ({
+
+    // Helper: determine if a cost item is an unselected option
+    // Item is unselected if: the item itself is unselected, OR its cost group is unselected,
+    // OR its parent cost group is unselected.
+    const isUnselectedItem = (ci: any): boolean => {
+      if (ci.isSelected === false) return true;
+      if (ci.costGroup?.isSelected === false) return true;
+      if (ci.costGroup?.parentCostGroup?.isSelected === false) return true;
+      return false;
+    };
+    const isUnselectedGroup = (g: any): boolean => {
+      if (g.isSelected === false) return true;
+      if (g.parentCostGroup?.isSelected === false) return true;
+      return false;
+    };
+
+    // Filter unselected groups and their items out entirely.
+    const filteredCostGroups = (doc.costGroups?.nodes || [])
+      .filter((g: any) => !isUnselectedGroup(g))
+      .map((g: any) => ({
         id: g.id,
         name: g.name || '',
         description: g.description || '',
-        costItems: (g.costItems?.nodes || []).map((ci: any) => ({
-          id: ci.id,
-          name: ci.name || '',
-          description: ci.description || '',
-          quantity: ci.quantity || 0,
-          unitCost: ci.unitCost || 0,
-          unitPrice: ci.unitPrice || 0,
-          costCode: ci.costCode || null,
-        })),
-      })),
-      costItems: (doc.costItems?.nodes || []).map((ci: any) => ({
+        costItems: (g.costItems?.nodes || [])
+          .filter((ci: any) => ci.isSelected !== false)
+          .map((ci: any) => ({
+            id: ci.id,
+            name: ci.name || '',
+            description: ci.description || '',
+            quantity: ci.quantity || 0,
+            unitCost: ci.unitCost || 0,
+            unitPrice: ci.unitPrice || 0,
+            costCode: ci.costCode || null,
+          })),
+      }));
+
+    // Filter loose cost items (at doc level) by their own and group's isSelected.
+    const filteredCostItems = (doc.costItems?.nodes || [])
+      .filter((ci: any) => !isUnselectedItem(ci))
+      .map((ci: any) => ({
         id: ci.id,
         name: ci.name || '',
         description: ci.description || '',
@@ -1335,7 +1362,17 @@ export async function getDocumentContent(documentId: string): Promise<JTDocument
         unitCost: ci.unitCost || 0,
         unitPrice: ci.unitPrice || 0,
         costCode: ci.costCode || null,
-      })),
+      }));
+
+    return {
+      id: doc.id,
+      name: doc.name || '',
+      type: doc.type || '',
+      status: doc.status || '',
+      description: doc.description || '',
+      footer: doc.footer || '',
+      costGroups: filteredCostGroups,
+      costItems: filteredCostItems,
     };
   } catch (err: any) {
     console.warn('[getDocumentContent] Error reading document content:', documentId, err?.message);
@@ -2229,36 +2266,55 @@ export function getEffectiveCostCodeNumber(item: {
  * Used to pick up Change Order items that don't have a document reference on the budget-level cost item.
  */
 export async function getDocumentCostItemsLightById(documentId: string): Promise<any[]> {
-  const data = await pave({
-    document: {
-      $: { id: documentId },
-      costItems: {
-        $: { size: 50 },
-        nodes: {
-          id: {},
-          name: {},
-          description: {},
-          isSelected: {},
-          costCode: { id: {}, name: {}, number: {} },
-          costGroup: {
-            id: {}, name: {}, description: {},
+  // Paginate — some documents (full construction contracts) have 50+ items.
+  // Without pagination, items on later pages (including unselected option items)
+  // will not be returned, so the agent can't filter them out via `unselectedItemIds`.
+  const PAGE_SIZE = 50;
+  const MAX_PAGES = 20; // safety cap — up to 1000 items per document
+  let allNodes: any[] = [];
+  let nextPage: string | null = null;
+
+  for (let i = 0; i < MAX_PAGES; i++) {
+    const pageParams: Record<string, unknown> = { size: PAGE_SIZE };
+    if (nextPage) pageParams.page = nextPage;
+
+    const data = await pave({
+      document: {
+        $: { id: documentId },
+        costItems: {
+          $: pageParams,
+          nextPage: {},
+          nodes: {
+            id: {},
+            name: {},
+            description: {},
             isSelected: {},
-            files: { nodes: { id: {}, name: {}, url: {} } },
-            parentCostGroup: {
+            costCode: { id: {}, name: {}, number: {} },
+            costGroup: {
               id: {}, name: {}, description: {},
               isSelected: {},
               files: { nodes: { id: {}, name: {}, url: {} } },
+              parentCostGroup: {
+                id: {}, name: {}, description: {},
+                isSelected: {},
+                files: { nodes: { id: {}, name: {}, url: {} } },
+              },
             },
+            files: { nodes: { id: {}, name: {}, url: {} } },
+            customFieldValues: { nodes: { value: {}, customField: { name: {} } } },
           },
-          files: { nodes: { id: {}, name: {}, url: {} } },
-          customFieldValues: { nodes: { value: {}, customField: { name: {} } } },
         },
       },
-    },
-  });
+    });
 
-  const nodes = (data as any)?.document?.costItems?.nodes || [];
-  return nodes.map((node: any) => {
+    const costItemsPage = (data as any)?.document?.costItems;
+    const nodes = costItemsPage?.nodes || [];
+    allNodes = allNodes.concat(nodes);
+    nextPage = costItemsPage?.nextPage || null;
+    if (!nextPage || nodes.length < PAGE_SIZE) break;
+  }
+
+  return allNodes.map((node: any) => {
     // Parse custom field values into named fields (Status, Internal Notes, Vendor)
     const cfvs = node.customFieldValues?.nodes || [];
     let status: string | null = null;
