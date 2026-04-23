@@ -40,9 +40,11 @@ import urllib.error
 from datetime import datetime
 from pathlib import Path
 
+sys.path.insert(0, str(Path(__file__).parent))
+import _config  # noqa: E402
+
 CHAT_DB = os.path.expanduser("~/Library/Messages/chat.db")
 STATE_FILE = os.path.expanduser("~/.bkb-chatdb-scanner-state.json")
-DEFAULT_API = "https://bkb-client-intel.vercel.app"
 
 # macOS Messages stores message.date as nanoseconds since 2001-01-01 UTC.
 # Epoch for 2001-01-01 UTC in Unix seconds: 978307200
@@ -167,20 +169,59 @@ def fetch_new_inbound(db_path, after_rowid):
         conn.close()
 
 
+def preflight_fda(db_path):
+    """Try a no-op read against chat.db. Returns (ok, message)."""
+    if not os.path.exists(db_path):
+        return False, f"chat.db not found at {db_path}. Is Messages signed in?"
+    try:
+        conn = sqlite3.connect(f"file:{db_path}?mode=ro", uri=True)
+        cur = conn.cursor()
+        cur.execute("SELECT 1 FROM message LIMIT 1")
+        conn.close()
+        return True, "Full Disk Access OK."
+    except sqlite3.OperationalError as e:
+        if "authorization" in str(e).lower() or "not authorized" in str(e).lower():
+            return False, (
+                "chat.db is locked by macOS sandboxing.\n\n"
+                "Grant Full Disk Access to the Python binary running this script:\n"
+                "  1. Open System Settings → Privacy & Security → Full Disk Access\n"
+                "  2. Click the +, then press Cmd-Shift-G\n"
+                f"  3. Paste: {sys.executable}\n"
+                "  4. Click Open, then toggle the entry on\n"
+                "  5. Re-run the scanner"
+            )
+        return False, f"sqlite error: {e}"
+
+
 def main():
     ap = argparse.ArgumentParser()
-    ap.add_argument("--api", default=os.environ.get("PCO_API_BASE", DEFAULT_API))
-    ap.add_argument("--token", default=os.environ.get("TICKET_AGENT_TOKEN"))
+    ap.add_argument("--api")
+    ap.add_argument("--token")
     ap.add_argument("--db", default=CHAT_DB)
     ap.add_argument("--dry-run", action="store_true",
                     help="Show matches without posting to the API")
     ap.add_argument("--reset", action="store_true",
                     help="Reset the last_rowid so all historical messages get scanned")
+    ap.add_argument("--preflight", action="store_true",
+                    help="Just verify FDA is granted and exit. Use this before scheduling.")
     args = ap.parse_args()
 
-    if not args.token and not args.dry_run:
-        print("Error: --token (or TICKET_AGENT_TOKEN env) required.", file=sys.stderr)
+    # FDA preflight — always the first check
+    fda_ok, fda_msg = preflight_fda(args.db)
+    if args.preflight:
+        print(fda_msg)
+        sys.exit(0 if fda_ok else 1)
+    if not fda_ok:
+        print(f"Preflight FAILED:\n{fda_msg}", file=sys.stderr)
         sys.exit(1)
+
+    args.api = _config.get_api_base(cli_value=args.api)
+    if not args.dry_run:
+        try:
+            args.token = _config.get_token(cli_value=args.token)
+        except RuntimeError as e:
+            print(f"Error: {e}", file=sys.stderr)
+            sys.exit(1)
 
     state = {"last_rowid": 0, "last_scan_at": None} if args.reset else load_state()
     print(f"Resuming from rowid {state['last_rowid']} (last scan: {state.get('last_scan_at')})")

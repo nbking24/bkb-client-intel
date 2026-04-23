@@ -34,6 +34,10 @@ import urllib.request
 import urllib.error
 from pathlib import Path
 
+# Local config loader — adds CLI/env/~/.bkb-pco.env fallback
+sys.path.insert(0, str(Path(__file__).parent))
+import _config  # noqa: E402
+
 try:
     from openpyxl import load_workbook
 except ImportError:
@@ -43,7 +47,6 @@ except ImportError:
 DEFAULT_XLSX = os.path.expanduser(
     "~/mnt/BKB/Marketing Project/BKB-Send-Queue-Review.xlsx"
 )
-DEFAULT_API = "https://bkb-client-intel.vercel.app"
 
 COLS = {
     "row": 1, "group": 2, "source": 3, "first_name": 4, "last_name": 5,
@@ -158,16 +161,25 @@ def post_bulk_load(api_base, token, rows):
 
 def main():
     ap = argparse.ArgumentParser()
-    ap.add_argument("--xlsx", default=os.environ.get("PCO_XLSX_PATH", DEFAULT_XLSX))
-    ap.add_argument("--api", default=os.environ.get("PCO_API_BASE", DEFAULT_API))
-    ap.add_argument("--token", default=os.environ.get("TICKET_AGENT_TOKEN"))
+    ap.add_argument("--xlsx")
+    ap.add_argument("--api")
+    ap.add_argument("--token")
     ap.add_argument("--dry-run", action="store_true",
                     help="Parse the spreadsheet and print the payload without posting.")
     args = ap.parse_args()
 
-    if not args.token and not args.dry_run:
-        print("Error: --token (or TICKET_AGENT_TOKEN env var) required.", file=sys.stderr)
-        sys.exit(1)
+    xlsx_path = _config.get_xlsx_path(cli_value=args.xlsx, default=DEFAULT_XLSX)
+    api_base = _config.get_api_base(cli_value=args.api)
+    token = args.token if args.dry_run else None
+    if not args.dry_run:
+        try:
+            token = _config.get_token(cli_value=args.token)
+        except RuntimeError as e:
+            print(f"Error: {e}", file=sys.stderr)
+            sys.exit(1)
+    args.xlsx = xlsx_path
+    args.api = api_base
+    args.token = token
 
     path = Path(args.xlsx)
     if not path.exists():

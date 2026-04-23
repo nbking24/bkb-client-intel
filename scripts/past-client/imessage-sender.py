@@ -42,8 +42,10 @@ import time
 import urllib.request
 import urllib.error
 from datetime import datetime
+from pathlib import Path
 
-DEFAULT_API = "https://bkb-client-intel.vercel.app"
+sys.path.insert(0, str(Path(__file__).parent))
+import _config  # noqa: E402
 
 
 def api_get(api_base, path, token):
@@ -133,8 +135,8 @@ def display_contact(c):
 
 def main():
     ap = argparse.ArgumentParser()
-    ap.add_argument("--api", default=os.environ.get("PCO_API_BASE", DEFAULT_API))
-    ap.add_argument("--token", default=os.environ.get("TICKET_AGENT_TOKEN"))
+    ap.add_argument("--api")
+    ap.add_argument("--token")
     ap.add_argument("--mode", choices=["batch", "interactive", "preview"], default="batch")
     ap.add_argument("--min-delay", type=int, default=45)
     ap.add_argument("--max-delay", type=int, default=90)
@@ -145,8 +147,11 @@ def main():
                     help="Skip the business-hours gate (use with care)")
     args = ap.parse_args()
 
-    if not args.token:
-        print("Error: --token (or TICKET_AGENT_TOKEN env) required.", file=sys.stderr)
+    args.api = _config.get_api_base(cli_value=args.api)
+    try:
+        args.token = _config.get_token(cli_value=args.token)
+    except RuntimeError as e:
+        print(f"Error: {e}", file=sys.stderr)
         sys.exit(1)
 
     if not args.ignore_hours and not in_business_hours(args.start_hour, args.end_hour):

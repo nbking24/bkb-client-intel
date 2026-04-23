@@ -7,12 +7,33 @@ text campaign. All three talk to the Client Hub API using the
 ## Prerequisites
 
 1. **Python 3 + openpyxl** — `pip3 install openpyxl`
-2. **TICKET_AGENT_TOKEN** set in your shell env (same token used by the
-   tickets pipeline). Grab it from Vercel project settings if you don't
-   have it locally.
-3. **Full Disk Access** for Terminal / Python — required for
-   `chat-db-scanner.py` only. Grant in System Settings → Privacy &
-   Security → Full Disk Access.
+
+2. **Token** — all three scripts need `TICKET_AGENT_TOKEN` (the same
+   agent-auth token used by the tickets pipeline). They'll resolve it
+   in this order:
+
+       CLI flag  →  env var  →  ~/.bkb-pco.env file
+
+   **Easiest setup** (no shell-profile editing):
+   ```bash
+   echo "TICKET_AGENT_TOKEN=YOUR_TOKEN_HERE" > ~/.bkb-pco.env
+   chmod 600 ~/.bkb-pco.env
+   ```
+   Do this once. All three scripts pick it up automatically. Verify with:
+   ```bash
+   python3 scripts/past-client/chat-db-scanner.py --preflight
+   ```
+
+3. **Full Disk Access** for the Python binary — required for
+   `chat-db-scanner.py` only. Run the preflight once to see the exact
+   binary path you need to grant:
+   ```bash
+   python3 scripts/past-client/chat-db-scanner.py --preflight
+   ```
+   If FDA isn't granted, the preflight prints the exact steps including
+   the `/usr/bin/python3` path (or whichever Python you're using) so
+   you can paste it directly into the System Settings dialog.
+
 4. **Messages signed into iCloud** and paired with your iPhone for SMS
    fallback on non-iMessage numbers.
 
