@@ -28,6 +28,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getSupabase } from '../../lib/supabase';
 import { createLowStarReviewTask, createFiveStarGiftCardTask } from '../../lib/marketing/jobtread-alerts';
+import { markCompletedByContactKey } from '../../lib/marketing/past-client';
 
 export const runtime = 'nodejs';
 
@@ -119,6 +120,29 @@ export async function POST(req: NextRequest) {
       contact_id: contactId,
     },
   });
+
+  // If the contactId matches a row in past_client_outreach, mark it completed so
+  // reminder and email-escalation automation stops. Non-blocking — failures here
+  // should never break the public review-submit flow.
+  try {
+    const pcoRow = await markCompletedByContactKey(contactId, inserted.id);
+    if (pcoRow) {
+      await supabase.from('marketing_events').insert({
+        agent: 'past_client_outreach',
+        event_type: 'pco_completed_via_gateway',
+        entity_type: 'past_client_outreach',
+        entity_id: pcoRow.id,
+        outcome: 'success',
+        detail: {
+          contact_key: contactId,
+          stars: starsNum,
+          submission_id: inserted.id,
+        },
+      });
+    }
+  } catch (pcoErr: any) {
+    console.error('[review-submit] pco completion update threw:', pcoErr);
+  }
 
   // Kick off JobTread alert — non-blocking. Missing tasks should never
   // break the public submit flow, so we log failures and move on.
