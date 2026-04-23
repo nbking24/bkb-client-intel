@@ -15,6 +15,12 @@
  *        - 1-4 stars → warm thank-you + "we take all feedback seriously" note.
  *
  * No auth. The only identifier is the contactId in the URL.
+ *
+ * Route param resolution: this component reads the param name from useParams()
+ * and falls back across known aliases. The same component is mounted by:
+ *   - /review/[contactId]  (long canonical URL)
+ *   - /r/[k]               (short URL used in outbound SMS via r.brettkingbuilder.com)
+ * Whichever param is present gets used as the `contactId` passed to the submit API.
  */
 
 import { useState } from 'react';
@@ -61,7 +67,10 @@ type AnswerKey = 'experience' | 'standout' | 'improve';
 
 export default function ReviewGatewayPage() {
   const params = useParams();
-  const contactId = String(params?.contactId || '');
+  // Accept either param name so the same component serves both routes:
+  //   /review/[contactId]  (long form)
+  //   /r/[k]               (short form from r.brettkingbuilder.com)
+  const contactId = String(params?.contactId || params?.k || '');
 
   const [stage, setStage] = useState<Stage>('rating');
   const [stars, setStars] = useState<number>(0);
