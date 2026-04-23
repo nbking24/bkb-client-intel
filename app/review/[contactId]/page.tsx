@@ -45,21 +45,24 @@ const TEAM = [
 
 type Stage = 'rating' | 'questions' | 'submitting' | 'five_star_done' | 'low_star_done' | 'error';
 
+// Universal question set — works for past clients, friends, and subs.
+// Question 3 ("improve") stays private; Q1 + Q2 are the answers that populate
+// the Google review clipboard for 5-star submissions.
 const QUESTIONS: { key: 'experience' | 'standout' | 'improve'; label: string; placeholder: string }[] = [
   {
     key: 'experience',
-    label: 'Tell us about your experience working with our team.',
-    placeholder: 'From the first call through the final walkthrough, what was it like?',
+    label: 'How would you describe working with the BKB team?',
+    placeholder: 'A short note or a full paragraph — whatever feels right.',
   },
   {
     key: 'standout',
-    label: 'What stood out about the finished project?',
-    placeholder: 'Anything specific about craftsmanship, communication, or the result?',
+    label: 'What stands out to you about our team or the way we work?',
+    placeholder: 'Communication, craftsmanship, follow-through, a specific person — whatever comes to mind.',
   },
   {
     key: 'improve',
-    label: 'Is there anything we could have done better?',
-    placeholder: 'Honest input helps us get better.',
+    label: 'Anything we could be doing better?',
+    placeholder: 'Honest input helps us improve.',
   },
 ];
 
