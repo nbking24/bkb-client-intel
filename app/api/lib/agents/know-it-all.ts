@@ -720,6 +720,13 @@ const knowItAll: AgentModule = {
       '@@TASK_CONFIRM@@\n' +
       '{"name":"short name","phase":"Phase Name","phaseId":"id","jobId":"the-job-id","description":"details","assignee":"Name","startDate":"YYYY-MM-DD","endDate":"YYYY-MM-DD"}\n' +
       '@@END_CONFIRM@@\n' +
+      'REQUIRED FIELDS IN EVERY TASK_CONFIRM BLOCK:\n' +
+      '- name: the task title (short, 5-8 words)\n' +
+      '- description: a clear one-or-two sentence description of what needs to be done. If the user only gave a short request, expand it into a clear description. NEVER leave this blank.\n' +
+      '- phase + phaseId: which phase/category the task lives under. Pick the best match from get_job_schedule (e.g. "Admin Tasks", "Pre-Construction", "Production").\n' +
+      '- assignee: who owns the task. If the user explicitly named someone, use that name. If the user did not say, infer from context (admin/internal follow-ups default to Terri) and note the inference in the description. Do NOT leave assignee empty.\n' +
+      '- startDate + endDate: the due date in YYYY-MM-DD. If the user gave a relative date ("Friday", "next week"), convert to an absolute date using today\'s date.\n' +
+      '- jobId: the JT job id from the context or get_job_schedule.\n' +
       'DATE RULES: New tasks are ALWAYS 1-day tasks. Set BOTH startDate AND endDate to the SAME date.\n' +
       'If the user says "due Friday" or gives any single date, set both to that date. NEVER leave startDate empty.\n' +
       'EDIT RULES: When rescheduling/moving a task to a new date, ONLY set startDate to the new date.\n' +

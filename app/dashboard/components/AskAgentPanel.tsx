@@ -51,6 +51,8 @@ export default function AskAgentPanel({
   const [agentMode, setAgentMode] = useState<'know-it-all' | 'project-details' | 'field-staff'>(
     'know-it-all'
   );
+  const [phaseEdit, setPhaseEdit] = useState<string | null>(null);
+  const [jobPhases, setJobPhases] = useState<Record<string, { id: string; name: string }[]>>({});
 
   // Force field staff to their restricted agent mode
   useEffect(() => {
@@ -212,12 +214,52 @@ export default function AskAgentPanel({
     );
     let confirmMsg = 'Yes, proceed.';
     if (taskData) {
+      const phaseChanged = phaseEdit && phaseEdit !== taskData.phase;
+      if (phaseChanged) {
+        confirmMsg = 'Yes, proceed but put the task under the "' + phaseEdit + '" phase instead.';
+      }
+      const mergedData: any = { ...taskData };
+      if (phaseChanged) {
+        mergedData.phase = phaseEdit;
+        delete mergedData.phaseId; // force agent to re-resolve the phase id by name
+        mergedData.phaseChanged = true;
+      }
       confirmMsg +=
         '\n\n[APPROVED TASK DATA - execute this now using create_phase_task tool]\n' +
-        JSON.stringify(taskData);
+        JSON.stringify(mergedData);
     }
+    setPhaseEdit(null);
     await sendMessage(confirmMsg);
-  }, [messages, sendMessage]);
+  }, [messages, sendMessage, phaseEdit]);
+
+  /* Fetch phases for a job (used by the task-confirm phase dropdown). Cached per job. */
+  const fetchPhasesForJob = useCallback((jobId: string) => {
+    if (!jobId) return;
+    setJobPhases((prev) => {
+      if (prev[jobId]) return prev;
+      fetch('/api/dashboard/schedule?jobId=' + encodeURIComponent(jobId), {
+        headers: { Authorization: 'Bearer ' + getToken() },
+      })
+        .then((r) => (r.ok ? r.json() : null))
+        .then((data) => {
+          if (!data?.schedule?.phases) return;
+          const phases = (data.schedule.phases || []).map((p: any) => ({ id: p.id, name: p.name }));
+          setJobPhases((cur) => ({ ...cur, [jobId]: phases }));
+        })
+        .catch(() => {});
+      return prev;
+    });
+  }, []);
+
+  // Pre-load phases whenever a taskConfirm card appears.
+  useEffect(() => {
+    const lastMsg = messages[messages.length - 1];
+    const t = lastMsg?.taskConfirm;
+    if (lastMsg?.needsConfirmation && t) {
+      const jobId = (t as any).jobId || selectedJob?.id;
+      if (jobId) fetchPhasesForJob(jobId);
+    }
+  }, [messages, selectedJob, fetchPhasesForJob]);
 
   const handleDecline = useCallback(() => {
     setMessages((prev) => [
@@ -627,9 +669,28 @@ export default function AskAgentPanel({
                   );
                 })()}
 
-                {/* Task creation approval card */}
+                {/* Task creation approval card — summary + phase dropdown + green Approve */}
                 {showTaskCard && (() => {
                   const t = msg.taskConfirm!;
+                  const jobId = (t as any).jobId || selectedJob?.id || '';
+                  const phasesForJob = jobId ? jobPhases[jobId] || [] : [];
+                  const currentPhase = phaseEdit ?? t.phase ?? '';
+                  const formatDate = (d?: string) => {
+                    if (!d) return '';
+                    const dt = new Date(d + 'T00:00:00');
+                    if (isNaN(dt.getTime())) return d;
+                    return dt.toLocaleDateString('en-US', {
+                      weekday: 'short',
+                      month: 'short',
+                      day: 'numeric',
+                    });
+                  };
+                  const sameDate = t.startDate && t.endDate && t.startDate === t.endDate;
+                  const dueDisplay = sameDate
+                    ? formatDate(t.startDate)
+                    : t.startDate || t.endDate
+                    ? formatDate(t.startDate) + ' -> ' + formatDate(t.endDate)
+                    : '';
                   return (
                     <div className="flex justify-start">
                       <div style={{ maxWidth: '92%', width: '100%' }}>
@@ -661,53 +722,72 @@ export default function AskAgentPanel({
                           <div
                             style={{
                               fontSize: 13,
-                              fontWeight: 600,
+                              fontWeight: 700,
                               color: '#1a1a1a',
-                              marginBottom: 6,
+                              marginBottom: 4,
                             }}
                           >
-                            {t.name || 'Confirm task'}
+                            {t.name || 'New task'}
                           </div>
+                          {t.description && (
+                            <div
+                              style={{
+                                fontSize: 12,
+                                color: '#3a3530',
+                                marginBottom: 8,
+                                lineHeight: '18px',
+                                whiteSpace: 'pre-wrap',
+                              }}
+                            >
+                              {t.description}
+                            </div>
+                          )}
                           <div
                             style={{
                               display: 'grid',
                               gridTemplateColumns: 'auto 1fr',
-                              gap: '3px 10px',
+                              gap: '6px 10px',
                               fontSize: 11,
+                              paddingTop: 6,
+                              borderTop: '1px solid rgba(200,140,0,0.12)',
                             }}
                           >
-                            {t.phase && (
-                              <>
-                                <div style={{ color: '#8a8078', fontWeight: 600 }}>Phase</div>
-                                <div style={{ color: '#1a1a1a' }}>{t.phase}</div>
-                              </>
-                            )}
-                            {t.startDate && (
-                              <>
-                                <div style={{ color: '#8a8078', fontWeight: 600 }}>Start</div>
-                                <div style={{ color: '#1a1a1a' }}>{t.startDate}</div>
-                              </>
-                            )}
-                            {t.endDate && (
-                              <>
-                                <div style={{ color: '#8a8078', fontWeight: 600 }}>End</div>
-                                <div style={{ color: '#1a1a1a' }}>{t.endDate}</div>
-                              </>
-                            )}
-                            {t.assignee && (
-                              <>
-                                <div style={{ color: '#8a8078', fontWeight: 600 }}>Assignee</div>
-                                <div style={{ color: '#1a1a1a' }}>{t.assignee}</div>
-                              </>
-                            )}
-                            {t.description && (
-                              <>
-                                <div style={{ color: '#8a8078', fontWeight: 600 }}>Notes</div>
-                                <div style={{ color: '#1a1a1a', whiteSpace: 'pre-wrap' }}>
-                                  {t.description}
-                                </div>
-                              </>
-                            )}
+                            <div style={{ color: '#8a8078', fontWeight: 600, alignSelf: 'center' }}>
+                              Category
+                            </div>
+                            <div>
+                              {phasesForJob.length > 0 ? (
+                                <select
+                                  value={currentPhase}
+                                  onChange={(e) => setPhaseEdit(e.target.value)}
+                                  style={{
+                                    fontSize: 11,
+                                    padding: '3px 6px',
+                                    border: '1px solid rgba(200,140,0,0.25)',
+                                    borderRadius: 4,
+                                    background: '#ffffff',
+                                    color: '#1a1a1a',
+                                    maxWidth: '100%',
+                                  }}
+                                >
+                                  {currentPhase &&
+                                    !phasesForJob.find((p) => p.name === currentPhase) && (
+                                      <option value={currentPhase}>{currentPhase}</option>
+                                    )}
+                                  {phasesForJob.map((p) => (
+                                    <option key={p.id} value={p.name}>
+                                      {p.name}
+                                    </option>
+                                  ))}
+                                </select>
+                              ) : (
+                                <span style={{ color: '#1a1a1a' }}>{currentPhase || '-'}</span>
+                              )}
+                            </div>
+                            <div style={{ color: '#8a8078', fontWeight: 600 }}>Assigned to</div>
+                            <div style={{ color: '#1a1a1a' }}>{t.assignee || 'Unassigned'}</div>
+                            <div style={{ color: '#8a8078', fontWeight: 600 }}>Due</div>
+                            <div style={{ color: '#1a1a1a' }}>{dueDisplay || '-'}</div>
                           </div>
                         </div>
                         <div style={{ display: 'flex', gap: 6 }}>
@@ -731,7 +811,7 @@ export default function AskAgentPanel({
                             <CheckCircle size={13} /> Approve &amp; create task
                           </button>
                           <button
-                            onClick={handleDecline}
+                            onClick={() => { handleDecline(); setPhaseEdit(null); }}
                             style={{
                               display: 'flex',
                               alignItems: 'center',

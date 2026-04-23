@@ -320,6 +320,7 @@ function InlineAskAgent({ pmJobs, screen, hideToggle, defaultOpen }: { pmJobs: {
   const [selectedJobId, setSelectedJobId] = useState('');
   const [agentMode, setAgentMode] = useState<'general' | 'change-order' | 'specs'>('general');
   const [phaseEdit, setPhaseEdit] = useState<string | null>(null);
+  const [jobPhases, setJobPhases] = useState<Record<string, { id: string; name: string }[]>>({});
   const [attachedImages, setAttachedImages] = useState<Array<{ file: File; preview: string }>>([]);
   const [uploadedUrls, setUploadedUrls] = useState<string[]>([]);
   const [uploading, setUploading] = useState(false);
@@ -488,6 +489,36 @@ function InlineAskAgent({ pmJobs, screen, hideToggle, defaultOpen }: { pmJobs: {
     await sendMessage(confirmMsg);
   };
 
+  /* Fetch phases for a job (used by the task-confirm phase dropdown). Cached per job. */
+  const fetchPhasesForJob = useCallback(async (jobId: string) => {
+    if (!jobId) return;
+    setJobPhases(prev => {
+      if (prev[jobId]) return prev;
+      // fire-and-forget network call, state updates when it resolves
+      fetch('/api/dashboard/schedule?jobId=' + encodeURIComponent(jobId), {
+        headers: { Authorization: 'Bearer ' + getToken() },
+      })
+        .then(r => (r.ok ? r.json() : null))
+        .then(data => {
+          if (!data?.schedule?.phases) return;
+          const phases = (data.schedule.phases || []).map((p: any) => ({ id: p.id, name: p.name }));
+          setJobPhases(cur => ({ ...cur, [jobId]: phases }));
+        })
+        .catch(() => {});
+      return prev;
+    });
+  }, []);
+
+  // When a taskConfirm card appears, pre-load that job's phases for the dropdown.
+  useEffect(() => {
+    const lastMsg = messages[messages.length - 1];
+    const t = lastMsg?.taskConfirm;
+    if (lastMsg?.needsConfirmation && t) {
+      const jobId = (t as any).jobId || selectedJobId;
+      if (jobId) fetchPhasesForJob(jobId);
+    }
+  }, [messages, selectedJobId, fetchPhasesForJob]);
+
   const handleDecline = () => {
     setMessages(prev => [
       ...prev.map((m, i) => i === prev.length - 1 ? { ...m, needsConfirmation: false } : m),
@@ -622,19 +653,90 @@ function InlineAskAgent({ pmJobs, screen, hideToggle, defaultOpen }: { pmJobs: {
                   )}
                 </div>
 
-                {/* Task Confirmation buttons */}
-                {msg.needsConfirmation && msg.taskConfirm && i === messages.length - 1 && !loading && (
-                  <div style={{ marginLeft: isTouch ? 32 : 24, marginTop: isTouch ? 8 : 4, display: 'flex', gap: isTouch ? 10 : 6 }}>
-                    <button onClick={() => { handleConfirm(phaseEdit ? { phase: phaseEdit } : undefined); setPhaseEdit(null); }}
-                      style={{ display: 'flex', alignItems: 'center', gap: 6, padding: isTouch ? '10px 18px' : '4px 10px', borderRadius: isTouch ? 8 : 5, fontSize: isTouch ? 14 : 11, fontWeight: 600, background: 'rgba(34,197,94,0.15)', color: '#22c55e', border: 'none', cursor: 'pointer' }}>
-                      <CheckCircle size={isTouch ? 16 : 12} /> Approve
-                    </button>
-                    <button onClick={() => { handleDecline(); setPhaseEdit(null); }}
-                      style={{ display: 'flex', alignItems: 'center', gap: 6, padding: isTouch ? '10px 18px' : '4px 10px', borderRadius: isTouch ? 8 : 5, fontSize: isTouch ? 14 : 11, fontWeight: 600, background: 'rgba(239,68,68,0.1)', color: '#ef4444', border: 'none', cursor: 'pointer' }}>
-                      <XCircle size={isTouch ? 16 : 12} /> Cancel
-                    </button>
-                  </div>
-                )}
+                {/* Task Creation approval card — summary + phase dropdown + green Approve */}
+                {msg.needsConfirmation && msg.taskConfirm && i === messages.length - 1 && !loading && (() => {
+                  const t = msg.taskConfirm!;
+                  const jobId = (t as any).jobId || selectedJobId;
+                  const phasesForJob = jobId ? (jobPhases[jobId] || []) : [];
+                  const currentPhase = phaseEdit ?? t.phase ?? '';
+                  const formatDate = (d?: string) => {
+                    if (!d) return '';
+                    const dt = new Date(d + 'T00:00:00');
+                    if (isNaN(dt.getTime())) return d;
+                    return dt.toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' });
+                  };
+                  const sameDate = t.startDate && t.endDate && t.startDate === t.endDate;
+                  const dueDisplay = sameDate ? formatDate(t.startDate) : (t.startDate || t.endDate ? (formatDate(t.startDate) + ' → ' + formatDate(t.endDate)) : '');
+                  return (
+                    <div style={{ marginLeft: isTouch ? 32 : 24, marginTop: isTouch ? 8 : 6 }}>
+                      <div style={{ background: '#f8f6f3', borderRadius: 8, padding: isTouch ? 12 : 10, marginBottom: 8, border: '1px solid rgba(200,140,0,0.25)' }}>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 6 }}>
+                          <div style={{ fontSize: 10, fontWeight: 700, letterSpacing: 0.6, textTransform: 'uppercase', color: '#c88c00' }}>
+                            Approval needed
+                          </div>
+                          <div style={{ fontSize: 9, color: '#8a8078', marginLeft: 'auto' }}>
+                            Creates task in JobTread
+                          </div>
+                        </div>
+                        <div style={{ fontSize: isTouch ? 14 : 13, fontWeight: 700, color: '#1a1a1a', marginBottom: 4 }}>
+                          {t.name || 'New task'}
+                        </div>
+                        {t.description && (
+                          <div style={{ fontSize: isTouch ? 13 : 12, color: '#3a3530', marginBottom: 8, lineHeight: '18px', whiteSpace: 'pre-wrap' }}>
+                            {t.description}
+                          </div>
+                        )}
+                        <div style={{ display: 'grid', gridTemplateColumns: 'auto 1fr', gap: '6px 10px', fontSize: isTouch ? 12 : 11, paddingTop: 6, borderTop: '1px solid rgba(200,140,0,0.12)' }}>
+                          {/* Category / Phase with dropdown */}
+                          <div style={{ color: '#8a8078', fontWeight: 600, alignSelf: 'center' }}>Category</div>
+                          <div>
+                            {phasesForJob.length > 0 ? (
+                              <select
+                                value={currentPhase}
+                                onChange={(e) => setPhaseEdit(e.target.value)}
+                                style={{
+                                  fontSize: isTouch ? 12 : 11,
+                                  padding: '3px 6px',
+                                  border: '1px solid rgba(200,140,0,0.25)',
+                                  borderRadius: 4,
+                                  background: '#ffffff',
+                                  color: '#1a1a1a',
+                                  maxWidth: '100%',
+                                }}
+                              >
+                                {/* Include current phase even if not in list */}
+                                {currentPhase && !phasesForJob.find(p => p.name === currentPhase) && (
+                                  <option value={currentPhase}>{currentPhase}</option>
+                                )}
+                                {phasesForJob.map(p => (
+                                  <option key={p.id} value={p.name}>{p.name}</option>
+                                ))}
+                              </select>
+                            ) : (
+                              <span style={{ color: '#1a1a1a' }}>{currentPhase || '—'}</span>
+                            )}
+                          </div>
+                          {/* Assignee */}
+                          <div style={{ color: '#8a8078', fontWeight: 600 }}>Assigned to</div>
+                          <div style={{ color: '#1a1a1a' }}>{t.assignee || 'Unassigned'}</div>
+                          {/* Due date */}
+                          <div style={{ color: '#8a8078', fontWeight: 600 }}>Due</div>
+                          <div style={{ color: '#1a1a1a' }}>{dueDisplay || '—'}</div>
+                        </div>
+                      </div>
+                      <div style={{ display: 'flex', gap: isTouch ? 10 : 6 }}>
+                        <button onClick={() => { handleConfirm(phaseEdit && phaseEdit !== t.phase ? { phase: phaseEdit } : undefined); setPhaseEdit(null); }}
+                          style={{ display: 'flex', alignItems: 'center', gap: 6, padding: isTouch ? '10px 18px' : '5px 12px', borderRadius: isTouch ? 8 : 5, fontSize: isTouch ? 14 : 11, fontWeight: 700, background: '#22c55e', color: '#ffffff', border: 'none', cursor: 'pointer', boxShadow: '0 1px 3px rgba(34,197,94,0.35)' }}>
+                          <CheckCircle size={isTouch ? 16 : 12} /> Approve &amp; create task
+                        </button>
+                        <button onClick={() => { handleDecline(); setPhaseEdit(null); }}
+                          style={{ display: 'flex', alignItems: 'center', gap: 6, padding: isTouch ? '10px 18px' : '5px 12px', borderRadius: isTouch ? 8 : 5, fontSize: isTouch ? 14 : 11, fontWeight: 600, background: 'rgba(239,68,68,0.1)', color: '#ef4444', border: 'none', cursor: 'pointer' }}>
+                          <XCircle size={isTouch ? 16 : 12} /> Cancel
+                        </button>
+                      </div>
+                    </div>
+                  );
+                })()}
 
                 {/* Generic JobTread write approval card (comments, daily logs, task updates/deletes, schedule edits, etc.) */}
                 {msg.needsConfirmation && msg.actionConfirm && i === messages.length - 1 && !loading && (() => {
