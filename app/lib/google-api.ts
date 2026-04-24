@@ -273,54 +273,18 @@ async function getCleanupLabelId(): Promise<string> {
 }
 
 /**
- * Move emails out of inbox into the "BKB Cleanup" label.
- * Adds the cleanup label AND removes INBOX so they're out of the way
- * but still accessible under the "BKB Cleanup" label in Gmail.
+ * DISABLED 2026-04-24 — previously moved emails into the "BKB Cleanup"
+ * Gmail label (adding the label and removing INBOX). Nathan asked for
+ * this to be fully disabled after wanted emails got archived. This
+ * function is now a no-op that logs the attempt and returns a
+ * zeroed-out result. Cron and dashboard callers have also been
+ * neutered; this is belt-and-suspenders in case of future imports.
+ *
+ * To re-enable, restore from git history (commit before this change).
  */
 export async function archiveEmails(messageIds: string[]): Promise<{ archived: number; failed: number }> {
-  let archived = 0;
-  let failed = 0;
-
-  try {
-    const token = await getAccessToken();
-    const cleanupLabelId = await getCleanupLabelId();
-
-    // Gmail batch modify — add cleanup label + remove INBOX
-    const batchSize = 50;
-    for (let i = 0; i < messageIds.length; i += batchSize) {
-      const batch = messageIds.slice(i, i + batchSize);
-      try {
-        const res = await fetch(
-          'https://gmail.googleapis.com/gmail/v1/users/me/messages/batchModify',
-          {
-            method: 'POST',
-            headers: {
-              Authorization: `Bearer ${token}`,
-              'Content-Type': 'application/json',
-            },
-            body: JSON.stringify({
-              ids: batch,
-              addLabelIds: [cleanupLabelId],
-              removeLabelIds: ['INBOX'],
-            }),
-          }
-        );
-        if (res.ok) {
-          archived += batch.length;
-        } else {
-          console.error('[GoogleAPI] Batch cleanup failed:', res.status);
-          failed += batch.length;
-        }
-      } catch {
-        failed += batch.length;
-      }
-    }
-  } catch (err: any) {
-    console.error('[GoogleAPI] Cleanup error:', err.message);
-    failed = messageIds.length;
-  }
-
-  return { archived, failed };
+  console.warn('[GoogleAPI] archiveEmails is disabled — no emails were moved. Requested:', messageIds.length);
+  return { archived: 0, failed: 0 };
 }
 
 /**
