@@ -562,8 +562,33 @@ function FiveStarDone({
         come through.
       </div>
 
+      {/* Primary CTA — Google review button lives right under the Wawa callout */}
+      <a
+        href={googleUrl || '#'}
+        target="_blank"
+        rel="noreferrer"
+        style={{
+          display: 'block',
+          textAlign: 'center',
+          marginTop: 14,
+          background: BKB_RED,
+          color: '#ffffff',
+          padding: '14px 18px',
+          borderRadius: 8,
+          fontSize: 16,
+          fontWeight: 700,
+          textDecoration: 'none',
+        }}
+      >
+        Open Google Review →
+      </a>
+
+      {/* Team photos under the CTA — faces to humanize the ask */}
+      <TeamStrip />
+
+      {/* The user's own response + copy-to-clipboard moved below the CTA + team */}
       {hasText && (
-        <div style={{ marginTop: 16 }}>
+        <div style={{ marginTop: 20 }}>
           <label
             style={{
               display: 'block',
@@ -596,19 +621,20 @@ function FiveStarDone({
           <button
             onClick={onCopy}
             style={{
-              marginTop: 10,
-              width: '100%',
+              marginTop: 8,
+              display: 'inline-block',
+              width: 'auto',
               background: copied ? BKB_GOLD : '#ffffff',
               color: copied ? '#1a1a1a' : BKB_RED,
-              padding: '12px 18px',
-              border: `2px solid ${copied ? BKB_GOLD : BKB_RED}`,
-              borderRadius: 8,
-              fontSize: 15,
+              padding: '6px 12px',
+              border: `1px solid ${copied ? BKB_GOLD : BKB_RED}`,
+              borderRadius: 6,
+              fontSize: 13,
               fontWeight: 600,
               cursor: 'pointer',
             }}
           >
-            {copied ? '\u2713 Copied! Ready to paste on Google' : 'Copy my response'}
+            {copied ? '\u2713 Copied' : 'Copy my response'}
           </button>
 
           <p style={{ color: '#8a8078', fontSize: 13, margin: '8px 0 0 0', lineHeight: 1.4 }}>
@@ -617,29 +643,7 @@ function FiveStarDone({
         </div>
       )}
 
-      <a
-        href={googleUrl || '#'}
-        target="_blank"
-        rel="noreferrer"
-        style={{
-          display: 'block',
-          textAlign: 'center',
-          marginTop: 16,
-          background: BKB_RED,
-          color: '#ffffff',
-          padding: '14px 18px',
-          borderRadius: 8,
-          fontSize: 16,
-          fontWeight: 700,
-          textDecoration: 'none',
-        }}
-      >
-        Open Google Review →
-      </a>
-
-      <TeamStrip />
-
-      <p style={{ color: '#8a8078', fontSize: 13, margin: '16px 0 0 0', textAlign: 'center' }}>
+      <p style={{ color: '#8a8078', fontSize: 13, margin: '20px 0 0 0', textAlign: 'center' }}>
         Thanks again,<br />Nathan
       </p>
     </div>
