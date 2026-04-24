@@ -45,21 +45,35 @@ except ImportError:
     sys.exit(3)
 
 DEFAULT_XLSX = os.path.expanduser(
-    "~/mnt/BKB/Marketing Project/BKB-Send-Queue-Review.xlsx"
+    "~/BKB/Marketing Project/BKB-Send-Queue-Review-LATEST.xlsx"
 )
 
+# LATEST file schema (19 columns) — see README in that workbook for details.
 COLS = {
     "row": 1, "group": 2, "source": 3, "first_name": 4, "last_name": 5,
-    "family": 6, "phone": 7, "email": 8, "city": 9, "raw_project": 10,
-    "descriptor": 11, "sendable": 12, "issue": 13, "char_count": 14,
-    "final_text": 15, "action": 16,
+    "family": 6, "phone": 7, "need_loop": 8, "email": 9, "city": 10,
+    "raw_project": 11, "descriptor": 12, "sendable": 13, "issue": 14,
+    "char_count": 15, "final_text": 16, "commercial": 17,
+    "origin_sheet": 18, "origin_row": 19,
+}
+
+# Group → priority (lower = higher priority, 10 = FRIEND/CUSTOM, 100 = past clients)
+PRIORITY_BY_GROUP = {
+    "FRIEND": 10,
+    "CUSTOM": 10,
+    "INTRO": 100,
+    "NO-INTRO": 100,
 }
 
 
 def normalize_phone(phone):
     if not phone:
         return None
-    digits = "".join(c for c in str(phone) if c.isdigit())
+    s = str(phone).strip()
+    # Strip Excel's scientific-notation .0 decimal
+    if s.endswith(".0"):
+        s = s[:-2]
+    digits = "".join(c for c in s if c.isdigit())
     if len(digits) == 11 and digits.startswith("1"):
         digits = digits[1:]
     return digits if len(digits) == 10 else None
@@ -72,12 +86,16 @@ def format_phone_display(phone_digits):
 
 
 def map_source(val):
-    """Map spreadsheet Source column to DB source values."""
+    """Map spreadsheet Source column to DB source values (check constraint = jt_past_project | loop_contact)."""
     if not val:
         return None
     v = str(val).lower()
     if "jt" in v or "jobtread" in v or "past project" in v:
         return "jt_past_project"
+    if "new add" in v:
+        # New Contact Adds — friends, subs, referral partners. DB only allows
+        # the two original values, so bucket these under loop_contact.
+        return "loop_contact"
     if "loop" in v or "ghl" in v:
         return "loop_contact"
     return None
@@ -88,7 +106,10 @@ def build_rows(ws):
     skipped = []
     for r in range(2, ws.max_row + 1):
         def get(key):
-            return ws.cell(r, COLS[key]).value
+            col = COLS.get(key)
+            if not col or col > ws.max_column:
+                return None
+            return ws.cell(r, col).value
 
         first_name = get("first_name")
         last_name = get("last_name")
@@ -98,13 +119,18 @@ def build_rows(ws):
         sendable = get("sendable")
         final_text = get("final_text")
         issue = get("issue")
-        action = get("action")
+        group = get("group")
+
+        # Skip blank/separator rows
+        if not (first_name or last_name or family) and not phone:
+            continue
 
         # Determine inclusion stage
         explicit_skip = False
-        if action and str(action).strip().upper() == "SKIP":
+        if issue and "SKIP" in str(issue).upper():
             explicit_skip = True
-        if issue and str(issue).strip().upper().startswith("SKIP"):
+        if str(sendable or "").upper() not in ("YES", ""):
+            # Sendable=NO or any non-YES value → skip
             explicit_skip = True
 
         phone_digits = normalize_phone(phone)
@@ -116,10 +142,12 @@ def build_rows(ws):
             })
             continue
 
+        priority = PRIORITY_BY_GROUP.get(str(group or "").upper(), 100)
+
         row_data = {
             "contact_key": phone_digits or f"row{r}-nophone",
-            "first_name": first_name,
-            "last_name": last_name,
+            "first_name": (first_name or "").strip() if first_name else None,
+            "last_name": (last_name or "").strip() if last_name else None,
             "full_name": full_name,
             "phone": format_phone_display(phone_digits) if phone_digits else None,
             "phone_digits": phone_digits,
@@ -127,6 +155,7 @@ def build_rows(ws):
             "source": map_source(get("source")),
             "project_names": get("raw_project"),
             "city": get("city"),
+            "priority": priority,
             "initial_text_body": final_text if sendable == "YES" and final_text else None,
             "flag_notes": issue or None,
         }

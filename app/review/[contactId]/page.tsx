@@ -23,7 +23,7 @@
  * Whichever param is present gets used as the `contactId` passed to the submit API.
  */
 
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { useParams } from 'next/navigation';
 
 const BKB_RED = '#68050a';
@@ -87,6 +87,21 @@ export default function ReviewGatewayPage() {
   const [googleUrl, setGoogleUrl] = useState<string>('');
   const [copied, setCopied] = useState<boolean>(false);
   const [publicResponseText, setPublicResponseText] = useState<string>('');
+
+  // Log the gateway visit once per mount. Fire-and-forget; no UI effect.
+  // This powers the "visited but didn't finish" dashboard filter — the
+  // post-submit success flow logs its own event via review-submit, so we
+  // only need this on load.
+  useEffect(() => {
+    if (!contactId) return;
+    fetch('/api/public/review-gateway-viewed', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ contactId }),
+    }).catch(() => {
+      // Non-blocking — if the view log fails, the user can still submit.
+    });
+  }, [contactId]);
 
   function updateAnswer(key: AnswerKey, value: string) {
     setAnswers((prev) => ({ ...prev, [key]: value }));

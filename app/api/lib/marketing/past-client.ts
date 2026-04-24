@@ -49,12 +49,15 @@ export function normalizePhone(phone: string | null | undefined): string | null 
  */
 export async function getNextQueuedContact() {
   const supabase = getSupabase();
+  // Priority ASC (lower = higher priority), then queued_at ASC for FIFO within a priority band.
+  // FRIEND/SUB contacts are loaded with priority=10 so they send before past clients (priority=100).
   const { data, error } = await supabase
     .from('past_client_outreach')
     .select('*')
     .eq('stage', 'queued')
     .not('phone_digits', 'is', null)
     .not('initial_text_body', 'is', null)
+    .order('priority', { ascending: true, nullsFirst: false })
     .order('queued_at', { ascending: true })
     .limit(1)
     .maybeSingle();

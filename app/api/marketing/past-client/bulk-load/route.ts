@@ -39,7 +39,7 @@ const ALLOWED_FIELDS = [
   'first_name', 'last_name', 'full_name',
   'phone', 'phone_digits', 'email',
   'source', 'project_names', 'job_numbers', 'city',
-  'initial_text_body', 'flag_notes',
+  'initial_text_body', 'flag_notes', 'priority',
 ];
 
 export async function POST(req: NextRequest) {
