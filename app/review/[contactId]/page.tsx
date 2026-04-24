@@ -194,17 +194,27 @@ export default function ReviewGatewayPage() {
         color: '#1a1a1a',
       }}
     >
-      {/* Header */}
+      {/* Header — logo scales with viewport so it reads clearly on mobile
+          (primary channel) without getting oversized on desktop. */}
       <header
         style={{
           background: BKB_RED,
-          padding: '16px 20px',
+          padding: '22px 20px',
           display: 'flex',
           alignItems: 'center',
           justifyContent: 'center',
         }}
       >
-        <img src={BKB_LOGO} alt="Brett King Builder" style={{ height: 36 }} />
+        <img
+          src={BKB_LOGO}
+          alt="Brett King Builder"
+          style={{
+            width: '80%',
+            maxWidth: 380,
+            height: 'auto',
+            display: 'block',
+          }}
+        />
       </header>
 
       {/* Main card */}
