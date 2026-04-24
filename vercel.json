@@ -1,76 +1,72 @@
 {
-        "functions": {
-                    "app/api/chat/route.ts": {
-                                    "maxDuration": 120,
-                                    "memory": 1024
-                    },
-                    "app/api/sync/job/[jobId]/route.ts": {
-                                    "maxDuration": 60
-                    },
-                    "app/api/sync/ghl/[contactId]/route.ts": {
-                                    "maxDuration": 60
-                    },
-                    "app/api/sync/force/route.ts": {
-                                    "maxDuration": 60
-                    },
-                    "app/api/cron/sync-incremental/route.ts": {
-                                    "maxDuration": 60
-                    },
-                    "app/api/sync/backfill/route.ts": {
-                                    "maxDuration": 60
-                    },
-                    "app/api/dashboard/schedule-compliance/route.ts": {
-                                    "maxDuration": 300
-                    },
-                    "app/api/cron/schedule-compliance/route.ts": {
-                                    "maxDuration": 300
-                    },
-                    "app/api/webhook/ghl-to-jobtread/route.ts": {
-                                    "maxDuration": 30
-                    },
-                    "app/api/cron/review-concierge/route.ts": {
-                                    "maxDuration": 120
-                    },
-                    "app/api/cron/categorize-bills/route.ts": {
-                                    "maxDuration": 300
-                    }
-        },
-        "crons": [
-                    {
-                                    "path": "/api/cron/design-agent",
-                                    "schedule": "0 6 * * *"
-                    },
-                    {
-                                    "path": "/api/cron/invoicing-health",
-                                    "schedule": "0 6 * * *"
-                    },
-                    {
-                                    "path": "/api/cron/sync-incremental",
-                                    "schedule": "0 5 * * *"
-                    },
-                    {
-                                    "path": "/api/cron/inbox-cleanup",
-                                    "schedule": "0 * * * *"
-                    },
-                    {
-                                    "path": "/api/cron/schedule-compliance",
-                                    "schedule": "30 6 * * *"
-                    },
-                    {
-                                    "path": "/api/cron/gmail-to-pml",
-                                    "schedule": "30 * * * *"
-                    },
-                    {
-                                    "path": "/api/cron/field-kpi-snapshot",
-                                    "schedule": "30 6 1,15 * *"
-                    },
-                    {
-                                    "path": "/api/cron/review-concierge",
-                                    "schedule": "0 7 * * *"
-                    },
-                    {
-                                    "path": "/api/cron/categorize-bills",
-                                    "schedule": "0 9 * * *"
-                    }
-        ]
+  "functions": {
+    "app/api/chat/route.ts": {
+      "maxDuration": 120,
+      "memory": 1024
+    },
+    "app/api/sync/job/[jobId]/route.ts": {
+      "maxDuration": 60
+    },
+    "app/api/sync/ghl/[contactId]/route.ts": {
+      "maxDuration": 60
+    },
+    "app/api/sync/force/route.ts": {
+      "maxDuration": 60
+    },
+    "app/api/cron/sync-incremental/route.ts": {
+      "maxDuration": 60
+    },
+    "app/api/sync/backfill/route.ts": {
+      "maxDuration": 60
+    },
+    "app/api/dashboard/schedule-compliance/route.ts": {
+      "maxDuration": 300
+    },
+    "app/api/cron/schedule-compliance/route.ts": {
+      "maxDuration": 300
+    },
+    "app/api/webhook/ghl-to-jobtread/route.ts": {
+      "maxDuration": 30
+    },
+    "app/api/cron/review-concierge/route.ts": {
+      "maxDuration": 120
+    },
+    "app/api/cron/categorize-bills/route.ts": {
+      "maxDuration": 300
+    }
+  },
+  "crons": [
+    {
+      "path": "/api/cron/design-agent",
+      "schedule": "0 6 * * *"
+    },
+    {
+      "path": "/api/cron/invoicing-health",
+      "schedule": "0 6 * * *"
+    },
+    {
+      "path": "/api/cron/sync-incremental",
+      "schedule": "0 5 * * *"
+    },
+    {
+      "path": "/api/cron/schedule-compliance",
+      "schedule": "30 6 * * *"
+    },
+    {
+      "path": "/api/cron/gmail-to-pml",
+      "schedule": "30 * * * *"
+    },
+    {
+      "path": "/api/cron/field-kpi-snapshot",
+      "schedule": "30 6 1,15 * *"
+    },
+    {
+      "path": "/api/cron/review-concierge",
+      "schedule": "0 7 * * *"
+    },
+    {
+      "path": "/api/cron/categorize-bills",
+      "schedule": "0 9 * * *"
+    }
+  ]
 }
