@@ -47,6 +47,64 @@ export async function getContactNotes(contactId: string) {
   return data.notes || [];
 }
 
+/**
+ * Upsert a contact in GHL/Loop.
+ *
+ * GHL's /contacts/upsert endpoint matches on phone or email if either is
+ * provided and a contact already exists — in which case it merges fields
+ * onto the existing record rather than creating a duplicate. Returns both
+ * the contact object and a `new` flag indicating whether this was a create
+ * vs. an update.
+ *
+ * Tags passed here are ADDED to the contact (not replaced), so it's safe
+ * to call repeatedly with the same campaign tag.
+ *
+ * Ref: https://highlevel.stoplight.io/docs/integrations/9f6390ce5a57d-upsert-contact
+ */
+export async function upsertContact(payload: {
+  firstName?: string;
+  lastName?: string;
+  name?: string;
+  phone?: string;
+  email?: string;
+  tags?: string[];
+  source?: string;
+  customField?: Record<string, any>;
+}) {
+  const body: any = {
+    locationId: GHL_LOC(),
+    ...payload,
+  };
+  const res = await fetch(GHL_BASE + '/contacts/upsert', {
+    method: 'POST',
+    headers: headers(),
+    body: JSON.stringify(body),
+  });
+  if (!res.ok) {
+    const text = await res.text();
+    throw new Error(`GHL upsert contact failed: ${res.status} ${text}`);
+  }
+  const data = await res.json();
+  return {
+    contact: data.contact || data,
+    isNew: !!data.new,
+  };
+}
+
+/**
+ * Add tags to an existing contact without replacing the tag set.
+ * Used for re-tagging during a campaign without disturbing older tags.
+ */
+export async function addContactTags(contactId: string, tags: string[]) {
+  const res = await fetch(GHL_BASE + '/contacts/' + contactId + '/tags', {
+    method: 'POST',
+    headers: headers(),
+    body: JSON.stringify({ tags }),
+  });
+  if (!res.ok) throw new Error('GHL add tags failed: ' + res.status);
+  return res.json();
+}
+
 export async function getContactTasks(contactId: string) {
   const res = await fetch(GHL_BASE + '/contacts/' + contactId + '/tasks', { headers: headers() });
   if (!res.ok) throw new Error('GHL get tasks failed: ' + res.status);
