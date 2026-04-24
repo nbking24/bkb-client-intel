@@ -57,8 +57,12 @@ COLS = {
     "origin_sheet": 18, "origin_row": 19,
 }
 
-# Group → priority (lower = higher priority, 10 = FRIEND/CUSTOM, 100 = past clients)
+# Group → priority (lower = higher priority)
+#   5   = TEST — Nathan's known-safe contacts for pipeline validation; send first
+#   10  = FRIEND / CUSTOM — new contacts (friends, subs, referral partners)
+#   100 = INTRO / NO-INTRO — past clients
 PRIORITY_BY_GROUP = {
+    "TEST": 5,
     "FRIEND": 10,
     "CUSTOM": 10,
     "INTRO": 100,
