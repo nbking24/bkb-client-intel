@@ -85,15 +85,34 @@ export async function markSent(contactKey: string, sentBody?: string) {
     initial_sent_at: new Date().toISOString(),
   };
   if (sentBody) update.initial_text_body = sentBody;
-  const { data, error } = await supabase
+
+  // Two-step pattern instead of update().select().single() — that combination
+  // can 500 with "Cannot coerce the result to a single JSON object" when the
+  // PostgREST RETURNING shape doesn't match exactly. Splitting it makes the
+  // failure modes explicit and prevents the sender from retrying on a
+  // false-failure that actually succeeded.
+  const { data: updated, error: updateErr } = await supabase
     .from('past_client_outreach')
     .update(update)
     .eq('contact_key', contactKey)
     .eq('stage', 'queued') // guard against double-sends
-    .select()
-    .single();
-  if (error) throw error;
-  return data;
+    .select('id');
+  if (updateErr) throw updateErr;
+
+  if (!updated || updated.length === 0) {
+    // No row matched — either contact_key doesn't exist or stage already advanced.
+    // The sender treats a null return as "already sent / not found" via 409.
+    return null;
+  }
+
+  // Fetch the full row separately so callers can read back whatever they need
+  const { data: row, error: selectErr } = await supabase
+    .from('past_client_outreach')
+    .select('*')
+    .eq('id', updated[0].id)
+    .maybeSingle();
+  if (selectErr) throw selectErr;
+  return row;
 }
 
 export async function recordReply(
