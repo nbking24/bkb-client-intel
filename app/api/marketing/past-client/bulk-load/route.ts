@@ -61,7 +61,7 @@ export async function POST(req: NextRequest) {
   }
 
   const supabase = getSupabase();
-  const results = { inserted: 0, updated: 0, skipped: 0, errors: [] as any[] };
+  const results = { inserted: 0, updated: 0, skipped: 0, errors: [] as any[], debug: [] as any[] };
 
   for (const raw of rows) {
     if (!raw?.contact_key) {
@@ -90,13 +90,23 @@ export async function POST(req: NextRequest) {
         .maybeSingle();
 
       if (existing) {
-        // Update safe fields only — never reset stage/timestamps for in-flight rows
-        const { error } = await supabase
+        // Update safe fields only — never reset stage/timestamps for in-flight rows.
+        // Use .select() to get the post-update row back so we can verify the
+        // values actually persisted (eliminates list-endpoint staleness as a
+        // source of confusion).
+        const { data: updated, error } = await supabase
           .from('past_client_outreach')
           .update(payload)
-          .eq('id', existing.id);
+          .eq('id', existing.id)
+          .select('id, contact_key, stage, flag_notes, initial_sent_at, updated_at')
+          .single();
         if (error) throw error;
         results.updated++;
+        results.debug.push({
+          contact_key: raw.contact_key,
+          payload_sent: payload,
+          row_after_update: updated,
+        });
       } else {
         const { error } = await supabase
           .from('past_client_outreach')
