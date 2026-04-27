@@ -108,15 +108,38 @@ export async function POST(req: NextRequest) {
       const { contact, isNew } = await upsertContact(payload);
       const ghlId = contact?.id;
       if (!ghlId) {
-        results.errors.push({ contact_key: row.contact_key, error: 'no id in GHL response' });
+        results.errors.push({
+          contact_key: row.contact_key,
+          error: `no id in GHL response (shape: ${JSON.stringify(Object.keys(contact || {}))})`,
+        });
         results.skipped++;
         continue;
       }
-      // Persist the link so future campaigns and the dashboard know this contact is in Loop
-      await supabase
+      // Persist the link so future campaigns and the dashboard know this contact is in Loop.
+      // CAPTURE the error explicitly — silently awaiting the chain can swallow failures
+      // that look like "success" in the JS Promise world but never wrote to Postgres.
+      const { error: updateErr, data: updateData } = await supabase
         .from('past_client_outreach')
         .update({ ghl_contact_id: ghlId })
-        .eq('id', row.id);
+        .eq('id', row.id)
+        .select('id, ghl_contact_id');
+
+      if (updateErr) {
+        results.errors.push({
+          contact_key: row.contact_key,
+          error: `db update failed after Loop ${isNew ? 'create' : 'link'}: ${updateErr.message} (ghl_id=${ghlId})`,
+        });
+        results.skipped++;
+        continue;
+      }
+      if (!updateData || updateData.length === 0) {
+        results.errors.push({
+          contact_key: row.contact_key,
+          error: `db update affected 0 rows (id=${row.id}, ghl_id=${ghlId})`,
+        });
+        results.skipped++;
+        continue;
+      }
       if (isNew) results.created++;
       else results.updated++;
 
