@@ -83,9 +83,40 @@ export async function GET(req: NextRequest) {
       if (r.stage in funnel) funnel[r.stage]++;
     }
 
+    // Visited-but-not-submitted derived count — people who clicked through
+    // the link but never filled out the form. Useful for follow-up nudges.
+    const visitedNotCompleted = (allRowsRes.data || []).filter((r: any) =>
+      r.first_viewed_at && !r.form_completed_at && r.stage !== 'opted_out',
+    ).length;
+    funnel.visited_not_completed = visitedNotCompleted;
+
+    // Enrich each row with the latest review_gateway_submission so the
+    // dashboard can show "5★ → Google" or "2★ → followup" instead of just
+    // a generic "Reviewed" timestamp.
+    const contactKeys = (rowsRes.data || []).map((r: any) => r.contact_key).filter(Boolean);
+    let submissionsByContact: Record<string, any> = {};
+    if (contactKeys.length > 0) {
+      const { data: subs } = await supabase
+        .from('review_gateway_submissions')
+        .select('client_contact_id, star_rating, routed_to, submitted_at, review_text')
+        .in('client_contact_id', contactKeys)
+        .order('submitted_at', { ascending: false });
+      // Keep only the MOST RECENT submission per contact_key
+      for (const s of subs || []) {
+        if (!submissionsByContact[s.client_contact_id]) {
+          submissionsByContact[s.client_contact_id] = s;
+        }
+      }
+    }
+
+    const enriched = (rowsRes.data || []).map((r: any) => ({
+      ...r,
+      latest_submission: submissionsByContact[r.contact_key] || null,
+    }));
+
     return NextResponse.json(
       {
-        rows: rowsRes.data || [],
+        rows: enriched,
         funnel,
       },
       {
