@@ -36,16 +36,77 @@ import argparse
 import json
 import os
 import random
+import sqlite3
 import subprocess
 import sys
 import time
 import urllib.request
 import urllib.error
-from datetime import datetime
+from datetime import datetime, timezone
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).parent))
 import _config  # noqa: E402
+
+# Apple's date format for ~/Library/Messages/chat.db is nanoseconds
+# since 2001-01-01 UTC. Unix epoch = 978307200 seconds before that.
+APPLE_EPOCH_OFFSET = 978307200
+
+
+def _verify_recent_send(phone_e164, body, max_age_seconds=15):
+    """
+    Look in ~/Library/Messages/chat.db for an outbound message to phone_e164
+    whose body contains the first ~30 chars of `body`, sent in the last
+    `max_age_seconds`. Returns True if found.
+
+    Used as the GROUND TRUTH check for whether a Messages.app `send` actually
+    queued a message (AppleScript silently no-ops when iMessage can't reach
+    the recipient and SMS isn't configured — without this check we'd report
+    phantom successes).
+    """
+    chat_db = os.path.expanduser("~/Library/Messages/chat.db")
+    if not os.path.exists(chat_db):
+        print(f"verify: chat.db not found at {chat_db}", file=sys.stderr)
+        return False
+    snippet = (body or "").strip()[:30]
+    if not snippet:
+        return False
+    try:
+        conn = sqlite3.connect(f"file:{chat_db}?mode=ro", uri=True)
+        cur = conn.cursor()
+        cutoff_unix = time.time() - max_age_seconds
+        cutoff_apple_ns = (cutoff_unix - APPLE_EPOCH_OFFSET) * 1e9
+        cur.execute(
+            """
+            SELECT m.text
+            FROM message m
+            LEFT JOIN handle h ON m.handle_id = h.ROWID
+            WHERE m.is_from_me = 1
+              AND m.date > ?
+              AND h.id = ?
+            ORDER BY m.date DESC
+            LIMIT 5
+            """,
+            (cutoff_apple_ns, phone_e164),
+        )
+        rows = cur.fetchall()
+        conn.close()
+        for (text,) in rows:
+            if text and snippet in text:
+                return True
+        return False
+    except sqlite3.OperationalError as e:
+        if "authorization" in str(e).lower():
+            print(
+                f"verify: cannot read chat.db (Full Disk Access not granted to {sys.executable})",
+                file=sys.stderr,
+            )
+        else:
+            print(f"verify: sqlite error: {e}", file=sys.stderr)
+        return False
+    except Exception as e:
+        print(f"verify: unexpected error: {e}", file=sys.stderr)
+        return False
 
 
 def api_get(api_base, path, token):
@@ -71,51 +132,91 @@ def api_post(api_base, path, token, body):
         raise RuntimeError(f"HTTP {e.code}: {body}") from e
 
 
-def send_imessage(phone_digits, body):
-    """
-    Send via the signed BKB-Send-iMessage.app bundle. The .app is what macOS
-    grants Apple Events permission to (granted once during Setup-Sender-App
-    via the standard system prompt). After that, ANY process — Terminal,
-    launchd, cron — can invoke the .app and the send works.
-
-    See ~/Applications/BKB-Send-iMessage.app, built from
-    ~/BKB/launchd/BKB-Send-iMessage.applescript.
-
-    Falls back to direct osascript if the .app isn't installed yet, with a
-    clear error message pointing to the setup file.
-    """
-    to = f"+1{phone_digits}"
-
-    # Resolve the .app's applet binary
-    home = os.path.expanduser("~")
-    app_applet = os.path.join(
-        home, "Applications", "BKB-Send-iMessage.app", "Contents", "MacOS", "applet"
-    )
-
-    if not os.path.exists(app_applet):
-        raise RuntimeError(
-            f"Sender .app not found at {app_applet}. "
-            f"Run BKB/Setup-Sender-App.command (in your BKB folder) once to build and grant it."
-        )
-
-    # Invoke the app's applet binary directly with positional args.
-    # AppleScript's "on run argv" handler receives them.
+def _invoke_app(applet, command, phone_e164, body):
+    """Run the BKB-Send-iMessage.app applet with the given send command.
+    Returns the service tag printed by the AppleScript ('iMessage' or 'SMS')
+    on success. Raises RuntimeError on AppleScript-level errors."""
     result = subprocess.run(
-        [app_applet, "send", to, body],
+        [applet, command, phone_e164, body],
         capture_output=True,
         text=True,
         timeout=30,
     )
     out = (result.stdout or "").strip()
     err = (result.stderr or "").strip()
-
     if "BKB_SEND_ERROR" in out or "BKB_SEND_ERROR" in err:
-        raise RuntimeError(f"send error: {out or err}")
+        raise RuntimeError(f"applet '{command}' error: {out or err}")
     if out.startswith("ERROR"):
         raise RuntimeError(out)
     if result.returncode != 0:
-        raise RuntimeError(f"app applet exit {result.returncode}: {err or out}")
-    return out or "iMessage"
+        raise RuntimeError(f"applet '{command}' exit {result.returncode}: {err or out}")
+    return out
+
+
+def send_imessage(phone_digits, body):
+    """
+    Send and VERIFY delivery. Two-stage approach:
+      1. Try iMessage via the signed .app bundle. AppleScript reports success
+         even when Messages silently drops the message (recipient not on iMessage).
+      2. Read chat.db within ~5 seconds — if the message actually shows up as
+         outbound, we know it was queued for real.
+      3. If chat.db has no record, retry via SMS service (which works for
+         any phone number when Text Message Forwarding is enabled on the
+         user's iPhone).
+      4. Verify SMS attempt the same way.
+      5. If neither attempt produced a chat.db row, raise — caller must NOT
+         mark the contact as sent. The seen-log only gets the contact if a
+         real message was confirmed sent.
+
+    Returns: 'iMessage' or 'SMS' (the actual delivery channel that verified).
+    """
+    to = f"+1{phone_digits}"
+    home = os.path.expanduser("~")
+    app_applet = os.path.join(
+        home, "Applications", "BKB-Send-iMessage.app", "Contents", "MacOS", "applet"
+    )
+    if not os.path.exists(app_applet):
+        raise RuntimeError(
+            f"Sender .app not found at {app_applet}. "
+            f"Run BKB/Setup-Sender-App.command in your BKB folder once to build it."
+        )
+
+    # ── ATTEMPT 1: iMessage ──
+    try:
+        _invoke_app(app_applet, "send", to, body)
+    except RuntimeError as e:
+        # AppleScript-level error (e.g. service not available). Try SMS instead.
+        print(f"  iMessage attempt errored: {e}. Trying SMS…", file=sys.stderr)
+    else:
+        # AppleScript returned success — but verify via chat.db
+        time.sleep(4)
+        if _verify_recent_send(to, body, max_age_seconds=15):
+            return "iMessage"
+        print(
+            f"  iMessage send not visible in chat.db within 4s — likely "
+            f"recipient isn't on iMessage. Falling back to SMS.",
+            file=sys.stderr,
+        )
+
+    # ── ATTEMPT 2: SMS via Text Message Forwarding ──
+    try:
+        _invoke_app(app_applet, "send-sms", to, body)
+    except RuntimeError as e:
+        raise RuntimeError(
+            f"Both iMessage and SMS failed for {to}. "
+            f"SMS error: {e}. "
+            f"Check Text Message Forwarding is enabled (iPhone → Settings → Messages → Text Message Forwarding → Mac on)."
+        )
+
+    # Verify SMS actually queued
+    time.sleep(4)
+    if _verify_recent_send(to, body, max_age_seconds=20):
+        return "SMS"
+
+    raise RuntimeError(
+        f"Send to {to} could not be verified via chat.db after iMessage AND SMS attempts. "
+        f"Message was NOT actually delivered. Contact will NOT be marked as sent."
+    )
 
 
 def in_business_hours(start_hour, end_hour):
