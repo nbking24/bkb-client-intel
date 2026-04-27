@@ -31,12 +31,26 @@ export async function GET(req: NextRequest) {
       countSentToday(),
     ]);
     const atCap = dailyCount >= DAILY_CAP;
-    return NextResponse.json({
-      contact: atCap ? null : contact,
-      daily_count: dailyCount,
-      daily_cap: DAILY_CAP,
-      at_cap: atCap,
-    });
+    return NextResponse.json(
+      {
+        contact: atCap ? null : contact,
+        daily_count: dailyCount,
+        daily_cap: DAILY_CAP,
+        at_cap: atCap,
+      },
+      {
+        // GET endpoints get cached aggressively by Vercel/CDN/browsers.
+        // We MUST bypass that — a stale next-queued response can return a
+        // contact who already had a text sent, which would cause a duplicate
+        // text. Belt-and-suspenders: force-dynamic above + no-store here.
+        headers: {
+          'Cache-Control': 'no-store, no-cache, must-revalidate, max-age=0',
+          'CDN-Cache-Control': 'no-store',
+          'Vercel-CDN-Cache-Control': 'no-store',
+          Pragma: 'no-cache',
+        },
+      },
+    );
   } catch (e: any) {
     console.error('[pco/next-queued]', e);
     return NextResponse.json({ error: e.message }, { status: 500 });

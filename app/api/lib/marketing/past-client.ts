@@ -51,9 +51,19 @@ export async function getNextQueuedContact() {
   const supabase = getSupabase();
   // Priority ASC (lower = higher priority), then queued_at ASC for FIFO within a priority band.
   // FRIEND/SUB contacts are loaded with priority=10 so they send before past clients (priority=100).
+  // Explicit field list — `.select('*')` was returning stale snapshots cached at the
+  // PostgREST/Vercel layer for this query. Listing fields forces a fresh shape.
+  const FIELDS = [
+    'id', 'contact_key', 'ghl_contact_id',
+    'first_name', 'last_name', 'full_name',
+    'phone', 'phone_digits', 'email',
+    'priority', 'stage', 'source', 'project_names',
+    'queued_at', 'initial_sent_at',
+    'initial_text_body', 'flag_notes',
+  ].join(', ');
   const { data, error } = await supabase
     .from('past_client_outreach')
-    .select('*')
+    .select(FIELDS)
     .eq('stage', 'queued')
     .not('phone_digits', 'is', null)
     .not('initial_text_body', 'is', null)
