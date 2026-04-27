@@ -32,6 +32,18 @@ export function getSupabase(): SupabaseClient {
     }
     _client = createClient(SUPABASE_URL, SUPABASE_SERVICE_KEY, {
       auth: { persistSession: false, autoRefreshToken: false },
+      // CRITICAL: opt out of Next.js's fetch cache. Without this, GET reads
+      // come back stale even when `dynamic = 'force-dynamic'` is set on the
+      // route — Next memoizes fetch responses across requests by default.
+      // Lost ~30min on 2026-04-27 before tracking this down via a debug
+      // probe that showed the row UPDATE returning new values but a
+      // subsequent SELECT returning the pre-update row.
+      global: {
+        fetch: (...args: any[]) => {
+          const [input, init = {}] = args;
+          return fetch(input as any, { ...init, cache: 'no-store' });
+        },
+      },
     });
   }
   return _client;
