@@ -73,53 +73,48 @@ def api_post(api_base, path, token, body):
 
 def send_imessage(phone_digits, body):
     """
-    Send via Messages.app AppleScript. Tries iMessage first; if no iMessage
-    service buddy exists for the number, falls back to SMS. Returns the
-    phone-number form actually used and the service.
+    Send via the signed BKB-Send-iMessage.app bundle. The .app is what macOS
+    grants Apple Events permission to (granted once during Setup-Sender-App
+    via the standard system prompt). After that, ANY process — Terminal,
+    launchd, cron — can invoke the .app and the send works.
 
-    The Mac must be signed into iCloud with an iPhone configured for Text
-    Message Forwarding for SMS fallback to work. Otherwise SMS sends fail
-    silently.
+    See ~/Applications/BKB-Send-iMessage.app, built from
+    ~/BKB/launchd/BKB-Send-iMessage.applescript.
+
+    Falls back to direct osascript if the .app isn't installed yet, with a
+    clear error message pointing to the setup file.
     """
-    # E.164 format: "+1" prefix
     to = f"+1{phone_digits}"
 
-    # Escape double quotes and backslashes in the body for AppleScript
-    escaped = body.replace("\\", "\\\\").replace('"', '\\"')
+    # Resolve the .app's applet binary
+    home = os.path.expanduser("~")
+    app_applet = os.path.join(
+        home, "Applications", "BKB-Send-iMessage.app", "Contents", "MacOS", "applet"
+    )
 
-    script = f'''
-    on run
-        tell application "Messages"
-            set targetService to 1st service whose service type = iMessage
-            try
-                set targetBuddy to buddy "{to}" of targetService
-                send "{escaped}" to targetBuddy
-                return "iMessage"
-            on error
-                try
-                    set smsService to 1st service whose service type = SMS
-                    set smsBuddy to buddy "{to}" of smsService
-                    send "{escaped}" to smsBuddy
-                    return "SMS"
-                on error errMsg
-                    return "ERROR: " & errMsg
-                end try
-            end try
-        end tell
-    end run
-    '''
+    if not os.path.exists(app_applet):
+        raise RuntimeError(
+            f"Sender .app not found at {app_applet}. "
+            f"Run BKB/Setup-Sender-App.command (in your BKB folder) once to build and grant it."
+        )
 
+    # Invoke the app's applet binary directly with positional args.
+    # AppleScript's "on run argv" handler receives them.
     result = subprocess.run(
-        ["osascript", "-e", script],
+        [app_applet, "send", to, body],
         capture_output=True,
         text=True,
         timeout=30,
     )
     out = (result.stdout or "").strip()
+    err = (result.stderr or "").strip()
+
+    if "BKB_SEND_ERROR" in out or "BKB_SEND_ERROR" in err:
+        raise RuntimeError(f"send error: {out or err}")
     if out.startswith("ERROR"):
         raise RuntimeError(out)
     if result.returncode != 0:
-        raise RuntimeError(f"osascript exit {result.returncode}: {result.stderr}")
+        raise RuntimeError(f"app applet exit {result.returncode}: {err or out}")
     return out or "iMessage"
 
 
