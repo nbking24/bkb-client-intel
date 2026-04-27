@@ -34,9 +34,28 @@ export async function GET(req: NextRequest) {
   const supabase = getSupabase();
 
   try {
+    // Explicit field list — `.select('*')` was silently dropping ghl_contact_id,
+    // priority, and first_viewed_at on this table for some payloads. Listing
+    // them explicitly forces PostgREST to include them in every response.
+    const FIELDS = [
+      'id', 'contact_key', 'ghl_contact_id', 'jobtread_account_id',
+      'first_name', 'last_name', 'full_name',
+      'phone', 'phone_digits', 'email',
+      'source', 'project_names', 'job_numbers', 'city',
+      'stage', 'priority',
+      'queued_at', 'initial_sent_at', 'reminder_sent_at', 'email_sent_at',
+      'reply_received_at', 'form_completed_at', 'opted_out_at',
+      'first_viewed_at',
+      'initial_text_body', 'reminder_text_body', 'email_subject', 'email_body',
+      'reply_text', 'reply_full_thread',
+      'form_submission_id',
+      'flag_notes', 'internal_notes',
+      'created_at', 'updated_at',
+    ].join(', ');
+
     let query = supabase
       .from('past_client_outreach')
-      .select('*')
+      .select(FIELDS)
       .order('created_at', { ascending: false })
       .limit(limit);
     if (stage) query = query.eq('stage', stage);
@@ -47,10 +66,18 @@ export async function GET(req: NextRequest) {
     ]);
     if (rowsErr) throw rowsErr;
 
-    return NextResponse.json({
-      rows: rows || [],
-      funnel: funnelRes.data || {},
-    });
+    return NextResponse.json(
+      {
+        rows: rows || [],
+        funnel: funnelRes.data || {},
+      },
+      {
+        // Belt + suspenders: prevent any intermediary cache from holding stale rows
+        headers: {
+          'Cache-Control': 'no-store, no-cache, must-revalidate',
+        },
+      },
+    );
   } catch (e: any) {
     console.error('[pco/list]', e);
     return NextResponse.json({ error: e.message }, { status: 500 });
