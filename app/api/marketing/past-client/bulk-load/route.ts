@@ -40,6 +40,9 @@ const ALLOWED_FIELDS = [
   'phone', 'phone_digits', 'email',
   'source', 'project_names', 'job_numbers', 'city',
   'initial_text_body', 'flag_notes', 'priority',
+  // Recoverable timestamps — explicit nulls allowed so we can reset a row
+  // back to queued state if a phantom send marked it incorrectly.
+  'initial_sent_at',
 ];
 
 export async function POST(req: NextRequest) {
@@ -71,8 +74,12 @@ export async function POST(req: NextRequest) {
     for (const k of ALLOWED_FIELDS) {
       if (raw[k] !== undefined) payload[k] = raw[k];
     }
-    // Allow an explicit stage='skipped' at load time (e.g. the 3 no-phone rows)
-    if (raw.stage === 'skipped') payload.stage = 'skipped';
+    // Allow explicit stage transitions at load time:
+    //   'skipped' — for the no-phone rows
+    //   'queued'  — for resetting a row that was incorrectly marked sent
+    if (raw.stage === 'skipped' || raw.stage === 'queued') {
+      payload.stage = raw.stage;
+    }
 
     try {
       const { data: existing } = await supabase
