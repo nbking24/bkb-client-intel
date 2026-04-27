@@ -47,12 +47,16 @@ export function normalizePhone(phone: string | null | undefined): string | null 
  *     the caller — we don't know their clock here, so we just return the row).
  *   - Daily cap enforcement also happens caller-side (count of sends today).
  */
-export async function getNextQueuedContact() {
+export async function getNextQueuedContact(excludeKeys: string[] = []) {
   const supabase = getSupabase();
   // Priority ASC (lower = higher priority), then queued_at ASC for FIFO within a priority band.
   // FRIEND/SUB contacts are loaded with priority=10 so they send before past clients (priority=100).
   // Explicit field list — `.select('*')` was returning stale snapshots cached at the
   // PostgREST/Vercel layer for this query. Listing fields forces a fresh shape.
+  //
+  // ALSO defends against stale-read by:
+  //   1. Filtering on multiple non-stale-prone columns (initial_sent_at IS NULL)
+  //   2. Accepting an excludeKeys list from the caller (their persistent seen-log)
   const FIELDS = [
     'id', 'contact_key', 'ghl_contact_id',
     'first_name', 'last_name', 'full_name',
@@ -61,16 +65,30 @@ export async function getNextQueuedContact() {
     'queued_at', 'initial_sent_at',
     'initial_text_body', 'flag_notes',
   ].join(', ');
-  const { data, error } = await supabase
+  let query = supabase
     .from('past_client_outreach')
     .select(FIELDS)
     .eq('stage', 'queued')
+    .is('initial_sent_at', null)        // belt-and-suspenders: never re-send
+    .is('opted_out_at', null)           // never message someone who opted out
+    .is('form_completed_at', null)      // never re-message after they completed
     .not('phone_digits', 'is', null)
     .not('initial_text_body', 'is', null)
     .order('priority', { ascending: true, nullsFirst: false })
     .order('queued_at', { ascending: true })
     .limit(1)
     .maybeSingle();
+
+  // Caller-provided exclude list (the sender's persistent seen-log).
+  // Bypasses any upstream caching by adding an explicit NOT IN filter.
+  if (excludeKeys.length > 0) {
+    const sanitized = excludeKeys.filter((k) => /^\d{10}$/.test(k));
+    if (sanitized.length > 0) {
+      query = query.not('contact_key', 'in', `(${sanitized.join(',')})`);
+    }
+  }
+
+  const { data, error } = await query;
   if (error) throw error;
   return data;
 }

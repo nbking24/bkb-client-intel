@@ -188,8 +188,17 @@ def main():
             print(f"Hit session cap of {args.max_sends}. Stopping.")
             break
 
+        # Pass the seen-log as exclude_keys so the API explicitly skips
+        # them at query time (defense against any upstream cache staleness)
+        # Combine persistent + within-run sets so both layers exclude.
+        exclude_set = seen_keys_persistent | sent_keys_this_run
+        exclude_param = ",".join(sorted(k for k in exclude_set if k.isdigit() and len(k) == 10))
+        path = "/api/marketing/past-client/next-queued"
+        if exclude_param:
+            path += f"?exclude_keys={exclude_param}"
+
         try:
-            res = api_get(args.api, "/api/marketing/past-client/next-queued", args.token)
+            res = api_get(args.api, path, args.token)
         except Exception as e:
             print(f"API error fetching next: {e}", file=sys.stderr)
             time.sleep(30)
@@ -218,21 +227,15 @@ def main():
 
         # ── DEFENSE LAYER 1 CHECK: persistent seen-set ──
         # If this contact_key was sent in ANY past run, the API is returning stale data.
-        # Skip-mark them in the DB so the queue advances, then bail out — something is
-        # wrong upstream and we don't trust the next-queued data.
+        # We do NOT call /skip here — that would corrupt an already-sent row's stage.
+        # Just abort. The exclude_keys param above SHOULD prevent this from ever
+        # triggering, but it's here as a last-resort safety net.
         if contact_key in seen_keys_persistent:
             print(f"⚠ ABORT: next-queued returned {contact_key} ({display_contact(contact)}), "
-                  f"but our persistent log says we ALREADY sent to them.", file=sys.stderr)
-            print(f"  This usually means the API is returning stale data.", file=sys.stderr)
-            print(f"  Force-marking {contact_key} as initial_sent to advance the queue, then exiting.",
+                  f"but our seen-log says we already sent to them.", file=sys.stderr)
+            print(f"  exclude_keys filter should have prevented this — possible cache issue.",
                   file=sys.stderr)
-            try:
-                api_post(args.api, "/api/marketing/past-client/skip", args.token,
-                         {"contact_key": contact_key,
-                          "reason": "persistent-seen-set hit; API returned a contact we already sent to"})
-            except Exception as e:
-                print(f"  also failed to skip-mark: {e}", file=sys.stderr)
-            print(f"  Run again later when the upstream cache clears.", file=sys.stderr)
+            print(f"  No DB action taken. Re-run later if needed.", file=sys.stderr)
             break
 
         # ── DEFENSE LAYER 2 CHECK: within-run seen-set ──

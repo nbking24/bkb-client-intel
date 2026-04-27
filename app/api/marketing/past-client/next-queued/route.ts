@@ -25,9 +25,19 @@ export async function GET(req: NextRequest) {
     return NextResponse.json({ error: 'unauthorized' }, { status: 401 });
   }
 
+  // Caller (the sender script) passes its persistent seen-log here so the
+  // query explicitly excludes contacts we've already messaged, even if
+  // Supabase's read cache thinks they're still queued.
+  const excludeRaw = req.nextUrl.searchParams.get('exclude_keys') || '';
+  const excludeKeys = excludeRaw
+    .split(',')
+    .map((k) => k.trim())
+    .filter((k) => /^\d{10}$/.test(k))
+    .slice(0, 500); // hard cap
+
   try {
     const [contact, dailyCount] = await Promise.all([
-      getNextQueuedContact(),
+      getNextQueuedContact(excludeKeys),
       countSentToday(),
     ]);
     const atCap = dailyCount >= DAILY_CAP;
