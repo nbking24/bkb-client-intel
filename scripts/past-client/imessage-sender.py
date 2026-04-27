@@ -159,6 +159,34 @@ def main():
               f"Current hour: {datetime.now().hour:02d}. Exiting.")
         return
 
+    # ── DEFENSE LAYER 1: persistent seen-set ─────────────────────
+    # ~/.bkb-pco-sent.log records every contact_key we've EVER sent to.
+    # Even if the API is wildly stale, we never send to the same contact twice.
+    # Format: one contact_key per line.
+    SEEN_LOG = os.path.expanduser("~/.bkb-pco-sent.log")
+    seen_keys_persistent = set()
+    try:
+        if os.path.exists(SEEN_LOG):
+            with open(SEEN_LOG, "r") as f:
+                for line in f:
+                    k = line.strip()
+                    if k:
+                        seen_keys_persistent.add(k)
+            print(f"Loaded {len(seen_keys_persistent)} previously-sent contact keys from {SEEN_LOG}")
+    except Exception as e:
+        print(f"Warning: could not read {SEEN_LOG}: {e}", file=sys.stderr)
+
+    def record_sent(key):
+        seen_keys_persistent.add(key)
+        try:
+            with open(SEEN_LOG, "a") as f:
+                f.write(key + "\n")
+        except Exception as e:
+            print(f"Warning: could not append to {SEEN_LOG}: {e}", file=sys.stderr)
+
+    # ── DEFENSE LAYER 2: within-run seen-set ─────────────────────
+    sent_keys_this_run = set()
+
     sent_this_run = 0
     while True:
         if args.max_sends and sent_this_run >= args.max_sends:
@@ -192,6 +220,34 @@ def main():
             api_post(args.api, "/api/marketing/past-client/skip", args.token,
                      {"contact_key": contact_key, "reason": "missing body or phone at send time"})
             continue
+
+        # ── DEFENSE LAYER 1 CHECK: persistent seen-set ──
+        # If this contact_key was sent in ANY past run, the API is returning stale data.
+        # Skip-mark them in the DB so the queue advances, then bail out — something is
+        # wrong upstream and we don't trust the next-queued data.
+        if contact_key in seen_keys_persistent:
+            print(f"⚠ ABORT: next-queued returned {contact_key} ({display_contact(contact)}), "
+                  f"but our persistent log says we ALREADY sent to them.", file=sys.stderr)
+            print(f"  This usually means the API is returning stale data.", file=sys.stderr)
+            print(f"  Force-marking {contact_key} as initial_sent to advance the queue, then exiting.",
+                  file=sys.stderr)
+            try:
+                api_post(args.api, "/api/marketing/past-client/skip", args.token,
+                         {"contact_key": contact_key,
+                          "reason": "persistent-seen-set hit; API returned a contact we already sent to"})
+            except Exception as e:
+                print(f"  also failed to skip-mark: {e}", file=sys.stderr)
+            print(f"  Run again later when the upstream cache clears.", file=sys.stderr)
+            break
+
+        # ── DEFENSE LAYER 2 CHECK: within-run seen-set ──
+        # If this contact came up twice in the SAME run, mark-sent isn't taking effect
+        # OR the cache is feeding us the same row. Hard stop.
+        if contact_key in sent_keys_this_run:
+            print(f"⚠ ABORT: next-queued returned the SAME contact ({contact_key}) twice "
+                  f"in this run.", file=sys.stderr)
+            print(f"  Stopping immediately to prevent a duplicate send.", file=sys.stderr)
+            break
 
         print()
         print("─" * 60)
@@ -237,6 +293,12 @@ def main():
             print("Leaving as queued for manual retry. Stopping to avoid cascading failures.")
             break
 
+        # ── CRITICAL: record the send in BOTH dedupe sets immediately,
+        # ── BEFORE attempting mark-sent. If mark-sent fails or the API
+        # ── lies about the queue, our local sets prevent re-sending.
+        sent_keys_this_run.add(contact_key)
+        record_sent(contact_key)
+
         # Mark sent
         try:
             api_post(args.api, "/api/marketing/past-client/mark-sent", args.token,
@@ -244,7 +306,9 @@ def main():
         except Exception as e:
             print(f"WARNING: send succeeded via {service} but mark-sent failed: {e}",
                   file=sys.stderr)
-            print("Fix the DB manually and adjust before next run to avoid a dup send.")
+            print(f"This contact ({contact_key}) is now in the local seen-log "
+                  f"and will be skipped on future runs even if the API still shows them as queued.")
+            print("Stopping this run to avoid cascading issues.")
             break
 
         sent_this_run += 1

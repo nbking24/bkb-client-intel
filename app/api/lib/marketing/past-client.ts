@@ -90,38 +90,50 @@ export async function countSentToday(): Promise<number> {
 
 export async function markSent(contactKey: string, sentBody?: string) {
   const supabase = getSupabase();
+
+  // Step 1 — read current state by contact_key only (no stage filter).
+  // This avoids the .update().eq().eq().select() PostgREST quirk where the
+  // post-update SELECT filter can return 0 rows even though the UPDATE succeeded.
+  const { data: existing, error: readErr } = await supabase
+    .from('past_client_outreach')
+    .select('id, stage')
+    .eq('contact_key', contactKey)
+    .maybeSingle();
+  if (readErr) throw readErr;
+  if (!existing) return null;
+
+  // Idempotent guard: only advance from queued. If the row is already
+  // initial_sent (e.g. parallel run), return null so the route returns 409
+  // and the sender treats this as "do not re-send".
+  if (existing.stage !== 'queued') {
+    return null;
+  }
+
   const update: any = {
     stage: 'initial_sent',
     initial_sent_at: new Date().toISOString(),
   };
   if (sentBody) update.initial_text_body = sentBody;
 
-  // Two-step pattern instead of update().select().single() — that combination
-  // can 500 with "Cannot coerce the result to a single JSON object" when the
-  // PostgREST RETURNING shape doesn't match exactly. Splitting it makes the
-  // failure modes explicit and prevents the sender from retrying on a
-  // false-failure that actually succeeded.
-  const { data: updated, error: updateErr } = await supabase
+  // Step 2 — apply the update by id (not chained on stage filter).
+  const { error: updateErr } = await supabase
     .from('past_client_outreach')
     .update(update)
-    .eq('contact_key', contactKey)
-    .eq('stage', 'queued') // guard against double-sends
-    .select('id');
+    .eq('id', existing.id);
   if (updateErr) throw updateErr;
 
-  if (!updated || updated.length === 0) {
-    // No row matched — either contact_key doesn't exist or stage already advanced.
-    // The sender treats a null return as "already sent / not found" via 409.
-    return null;
-  }
-
-  // Fetch the full row separately so callers can read back whatever they need
-  const { data: row, error: selectErr } = await supabase
+  // Step 3 — read it back to confirm the write actually committed
+  const { data: row, error: verifyErr } = await supabase
     .from('past_client_outreach')
     .select('*')
-    .eq('id', updated[0].id)
+    .eq('id', existing.id)
     .maybeSingle();
-  if (selectErr) throw selectErr;
+  if (verifyErr) throw verifyErr;
+  if (!row || row.stage !== 'initial_sent') {
+    throw new Error(
+      `markSent verify failed: id=${existing.id} stage=${row?.stage} (expected initial_sent)`,
+    );
+  }
   return row;
 }
 
