@@ -115,36 +115,41 @@ export async function POST(req: NextRequest) {
         results.skipped++;
         continue;
       }
-      // Persist the link so future campaigns and the dashboard know this contact is in Loop.
-      // Match by contact_key (unique) instead of id — gets us out of any UUID-coercion edge cases.
-      const { error: updateErr, data: updateData } = await supabase
+      // Persist the link. Two-step pattern with a separate post-write SELECT so we
+      // can prove the value actually committed and is visible to subsequent reads.
+      const updateResp = await supabase
         .from('past_client_outreach')
         .update({ ghl_contact_id: ghlId })
-        .eq('contact_key', row.contact_key)
-        .select('id, contact_key, ghl_contact_id');
+        .eq('contact_key', row.contact_key);
 
-      if (updateErr) {
+      if (updateResp.error) {
         results.errors.push({
           contact_key: row.contact_key,
-          error: `db update failed: ${updateErr.message} (ghl_id=${ghlId})`,
+          error: `db update failed: ${updateResp.error.message} (ghl_id=${ghlId}, status=${updateResp.status})`,
         });
         results.skipped++;
         continue;
       }
-      if (!updateData || updateData.length === 0) {
+
+      // Read it back with a FRESH query — proves the row truly carries the new value
+      const { data: verifyRow, error: verifyErr } = await supabase
+        .from('past_client_outreach')
+        .select('contact_key, ghl_contact_id')
+        .eq('contact_key', row.contact_key)
+        .maybeSingle();
+
+      if (verifyErr) {
         results.errors.push({
           contact_key: row.contact_key,
-          error: `db update affected 0 rows (contact_key=${row.contact_key}, ghl_id=${ghlId})`,
+          error: `verify-read failed: ${verifyErr.message} (ghl_id=${ghlId})`,
         });
         results.skipped++;
         continue;
       }
-      // Sanity-check the readback actually contains the ghl_id we just set
-      const persistedId = updateData[0]?.ghl_contact_id;
-      if (persistedId !== ghlId) {
+      if (!verifyRow || verifyRow.ghl_contact_id !== ghlId) {
         results.errors.push({
           contact_key: row.contact_key,
-          error: `db update returned but ghl_id mismatch: expected ${ghlId}, got ${persistedId}`,
+          error: `WRITE NOT PERSISTED: update returned ${updateResp.status} but readback shows ghl=${verifyRow?.ghl_contact_id} (expected ${ghlId})`,
         });
         results.skipped++;
         continue;
