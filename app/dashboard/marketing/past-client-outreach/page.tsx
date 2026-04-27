@@ -239,6 +239,63 @@ export default function PastClientOutreachPage() {
         );
       })()}
 
+      {/* Manual outreach needed — contacts who aren't on iMessage. The auto-sender
+          flagged them as 'failed' because the AppleScript send couldn't actually
+          deliver. Tap their phone number from your iPhone to text them manually. */}
+      {(() => {
+        const failedRows = rows.filter((r) => r.stage === 'failed');
+        if (failedRows.length === 0) return null;
+        return (
+          <div className="rounded-md border border-amber-300 bg-amber-50 p-4">
+            <div className="flex items-center justify-between mb-3">
+              <div className="text-xs font-semibold uppercase tracking-wide text-amber-900">
+                Manual SMS needed ({failedRows.length})
+              </div>
+              <div className="text-xs text-amber-800">
+                These contacts aren't on iMessage. Send manually from your iPhone.
+              </div>
+            </div>
+            <div className="space-y-2">
+              {failedRows.map((r) => (
+                <div
+                  key={r.id}
+                  className="bg-white border border-amber-200 rounded p-3 text-sm flex items-center justify-between"
+                >
+                  <div>
+                    <div className="font-medium text-gray-900">{r.full_name || `${r.first_name || ''} ${r.last_name || ''}`.trim() || 'Unknown'}</div>
+                    <div className="text-xs text-gray-600 mt-0.5">{r.phone}</div>
+                    {r.email && <div className="text-xs text-gray-500">{r.email}</div>}
+                  </div>
+                  <div className="flex items-center gap-2">
+                    {r.phone_digits && (
+                      <a
+                        href={`sms:+1${r.phone_digits}`}
+                        className="text-xs px-3 py-1.5 bg-amber-700 hover:bg-amber-800 text-white rounded"
+                      >
+                        Open in SMS
+                      </a>
+                    )}
+                    <button
+                      onClick={() => {
+                        if (confirm(`Mark ${r.full_name} as sent (after you manually texted them)?`)) {
+                          // We use bulk-load with stage='queued' to reset, then user can mark-sent.
+                          // For now just instruct the user to manually update.
+                          alert('To mark as sent after manual outreach: edit the row in the API directly. UI shortcut coming soon.');
+                        }
+                      }}
+                      className="text-xs px-3 py-1.5 bg-gray-200 hover:bg-gray-300 text-gray-700 rounded"
+                      title="(coming soon)"
+                    >
+                      Mark Done
+                    </button>
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+        );
+      })()}
+
       {/* Filter row summary */}
       <div className="flex items-center justify-between text-sm text-gray-500">
         <div>

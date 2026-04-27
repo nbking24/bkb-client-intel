@@ -209,42 +209,34 @@ def send_imessage(phone_digits, body):
             f"Run BKB/Setup-Sender-App.command in your BKB folder once to build it."
         )
 
-    # ── ATTEMPT 1: iMessage ──
+    # iMessage-only architecture. SMS via AppleScript doesn't reliably route
+    # through Text Message Forwarding (verified 2026-04-27 — Chris Stauffer's
+    # SMS attempt didn't even create a Messages.app thread). Recipients who
+    # aren't on iMessage are flagged in the DB as `failed` so the user can
+    # manually text them from their iPhone.
     try:
         _invoke_app(app_applet, "send", to, body)
     except RuntimeError as e:
-        # AppleScript-level error (e.g. service not available). Try SMS instead.
-        print(f"  iMessage attempt errored: {e}. Trying SMS…", file=sys.stderr)
-    else:
-        # AppleScript returned success — but verify via chat.db
-        time.sleep(4)
-        if _verify_recent_send(to, body, max_age_seconds=15):
-            return "iMessage"
-        print(
-            f"  iMessage send not visible in chat.db within 4s — likely "
-            f"recipient isn't on iMessage. Falling back to SMS.",
-            file=sys.stderr,
-        )
+        raise RuntimeError(f"iMessage send errored: {e}")
 
-    # ── ATTEMPT 2: SMS via Text Message Forwarding ──
-    try:
-        _invoke_app(app_applet, "send-sms", to, body)
-    except RuntimeError as e:
-        raise RuntimeError(
-            f"Both iMessage and SMS failed for {to}. "
-            f"SMS error: {e}. "
-            f"Check Text Message Forwarding is enabled (iPhone → Settings → Messages → Text Message Forwarding → Mac on)."
-        )
-
-    # Verify SMS actually queued
+    # Verify via chat.db that the message actually queued. AppleScript
+    # silently no-ops for non-iMessage recipients — this is the ground truth.
     time.sleep(4)
-    if _verify_recent_send(to, body, max_age_seconds=20):
-        return "SMS"
+    if _verify_recent_send(to, body, max_age_seconds=15):
+        return "iMessage"
 
-    raise RuntimeError(
-        f"Send to {to} could not be verified via chat.db after iMessage AND SMS attempts. "
-        f"Message was NOT actually delivered. Contact will NOT be marked as sent."
+    # Not delivered. Distinguish this from a code error by raising a specific
+    # exception type that the main loop can catch and route to mark-failed.
+    raise NotOnIMessage(
+        f"{to} is not on iMessage — message was not delivered. "
+        f"Contact will be flagged for manual SMS."
     )
+
+
+class NotOnIMessage(Exception):
+    """Raised when iMessage send completes per AppleScript but the message
+    didn't actually queue (recipient not on iMessage). Caller should mark
+    the contact as 'failed' rather than 'sent'."""
 
 
 def in_business_hours(start_hour, end_hour):
@@ -414,6 +406,28 @@ def main():
         # Send
         try:
             service = send_imessage(phone_digits, body)
+        except NotOnIMessage as e:
+            # Recipient isn't on iMessage. Mark as 'failed' in DB so they
+            # surface in the dashboard's "manual outreach needed" bucket,
+            # AND record in seen-log so we don't retry them automatically.
+            print(f"  ⚠ {display_contact(contact)}: {e}", file=sys.stderr)
+            try:
+                api_post(args.api, "/api/marketing/past-client/bulk-load", args.token, {
+                    "rows": [{
+                        "contact_key": contact_key,
+                        "stage": "failed",
+                        "flag_notes": "Not on iMessage — manual SMS needed (auto-flagged by sender)",
+                    }],
+                })
+                print(f"  Marked {contact_key} as failed in DB.", file=sys.stderr)
+            except Exception as me:
+                print(f"  WARNING: could not mark failed: {me}", file=sys.stderr)
+            sent_keys_this_run.add(contact_key)
+            record_sent(contact_key)
+            # Continue to next contact — this isn't a fatal error
+            print(f"  Moving on to next contact.", file=sys.stderr)
+            time.sleep(2)
+            continue
         except Exception as e:
             print(f"Send failed for {display_contact(contact)}: {e}", file=sys.stderr)
             # Leave as queued — operator can investigate and retry

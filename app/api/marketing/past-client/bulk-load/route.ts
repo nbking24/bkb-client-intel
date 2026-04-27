@@ -77,7 +77,8 @@ export async function POST(req: NextRequest) {
     // Allow explicit stage transitions at load time:
     //   'skipped' — for the no-phone rows
     //   'queued'  — for resetting a row that was incorrectly marked sent
-    if (raw.stage === 'skipped' || raw.stage === 'queued') {
+    //   'failed'  — for rows the sender couldn't deliver to (not on iMessage)
+    if (['skipped', 'queued', 'failed'].includes(raw.stage)) {
       payload.stage = raw.stage;
     }
 
