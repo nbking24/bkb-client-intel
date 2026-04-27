@@ -259,6 +259,9 @@ def main():
     ap.add_argument("--start-hour", type=int, default=9)
     ap.add_argument("--end-hour", type=int, default=19)
     ap.add_argument("--max-sends", type=int, default=0, help="0 = no session cap")
+    ap.add_argument("--only-key", default=None,
+                    help="Only attempt this specific contact_key. Bypasses next-queued. "
+                         "Used for targeted testing of one contact.")
     ap.add_argument("--ignore-hours", action="store_true",
                     help="Skip the business-hours gate (use with care)")
     args = ap.parse_args()
@@ -309,31 +312,55 @@ def main():
             print(f"Hit session cap of {args.max_sends}. Stopping.")
             break
 
-        # Pass the seen-log as exclude_keys so the API explicitly skips
-        # them at query time (defense against any upstream cache staleness)
-        # Combine persistent + within-run sets so both layers exclude.
-        exclude_set = seen_keys_persistent | sent_keys_this_run
-        exclude_param = ",".join(sorted(k for k in exclude_set if k.isdigit() and len(k) == 10))
-        path = "/api/marketing/past-client/next-queued"
-        if exclude_param:
-            path += f"?exclude_keys={exclude_param}"
+        # ── --only-key: targeted-test mode. Bypass next-queued entirely
+        # and fetch the specified contact's row by phone_digits. After
+        # processing once, exit cleanly so we don't retarget queue.
+        if args.only_key:
+            if args.only_key in sent_keys_this_run:
+                print(f"--only-key {args.only_key} already processed this run. Done.")
+                break
+            try:
+                # list endpoint supports `key` filter via Supabase rest
+                res = api_get(
+                    args.api,
+                    f"/api/marketing/past-client/list?contact_key={args.only_key}",
+                    args.token,
+                )
+            except Exception as e:
+                print(f"API error fetching contact: {e}", file=sys.stderr)
+                break
+            rows = res.get("rows") if isinstance(res, dict) else None
+            contact = rows[0] if rows else None
+            if not contact:
+                print(f"--only-key {args.only_key}: no matching row found. Done.")
+                break
+            print(f"[--only-key] Targeting {display_contact(contact)}")
+        else:
+            # Pass the seen-log as exclude_keys so the API explicitly skips
+            # them at query time (defense against any upstream cache staleness)
+            # Combine persistent + within-run sets so both layers exclude.
+            exclude_set = seen_keys_persistent | sent_keys_this_run
+            exclude_param = ",".join(sorted(k for k in exclude_set if k.isdigit() and len(k) == 10))
+            path = "/api/marketing/past-client/next-queued"
+            if exclude_param:
+                path += f"?exclude_keys={exclude_param}"
 
-        try:
-            res = api_get(args.api, path, args.token)
-        except Exception as e:
-            print(f"API error fetching next: {e}", file=sys.stderr)
-            time.sleep(30)
-            continue
+            try:
+                res = api_get(args.api, path, args.token)
+            except Exception as e:
+                print(f"API error fetching next: {e}", file=sys.stderr)
+                time.sleep(30)
+                continue
 
-        if res.get("at_cap"):
-            print(f"Daily cap reached ({res.get('daily_count')}/{res.get('daily_cap')}). "
-                  f"Try again tomorrow.")
-            break
+            if res.get("at_cap"):
+                print(f"Daily cap reached ({res.get('daily_count')}/{res.get('daily_cap')}). "
+                      f"Try again tomorrow.")
+                break
 
-        contact = res.get("contact")
-        if not contact:
-            print("Queue empty — nothing left to send. Done.")
-            break
+            contact = res.get("contact")
+            if not contact:
+                print("Queue empty — nothing left to send. Done.")
+                break
 
         body = contact.get("initial_text_body")
         phone_digits = contact.get("phone_digits")
@@ -351,7 +378,8 @@ def main():
         # We do NOT call /skip here — that would corrupt an already-sent row's stage.
         # Just abort. The exclude_keys param above SHOULD prevent this from ever
         # triggering, but it's here as a last-resort safety net.
-        if contact_key in seen_keys_persistent:
+        # --only-key intentionally bypasses this: it's an explicit retry of one contact.
+        if contact_key in seen_keys_persistent and not args.only_key:
             print(f"⚠ ABORT: next-queued returned {contact_key} ({display_contact(contact)}), "
                   f"but our seen-log says we already sent to them.", file=sys.stderr)
             print(f"  exclude_keys filter should have prevented this — possible cache issue.",

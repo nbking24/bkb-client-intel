@@ -26,6 +26,7 @@ export async function GET(req: NextRequest) {
   }
 
   const stage = req.nextUrl.searchParams.get('stage');
+  const contactKeyFilter = req.nextUrl.searchParams.get('contact_key');
   const limit = Math.min(
     Number(req.nextUrl.searchParams.get('limit')) || 500,
     1000,
@@ -67,6 +68,7 @@ export async function GET(req: NextRequest) {
       .order('created_at', { ascending: false })
       .limit(limit);
     if (stage) rowsQuery = rowsQuery.eq('stage', stage);
+    if (contactKeyFilter) rowsQuery = rowsQuery.eq('contact_key', contactKeyFilter);
 
     const [allRowsRes, rowsRes] = await Promise.all([allRowsQuery, rowsQuery]);
     if (allRowsRes.error) throw allRowsRes.error;
