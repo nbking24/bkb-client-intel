@@ -53,46 +53,74 @@ import _config  # noqa: E402
 APPLE_EPOCH_OFFSET = 978307200
 
 
-def _verify_recent_send(phone_e164, body, max_age_seconds=15):
+def _verify_recent_send(phone_e164, body, max_age_seconds=15, debug=False):
     """
-    Look in ~/Library/Messages/chat.db for an outbound message to phone_e164
-    whose body contains the first ~30 chars of `body`, sent in the last
-    `max_age_seconds`. Returns True if found.
+    Look in ~/Library/Messages/chat.db for an outbound message containing the
+    first ~60 chars of `body`, sent in the last `max_age_seconds`. We search
+    by body-text only (not recipient handle) because SMS-via-forwarding can
+    use a different handle.id format than iMessage, which made the previous
+    handle-match query miss real sends.
 
-    Used as the GROUND TRUTH check for whether a Messages.app `send` actually
-    queued a message (AppleScript silently no-ops when iMessage can't reach
-    the recipient and SMS isn't configured — without this check we'd report
-    phantom successes).
+    Returns True if a matching outbound message exists (the send actually
+    happened); False if no match.
+
+    debug=True prints the rows considered, which is useful when diagnosing
+    delivery issues.
     """
     chat_db = os.path.expanduser("~/Library/Messages/chat.db")
     if not os.path.exists(chat_db):
         print(f"verify: chat.db not found at {chat_db}", file=sys.stderr)
         return False
-    snippet = (body or "").strip()[:30]
-    if not snippet:
+
+    # First 60 characters of the body, with newlines collapsed for SQL LIKE
+    raw_snippet = (body or "").strip()[:60]
+    snippet = raw_snippet.replace("\n", " ").replace("\r", " ").strip()
+    if len(snippet) < 10:
+        # Too short to uniquely identify our send; bail
         return False
+
     try:
         conn = sqlite3.connect(f"file:{chat_db}?mode=ro", uri=True)
         cur = conn.cursor()
-        cutoff_unix = time.time() - max_age_seconds
-        cutoff_apple_ns = (cutoff_unix - APPLE_EPOCH_OFFSET) * 1e9
+        cutoff_apple_ns = (time.time() - max_age_seconds - APPLE_EPOCH_OFFSET) * 1e9
+
+        # Get recent outbound messages in the window. Match by body presence —
+        # search the first ~30 chars of our body inside each message text.
         cur.execute(
             """
-            SELECT m.text
+            SELECT m.text, h.id, m.service, m.date
             FROM message m
             LEFT JOIN handle h ON m.handle_id = h.ROWID
             WHERE m.is_from_me = 1
               AND m.date > ?
-              AND h.id = ?
+              AND m.text IS NOT NULL
             ORDER BY m.date DESC
-            LIMIT 5
+            LIMIT 25
             """,
-            (cutoff_apple_ns, phone_e164),
+            (cutoff_apple_ns,),
         )
         rows = cur.fetchall()
         conn.close()
-        for (text,) in rows:
-            if text and snippet in text:
+
+        # Use a stricter sub-snippet for matching (first 30 chars after
+        # collapsing whitespace). Body texts in our campaign always begin
+        # with "Hey <name>," or "Yo <name>," so this is unique-enough.
+        match_snippet = snippet[:30]
+        if debug:
+            print(
+                f"verify debug: looking for snippet={match_snippet!r} in last "
+                f"{max_age_seconds}s, found {len(rows)} candidate outbound rows",
+                file=sys.stderr,
+            )
+            for text, handle_id, service, _date in rows[:5]:
+                preview = (text or "")[:60].replace("\n", "\\n")
+                print(
+                    f"  candidate: handle={handle_id!r} service={service!r} text={preview!r}",
+                    file=sys.stderr,
+                )
+
+        for text, _handle_id, _service, _date in rows:
+            if text and match_snippet in text:
                 return True
         return False
     except sqlite3.OperationalError as e:
