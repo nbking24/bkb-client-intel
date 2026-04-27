@@ -116,18 +116,17 @@ export async function POST(req: NextRequest) {
         continue;
       }
       // Persist the link so future campaigns and the dashboard know this contact is in Loop.
-      // CAPTURE the error explicitly — silently awaiting the chain can swallow failures
-      // that look like "success" in the JS Promise world but never wrote to Postgres.
+      // Match by contact_key (unique) instead of id — gets us out of any UUID-coercion edge cases.
       const { error: updateErr, data: updateData } = await supabase
         .from('past_client_outreach')
         .update({ ghl_contact_id: ghlId })
-        .eq('id', row.id)
-        .select('id, ghl_contact_id');
+        .eq('contact_key', row.contact_key)
+        .select('id, contact_key, ghl_contact_id');
 
       if (updateErr) {
         results.errors.push({
           contact_key: row.contact_key,
-          error: `db update failed after Loop ${isNew ? 'create' : 'link'}: ${updateErr.message} (ghl_id=${ghlId})`,
+          error: `db update failed: ${updateErr.message} (ghl_id=${ghlId})`,
         });
         results.skipped++;
         continue;
@@ -135,7 +134,17 @@ export async function POST(req: NextRequest) {
       if (!updateData || updateData.length === 0) {
         results.errors.push({
           contact_key: row.contact_key,
-          error: `db update affected 0 rows (id=${row.id}, ghl_id=${ghlId})`,
+          error: `db update affected 0 rows (contact_key=${row.contact_key}, ghl_id=${ghlId})`,
+        });
+        results.skipped++;
+        continue;
+      }
+      // Sanity-check the readback actually contains the ghl_id we just set
+      const persistedId = updateData[0]?.ghl_contact_id;
+      if (persistedId !== ghlId) {
+        results.errors.push({
+          contact_key: row.contact_key,
+          error: `db update returned but ghl_id mismatch: expected ${ghlId}, got ${persistedId}`,
         });
         results.skipped++;
         continue;
