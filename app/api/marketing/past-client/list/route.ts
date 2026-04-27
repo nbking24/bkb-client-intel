@@ -53,28 +53,46 @@ export async function GET(req: NextRequest) {
       'created_at', 'updated_at',
     ].join(', ');
 
-    let query = supabase
+    // Fetch the full unfiltered set for funnel computation (we always need
+    // accurate counts regardless of the row filter applied below). This
+    // bypasses the pco_funnel view which has been returning stale counts.
+    const allRowsQuery = supabase
+      .from('past_client_outreach')
+      .select('stage')
+      .limit(2000);
+
+    let rowsQuery = supabase
       .from('past_client_outreach')
       .select(FIELDS)
       .order('created_at', { ascending: false })
       .limit(limit);
-    if (stage) query = query.eq('stage', stage);
+    if (stage) rowsQuery = rowsQuery.eq('stage', stage);
 
-    const [{ data: rows, error: rowsErr }, funnelRes] = await Promise.all([
-      query,
-      supabase.from('pco_funnel').select('*').maybeSingle(),
-    ]);
-    if (rowsErr) throw rowsErr;
+    const [allRowsRes, rowsRes] = await Promise.all([allRowsQuery, rowsQuery]);
+    if (allRowsRes.error) throw allRowsRes.error;
+    if (rowsRes.error) throw rowsRes.error;
+
+    // Compute funnel counts from the unfiltered set so they always reflect
+    // ground truth (the pco_funnel view has cache staleness issues).
+    const funnel: Record<string, number> = {
+      queued: 0, initial_sent: 0, reminder_sent: 0, email_sent: 0,
+      replied: 0, completed: 0, opted_out: 0, skipped: 0, failed: 0, total: 0,
+    };
+    for (const r of allRowsRes.data || []) {
+      funnel.total++;
+      if (r.stage in funnel) funnel[r.stage]++;
+    }
 
     return NextResponse.json(
       {
-        rows: rows || [],
-        funnel: funnelRes.data || {},
+        rows: rowsRes.data || [],
+        funnel,
       },
       {
-        // Belt + suspenders: prevent any intermediary cache from holding stale rows
         headers: {
           'Cache-Control': 'no-store, no-cache, must-revalidate',
+          'CDN-Cache-Control': 'no-store',
+          'Vercel-CDN-Cache-Control': 'no-store',
         },
       },
     );
