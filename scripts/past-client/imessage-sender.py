@@ -189,41 +189,44 @@ def _invoke_app(applet, command, phone_e164, body):
 
 def send_imessage(phone_digits, body):
     """
-    Send and VERIFY delivery. Two-stage approach:
-      1. Try iMessage via the signed .app bundle. AppleScript reports success
-         even when Messages silently drops the message (recipient not on iMessage).
-      2. Read chat.db within ~5 seconds — if the message actually shows up as
-         outbound, we know it was queued for real.
-      3. If chat.db has no record, retry via SMS service (which works for
-         any phone number when Text Message Forwarding is enabled on the
-         user's iPhone).
-      4. Verify SMS attempt the same way.
-      5. If neither attempt produced a chat.db row, raise — caller must NOT
-         mark the contact as sent. The seen-log only gets the contact if a
-         real message was confirmed sent.
+    Send and VERIFY delivery via inline osascript (NOT the .app bundle).
 
-    Returns: 'iMessage' or 'SMS' (the actual delivery channel that verified).
+    Why: macOS attributes Apple Events to the "responsible binary" up the
+    process tree. For .command files, that's /bin/bash, which Apple has
+    locked out of Automation permissions for security. The .app bundle
+    approach didn't fix this because TCC still attributed up to bash.
+
+    Inline osascript invocation makes osascript itself the leaf-process
+    sender — and osascript is system-managed with stable Automation
+    permissions. First invocation triggers a one-time "Terminal wants to
+    control Messages" prompt; click Allow once and it sticks.
+
+    Process: python → osascript → Messages.
+    AppleScript reports success even when Messages silently drops a send
+    (recipient not on iMessage), so we ALWAYS verify via chat.db.
     """
     to = f"+1{phone_digits}"
-    home = os.path.expanduser("~")
-    app_applet = os.path.join(
-        home, "Applications", "BKB-Send-iMessage.app", "Contents", "MacOS", "applet"
+    # Escape body for embedding in AppleScript string literal
+    body_esc = body.replace("\\", "\\\\").replace('"', '\\"').replace("\n", "\\n")
+    script = (
+        'tell application "Messages"\n'
+        '    set targetService to 1st service whose service type = iMessage\n'
+        f'    set targetBuddy to buddy "{to}" of targetService\n'
+        f'    send "{body_esc}" to targetBuddy\n'
+        'end tell\n'
     )
-    if not os.path.exists(app_applet):
-        raise RuntimeError(
-            f"Sender .app not found at {app_applet}. "
-            f"Run BKB/Setup-Sender-App.command in your BKB folder once to build it."
-        )
-
-    # iMessage-only architecture. SMS via AppleScript doesn't reliably route
-    # through Text Message Forwarding (verified 2026-04-27 — Chris Stauffer's
-    # SMS attempt didn't even create a Messages.app thread). Recipients who
-    # aren't on iMessage are flagged in the DB as `failed` so the user can
-    # manually text them from their iPhone.
     try:
-        _invoke_app(app_applet, "send", to, body)
-    except RuntimeError as e:
-        raise RuntimeError(f"iMessage send errored: {e}")
+        result = subprocess.run(
+            ["/usr/bin/osascript", "-e", script],
+            capture_output=True,
+            text=True,
+            timeout=30,
+        )
+    except subprocess.TimeoutExpired:
+        raise RuntimeError("osascript send timed out after 30s")
+    if result.returncode != 0:
+        err = (result.stderr or result.stdout or "").strip()
+        raise RuntimeError(f"osascript send failed: {err}")
 
     # Verify via chat.db that the message actually queued. AppleScript
     # silently no-ops for non-iMessage recipients — this is the ground truth.
