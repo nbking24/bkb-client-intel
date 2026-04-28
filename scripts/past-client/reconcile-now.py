@@ -22,6 +22,8 @@ import time
 import urllib.request
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+import _config
+
 APPLE_EPOCH_OFFSET = 978307200
 
 
@@ -50,15 +52,16 @@ def digits_only(s):
 
 def main():
     ap = argparse.ArgumentParser()
-    ap.add_argument("--api", default=os.environ.get("PCO_API_BASE", "https://bkb-client-intel.vercel.app"))
-    ap.add_argument("--token", default=os.environ.get("TICKET_AGENT_TOKEN"))
+    ap.add_argument("--api")
+    ap.add_argument("--token")
     ap.add_argument("--lookback-hours", type=float, default=4.0)
     ap.add_argument("--dry-run", action="store_true")
     args = ap.parse_args()
 
-    if not args.token:
-        print("✗ TICKET_AGENT_TOKEN not set", file=sys.stderr)
-        sys.exit(1)
+    # Use the shared config loader — reads ~/.bkb-pco.env if env vars
+    # aren't set. This is what the other PCO scripts do.
+    args.api = _config.get_api_base(cli_value=args.api)
+    args.token = _config.get_token(cli_value=args.token)
 
     chat_db = os.path.expanduser("~/Library/Messages/chat.db")
     conn = sqlite3.connect(f"file:{chat_db}?mode=ro", uri=True)
