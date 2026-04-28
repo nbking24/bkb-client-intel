@@ -53,6 +53,12 @@ import _config  # noqa: E402
 APPLE_EPOCH_OFFSET = 978307200
 
 
+class VerifyUnavailable(Exception):
+    """Raised when chat.db cannot be read (FDA not granted, file missing, etc).
+    Distinguished from a verified-false because we can't tell whether the send
+    actually happened. Caller should trust the AppleScript success in that case."""
+
+
 def _verify_recent_send(phone_e164, body, max_age_seconds=15, debug=False):
     """
     Look in ~/Library/Messages/chat.db for an outbound message containing the
@@ -61,16 +67,15 @@ def _verify_recent_send(phone_e164, body, max_age_seconds=15, debug=False):
     use a different handle.id format than iMessage, which made the previous
     handle-match query miss real sends.
 
-    Returns True if a matching outbound message exists (the send actually
-    happened); False if no match.
-
-    debug=True prints the rows considered, which is useful when diagnosing
-    delivery issues.
+    Returns True if a matching outbound message exists (verified delivered).
+    Returns False if chat.db was readable but no matching row found
+    (verified-false → recipient probably not on iMessage).
+    Raises VerifyUnavailable if chat.db can't be read (FDA missing, etc) —
+    caller should NOT treat this as a delivery failure.
     """
     chat_db = os.path.expanduser("~/Library/Messages/chat.db")
     if not os.path.exists(chat_db):
-        print(f"verify: chat.db not found at {chat_db}", file=sys.stderr)
-        return False
+        raise VerifyUnavailable(f"chat.db not found at {chat_db}")
 
     # First 60 characters of the body, with newlines collapsed for SQL LIKE
     raw_snippet = (body or "").strip()[:60]
@@ -124,17 +129,18 @@ def _verify_recent_send(phone_e164, body, max_age_seconds=15, debug=False):
                 return True
         return False
     except sqlite3.OperationalError as e:
+        # Auth-denied means we can't read chat.db at all (FDA not granted to
+        # whichever process spawned us). That's NOT a verified-false — it
+        # means we can't tell. Raise VerifyUnavailable so the caller can
+        # fall back to trusting the AppleScript success.
         if "authorization" in str(e).lower():
-            print(
-                f"verify: cannot read chat.db (Full Disk Access not granted to {sys.executable})",
-                file=sys.stderr,
-            )
-        else:
-            print(f"verify: sqlite error: {e}", file=sys.stderr)
-        return False
-    except Exception as e:
-        print(f"verify: unexpected error: {e}", file=sys.stderr)
-        return False
+            raise VerifyUnavailable(
+                f"chat.db not readable (Full Disk Access not granted to {sys.executable})"
+            ) from e
+        # Other sqlite errors are also unverifiable, not verified-false.
+        raise VerifyUnavailable(f"sqlite error reading chat.db: {e}") from e
+    except sqlite3.DatabaseError as e:
+        raise VerifyUnavailable(f"chat.db read failed: {e}") from e
 
 
 def api_get(api_base, path, token):
@@ -221,12 +227,29 @@ def send_imessage(phone_digits, body):
 
     # Verify via chat.db that the message actually queued. AppleScript
     # silently no-ops for non-iMessage recipients — this is the ground truth.
+    # If chat.db can't be read at all (FDA not granted to launchd-spawned
+    # python), trust the AppleScript success and return a special channel
+    # value so the caller can flag this as unverified.
     time.sleep(4)
-    if _verify_recent_send(to, body, max_age_seconds=15):
+    try:
+        verified = _verify_recent_send(to, body, max_age_seconds=15)
+    except VerifyUnavailable as ve:
+        # Don't false-fail real sends just because we can't see chat.db.
+        # Print once per run-attempt so the operator knows verification
+        # was skipped. The launchd run-as-root case lands here — granting
+        # FDA to /usr/bin/python3 fixes it.
+        print(
+            f"  ⚠ chat.db verify unavailable ({ve}). "
+            f"Trusting AppleScript success — marking as iMessage_unverified.",
+            file=sys.stderr,
+        )
+        return "iMessage_unverified"
+
+    if verified:
         return "iMessage"
 
-    # Not delivered. Distinguish this from a code error by raising a specific
-    # exception type that the main loop can catch and route to mark-failed.
+    # chat.db readable, no matching row → recipient isn't on iMessage
+    # (AppleScript silently dropped the send).
     raise NotOnIMessage(
         f"{to} is not on iMessage — message was not delivered. "
         f"Contact will be flagged for manual SMS."
@@ -452,8 +475,14 @@ def main():
                 print(f"  WARNING: could not mark failed: {me}", file=sys.stderr)
             sent_keys_this_run.add(contact_key)
             record_sent(contact_key)
-            # Continue to next contact — this isn't a fatal error
-            print(f"  Moving on to next contact.", file=sys.stderr)
+            # Count failed-routes toward the session cap. Without this, a
+            # systemic failure (e.g. FDA missing → every contact "fails"
+            # verification) would blow through the entire queue in one run.
+            # Burned by this 2026-04-28: 158 contacts processed in one
+            # evening run before we caught it.
+            sent_this_run += 1
+            print(f"  Moving on to next contact. Total processed this run: {sent_this_run}",
+                  file=sys.stderr)
             time.sleep(2)
             continue
         except Exception as e:
