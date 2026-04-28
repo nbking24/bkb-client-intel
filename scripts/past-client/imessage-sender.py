@@ -77,12 +77,19 @@ def _verify_recent_send(phone_e164, body, max_age_seconds=15, debug=False):
     if not os.path.exists(chat_db):
         raise VerifyUnavailable(f"chat.db not found at {chat_db}")
 
-    # First 60 characters of the body, with newlines collapsed for SQL LIKE
-    raw_snippet = (body or "").strip()[:60]
-    snippet = raw_snippet.replace("\n", " ").replace("\r", " ").strip()
-    if len(snippet) < 10:
+    # Build a whitespace-normalized snippet of the body for fuzzy matching.
+    # We normalize BOTH the body and chat.db text the same way so newline
+    # differences (literal \n vs actual newlines vs different runs of
+    # whitespace) don't false-fail. Verified 2026-04-28: Kara's send
+    # actually delivered but the previous verify said "not on iMessage"
+    # because the body had real newlines and match_snippet had spaces.
+    def _normalize(s):
+        return " ".join((s or "").split())
+    body_normalized = _normalize(body)
+    if len(body_normalized) < 10:
         # Too short to uniquely identify our send; bail
         return False
+    snippet = body_normalized[:60]
 
     try:
         conn = sqlite3.connect(f"file:{chat_db}?mode=ro", uri=True)
@@ -125,7 +132,7 @@ def _verify_recent_send(phone_e164, body, max_age_seconds=15, debug=False):
                 )
 
         for text, _handle_id, _service, _date in rows:
-            if text and match_snippet in text:
+            if text and match_snippet in _normalize(text):
                 return True
         return False
     except sqlite3.OperationalError as e:
