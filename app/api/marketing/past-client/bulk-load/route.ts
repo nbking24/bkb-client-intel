@@ -75,11 +75,18 @@ export async function POST(req: NextRequest) {
       if (raw[k] !== undefined) payload[k] = raw[k];
     }
     // Allow explicit stage transitions at load time:
-    //   'skipped' — for the no-phone rows
-    //   'queued'  — for resetting a row that was incorrectly marked sent
-    //   'failed'  — for rows the sender couldn't deliver to (not on iMessage)
-    if (['skipped', 'queued', 'failed'].includes(raw.stage)) {
+    //   'skipped'      — for the no-phone rows
+    //   'queued'       — for resetting a row that was incorrectly marked sent
+    //   'failed'       — for rows the sender couldn't deliver to (not on iMessage)
+    //   'initial_sent' — for reconciling rows that actually got messages but
+    //                    weren't marked sent (e.g. when the verifier was buggy)
+    if (['skipped', 'queued', 'failed', 'initial_sent'].includes(raw.stage)) {
       payload.stage = raw.stage;
+      // For initial_sent, also accept initial_sent_at if provided. Otherwise
+      // default to now() so the reconciler doesn't have to fabricate one.
+      if (raw.stage === 'initial_sent' && !raw.initial_sent_at) {
+        payload.initial_sent_at = new Date().toISOString();
+      }
     }
 
     try {
