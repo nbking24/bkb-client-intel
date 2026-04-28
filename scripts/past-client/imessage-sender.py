@@ -59,80 +59,73 @@ class VerifyUnavailable(Exception):
     actually happened. Caller should trust the AppleScript success in that case."""
 
 
-def _verify_recent_send(phone_e164, body, max_age_seconds=15, debug=False):
+def _verify_recent_send(phone_e164, body, max_age_seconds=30, debug=False):
     """
-    Look in ~/Library/Messages/chat.db for an outbound message containing the
-    first ~60 chars of `body`, sent in the last `max_age_seconds`. We search
-    by body-text only (not recipient handle) because SMS-via-forwarding can
-    use a different handle.id format than iMessage, which made the previous
-    handle-match query miss real sends.
+    Look in ~/Library/Messages/chat.db for an outbound message to `phone_e164`,
+    sent in the last `max_age_seconds`. Match by HANDLE digits (last 10 digits
+    of phone) rather than body content — body matching false-failed when
+    Messages created a new chat thread and our snippet didn't match what
+    was stored. The reconciliation script uses this same handle-digit
+    approach and correctly identified ~20 of 30 today's sends.
 
-    Returns True if a matching outbound message exists (verified delivered).
-    Returns False if chat.db was readable but no matching row found
-    (verified-false → recipient probably not on iMessage).
-    Raises VerifyUnavailable if chat.db can't be read (FDA missing, etc) —
-    caller should NOT treat this as a delivery failure.
+    Returns True if any outbound message to this number exists in the window
+    (verified delivered).
+    Returns False if chat.db was readable but no matching row found.
+    Raises VerifyUnavailable if chat.db can't be read.
     """
     chat_db = os.path.expanduser("~/Library/Messages/chat.db")
     if not os.path.exists(chat_db):
         raise VerifyUnavailable(f"chat.db not found at {chat_db}")
 
-    # Build a whitespace-normalized snippet of the body for fuzzy matching.
-    # We normalize BOTH the body and chat.db text the same way so newline
-    # differences (literal \n vs actual newlines vs different runs of
-    # whitespace) don't false-fail. Verified 2026-04-28: Kara's send
-    # actually delivered but the previous verify said "not on iMessage"
-    # because the body had real newlines and match_snippet had spaces.
-    def _normalize(s):
-        return " ".join((s or "").split())
-    body_normalized = _normalize(body)
-    if len(body_normalized) < 10:
-        # Too short to uniquely identify our send; bail
+    # Extract last 10 digits of the recipient phone for handle matching.
+    # Strips +1 country code. Handle.id in chat.db can be in various
+    # formats (+12155551234, 2155551234, +1 (215) 555-1234) so we
+    # normalize by extracting digits.
+    digits_only = lambda s: "".join(c for c in str(s or "") if c.isdigit())
+    target_last10 = digits_only(phone_e164)[-10:]
+    if len(target_last10) < 10:
         return False
-    snippet = body_normalized[:60]
 
     try:
         conn = sqlite3.connect(f"file:{chat_db}?mode=ro", uri=True)
         cur = conn.cursor()
         cutoff_apple_ns = (time.time() - max_age_seconds - APPLE_EPOCH_OFFSET) * 1e9
 
-        # Get recent outbound messages in the window. Match by body presence —
-        # search the first ~30 chars of our body inside each message text.
+        # Get recent outbound messages in the window with their handle.id.
+        # Match by phone-digit suffix on handle.id. This is more robust than
+        # body matching because it doesn't depend on how Messages renders
+        # newlines or normalizes the text.
         cur.execute(
             """
-            SELECT m.text, h.id, m.service, m.date
+            SELECT h.id, m.service, m.date
             FROM message m
-            LEFT JOIN handle h ON m.handle_id = h.ROWID
+            JOIN handle h ON m.handle_id = h.ROWID
             WHERE m.is_from_me = 1
               AND m.date > ?
-              AND m.text IS NOT NULL
+              AND h.id IS NOT NULL
             ORDER BY m.date DESC
-            LIMIT 25
+            LIMIT 100
             """,
             (cutoff_apple_ns,),
         )
         rows = cur.fetchall()
         conn.close()
 
-        # Use a stricter sub-snippet for matching (first 30 chars after
-        # collapsing whitespace). Body texts in our campaign always begin
-        # with "Hey <name>," or "Yo <name>," so this is unique-enough.
-        match_snippet = snippet[:30]
         if debug:
             print(
-                f"verify debug: looking for snippet={match_snippet!r} in last "
-                f"{max_age_seconds}s, found {len(rows)} candidate outbound rows",
+                f"verify debug: looking for handle ending in {target_last10!r} "
+                f"in last {max_age_seconds}s, found {len(rows)} candidate "
+                f"outbound rows",
                 file=sys.stderr,
             )
-            for text, handle_id, service, _date in rows[:5]:
-                preview = (text or "")[:60].replace("\n", "\\n")
+            for handle_id, service, _date in rows[:5]:
                 print(
-                    f"  candidate: handle={handle_id!r} service={service!r} text={preview!r}",
+                    f"  candidate: handle={handle_id!r} service={service!r}",
                     file=sys.stderr,
                 )
 
-        for text, _handle_id, _service, _date in rows:
-            if text and match_snippet in _normalize(text):
+        for handle_id, _service, _date in rows:
+            if digits_only(handle_id).endswith(target_last10):
                 return True
         return False
     except sqlite3.OperationalError as e:
@@ -237,12 +230,11 @@ def send_imessage(phone_digits, body):
 
     # Verify via chat.db that the message actually queued. AppleScript
     # silently no-ops for non-iMessage recipients — this is the ground truth.
-    # If chat.db can't be read at all (FDA not granted to launchd-spawned
-    # python), trust the AppleScript success and return a special channel
-    # value so the caller can flag this as unverified.
-    time.sleep(4)
+    # Wait 8 seconds rather than 4 — Messages takes longer to write the
+    # row when creating a new chat thread for a never-texted contact.
+    time.sleep(8)
     try:
-        verified = _verify_recent_send(to, body, max_age_seconds=15)
+        verified = _verify_recent_send(to, body, max_age_seconds=30)
     except VerifyUnavailable as ve:
         # Don't false-fail real sends just because we can't see chat.db.
         # Print once per run-attempt so the operator knows verification
