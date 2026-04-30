@@ -632,13 +632,20 @@ export async function routeMessage(
   // Collect file links from tool results BEFORE they get truncated
   const _collectedFileLinks: Array<{ name: string; url: string; context: string }> = [];
 
-  // Handle tool use loop (max 5 iterations — 90s safety timer is the real guard)
+  // Handle tool use loop. Budget reasoning:
+  // - chat/route.ts has maxDuration=120 on Vercel
+  // - We hold 105s for the tool loop to leave ~15s headroom for finalization
+  //   (formatting reply, server-side file-link append, response serialization)
+  // - 8 iterations gives the agent room for a fixtures-style flow that legitimately
+  //   needs multiple tool calls (e.g. get_project_details with one search, then a
+  //   wider search if the first returns nothing).
   let iterations = 0;
   const routeStart = Date.now();
-  while (response.stop_reason === 'tool_use' && iterations < 5) {
-    // Safety: if we've used more than 90 seconds, break out to avoid Vercel timeout
-    if (Date.now() - routeStart > 90_000) {
-      console.log('[ROUTER] Breaking tool loop: 90s safety limit');
+  const MAX_ITERATIONS = 8;
+  const TIME_BUDGET_MS = 105_000;
+  while (response.stop_reason === 'tool_use' && iterations < MAX_ITERATIONS) {
+    if (Date.now() - routeStart > TIME_BUDGET_MS) {
+      console.log('[ROUTER] Breaking tool loop:', Math.round((Date.now() - routeStart) / 1000) + 's exceeded ' + (TIME_BUDGET_MS / 1000) + 's safety limit');
       break;
     }
     iterations++;
@@ -776,9 +783,18 @@ export async function routeMessage(
     }
   }
 
-  // If we broke out of the loop early (time limit), append a note
-  if (response.stop_reason === 'tool_use' && reply) {
-    reply += '\n\n*(Response was truncated due to processing time. Try a more specific query or select a project first.)*';
+  // If we broke out of the loop early (time/iteration limit), append a note.
+  // Be context-aware: don't tell the user to "select a project" if one is
+  // already selected — that was the misleading bit Nathan flagged.
+  if (response.stop_reason === 'tool_use') {
+    const hint = ctx.jtJobId
+      ? 'Try a narrower question (e.g. include a specific room or fixture type — "what faucets are in the master bath?") and the agent will finish faster.'
+      : 'Try selecting a project first, or ask a more specific question.';
+    if (reply) {
+      reply += '\n\n*(Hit the processing-time limit before the agent finished. ' + hint + ')*';
+    } else {
+      reply = 'The agent was still gathering data when the time limit hit. ' + hint;
+    }
   }
 
   if (!reply) reply = 'No response generated. The query may have been too broad — try selecting a specific project or asking a more targeted question.';
