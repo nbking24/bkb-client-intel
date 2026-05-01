@@ -4750,17 +4750,39 @@ If a section is "(none)", return empty string for that key.`;
       }
     } catch (_e) { /* skip AI errors */ }
 
-    // Preserve labor date range header if it was set during invoice creation
+    // Preserve labor date range + total hours header if it was set during invoice creation.
+    // createDraftCostPlusInvoice writes a two-line header:
+    //   Labor dates: Apr 1, 2026 – Apr 22, 2026
+    //   Total labor hours: 43.5
+    // The AI rewrite above strips it, so we need to re-prepend BOTH lines (or whichever
+    // were present), with total hours pulled from the cost group's quantity field as the
+    // source of truth (it's set during invoice creation and stays correct across re-runs).
     if (existingLabor) {
-      const currentGroup = await pave({ costGroup: { $: { id: existingLabor.id }, description: {} } });
-      const currentDesc = ((currentGroup as any)?.costGroup?.description || '').trim();
-      // Check if the original description (before AI rewrite) had a date header
+      const reread = await pave({
+        costGroup: { $: { id: existingLabor.id }, description: {}, quantity: {} },
+      });
+      const currentDesc = ((reread as any)?.costGroup?.description || '').trim();
+      const groupQty = Number((reread as any)?.costGroup?.quantity);
+
+      // Strip any partially-preserved header lines from currentDesc so we can re-emit
+      // the canonical two-line header without duplicating either line.
+      const bodyOnly = currentDesc
+        .replace(/^Labor dates:[^\n]*\n?/i, '')
+        .replace(/^Total labor hours:[^\n]*\n?/i, '')
+        .trim();
+
       const originalDesc = (existingLabor.description || '').trim();
-      const dateMatch = originalDesc.match(/^(Labor dates:[^\n]+)/);
-      if (dateMatch && !currentDesc.startsWith('Labor dates:')) {
-        // AI rewrite removed the date header — re-add it
-        const finalDesc = currentDesc ? `${dateMatch[1]}\n\n${currentDesc}` : dateMatch[1];
-        await updateJTCostGroup(existingLabor.id, { description: finalDesc });
+      const datesLine = originalDesc.match(/^(Labor dates:[^\n]+)/i)?.[1] || '';
+      const hoursLine = Number.isFinite(groupQty) && groupQty > 0
+        ? `Total labor hours: ${Math.round(groupQty * 100) / 100}`
+        : (originalDesc.match(/^Total labor hours:[^\n]+/im)?.[0] || '');
+
+      if (datesLine || hoursLine) {
+        const headerBlock = [datesLine, hoursLine].filter(Boolean).join('\n');
+        const finalDesc = bodyOnly ? `${headerBlock}\n\n${bodyOnly}` : headerBlock;
+        if (finalDesc !== currentDesc) {
+          await updateJTCostGroup(existingLabor.id, { description: finalDesc });
+        }
       }
     }
 
