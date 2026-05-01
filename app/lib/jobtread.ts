@@ -5086,18 +5086,38 @@ If a section is "(none)", return empty string for that key.`;
     console.warn('[reorganize] AI rewrite failed, keeping original descriptions:', aiErr.message);
   }
 
-  // Prepend labor date range header to the BKB Labor group description
-  // invoiceDates contains YYYY-MM-DD strings for each "Time Cost for [date]" group
+  // Prepend labor date range + total hours header to the BKB Labor group description.
+  // invoiceDates contains YYYY-MM-DD strings for each "Time Cost for [date]" group.
+  // The cost group's `quantity` field is set upstream (createDraftCostPlusInvoice) to
+  // the total invoiced labor hours; we read it back here so the description and the
+  // visible quantity always agree, and so this works whether the invoice was just
+  // created or is being re-reorganized later.
   if (laborGroup && invoiceDates.size > 0) {
     const sortedDates = Array.from(invoiceDates).sort();
     const firstDate = new Date(sortedDates[0] + 'T12:00:00').toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
     const lastDate = new Date(sortedDates[sortedDates.length - 1] + 'T12:00:00').toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
-    const dateHeader = firstDate === lastDate ? `Labor dates: ${firstDate}` : `Labor dates: ${firstDate} \u2013 ${lastDate}`;
+    const dateRange = firstDate === lastDate ? firstDate : `${firstDate} \u2013 ${lastDate}`;
 
-    // Re-read the current description (may have been AI-rewritten) and prepend date header
-    const currentGroup = await pave({ costGroup: { $: { id: laborGroup.id }, description: {} } });
+    // Re-read the current description (may have been AI-rewritten) and the quantity
+    // (total labor hours) so we can rebuild the header without losing total hours.
+    const currentGroup = await pave({
+      costGroup: { $: { id: laborGroup.id }, description: {}, quantity: {} },
+    });
     const currentDesc = ((currentGroup as any)?.costGroup?.description || '').trim();
-    const finalDesc = currentDesc ? `${dateHeader}\n\n${currentDesc}` : dateHeader;
+    const groupQty = Number((currentGroup as any)?.costGroup?.quantity);
+    const totalHoursLine = Number.isFinite(groupQty) && groupQty > 0
+      ? `\nTotal labor hours: ${Math.round(groupQty * 100) / 100}`
+      : '';
+    const dateHeader = `Labor dates: ${dateRange}${totalHoursLine}`;
+
+    // Strip any pre-existing "Labor dates:" / "Total labor hours:" lines from the body
+    // so we don't accumulate stale headers across re-runs of reorganize.
+    const bodyOnly = currentDesc
+      .replace(/^Labor dates:[^\n]*\n?/i, '')
+      .replace(/^Total labor hours:[^\n]*\n?/i, '')
+      .trim();
+
+    const finalDesc = bodyOnly ? `${dateHeader}\n\n${bodyOnly}` : dateHeader;
     await updateJTCostGroup(laborGroup.id, { description: finalDesc });
   }
 
