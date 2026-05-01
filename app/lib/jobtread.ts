@@ -3713,11 +3713,17 @@ export async function createDraftCostPlusInvoice(jobId: string): Promise<{
       name: 'BKB Labor',
     });
 
-    // Build labor date range header so clients know what dates are being billed
+    // Build labor date range header so clients know what dates are being billed,
+    // and include total hours on a second line \u2014 matches the style used by the
+    // billable-CO flow (createDraftBillableInvoice) so cost-plus and fixed-price
+    // labor descriptions read consistently on the customer's side.
     const laborDates = uninvoicedTime.map(te => new Date(te.date)).sort((a, b) => a.getTime() - b.getTime());
     const firstDate = laborDates[0].toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
     const lastDate = laborDates[laborDates.length - 1].toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
-    const dateHeader = firstDate === lastDate ? `Labor dates: ${firstDate}` : `Labor dates: ${firstDate} \u2013 ${lastDate}`;
+    const dateRange = firstDate === lastDate ? firstDate : `${firstDate} \u2013 ${lastDate}`;
+    const totalLaborHours = uninvoicedTime.reduce((s, e) => s + e.hours, 0);
+    const roundedTotalHours = Math.round(totalLaborHours * 100) / 100;
+    const dateHeader = `Labor dates: ${dateRange}\nTotal labor hours: ${roundedTotalHours}`;
 
     // AI-rewrite labor group description from time entry notes
     const laborNotes: string[] = [];
@@ -3783,9 +3789,10 @@ export async function createDraftCostPlusInvoice(jobId: string): Promise<{
       createdItemCount++;
     }
 
-    // Set total hours, hide children, and set description (all in one call to avoid overwriting)
-    const allLaborHours = uninvoicedTime.reduce((s, e) => s + e.hours, 0);
-    await pave({ updateCostGroup: { $: { id: laborGroup.id, quantity: Math.round(allLaborHours * 100) / 100, unitId: '22P5SRxXqzSe', showChildren: false, description: laborDescFinal } } });
+    // Set total hours, hide children, and set description (all in one call to avoid overwriting).
+    // Reuse roundedTotalHours computed above for the date header so the description and the
+    // cost-group quantity always agree.
+    await pave({ updateCostGroup: { $: { id: laborGroup.id, quantity: roundedTotalHours, unitId: '22P5SRxXqzSe', showChildren: false, description: laborDescFinal } } });
   }
 
   return {
