@@ -129,6 +129,10 @@ export async function POST(req: Request) {
       cost: number;
       date?: string | null;
       kind: 'bill' | 'po' | 'labor';
+      // For labor: total hours this worker logged against this cost code.
+      // The labor section of the drawer is rolled up per-employee, so each
+      // labor line represents many time entries collapsed into one row.
+      hours?: number;
     };
     const actualByCostCode: Record<string, { total: number; lines: CostLine[] }> = {};
     const pendingByCostCode: Record<string, { total: number; lines: CostLine[] }> = {};
@@ -200,6 +204,13 @@ export async function POST(req: Request) {
     let totalTravelHours = 0;
     let totalBreakHours = 0;
 
+    // Per-cost-code, per-employee labor aggregation. Time entries can run
+    // hundreds-deep on big jobs, which made the cost-code drawer unreadable
+    // when each entry was its own row. We collapse to one row per
+    // (cost code, employee) with totals — bills/POs are still listed
+    // individually since each one represents a discrete vendor commitment.
+    const laborByKey: Record<string, Record<string, { name: string; hours: number; cost: number }>> = {};
+
     for (const te of timeEntries) {
       const hours = computeHours(te.startedAt, te.endedAt);
       const userName = te.user?.name || 'Unknown';
@@ -236,16 +247,30 @@ export async function POST(req: Request) {
       }
       timeByCostCode[timeKey].hours += hours;
 
-      // Also add time costs to the actualByCostCode for cost breakdown.
-      // Push as a 'labor' line so the expanded drawer can show it alongside
-      // bills (vendor rows for materials/subs, worker rows for labor).
-      if (teCost > 0) {
+      // Aggregate labor cost & hours per (cost code, employee) — the actual
+      // pushLine into actualByCostCode happens after the loop, once per
+      // employee, so the drawer shows a single summary row per worker per
+      // cost code instead of one row per time entry.
+      if (teCost > 0 || hours > 0) {
         const costKey = ccNum + '-' + ccName;
-        pushLine(actualByCostCode, costKey, teCost, {
-          label: userName,
-          itemName: te.costItem?.name || undefined,
-          cost: teCost,
-          date: te.startedAt || null,
+        if (!laborByKey[costKey]) laborByKey[costKey] = {};
+        if (!laborByKey[costKey][userId]) {
+          laborByKey[costKey][userId] = { name: userName, hours: 0, cost: 0 };
+        }
+        laborByKey[costKey][userId].hours += hours;
+        laborByKey[costKey][userId].cost += teCost;
+      }
+    }
+
+    // Emit the rolled-up labor lines into actualByCostCode now that all
+    // time entries have been summed.
+    for (const [costKey, perUser] of Object.entries(laborByKey)) {
+      for (const u of Object.values(perUser)) {
+        if (u.cost <= 0) continue; // skip zero-cost rollups (e.g. all break time)
+        pushLine(actualByCostCode, costKey, u.cost, {
+          label: u.name,
+          cost: u.cost,
+          hours: Math.round(u.hours * 100) / 100,
           kind: 'labor',
         });
       }
@@ -325,6 +350,7 @@ export async function POST(req: Request) {
               cost: Math.round(l.cost * 100) / 100,
               date: l.date || null,
               kind: l.kind,
+              hours: l.hours != null ? Math.round(l.hours * 100) / 100 : null,
             }));
 
         return {

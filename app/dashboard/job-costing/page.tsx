@@ -99,6 +99,9 @@ interface CostLine {
   cost: number;
   date: string | null;
   kind: 'bill' | 'po' | 'labor';
+  // For labor: total hours rolled up across all of this worker's time entries
+  // for this cost code. Null for bills/POs.
+  hours: number | null;
 }
 
 interface TimeUser {
@@ -582,13 +585,20 @@ export default function JobCostingDashboard() {
                       {/* Expanded drawer: budget line items + actual + pending breakdowns */}
                       {isExpanded && (
                         <div className="px-4 pb-3 pt-1 ml-8 space-y-3">
-                          {/* Actual costs — what's been spent so far */}
+                          {/* Actual costs — what's been spent so far.
+                              Labor lines are rolled up per-employee
+                              server-side, so a single Labor row can
+                              represent dozens of time entries. */}
                           {cc.actualLines && cc.actualLines.length > 0 && (
                             <div>
                               <div className="text-xs font-semibold mb-1.5 flex items-center gap-2" style={{ color: '#1a1a1a' }}>
                                 <span>Actual Costs</span>
                                 <span style={{ color: '#8a8078', fontWeight: 400 }}>
-                                  ({cc.actualLines.length} {cc.actualLines.length === 1 ? 'entry' : 'entries'} · ${fmt(cc.actualCost)})
+                                  ({cc.actualLines.filter(l => l.kind !== 'labor').length} bill{cc.actualLines.filter(l => l.kind !== 'labor').length === 1 ? '' : 's'}
+                                  {cc.actualLines.some(l => l.kind === 'labor') && (
+                                    <> · {cc.actualLines.filter(l => l.kind === 'labor').length} worker{cc.actualLines.filter(l => l.kind === 'labor').length === 1 ? '' : 's'}</>
+                                  )}
+                                  {' · '}${fmt(cc.actualCost)})
                                 </span>
                               </div>
                               {cc.actualLines.map((line, i) => (
@@ -608,14 +618,19 @@ export default function JobCostingDashboard() {
                                   </span>
                                   <span className="flex-1 truncate" style={{ color: '#1a1a1a' }}>
                                     {line.label}
-                                    {line.docNumber ? <span style={{ color: '#8a8078' }}> · #{line.docNumber}</span> : null}
-                                    {line.itemName ? <span style={{ color: '#8a8078' }}> — {line.itemName}</span> : null}
+                                    {line.kind !== 'labor' && line.docNumber ? <span style={{ color: '#8a8078' }}> · #{line.docNumber}</span> : null}
+                                    {line.kind !== 'labor' && line.itemName ? <span style={{ color: '#8a8078' }}> — {line.itemName}</span> : null}
                                   </span>
-                                  {line.date && (
+                                  {/* Labor rows show total hours instead of a date (the rollup spans many days). */}
+                                  {line.kind === 'labor' && line.hours != null ? (
+                                    <span className="shrink-0 text-[11px]" style={{ color: '#8a8078' }}>
+                                      {line.hours} {line.hours === 1 ? 'hr' : 'hrs'}
+                                    </span>
+                                  ) : line.date ? (
                                     <span className="shrink-0 text-[11px]" style={{ color: '#8a8078' }}>
                                       {new Date(line.date).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}
                                     </span>
-                                  )}
+                                  ) : null}
                                   <span className="shrink-0 w-24 text-right" style={{ color: '#1a1a1a' }}>
                                     ${fmt(line.cost)}
                                   </span>
