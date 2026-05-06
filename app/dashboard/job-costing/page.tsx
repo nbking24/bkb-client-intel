@@ -199,6 +199,10 @@ export default function JobCostingDashboard() {
   const [detailLoading, setDetailLoading] = useState(false);
   const [detail, setDetail] = useState<JobDetail | null>(null);
   const [expandedCodes, setExpandedCodes] = useState<Set<string>>(new Set());
+  // Per-cost-code "show all budget items" toggle. Keys match the row's
+  // cost code key (number+name). When a key is in this set, the budget
+  // line item list renders ALL items for that row instead of the top 5.
+  const [showAllItems, setShowAllItems] = useState<Set<string>>(new Set());
 
   // ---- Load summary data ----
   async function loadSummary() {
@@ -223,6 +227,7 @@ export default function JobCostingDashboard() {
     setDetailLoading(true);
     setDetail(null);
     setExpandedCodes(new Set());
+    setShowAllItems(new Set());
     try {
       const res = await fetch('/api/dashboard/job-costing/detail', {
         method: 'POST',
@@ -684,31 +689,54 @@ export default function JobCostingDashboard() {
                             </div>
                           )}
 
-                          {/* Budget line items — original estimate breakdown */}
-                          {cc.topItems.length > 0 && (
-                            <div>
-                              <div className="text-xs font-semibold mb-1.5" style={{ color: '#8a8078' }}>
-                                Budget Line Items ({cc.itemCount} {cc.itemCount === 1 ? 'item' : 'items'})
+                          {/* Budget line items — original estimate breakdown.
+                              Renders the top 5 by default; the "Show all"
+                              link toggles the rest into view (state lives in
+                              showAllItems, keyed on the row's cost code key). */}
+                          {cc.topItems.length > 0 && (() => {
+                            const showAll = showAllItems.has(key);
+                            const items = showAll ? cc.topItems : cc.topItems.slice(0, 5);
+                            const hidden = cc.topItems.length - items.length;
+                            return (
+                              <div>
+                                <div className="text-xs font-semibold mb-1.5" style={{ color: '#8a8078' }}>
+                                  Budget Line Items ({cc.itemCount} {cc.itemCount === 1 ? 'item' : 'items'})
+                                </div>
+                                {items.map((item, i) => (
+                                  <div
+                                    key={i}
+                                    className="flex items-center gap-3 py-1 text-xs"
+                                    style={{ color: '#8a8078' }}
+                                  >
+                                    <span className="flex-1 truncate" style={{ color: '#1a1a1a' }}>{item.name}</span>
+                                    <span className="shrink-0">Qty: {item.quantity}</span>
+                                    <span className="shrink-0 w-20 text-right">${fmt(item.cost)} cost</span>
+                                    <span className="shrink-0 w-20 text-right">${fmt(item.price)} price</span>
+                                  </div>
+                                ))}
+                                {(hidden > 0 || showAll) && cc.topItems.length > 5 && (
+                                  <button
+                                    type="button"
+                                    onClick={(e) => {
+                                      e.stopPropagation();
+                                      setShowAllItems((prev) => {
+                                        const next = new Set(prev);
+                                        if (next.has(key)) next.delete(key);
+                                        else next.add(key);
+                                        return next;
+                                      });
+                                    }}
+                                    className="text-xs mt-1.5 underline-offset-2 hover:underline"
+                                    style={{ color: '#a06f00', cursor: 'pointer' }}
+                                  >
+                                    {showAll
+                                      ? 'Show less'
+                                      : `Show all ${cc.topItems.length} items (${hidden} more)`}
+                                  </button>
+                                )}
                               </div>
-                              {cc.topItems.map((item, i) => (
-                                <div
-                                  key={i}
-                                  className="flex items-center gap-3 py-1 text-xs"
-                                  style={{ color: '#8a8078' }}
-                                >
-                                  <span className="flex-1 truncate" style={{ color: '#1a1a1a' }}>{item.name}</span>
-                                  <span className="shrink-0">Qty: {item.quantity}</span>
-                                  <span className="shrink-0 w-20 text-right">${fmt(item.cost)} cost</span>
-                                  <span className="shrink-0 w-20 text-right">${fmt(item.price)} price</span>
-                                </div>
-                              ))}
-                              {cc.itemCount > 5 && (
-                                <div className="text-xs mt-1" style={{ color: '#8a8078' }}>
-                                  + {cc.itemCount - 5} more items
-                                </div>
-                              )}
-                            </div>
-                          )}
+                            );
+                          })()}
 
                           {/* Empty state — should be rare since the row only exists if there's data, but defensive */}
                           {(!cc.actualLines || cc.actualLines.length === 0)

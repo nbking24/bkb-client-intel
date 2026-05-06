@@ -411,7 +411,11 @@ export async function POST(req: Request) {
           pctCommitted: Math.round(pctCommitted),
           status,
           itemCount: budget.itemCount,
-          topItems: budget.items.sort((a, b) => b.cost - a.cost).slice(0, 5),
+          // Return all budget line items sorted by cost desc. The client
+          // renders the first 5 by default and exposes a "Show all" toggle
+          // to reveal the rest, so users can drill into a code with many
+          // small items without flooding the page on initial render.
+          topItems: budget.items.sort((a, b) => b.cost - a.cost),
           actualLines: sortLines(actualBucket.lines),
           pendingLines: sortLines(pendingBucket.lines),
         };
