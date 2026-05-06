@@ -312,28 +312,31 @@ export default function JobCostingDashboard() {
               )}
             </div>
 
-            {/* AI Analysis */}
+            {/* AI Analysis. Body text is dark so it reads on the page's
+                near-white background; inline replacements inherit the body
+                color (strong is just bolded, no color override). Headers stay
+                gold to anchor the section visually. */}
             {detail.aiAnalysis && (
               <div
                 className="rounded-lg p-4"
                 style={{
-                  background: 'rgba(201,168,76,0.04)',
-                  border: '1px solid rgba(201,168,76,0.15)',
+                  background: 'rgba(201,168,76,0.06)',
+                  border: '1px solid rgba(201,168,76,0.25)',
                 }}
               >
                 <div className="flex items-center gap-2 mb-2">
-                  <BarChart3 size={16} style={{ color: '#c88c00' }} />
-                  <span className="text-sm font-semibold" style={{ color: '#c88c00' }}>
+                  <BarChart3 size={16} style={{ color: '#a06f00' }} />
+                  <span className="text-sm font-semibold" style={{ color: '#a06f00' }}>
                     {detail.job.isCompleted ? 'AI Final Assessment' : 'AI Cost Analysis'}
                   </span>
                 </div>
-                <div className="text-sm" style={{ color: '#d0c8c0', lineHeight: '1.7' }}
+                <div className="text-sm" style={{ color: '#1a1a1a', lineHeight: '1.7' }}
                   dangerouslySetInnerHTML={{
                     __html: detail.aiAnalysis
-                      .replace(/\*\*(.+?)\*\*/g, '<strong style="color:#1a1a1a">$1</strong>')
-                      .replace(/^### (.+)$/gm, '<div style="font-weight:600;color:#c88c00;margin-top:0.75rem">$1</div>')
-                      .replace(/^## (.+)$/gm, '<div style="font-weight:600;color:#c88c00;margin-top:0.75rem">$1</div>')
-                      .replace(/^# (.+)$/gm, '<div style="font-weight:600;color:#c88c00;margin-top:0.75rem">$1</div>')
+                      .replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>')
+                      .replace(/^### (.+)$/gm, '<div style="font-weight:600;color:#a06f00;margin-top:0.75rem">$1</div>')
+                      .replace(/^## (.+)$/gm, '<div style="font-weight:600;color:#a06f00;margin-top:0.75rem">$1</div>')
+                      .replace(/^# (.+)$/gm, '<div style="font-weight:700;color:#a06f00;margin-top:0.75rem;font-size:1rem">$1</div>')
                       .replace(/\n/g, '<br/>')
                   }}
                 />
@@ -364,7 +367,7 @@ export default function JobCostingDashboard() {
             {/* Cost-plus indicator */}
             {detail.financialSummary.isCostPlus && (
               <div className="flex items-center gap-2 px-3 py-1.5 rounded-lg text-xs"
-                style={{ background: 'rgba(99,102,241,0.08)', border: '1px solid rgba(99,102,241,0.2)', color: '#818cf8' }}>
+                style={{ background: 'rgba(79,70,229,0.10)', border: '1px solid rgba(79,70,229,0.35)', color: '#3730a3' }}>
                 <DollarSign size={12} />
                 <span>Cost-Plus Project — showing collected vs. actual costs</span>
               </div>
@@ -693,14 +696,14 @@ export default function JobCostingDashboard() {
                                   className="flex items-center gap-3 py-1 text-xs"
                                   style={{ color: '#8a8078' }}
                                 >
-                                  <span className="flex-1 truncate" style={{ color: '#b0a898' }}>{item.name}</span>
+                                  <span className="flex-1 truncate" style={{ color: '#1a1a1a' }}>{item.name}</span>
                                   <span className="shrink-0">Qty: {item.quantity}</span>
                                   <span className="shrink-0 w-20 text-right">${fmt(item.cost)} cost</span>
                                   <span className="shrink-0 w-20 text-right">${fmt(item.price)} price</span>
                                 </div>
                               ))}
                               {cc.itemCount > 5 && (
-                                <div className="text-xs mt-1" style={{ color: '#6a6058' }}>
+                                <div className="text-xs mt-1" style={{ color: '#8a8078' }}>
                                   + {cc.itemCount - 5} more items
                                 </div>
                               )}
@@ -783,7 +786,7 @@ export default function JobCostingDashboard() {
                   </div>
                   <div className="flex justify-between items-center">
                     <span className="text-xs" style={{ color: '#8a8078' }}>Travel</span>
-                    <span className="text-sm font-medium" style={{ color: '#b0a898' }}>
+                    <span className="text-sm font-medium" style={{ color: '#1a1a1a' }}>
                       {detail.timeAnalysis.actualTravelHours} hrs
                     </span>
                   </div>
@@ -837,7 +840,7 @@ export default function JobCostingDashboard() {
                           {user.work}w
                         </span>
                         {user.travel > 0 && (
-                          <span className="text-xs" style={{ color: '#6a6058' }}>
+                          <span className="text-xs" style={{ color: '#8a8078' }}>
                             {user.travel}t
                           </span>
                         )}
