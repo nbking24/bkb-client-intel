@@ -2150,14 +2150,24 @@ export async function getCostItemsForJobLite(jobId: string, limit = 200): Promis
  * for a given job. job.costItems only returns budget-level items, but vendor bill
  * line items and invoice line items are document-level cost items.
  * Returns a flat array with each item's parent document type included.
+ *
+ * Two-pass to avoid JT's 413 errors on jobs with many bills/invoices: first
+ * list document metadata (no costItems expansion), then fetch cost items per
+ * document in parallel batches of 5. Same pattern used by getJobBillLines.
+ * The inline-costItems shape used to throw "JT PAVE error 413: Request Entity
+ * Too Large" on Edwards (147 docs) which silently emptied the job-costing
+ * rollup — it had to fall back to time-entry costs only, dropping every
+ * vendor bill from the per-cost-code breakdown.
  */
 export async function getDocumentCostItemsForJob(jobId: string): Promise<JTCostItem[]> {
-  const PAGE_SIZE = 15; // very small to avoid 413 on large jobs
-  let allItems: JTCostItem[] = [];
+  const DOCS_PAGE_SIZE = 50;
+  type DocMeta = { id: string; type: string; status: string };
+  const docs: DocMeta[] = [];
   let nextPage: string | null = null;
 
-  for (let page = 0; page < 20; page++) {
-    const pageParams: Record<string, unknown> = { size: PAGE_SIZE };
+  // Pass 1: list document metadata only.
+  for (let page = 0; page < 30; page++) {
+    const pageParams: Record<string, unknown> = { size: DOCS_PAGE_SIZE };
     if (nextPage) pageParams.page = nextPage;
 
     const data = await pave({
@@ -2166,43 +2176,67 @@ export async function getDocumentCostItemsForJob(jobId: string): Promise<JTCostI
         documents: {
           $: pageParams,
           nextPage: {},
-          nodes: {
-            id: {},
-            type: {},
-            status: {},
-            costItems: {
-              $: { size: 100 },
-              nodes: {
-                id: {},
-                name: {},
-                cost: {},
-                price: {},
-                quantity: {},
-                costType: { name: {} },
-                costCode: { name: {}, number: {} },
-                jobCostItem: { id: {}, costCode: { name: {}, number: {} } },
-              },
-            },
-          },
+          nodes: { id: {}, type: {}, status: {} },
         },
       },
     });
 
     const docsPage = (data as any)?.job?.documents;
-    const docs = docsPage?.nodes || [];
+    const nodes = (docsPage?.nodes || []) as DocMeta[];
+    docs.push(...nodes);
 
-    for (const doc of docs) {
-      const docItems = doc.costItems?.nodes || [];
-      for (const item of docItems) {
+    nextPage = docsPage?.nextPage || null;
+    if (!nextPage || nodes.length < DOCS_PAGE_SIZE) break;
+  }
+
+  // Pass 2: fetch cost items per document in parallel batches.
+  // Batch of 5 matches getJobBillLines / getUninvoicedCC23ForJob. Skip denied
+  // bills the same way getJobBillLines does — they shouldn't drive cost
+  // rollup numbers.
+  const BATCH_SIZE = 5;
+  const activeDocs = docs.filter(d => d.status !== 'denied');
+  const allItems: JTCostItem[] = [];
+
+  for (let i = 0; i < activeDocs.length; i += BATCH_SIZE) {
+    const batch = activeDocs.slice(i, i + BATCH_SIZE);
+    const batchResults = await Promise.all(
+      batch.map(async (doc) => {
+        try {
+          const itemData = await pave({
+            document: {
+              $: { id: doc.id },
+              costItems: {
+                $: { size: 100 },
+                nodes: {
+                  id: {},
+                  name: {},
+                  cost: {},
+                  price: {},
+                  quantity: {},
+                  costType: { name: {} },
+                  costCode: { name: {}, number: {} },
+                  jobCostItem: { id: {}, costCode: { name: {}, number: {} } },
+                },
+              },
+            },
+          });
+          const items = (itemData as any)?.document?.costItems?.nodes || [];
+          return { doc, items };
+        } catch (err: any) {
+          console.warn(`[getDocumentCostItemsForJob] doc ${doc.id} cost items failed:`, err?.message || err);
+          return { doc, items: [] as any[] };
+        }
+      })
+    );
+
+    for (const { doc, items } of batchResults) {
+      for (const item of items) {
         allItems.push({
           ...item,
           document: { id: doc.id, name: '', type: doc.type, status: doc.status },
         });
       }
     }
-
-    nextPage = docsPage?.nextPage || null;
-    if (!nextPage || docs.length < PAGE_SIZE) break;
   }
 
   return allItems;
