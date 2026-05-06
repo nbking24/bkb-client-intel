@@ -131,13 +131,109 @@ export async function POST(req: NextRequest) {
     // 1. Create appointments in GHL for each contact
     // When team assignees have GHL user IDs, create one appointment per contact per team member
     // so that Loop automations fire for each assigned team member.
-    const ghlAppointments: Array<{ contactName: string; ghlEventId: string; assignedTo?: string }> = [];
+    const ghlAppointments: Array<{ contactName: string; ghlEventId: string; assignedTo?: string; calendarUsed?: string }> = [];
     const errors: string[] = [];
 
     // Determine which GHL user IDs to assign appointments to
     const ghlUserIds = teamAssignees
       .filter(a => a.ghlUserId && a.ghlUserId.trim() !== '')
       .map(a => ({ ghlUserId: a.ghlUserId, name: a.name }));
+
+    // Build a per-attendee calendar map. GHL calendars only allow appointments
+    // assigned to users that are members of that calendar's team — assigning a
+    // user who isn't on the team yields a 422 "user id not part of calendar
+    // team" error. So when multiple BKB attendees are on a meeting, we route
+    // each one to their own primary calendar instead of forcing all of them
+    // onto whichever calendar was picked in the dropdown.
+    //
+    // The dropdown calendarId is still used as the "preferred" calendar — if
+    // an attendee owns it, we keep them on it. Otherwise we pick an attendee
+    // calendar that matches the dropdown's type (phone / in-person / virtual)
+    // by keyword, falling back to whichever calendar the attendee owns.
+    const userToCalendarId = new Map<string, string>();
+    if (ghlUserIds.length > 1) {
+      try {
+        const ghlBase = 'https://services.leadconnectorhq.com';
+        const ghlHeaders = {
+          Authorization: 'Bearer ' + (process.env.GHL_API_KEY || ''),
+          'Content-Type': 'application/json',
+          Version: '2021-04-15',
+        };
+        const locationId = process.env.GHL_LOCATION_ID || '';
+
+        const listRes = await fetch(`${ghlBase}/calendars/?locationId=${locationId}`, { headers: ghlHeaders });
+        if (listRes.ok) {
+          const { calendars: allCalendars = [] } = await listRes.json();
+          // Pull team members for every calendar in parallel.
+          const detailed = await Promise.all(
+            allCalendars.map(async (c: any) => {
+              try {
+                const r = await fetch(`${ghlBase}/calendars/${c.id}`, { headers: ghlHeaders });
+                if (!r.ok) return { id: c.id, name: c.name || '', teamMembers: [] };
+                const d = await r.json();
+                const cal = d.calendar || d;
+                return { id: c.id, name: c.name || '', teamMembers: cal.teamMembers || [] };
+              } catch {
+                return { id: c.id, name: c.name || '', teamMembers: [] };
+              }
+            })
+          );
+
+          // Identify the "type" of the dropdown calendar so we can pick a
+          // matching calendar per attendee.
+          const dropdownCal = detailed.find((c: any) => c.id === calendarId);
+          const dropdownName = (dropdownCal?.name || '').toLowerCase();
+          const wantPhone = /phone|call/.test(dropdownName) && !/in-?person/.test(dropdownName);
+          const wantVirtual = /virtual|online|zoom/.test(dropdownName);
+          const wantInPerson = /in-?person|on[- ]?site|consult/.test(dropdownName);
+
+          const matchesType = (name: string): number => {
+            const n = name.toLowerCase();
+            if (wantPhone && /phone|call/.test(n) && !/in-?person/.test(n)) return 3;
+            if (wantVirtual && /virtual|online|zoom/.test(n)) return 3;
+            if (wantInPerson && /in-?person|on[- ]?site|consult/.test(n)) return 3;
+            // Light bonus for shared keywords (e.g. "Standard Meeting").
+            if (/standard meeting/.test(n) && /standard meeting/.test(dropdownName)) return 2;
+            return 1;
+          };
+
+          for (const a of ghlUserIds) {
+            // Calendars where this attendee is on the team (primary preferred).
+            const owned = detailed
+              .map((c: any) => {
+                const tm = (c.teamMembers || []).find((m: any) => m.userId === a.ghlUserId);
+                if (!tm) return null;
+                const isPrimary = tm.isPrimary ? 1 : 0;
+                return { id: c.id, name: c.name, isPrimary, typeScore: matchesType(c.name || '') };
+              })
+              .filter(Boolean) as Array<{ id: string; name: string; isPrimary: number; typeScore: number }>;
+            if (owned.length === 0) continue;
+
+            // Prefer: dropdown calendar if attendee owns it → otherwise the
+            // best type-match (primary first, then by typeScore).
+            const dropdownOwned = owned.find(o => o.id === calendarId);
+            if (dropdownOwned) {
+              userToCalendarId.set(a.ghlUserId, calendarId);
+              continue;
+            }
+            owned.sort((x, y) => (y.isPrimary - x.isPrimary) || (y.typeScore - x.typeScore));
+            userToCalendarId.set(a.ghlUserId, owned[0].id);
+          }
+
+          console.log('[schedule-meeting] Per-attendee calendar map:', JSON.stringify(
+            Array.from(userToCalendarId.entries()).map(([uid, cid]) => {
+              const a = ghlUserIds.find(x => x.ghlUserId === uid);
+              const c = detailed.find((d: any) => d.id === cid);
+              return { user: a?.name || uid, calendar: c?.name || cid };
+            })
+          ));
+        } else {
+          console.warn('[schedule-meeting] Calendar list fetch failed:', listRes.status);
+        }
+      } catch (err: any) {
+        console.warn('[schedule-meeting] Could not build per-attendee calendar map:', err.message);
+      }
+    }
 
     // Helper: extract event ID from GHL response (may be top-level or nested)
     const extractEventId = (resp: any): string | null => {
@@ -164,14 +260,31 @@ export async function POST(req: NextRequest) {
       };
 
       if (ghlUserIds.length > 0) {
-        // Create one appointment per GHL team member so each gets Loop automations
+        // Create one appointment per GHL team member so each gets Loop automations.
+        // Each attendee is routed to their OWN calendar (looked up above) when
+        // multiple attendees are on the meeting; the original dropdown calendar
+        // is used for any attendee that owns it (or as a fallback).
         for (const assignee of ghlUserIds) {
+          // Pick the right calendar for this attendee. If we built a per-user
+          // map (multi-attendee case), use it; otherwise stick with the
+          // dropdown calendarId (single-attendee or map build failed).
+          const targetCalendarId = userToCalendarId.get(assignee.ghlUserId) || calendarId;
+          const isFallbackCalendar = targetCalendarId !== calendarId;
+
+          // When we route to an attendee's own calendar (different from the
+          // one the user picked in the dropdown), bypass slot validation —
+          // the user already manually chose the time and we don't want the
+          // attendee's calendar's availability rules to override that choice.
+          const perAssigneeParams = {
+            ...appointmentParams,
+            calendarId: targetCalendarId,
+            assignedUserId: assignee.ghlUserId,
+            ...(isFallbackCalendar ? { ignoreDateRange: true } : {}),
+          };
+
           try {
-            console.log('[schedule-meeting] Creating GHL appointment:', JSON.stringify({ ...appointmentParams, assignedUserId: assignee.ghlUserId }));
-            const ghlAppointment = await createAppointment({
-              ...appointmentParams,
-              assignedUserId: assignee.ghlUserId,
-            });
+            console.log('[schedule-meeting] Creating GHL appointment:', JSON.stringify(perAssigneeParams));
+            const ghlAppointment = await createAppointment(perAssigneeParams);
             console.log('[schedule-meeting] GHL response:', JSON.stringify(ghlAppointment).substring(0, 500));
 
             const ghlEventId = extractEventId(ghlAppointment);
@@ -182,6 +295,7 @@ export async function POST(req: NextRequest) {
                 contactName: contact.name || contact.ghlContactId,
                 ghlEventId,
                 assignedTo: assignee.name,
+                calendarUsed: targetCalendarId,
               });
             }
           } catch (err: any) {
