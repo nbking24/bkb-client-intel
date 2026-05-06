@@ -243,6 +243,22 @@ export default function JobCostingDashboard() {
     setDetailLoading(false);
   }
 
+  // ---- Stage bucketing ----
+  // Map a JobTread customStatus to one of the four kanban buckets shown on
+  // the dashboard. Order matters: "Final Billing" must match before
+  // "Production" because some statuses contain both words. Anything that
+  // doesn't match drops into 'other' which is hidden by default but
+  // returned so callers can audit what fell through.
+  const bucketForStatus = (status: string | null): 'design' | 'ready' | 'production' | 'final' | 'other' => {
+    const s = (status || '').toLowerCase();
+    if (!s) return 'other';
+    if (/final\s*billing|closeout|punch\s*list|warrant/.test(s)) return 'final';
+    if (/in\s*production|production|building|under\s*construction|construction/.test(s)) return 'production';
+    if (/^ready\b|ready to build|ready to start|approved|signed|contract\s*signed/.test(s)) return 'ready';
+    if (/design|consult|estimate|estimat|proposal|pre[-\s]?con|preconstruction|selection/.test(s)) return 'design';
+    return 'other';
+  };
+
   // ---- Filter & sort ----
   const filteredJobs = useMemo(() => {
     let jobs = [...summaries];
@@ -271,6 +287,18 @@ export default function JobCostingDashboard() {
     }
     return jobs;
   }, [summaries, search, filterHealth, sortBy]);
+
+  // Group filtered jobs into the four kanban columns. Memoized so React
+  // doesn't re-bucket on every render; depends only on the filtered list.
+  const jobsByBucket = useMemo(() => {
+    const groups: Record<'design' | 'ready' | 'production' | 'final' | 'other', JobSummary[]> = {
+      design: [], ready: [], production: [], final: [], other: [],
+    };
+    for (const j of filteredJobs) {
+      groups[bucketForStatus(j.customStatus)].push(j);
+    }
+    return groups;
+  }, [filteredJobs]);
 
   // ============================================================
   // DETAIL VIEW
@@ -1079,134 +1107,218 @@ export default function JobCostingDashboard() {
             </select>
           </div>
 
-          {/* Job cards */}
-          <div className="space-y-2">
-            {filteredJobs.length === 0 ? (
-              <p className="text-sm py-8 text-center" style={{ color: '#8a8078' }}>
-                No jobs match your filters.
-              </p>
-            ) : (
-              filteredJobs.map((job) => {
-                const hc = healthColor(job.health);
-                const jobTotalCosts = job.totalCosts ?? job.actualCost;
-                const budgetPct = job.estimatedCost > 0 ? Math.min((jobTotalCosts / job.estimatedCost) * 100, 120) : 0;
-
+          {/* Kanban-style job cards: 4 columns by stage. On smaller viewports
+              the columns stack (mobile: 1, tablet: 2, desktop: 4). Cards
+              themselves are compact — meant to fit ~6-10 jobs per column at
+              a glance. Click any card to drill into the detail view. */}
+          {filteredJobs.length === 0 ? (
+            <p className="text-sm py-8 text-center" style={{ color: '#8a8078' }}>
+              No jobs match your filters.
+            </p>
+          ) : (
+            <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-3">
+              {([
+                { id: 'design', label: 'In Design' },
+                { id: 'ready', label: 'Ready' },
+                { id: 'production', label: 'In Production' },
+                { id: 'final', label: 'Final Billing' },
+              ] as const).map((col) => {
+                const colJobs = jobsByBucket[col.id];
                 return (
-                  <button
-                    key={job.jobId}
-                    onClick={() => loadDetail(job.jobId)}
-                    className="w-full rounded-lg p-4 text-left hover:bg-white/[0.02] transition-all"
+                  <div
+                    key={col.id}
+                    className="rounded-lg p-2"
                     style={{
-                      background: hc.bg,
-                      border: `1px solid ${hc.border}`,
+                      background: 'rgba(201,168,76,0.04)',
+                      border: '1px solid rgba(201,168,76,0.15)',
                     }}
                   >
-                    <div className="flex items-start gap-4">
-                      {/* Left: name + status */}
-                      <div className="flex-1 min-w-0">
-                        <div className="flex items-center gap-2 mb-1">
-                          <span className="text-sm font-bold truncate" style={{ color: '#1a1a1a' }}>
-                            {job.jobName}
-                          </span>
-                          <span className="text-xs px-1.5 py-0.5 rounded shrink-0" style={{ background: '#222', color: '#f0c060', fontWeight: 600 }}>
-                            #{job.jobNumber}
-                          </span>
-                          {job.isCostPlus && (
-                            <span className="text-xs px-1.5 py-0.5 rounded shrink-0" style={{ background: 'rgba(99,102,241,0.12)', color: '#818cf8' }}>
-                              Cost+
-                            </span>
-                          )}
-                          {job.customStatus && (job.customStatus.toLowerCase().includes('final billing') || job.customStatus.toLowerCase().includes('closed')) && (
-                            <span className="text-xs px-1.5 py-0.5 rounded shrink-0 flex items-center gap-1" style={{ background: 'rgba(34,197,94,0.12)', color: '#22c55e' }}>
-                              <CheckCircle size={10} />
-                              Complete
-                            </span>
-                          )}
-                        </div>
-                        <div className="flex items-center gap-3 text-xs" style={{ color: '#8a8078' }}>
-                          {job.clientName && <span>{job.clientName}</span>}
-                          {job.customStatus && (
-                            <span className="px-1.5 py-0.5 rounded" style={{ background: 'rgba(200,140,0,0.08)' }}>
-                              {job.customStatus}
-                            </span>
-                          )}
-                        </div>
-
-                        {/* Budget bar */}
-                        <div className="mt-2 flex items-center gap-2">
-                          <div className="flex-1 h-2 rounded-full overflow-hidden" style={{ background: '#333' }}>
-                            <div
-                              className="h-full rounded-full transition-all"
-                              style={{
-                                width: `${Math.min(budgetPct, 100)}%`,
-                                background: budgetPct > 100 ? '#ef4444' : budgetPct > 85 ? '#eab308' : '#22c55e',
-                              }}
-                            />
-                          </div>
-                          <span className="text-xs w-10 text-right" style={{ color: hc.text }}>
-                            {Math.round(budgetPct)}%
-                          </span>
-                        </div>
-                      </div>
-
-                      {/* Right: key metrics */}
-                      <div className="flex gap-6 shrink-0">
-                        <div className="text-right">
-                          <p className="text-xs" style={{ color: '#8a8078' }}>Contract / Costs</p>
-                          <p className="text-sm font-medium" style={{ color: '#1a1a1a' }}>
-                            ${fmt(job.contractPrice ?? job.estimatedPrice ?? job.estimatedCost)} / ${fmt(jobTotalCosts)}
-                          </p>
-                        </div>
-                        <div className="text-right">
-                          <p className="text-xs" style={{ color: '#8a8078' }}>
-                            {job.isCostPlus ? 'Collected / Costs' : 'Margin'}
-                          </p>
-                          {job.isCostPlus ? (
-                            <p className="text-sm font-medium" style={{
-                              color: job.collectedAmount >= jobTotalCosts ? '#22c55e' : '#ef4444',
-                            }}>
-                              ${fmt(job.collectedAmount)} / ${fmt(jobTotalCosts)}
-                            </p>
-                          ) : (
-                            <p
-                              className="text-sm font-medium"
-                              style={{
-                                color: (job.marginPct ?? job.estimatedMarginPct ?? 0) > 15 ? '#22c55e' : (job.marginPct ?? job.estimatedMarginPct ?? 0) > 5 ? '#eab308' : '#ef4444',
-                              }}
-                            >
-                              {fmtPct(job.marginPct ?? job.estimatedMarginPct ?? 0)}
-                            </p>
-                          )}
-                        </div>
-                        <div className="text-right">
-                          <p className="text-xs" style={{ color: '#8a8078' }}>Hours</p>
-                          <p className="text-sm font-medium" style={{ color: '#1a1a1a' }}>
-                            {job.actualHours}/{job.estimatedHours}
-                          </p>
-                        </div>
-                      </div>
+                    {/* Column header */}
+                    <div
+                      className="px-2 py-1.5 mb-2 flex items-center justify-between text-xs font-semibold"
+                      style={{
+                        color: '#a06f00',
+                        borderBottom: '1px solid rgba(200,140,0,0.2)',
+                      }}
+                    >
+                      <span className="uppercase tracking-wide">{col.label}</span>
+                      <span
+                        className="text-[10px] px-1.5 py-0.5 rounded"
+                        style={{ background: '#222', color: '#f0c060', fontWeight: 600 }}
+                      >
+                        {colJobs.length}
+                      </span>
                     </div>
 
-                    {/* Alerts */}
-                    {job.alerts.length > 0 && (
-                      <div className="mt-2 flex flex-wrap gap-2">
-                        {job.alerts.map((alert, i) => (
-                          <span
-                            key={i}
-                            className="text-xs px-2 py-0.5 rounded flex items-center gap-1"
-                            style={{ background: 'rgba(239,68,68,0.1)', color: '#ef4444' }}
-                          >
-                            <AlertTriangle size={10} />
-                            {alert}
-                          </span>
-                        ))}
+                    {/* Cards in this column */}
+                    {colJobs.length === 0 ? (
+                      <p className="text-xs italic px-2 py-3 text-center" style={{ color: '#8a8078' }}>
+                        No jobs in this stage.
+                      </p>
+                    ) : (
+                      <div className="space-y-2">
+                        {colJobs.map((job) => {
+                          const hc = healthColor(job.health);
+                          const jobTotalCosts = job.totalCosts ?? job.actualCost;
+                          const budgetPct = job.estimatedCost > 0
+                            ? Math.min((jobTotalCosts / job.estimatedCost) * 100, 120)
+                            : 0;
+                          const marginPct = job.marginPct ?? job.estimatedMarginPct ?? 0;
+                          const overAmount = jobTotalCosts - job.estimatedCost;
+                          const isOverBudget = job.estimatedCost > 0 && overAmount > 0;
+                          return (
+                            <button
+                              key={job.jobId}
+                              onClick={() => loadDetail(job.jobId)}
+                              className="w-full rounded-md p-2 text-left hover:bg-white/[0.04] transition-all"
+                              style={{
+                                background: hc.bg,
+                                border: `1px solid ${hc.border}`,
+                              }}
+                            >
+                              {/* Title row */}
+                              <div className="flex items-center gap-1.5 mb-1">
+                                <span
+                                  className="text-xs font-bold truncate flex-1 min-w-0"
+                                  style={{ color: '#1a1a1a' }}
+                                  title={job.jobName}
+                                >
+                                  {job.jobName}
+                                </span>
+                                <span
+                                  className="text-[10px] px-1 py-0.5 rounded shrink-0"
+                                  style={{ background: '#222', color: '#f0c060', fontWeight: 600 }}
+                                >
+                                  #{job.jobNumber}
+                                </span>
+                              </div>
+
+                              {/* Client + tags row */}
+                              {(job.clientName || job.isCostPlus) && (
+                                <div className="flex items-center gap-1.5 mb-1.5 text-[11px]" style={{ color: '#8a8078' }}>
+                                  {job.clientName && (
+                                    <span className="truncate flex-1 min-w-0" title={job.clientName}>
+                                      {job.clientName}
+                                    </span>
+                                  )}
+                                  {job.isCostPlus && (
+                                    <span
+                                      className="text-[10px] px-1 py-0.5 rounded shrink-0"
+                                      style={{ background: 'rgba(79,70,229,0.10)', color: '#3730a3', fontWeight: 600 }}
+                                    >
+                                      Cost+
+                                    </span>
+                                  )}
+                                </div>
+                              )}
+
+                              {/* Budget bar with % */}
+                              <div className="flex items-center gap-1.5 mb-1.5">
+                                <div className="flex-1 h-1.5 rounded-full overflow-hidden" style={{ background: '#333' }}>
+                                  <div
+                                    className="h-full rounded-full"
+                                    style={{
+                                      width: `${Math.min(budgetPct, 100)}%`,
+                                      background: budgetPct > 100 ? '#ef4444' : budgetPct > 85 ? '#eab308' : '#22c55e',
+                                    }}
+                                  />
+                                </div>
+                                <span className="text-[10px] w-9 text-right" style={{ color: hc.text, fontWeight: 600 }}>
+                                  {Math.round(budgetPct)}%
+                                </span>
+                              </div>
+
+                              {/* Single-line metric: margin% (or collected/costs for cost-plus) plus
+                                  over-budget call-out when applicable. */}
+                              <div className="flex items-center justify-between text-[11px]">
+                                {job.isCostPlus ? (
+                                  <span style={{ color: job.collectedAmount >= jobTotalCosts ? '#22c55e' : '#ef4444', fontWeight: 600 }}>
+                                    ${fmt(job.collectedAmount)} / ${fmt(jobTotalCosts)}
+                                  </span>
+                                ) : (
+                                  <span
+                                    style={{
+                                      color: marginPct > 15 ? '#22c55e' : marginPct > 5 ? '#eab308' : '#ef4444',
+                                      fontWeight: 600,
+                                    }}
+                                  >
+                                    {fmtPct(marginPct)} margin
+                                  </span>
+                                )}
+                                {isOverBudget && (
+                                  <span style={{ color: '#ef4444', fontWeight: 600 }}>
+                                    −${fmt(overAmount)} over
+                                  </span>
+                                )}
+                              </div>
+
+                              {/* Alerts (compact, max 2 visible) */}
+                              {job.alerts.length > 0 && (
+                                <div className="mt-1.5 flex flex-wrap gap-1">
+                                  {job.alerts.slice(0, 2).map((alert, i) => (
+                                    <span
+                                      key={i}
+                                      className="text-[10px] px-1 py-0.5 rounded flex items-center gap-0.5"
+                                      style={{ background: 'rgba(239,68,68,0.1)', color: '#ef4444' }}
+                                      title={alert}
+                                    >
+                                      <AlertTriangle size={8} />
+                                      <span className="truncate max-w-[120px]">{alert}</span>
+                                    </span>
+                                  ))}
+                                  {job.alerts.length > 2 && (
+                                    <span className="text-[10px]" style={{ color: '#ef4444' }}>
+                                      +{job.alerts.length - 2}
+                                    </span>
+                                  )}
+                                </div>
+                              )}
+                            </button>
+                          );
+                        })}
                       </div>
                     )}
-                  </button>
+                  </div>
                 );
-              })
-            )}
-          </div>
+              })}
+            </div>
+          )}
+
+          {/* Other-bucket jobs (statuses that didn't match any of the four
+              kanban columns). Hidden by default but listed below so nothing
+              silently disappears from the dashboard if a status changes. */}
+          {jobsByBucket.other.length > 0 && (
+            <details className="mt-4">
+              <summary className="text-xs cursor-pointer hover:underline" style={{ color: '#8a8078' }}>
+                {jobsByBucket.other.length} job{jobsByBucket.other.length === 1 ? '' : 's'} in other stages — click to expand
+              </summary>
+              <div className="mt-2 grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-3">
+                {jobsByBucket.other.map((job) => {
+                  const hc = healthColor(job.health);
+                  return (
+                    <button
+                      key={job.jobId}
+                      onClick={() => loadDetail(job.jobId)}
+                      className="rounded-md p-2 text-left hover:bg-white/[0.04] transition-all"
+                      style={{ background: hc.bg, border: `1px solid ${hc.border}` }}
+                    >
+                      <div className="flex items-center gap-1.5 mb-0.5">
+                        <span className="text-xs font-bold truncate flex-1" style={{ color: '#1a1a1a' }}>
+                          {job.jobName}
+                        </span>
+                        <span className="text-[10px] px-1 py-0.5 rounded shrink-0" style={{ background: '#222', color: '#f0c060', fontWeight: 600 }}>
+                          #{job.jobNumber}
+                        </span>
+                      </div>
+                      <div className="text-[10px]" style={{ color: '#8a8078' }}>
+                        {job.customStatus || 'No status'}
+                      </div>
+                    </button>
+                  );
+                })}
+              </div>
+            </details>
+          )}
         </>
       )}
     </div>
