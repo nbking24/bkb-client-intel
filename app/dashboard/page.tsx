@@ -1579,6 +1579,28 @@ export default function DashboardOverview() {
       const data = await res.json();
       const apptCount = data.ghlAppointments?.length || 1;
       const errs: string[] = Array.isArray(data.errors) ? data.errors : [];
+      // Skipped attendees come back from the server when an attendee was
+      // selected but couldn't be put on a calendar (no Loop user ID, or no
+      // calendar where they're a team member). We surface this in the toast
+      // even on a fully-successful path so Terri knows their event didn't fire.
+      const skipped: Array<{ name: string; reason: string }> = Array.isArray(data.skippedAttendees) ? data.skippedAttendees : [];
+      const formatSkipped = (): string => {
+        if (skipped.length === 0) return '';
+        const byReason: Record<string, string[]> = {};
+        for (const s of skipped) {
+          (byReason[s.reason] ||= []).push(s.name);
+        }
+        const parts: string[] = [];
+        if (byReason.no_ghl_user_id?.length) {
+          const list = byReason.no_ghl_user_id.join(', ');
+          parts.push(`${list} ${byReason.no_ghl_user_id.length > 1 ? 'are not' : 'is not'} a Loop user, so no calendar event was added for them`);
+        }
+        if (byReason.no_matching_calendar?.length) {
+          const list = byReason.no_matching_calendar.join(', ');
+          parts.push(`${list} ${byReason.no_matching_calendar.length > 1 ? 'have' : 'has'} no Loop calendar — ask Nathan to add ${byReason.no_matching_calendar.length > 1 ? 'them' : 'them'} as a team member on a calendar`);
+        }
+        return ' ⚠️ ' + parts.join('. ') + '.';
+      };
       if (errs.length > 0) {
         // Partial failure: the meeting was created for some invitees but not others.
         // Surface who was dropped so Terri knows the meeting only landed on some calendars.
@@ -1602,18 +1624,20 @@ export default function DashboardOverview() {
           const first = (otherIssues[0] || '').split(':').slice(0, 2).join(':').trim();
           friendly = `Meeting created, but ${errs.length} reminder${errs.length > 1 ? 's' : ''} could not be sent. ${first || 'Check server logs.'}`;
         }
-        setSmSuccess('❌ ' + friendly);
+        setSmSuccess('❌ ' + friendly + formatSkipped());
         // Do not reset the form or auto-clear the banner on partial failure: Terri needs time to read it.
         window.dispatchEvent(new Event('refreshDashboard'));
         return;
       }
-      setSmSuccess(`Meeting created — ${apptCount} reminder${apptCount > 1 ? 's' : ''} sent${data.jtTaskId ? ' + JT task' : ''}`);
+      const skippedNote = formatSkipped();
+      setSmSuccess(`Meeting created — ${apptCount} reminder${apptCount > 1 ? 's' : ''} sent${data.jtTaskId ? ' + JT task' : ''}${skippedNote}`);
       // Reset form
       setSmTitle(''); setSmDate(''); setSmTime('09:00'); setSmNotes(''); setSmAddress('');
       setSmAssignees([]); setSmAddedTrades([]); setSmJobContacts([]); setSmSelectedContacts({});
       // Refresh dashboard data
       window.dispatchEvent(new Event('refreshDashboard'));
-      setTimeout(() => setSmSuccess(''), 4000);
+      // Hold the banner longer when there's a skip warning so Terri can read it.
+      setTimeout(() => setSmSuccess(''), skippedNote ? 12000 : 4000);
     } catch (err: any) {
       console.error('Create meeting failed:', err);
       setSmSuccess('❌ ' + (err.message || 'Failed to create meeting'));

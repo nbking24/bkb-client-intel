@@ -134,9 +134,23 @@ export async function POST(req: NextRequest) {
     const ghlAppointments: Array<{ contactName: string; ghlEventId: string; assignedTo?: string; calendarUsed?: string }> = [];
     const errors: string[] = [];
 
+    // Track attendees we couldn't put on a calendar so the UI can warn
+    // Terri / Nathan that the meeting only landed on a subset of calendars.
+    // Reasons:
+    //   - "no_ghl_user_id":   attendee selected in the form has no Loop user ID
+    //                         (Josh, Terri, Kim today). Nothing to assign.
+    //   - "no_matching_calendar": attendee has a Loop user ID but isn't a team
+    //                         member on any calendar (or no calendar matches
+    //                         the dropdown's type). Posting would 422 anyway.
+    const skippedAttendees: Array<{ name: string; reason: 'no_ghl_user_id' | 'no_matching_calendar' }> = [];
+
     // Determine which GHL user IDs to assign appointments to
     const ghlUserIds = teamAssignees
-      .filter(a => a.ghlUserId && a.ghlUserId.trim() !== '')
+      .filter(a => {
+        if (a.ghlUserId && a.ghlUserId.trim() !== '') return true;
+        skippedAttendees.push({ name: a.name, reason: 'no_ghl_user_id' });
+        return false;
+      })
       .map(a => ({ ghlUserId: a.ghlUserId, name: a.name }));
 
     // Build a per-attendee calendar map. GHL calendars only allow appointments
@@ -264,11 +278,22 @@ export async function POST(req: NextRequest) {
         // Each attendee is routed to their OWN calendar (looked up above) when
         // multiple attendees are on the meeting; the original dropdown calendar
         // is used for any attendee that owns it (or as a fallback).
+        const isMultiAttendee = ghlUserIds.length > 1;
         for (const assignee of ghlUserIds) {
           // Pick the right calendar for this attendee. If we built a per-user
-          // map (multi-attendee case), use it; otherwise stick with the
-          // dropdown calendarId (single-attendee or map build failed).
-          const targetCalendarId = userToCalendarId.get(assignee.ghlUserId) || calendarId;
+          // map (multi-attendee case), use it. In multi-attendee mode, skip
+          // any attendee not in the map — falling back to the dropdown
+          // calendarId would produce a 422 "user id not part of calendar
+          // team" error since the dropdown calendar is owned by someone else.
+          // In single-attendee mode (or when the map couldn't be built), the
+          // dropdown calendarId is the right choice.
+          const mapped = userToCalendarId.get(assignee.ghlUserId);
+          if (!mapped && isMultiAttendee && userToCalendarId.size > 0) {
+            skippedAttendees.push({ name: assignee.name, reason: 'no_matching_calendar' });
+            console.warn(`[schedule-meeting] Skipping ${assignee.name} — no matching calendar in team map`);
+            continue;
+          }
+          const targetCalendarId: string = mapped || calendarId;
           const isFallbackCalendar = targetCalendarId !== calendarId;
 
           // When we route to an attendee's own calendar (different from the
@@ -416,6 +441,7 @@ export async function POST(req: NextRequest) {
       ghlAppointments,
       jtTaskId,
       errors: errors.length > 0 ? errors : undefined,
+      skippedAttendees: skippedAttendees.length > 0 ? skippedAttendees : undefined,
       message:
         errors.length === 0
           ? 'Meeting created in GHL and JT'
