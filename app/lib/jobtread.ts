@@ -2161,11 +2161,20 @@ export async function getCostItemsForJobLite(jobId: string, limit = 200): Promis
  */
 export async function getDocumentCostItemsForJob(jobId: string): Promise<JTCostItem[]> {
   const DOCS_PAGE_SIZE = 50;
-  type DocMeta = { id: string; type: string; status: string };
+  type DocMeta = {
+    id: string;
+    type: string;
+    status: string;
+    number?: string | null;
+    issueDate?: string | null;
+    accountName?: string | null;
+  };
   const docs: DocMeta[] = [];
   let nextPage: string | null = null;
 
-  // Pass 1: list document metadata only.
+  // Pass 1: list document metadata only. Vendor (account.name), doc number,
+  // and issueDate are pulled here so downstream consumers (e.g. job-costing
+  // detail) can show per-line actual/pending breakdowns without another call.
   for (let page = 0; page < 30; page++) {
     const pageParams: Record<string, unknown> = { size: DOCS_PAGE_SIZE };
     if (nextPage) pageParams.page = nextPage;
@@ -2176,13 +2185,24 @@ export async function getDocumentCostItemsForJob(jobId: string): Promise<JTCostI
         documents: {
           $: pageParams,
           nextPage: {},
-          nodes: { id: {}, type: {}, status: {} },
+          nodes: {
+            id: {}, type: {}, status: {}, number: {}, issueDate: {},
+            account: { name: {} },
+          },
         },
       },
     });
 
     const docsPage = (data as any)?.job?.documents;
-    const nodes = (docsPage?.nodes || []) as DocMeta[];
+    const rawNodes = (docsPage?.nodes || []) as any[];
+    const nodes: DocMeta[] = rawNodes.map((n) => ({
+      id: n.id,
+      type: n.type,
+      status: n.status,
+      number: n.number != null ? String(n.number) : null,
+      issueDate: n.issueDate || null,
+      accountName: n.account?.name || null,
+    }));
     docs.push(...nodes);
 
     nextPage = docsPage?.nextPage || null;
@@ -2233,7 +2253,17 @@ export async function getDocumentCostItemsForJob(jobId: string): Promise<JTCostI
       for (const item of items) {
         allItems.push({
           ...item,
-          document: { id: doc.id, name: '', type: doc.type, status: doc.status },
+          document: {
+            id: doc.id,
+            name: '',
+            type: doc.type,
+            status: doc.status,
+            // Carry vendor/number/date through so downstream consumers don't
+            // need a second JT round-trip per bill to render line breakdowns.
+            ...(doc.number != null ? { number: doc.number } : {}),
+            ...(doc.issueDate ? { issueDate: doc.issueDate } : {}),
+            ...(doc.accountName ? { accountName: doc.accountName } : {}),
+          } as any,
         });
       }
     }

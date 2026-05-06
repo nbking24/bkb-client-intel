@@ -119,10 +119,32 @@ export async function POST(req: Request) {
     //    Actual = approved vendor bills/POs
     //    Pending = draft/pending vendor bills/POs (expected but not yet approved)
     // ============================================================
-    const actualByCostCode: Record<string, number> = {};
-    const pendingByCostCode: Record<string, number> = {};
+    // Per-cost-code totals plus the individual lines that rolled up into
+    // them, so the dashboard can show vendor / doc# / cost when the user
+    // expands a row in the cost-code breakdown table.
+    type CostLine = {
+      label: string;       // vendor name (bills/POs) or worker name (labor)
+      docNumber?: string;  // bill/PO number when known
+      itemName?: string;   // cost item name (e.g. "Plumbing rough-in materials")
+      cost: number;
+      date?: string | null;
+      kind: 'bill' | 'po' | 'labor';
+    };
+    const actualByCostCode: Record<string, { total: number; lines: CostLine[] }> = {};
+    const pendingByCostCode: Record<string, { total: number; lines: CostLine[] }> = {};
     let totalActualCost = 0;
     let totalPendingCost = 0;
+
+    function pushLine(
+      bucket: Record<string, { total: number; lines: CostLine[] }>,
+      key: string,
+      cost: number,
+      line: CostLine
+    ) {
+      if (!bucket[key]) bucket[key] = { total: 0, lines: [] };
+      bucket[key].total += cost;
+      bucket[key].lines.push(line);
+    }
 
     // From document cost items (line items on vendor bills/POs)
     if (docCostItems.length > 0) {
@@ -136,11 +158,21 @@ export async function POST(req: Request) {
         const ccNum = dci.costCode?.number || dci.jobCostItem?.costCode?.number || '00';
         const key = ccNum + '-' + ccName;
 
+        const docMeta: any = dci.document || {};
+        const line: CostLine = {
+          label: docMeta.accountName || dci.name || 'Vendor',
+          docNumber: docMeta.number ? String(docMeta.number) : undefined,
+          itemName: dci.name || undefined,
+          cost,
+          date: docMeta.issueDate || null,
+          kind: docType === 'vendorOrder' ? 'po' : 'bill',
+        };
+
         if (docStatus === 'approved') {
-          actualByCostCode[key] = (actualByCostCode[key] || 0) + cost;
+          pushLine(actualByCostCode, key, cost, line);
           totalActualCost += cost;
         } else if (docStatus === 'draft' || docStatus === 'pending') {
-          pendingByCostCode[key] = (pendingByCostCode[key] || 0) + cost;
+          pushLine(pendingByCostCode, key, cost, line);
           totalPendingCost += cost;
         }
       }
@@ -204,10 +236,18 @@ export async function POST(req: Request) {
       }
       timeByCostCode[timeKey].hours += hours;
 
-      // Also add time costs to the actualByCostCode for cost breakdown
+      // Also add time costs to the actualByCostCode for cost breakdown.
+      // Push as a 'labor' line so the expanded drawer can show it alongside
+      // bills (vendor rows for materials/subs, worker rows for labor).
       if (teCost > 0) {
         const costKey = ccNum + '-' + ccName;
-        actualByCostCode[costKey] = (actualByCostCode[costKey] || 0) + teCost;
+        pushLine(actualByCostCode, costKey, teCost, {
+          label: userName,
+          itemName: te.costItem?.name || undefined,
+          cost: teCost,
+          date: te.startedAt || null,
+          kind: 'labor',
+        });
       }
     }
 
@@ -257,8 +297,10 @@ export async function POST(req: Request) {
           itemCount: 0,
           items: [],
         };
-        const actual = actualByCostCode[key] || 0;
-        const pending = pendingByCostCode[key] || 0;
+        const actualBucket = actualByCostCode[key] || { total: 0, lines: [] };
+        const pendingBucket = pendingByCostCode[key] || { total: 0, lines: [] };
+        const actual = actualBucket.total;
+        const pending = pendingBucket.total;
         const committed = actual + pending; // total committed spend
         const remaining = Math.max(0, budget.estimatedCost - committed);
         const variance = budget.estimatedCost - actual;
@@ -269,6 +311,21 @@ export async function POST(req: Request) {
         if (committed > budget.estimatedCost && budget.estimatedCost > 0) status = 'over';
         else if (pctCommitted > 85) status = 'watch';
         else if (pctUsed < 50 && budget.estimatedCost > 0) status = 'under';
+
+        // Sort lines by cost desc; round each line's cost. Shape kept compact
+        // so the response stays small even for high-volume cost codes.
+        const sortLines = (lines: CostLine[]) =>
+          lines
+            .slice()
+            .sort((a, b) => b.cost - a.cost)
+            .map((l) => ({
+              label: l.label,
+              docNumber: l.docNumber || null,
+              itemName: l.itemName || null,
+              cost: Math.round(l.cost * 100) / 100,
+              date: l.date || null,
+              kind: l.kind,
+            }));
 
         return {
           costCodeName: budget.costCodeName,
@@ -285,6 +342,8 @@ export async function POST(req: Request) {
           status,
           itemCount: budget.itemCount,
           topItems: budget.items.sort((a, b) => b.cost - a.cost).slice(0, 5),
+          actualLines: sortLines(actualBucket.lines),
+          pendingLines: sortLines(pendingBucket.lines),
         };
       })
       .sort((a, b) => a.costCodeNumber.localeCompare(b.costCodeNumber));

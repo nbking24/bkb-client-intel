@@ -87,6 +87,18 @@ interface CostCodeRow {
   status: string;
   itemCount: number;
   topItems: { name: string; cost: number; price: number; quantity: number }[];
+  // Per-line breakdowns surfaced when a row is expanded.
+  actualLines?: CostLine[];
+  pendingLines?: CostLine[];
+}
+
+interface CostLine {
+  label: string;          // vendor name (bills/POs) or worker name (labor)
+  docNumber: string | null;
+  itemName: string | null;
+  cost: number;
+  date: string | null;
+  kind: 'bill' | 'po' | 'labor';
 }
 
 interface TimeUser {
@@ -567,27 +579,125 @@ export default function JobCostingDashboard() {
                         </div>
                       </button>
 
-                      {/* Expanded: top items */}
-                      {isExpanded && cc.topItems.length > 0 && (
-                        <div className="px-4 pb-3 pt-1 ml-8">
-                          <div className="text-xs font-medium mb-1.5" style={{ color: '#8a8078' }}>
-                            Budget Line Items ({cc.itemCount} items)
-                          </div>
-                          {cc.topItems.map((item, i) => (
-                            <div
-                              key={i}
-                              className="flex items-center gap-3 py-1 text-xs"
-                              style={{ color: '#8a8078' }}
-                            >
-                              <span className="flex-1 truncate" style={{ color: '#b0a898' }}>{item.name}</span>
-                              <span className="shrink-0">Qty: {item.quantity}</span>
-                              <span className="shrink-0 w-20 text-right">${fmt(item.cost)} cost</span>
-                              <span className="shrink-0 w-20 text-right">${fmt(item.price)} price</span>
+                      {/* Expanded drawer: budget line items + actual + pending breakdowns */}
+                      {isExpanded && (
+                        <div className="px-4 pb-3 pt-1 ml-8 space-y-3">
+                          {/* Actual costs — what's been spent so far */}
+                          {cc.actualLines && cc.actualLines.length > 0 && (
+                            <div>
+                              <div className="text-xs font-semibold mb-1.5 flex items-center gap-2" style={{ color: '#1a1a1a' }}>
+                                <span>Actual Costs</span>
+                                <span style={{ color: '#8a8078', fontWeight: 400 }}>
+                                  ({cc.actualLines.length} {cc.actualLines.length === 1 ? 'entry' : 'entries'} · ${fmt(cc.actualCost)})
+                                </span>
+                              </div>
+                              {cc.actualLines.map((line, i) => (
+                                <div
+                                  key={'a' + i}
+                                  className="flex items-center gap-3 py-1 text-xs"
+                                  style={{ color: '#8a8078' }}
+                                >
+                                  <span
+                                    className="text-[10px] uppercase tracking-wide font-mono shrink-0 px-1.5 py-0.5 rounded"
+                                    style={{
+                                      background: line.kind === 'labor' ? 'rgba(59,130,246,0.12)' : line.kind === 'po' ? 'rgba(168,85,247,0.12)' : 'rgba(34,197,94,0.12)',
+                                      color: line.kind === 'labor' ? '#3b82f6' : line.kind === 'po' ? '#a855f7' : '#22c55e',
+                                    }}
+                                  >
+                                    {line.kind === 'labor' ? 'Labor' : line.kind === 'po' ? 'PO' : 'Bill'}
+                                  </span>
+                                  <span className="flex-1 truncate" style={{ color: '#1a1a1a' }}>
+                                    {line.label}
+                                    {line.docNumber ? <span style={{ color: '#8a8078' }}> · #{line.docNumber}</span> : null}
+                                    {line.itemName ? <span style={{ color: '#8a8078' }}> — {line.itemName}</span> : null}
+                                  </span>
+                                  {line.date && (
+                                    <span className="shrink-0 text-[11px]" style={{ color: '#8a8078' }}>
+                                      {new Date(line.date).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}
+                                    </span>
+                                  )}
+                                  <span className="shrink-0 w-24 text-right" style={{ color: '#1a1a1a' }}>
+                                    ${fmt(line.cost)}
+                                  </span>
+                                </div>
+                              ))}
                             </div>
-                          ))}
-                          {cc.itemCount > 5 && (
-                            <div className="text-xs mt-1" style={{ color: '#6a6058' }}>
-                              + {cc.itemCount - 5} more items
+                          )}
+
+                          {/* Pending costs — committed but not yet final */}
+                          {cc.pendingLines && cc.pendingLines.length > 0 && (
+                            <div>
+                              <div className="text-xs font-semibold mb-1.5 flex items-center gap-2" style={{ color: '#f59e0b' }}>
+                                <span>Pending Costs</span>
+                                <span style={{ color: '#8a8078', fontWeight: 400 }}>
+                                  ({cc.pendingLines.length} {cc.pendingLines.length === 1 ? 'entry' : 'entries'} · ${fmt(cc.pendingCost)})
+                                </span>
+                              </div>
+                              {cc.pendingLines.map((line, i) => (
+                                <div
+                                  key={'p' + i}
+                                  className="flex items-center gap-3 py-1 text-xs"
+                                  style={{ color: '#8a8078' }}
+                                >
+                                  <span
+                                    className="text-[10px] uppercase tracking-wide font-mono shrink-0 px-1.5 py-0.5 rounded"
+                                    style={{
+                                      background: line.kind === 'po' ? 'rgba(168,85,247,0.12)' : 'rgba(245,158,11,0.12)',
+                                      color: line.kind === 'po' ? '#a855f7' : '#f59e0b',
+                                    }}
+                                  >
+                                    {line.kind === 'po' ? 'PO' : 'Bill'}
+                                  </span>
+                                  <span className="flex-1 truncate" style={{ color: '#1a1a1a' }}>
+                                    {line.label}
+                                    {line.docNumber ? <span style={{ color: '#8a8078' }}> · #{line.docNumber}</span> : null}
+                                    {line.itemName ? <span style={{ color: '#8a8078' }}> — {line.itemName}</span> : null}
+                                  </span>
+                                  {line.date && (
+                                    <span className="shrink-0 text-[11px]" style={{ color: '#8a8078' }}>
+                                      {new Date(line.date).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}
+                                    </span>
+                                  )}
+                                  <span className="shrink-0 w-24 text-right" style={{ color: '#f59e0b' }}>
+                                    ${fmt(line.cost)}
+                                  </span>
+                                </div>
+                              ))}
+                            </div>
+                          )}
+
+                          {/* Budget line items — original estimate breakdown */}
+                          {cc.topItems.length > 0 && (
+                            <div>
+                              <div className="text-xs font-semibold mb-1.5" style={{ color: '#8a8078' }}>
+                                Budget Line Items ({cc.itemCount} {cc.itemCount === 1 ? 'item' : 'items'})
+                              </div>
+                              {cc.topItems.map((item, i) => (
+                                <div
+                                  key={i}
+                                  className="flex items-center gap-3 py-1 text-xs"
+                                  style={{ color: '#8a8078' }}
+                                >
+                                  <span className="flex-1 truncate" style={{ color: '#b0a898' }}>{item.name}</span>
+                                  <span className="shrink-0">Qty: {item.quantity}</span>
+                                  <span className="shrink-0 w-20 text-right">${fmt(item.cost)} cost</span>
+                                  <span className="shrink-0 w-20 text-right">${fmt(item.price)} price</span>
+                                </div>
+                              ))}
+                              {cc.itemCount > 5 && (
+                                <div className="text-xs mt-1" style={{ color: '#6a6058' }}>
+                                  + {cc.itemCount - 5} more items
+                                </div>
+                              )}
+                            </div>
+                          )}
+
+                          {/* Empty state — should be rare since the row only exists if there's data, but defensive */}
+                          {(!cc.actualLines || cc.actualLines.length === 0)
+                            && (!cc.pendingLines || cc.pendingLines.length === 0)
+                            && cc.topItems.length === 0 && (
+                            <div className="text-xs italic" style={{ color: '#8a8078' }}>
+                              No detail available for this cost code.
                             </div>
                           )}
                         </div>
