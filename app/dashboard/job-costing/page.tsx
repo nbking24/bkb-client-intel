@@ -300,7 +300,7 @@ export default function JobCostingDashboard() {
               <h1 className="text-2xl font-bold" style={{ color: '#c88c00', fontFamily: 'Georgia, serif' }}>
                 {detail.job.name}
               </h1>
-              <span className="text-sm px-2 py-0.5 rounded" style={{ background: '#222', color: '#8a8078' }}>
+              <span className="text-sm px-2 py-0.5 rounded" style={{ background: '#222', color: '#f0c060', fontWeight: 600 }}>
                 #{detail.job.number}
               </span>
               {detail.job.isCompleted && (
@@ -541,7 +541,7 @@ export default function JobCostingDashboard() {
                           )}
                           <span
                             className="text-xs px-1 py-0.5 rounded font-mono shrink-0"
-                            style={{ background: '#222', color: '#8a8078' }}
+                            style={{ background: '#222', color: '#f0c060', fontWeight: 600 }}
                           >
                             {cc.costCodeNumber}
                           </span>
@@ -1108,7 +1108,7 @@ export default function JobCostingDashboard() {
                           <span className="text-sm font-bold truncate" style={{ color: '#1a1a1a' }}>
                             {job.jobName}
                           </span>
-                          <span className="text-xs px-1.5 py-0.5 rounded shrink-0" style={{ background: '#222', color: '#8a8078' }}>
+                          <span className="text-xs px-1.5 py-0.5 rounded shrink-0" style={{ background: '#222', color: '#f0c060', fontWeight: 600 }}>
                             #{job.jobNumber}
                           </span>
                           {job.isCostPlus && (
