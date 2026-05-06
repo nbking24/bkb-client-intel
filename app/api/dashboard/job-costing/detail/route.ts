@@ -56,9 +56,15 @@ export async function POST(req: Request) {
       }
     }
 
-    // Category breakdown: use job budget cost items from APPROVED customer orders only.
-    // Unapproved items (items being priced, draft proposals, etc.) are excluded —
-    // they don't represent committed budget until approved.
+    // Category breakdown: pull line items directly from APPROVED customer
+    // order documents (i.e. the docs that contributed to budgetedApproved-
+    // OrderIds). The job-level cost items returned by getCostItemsForJobLite
+    // rarely carry document.id back to the approving CO in BKB's setup, so
+    // the previous filter (`ci.document?.id in budgetedApprovedOrderIds`)
+    // dropped most items and the rollup came back $0 across the board.
+    //
+    // Doc-level CO line items ARE the approved budget — every item on an
+    // approved customer order has been priced and committed.
     const budgetByCostCode: Record<string, {
       costCodeName: string;
       costCodeNumber: string;
@@ -70,19 +76,24 @@ export async function POST(req: Request) {
 
     let budgetBreakdownTotal = 0;
     let estimatedLaborHours = 0;
+    let budgetSourceUsed: 'approved_co_lines' | 'job_budget_items_fallback' = 'approved_co_lines';
 
-    for (const ci of costItems) {
-      // Only include items from approved customer orders in the budget breakdown.
-      // Items on draft/pending proposals, unassigned items, or docs flagged
-      // "Exclude from Budget" in JT are NOT part of the committed budget.
-      const isApprovedBudget = !!ci.document?.id && budgetedApprovedOrderIds.has(ci.document.id);
-      if (!isApprovedBudget) continue;
+    for (const dci of docCostItems) {
+      const docType = dci.document?.type || '';
+      const docId = dci.document?.id || '';
+      if (docType !== 'customerOrder') continue;
+      // Only items on approved customer orders count. The set was built
+      // from the documents loop above and already excludes "Exclude from
+      // Budget" docs, so this single check is enough.
+      if (!budgetedApprovedOrderIds.has(docId)) continue;
 
-      const ccName = ci.costCode?.name || 'Uncoded';
-      const ccNum = ci.costCode?.number || '00';
+      // Cost code lookup mirrors the actuals loop (line cost code first,
+      // then linked budget item's cost code, then "00 / Uncoded").
+      const ccName = dci.costCode?.name || dci.jobCostItem?.costCode?.name || 'Uncoded';
+      const ccNum = dci.costCode?.number || dci.jobCostItem?.costCode?.number || '00';
       const key = ccNum + '-' + ccName;
-      const cost = Number(ci.cost) || 0;
-      const price = Number(ci.price) || 0;
+      const cost = Number(dci.cost) || 0;
+      const price = Number(dci.price) || 0;
 
       if (!budgetByCostCode[key]) {
         budgetByCostCode[key] = {
@@ -99,18 +110,51 @@ export async function POST(req: Request) {
       budgetByCostCode[key].estimatedPrice += price;
       budgetByCostCode[key].itemCount++;
       budgetByCostCode[key].items.push({
-        name: ci.name,
+        name: dci.name || ccName,
         cost,
         price,
-        quantity: Number(ci.quantity) || 0,
+        quantity: Number(dci.quantity) || 0,
       });
 
       budgetBreakdownTotal += cost;
 
-      // Labor hours from cost type — already filtered to approved customer orders above
-      const costType = ci.costType?.name?.toLowerCase() || '';
+      const costType = dci.costType?.name?.toLowerCase() || '';
       if (costType.includes('labor') || costType.includes('time')) {
-        estimatedLaborHours += Number(ci.quantity) || 0;
+        estimatedLaborHours += Number(dci.quantity) || 0;
+      }
+    }
+
+    // Fallback: if docCostItems came back empty (e.g. JT API failure earlier
+    // in the request) but the job has approved customer orders, fall back to
+    // the legacy job-level cost item path so the rollup degrades gracefully
+    // instead of going $0.
+    if (budgetBreakdownTotal === 0 && budgetedApprovedOrderIds.size > 0) {
+      budgetSourceUsed = 'job_budget_items_fallback';
+      for (const ci of costItems) {
+        const isApprovedBudget = !!ci.document?.id && budgetedApprovedOrderIds.has(ci.document.id);
+        if (!isApprovedBudget) continue;
+        const ccName = ci.costCode?.name || 'Uncoded';
+        const ccNum = ci.costCode?.number || '00';
+        const key = ccNum + '-' + ccName;
+        const cost = Number(ci.cost) || 0;
+        const price = Number(ci.price) || 0;
+        if (!budgetByCostCode[key]) {
+          budgetByCostCode[key] = {
+            costCodeName: ccName, costCodeNumber: ccNum,
+            estimatedCost: 0, estimatedPrice: 0, itemCount: 0, items: [],
+          };
+        }
+        budgetByCostCode[key].estimatedCost += cost;
+        budgetByCostCode[key].estimatedPrice += price;
+        budgetByCostCode[key].itemCount++;
+        budgetByCostCode[key].items.push({
+          name: ci.name, cost, price, quantity: Number(ci.quantity) || 0,
+        });
+        budgetBreakdownTotal += cost;
+        const costType = ci.costType?.name?.toLowerCase() || '';
+        if (costType.includes('labor') || costType.includes('time')) {
+          estimatedLaborHours += Number(ci.quantity) || 0;
+        }
       }
     }
 
