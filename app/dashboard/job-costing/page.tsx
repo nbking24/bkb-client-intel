@@ -556,13 +556,33 @@ export default function JobCostingDashboard() {
                         <div className="text-right" style={{ color: cc.pendingCost > 0 ? '#f59e0b' : '#555' }}>
                           {cc.pendingCost > 0 ? `$${fmt(cc.pendingCost)}` : '—'}
                         </div>
-                        <div className="text-right" style={{
-                          color: cc.remaining > 0 ? '#22c55e' : cc.remaining === 0 && cc.estimatedCost === 0 ? '#555' : '#ef4444'
-                        }}>
-                          {cc.estimatedCost > 0 || cc.committedCost > 0
-                            ? `$${fmt(cc.remaining)}`
-                            : '—'}
-                        </div>
+                        {/* Remaining column: green dollars when under budget,
+                            red "−$X over" when committed exceeds budget. The
+                            server caps remaining at 0 via Math.max(), so we
+                            recompute the overage here from the raw fields. */}
+                        {(() => {
+                          const overAmount = cc.committedCost - cc.estimatedCost;
+                          const isOver = cc.estimatedCost > 0 && overAmount > 0;
+                          const hasAnyData = cc.estimatedCost > 0 || cc.committedCost > 0;
+                          return (
+                            <div className="text-right" style={{
+                              color: isOver
+                                ? '#ef4444'
+                                : cc.remaining > 0
+                                  ? '#22c55e'
+                                  : cc.remaining === 0 && cc.estimatedCost === 0
+                                    ? '#555'
+                                    : '#ef4444',
+                              fontWeight: isOver ? 600 : undefined,
+                            }}>
+                              {!hasAnyData
+                                ? '—'
+                                : isOver
+                                  ? `−$${fmt(overAmount)} over`
+                                  : `$${fmt(cc.remaining)}`}
+                            </div>
+                          );
+                        })()}
                         <div className="text-right flex items-center justify-end gap-1.5">
                           {/* Stacked progress bar: actual (solid) + pending (striped) */}
                           <div className="w-12 h-1.5 rounded-full overflow-hidden relative" style={{ background: '#333' }}>
@@ -773,11 +793,24 @@ export default function JobCostingDashboard() {
                   <div className="text-right" style={{ color: detail.financialSummary.pendingCost > 0 ? '#f59e0b' : '#555' }}>
                     {detail.financialSummary.pendingCost > 0 ? `$${fmt(detail.financialSummary.pendingCost)}` : '—'}
                   </div>
-                  <div className="text-right" style={{
-                    color: detail.financialSummary.remainingBudget > 0 ? '#22c55e' : '#ef4444'
-                  }}>
-                    ${fmt(detail.financialSummary.remainingBudget)}
-                  </div>
+                  {/* Totals "Remaining" cell — same over-budget surfacing as
+                      the per-row column. estimatedCost / committedCost are
+                      raw (not capped), so we recompute the overage here. */}
+                  {(() => {
+                    const totBudget = detail.financialSummary.estimatedCost || 0;
+                    const totCommitted = (detail.financialSummary.actualCost || 0) + (detail.financialSummary.pendingCost || 0);
+                    const totOver = totCommitted - totBudget;
+                    const totIsOver = totBudget > 0 && totOver > 0;
+                    return (
+                      <div className="text-right" style={{
+                        color: totIsOver ? '#ef4444' : detail.financialSummary.remainingBudget > 0 ? '#22c55e' : '#ef4444',
+                      }}>
+                        {totIsOver
+                          ? `−$${fmt(totOver)} over`
+                          : `$${fmt(detail.financialSummary.remainingBudget)}`}
+                      </div>
+                    );
+                  })()}
                   <div className="text-right text-xs" style={{ color: '#8a8078' }}>
                     {detail.financialSummary.estimatedCost > 0
                       ? Math.round((detail.financialSummary.actualCost / detail.financialSummary.estimatedCost) * 100) + '%'
