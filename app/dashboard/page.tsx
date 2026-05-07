@@ -1575,7 +1575,33 @@ export default function DashboardOverview() {
           assignees: selectedTeamMembers.length > 0 ? selectedTeamMembers : undefined,
         }),
       });
-      if (!res.ok) { const t = await res.text(); throw new Error(t); }
+      if (!res.ok) {
+        // Parse JSON error response and translate into plain English.
+        // Raw 500 body looked like '{"error":"GHL 422: {...}","errors":[...],"debug":{...}}'
+        // rendered verbatim in the UI; now we extract a friendly message.
+        let friendly = 'Failed to create meeting';
+        try {
+          const errJson = await res.json();
+          const errs: string[] = Array.isArray(errJson.errors) ? errJson.errors : [];
+          const raw: string = errJson.error || errs[0] || errJson.message || '';
+          if (/user id (?:not|is not) part of calendar team/i.test(raw)) {
+            const nameMatch = raw.match(/assigned to ([^)]+)\)/);
+            const who = nameMatch ? nameMatch[1].trim() : 'the selected team member';
+            friendly = `Meeting not scheduled: ${who} is not on the Loop calendar team for this meeting type. Ask Nathan to add them to the calendar team in Loop, then try again.`;
+          } else if (raw) {
+            // Strip JSON-ish GHL payloads and traceIds so Terri sees plain text.
+            friendly = raw
+              .replace(/GHL \d+:\s*\{[\s\S]*?\}\s*/g, '')
+              .replace(/\{[^{}]*"traceId"[^{}]*\}/g, '')
+              .replace(/\s+/g, ' ')
+              .trim() || friendly;
+            if (errs.length > 1) friendly += ` (${errs.length - 1} other error${errs.length > 2 ? 's' : ''} suppressed, check server logs)`;
+          }
+        } catch {
+          // Response body was not JSON, keep default message.
+        }
+        throw new Error(friendly);
+      }
       const data = await res.json();
       const apptCount = data.ghlAppointments?.length || 1;
       const errs: string[] = Array.isArray(data.errors) ? data.errors : [];
@@ -2052,11 +2078,22 @@ export default function DashboardOverview() {
                 )}
                 {panelTab === 'scheduleMeeting' && (
                   <div style={{ padding: '4px 0' }}>
-                    {smSuccess && (
-                      <div style={{ background: 'rgba(34,197,94,0.1)', border: '1px solid rgba(34,197,94,0.3)', borderRadius: 6, padding: '8px 12px', marginBottom: 8, fontSize: 13, color: '#22c55e', display: 'flex', alignItems: 'center', gap: 6 }}>
-                        <CheckCircle size={15} /> {smSuccess}
-                      </div>
-                    )}
+                    {smSuccess && (() => {
+                      const isError = smSuccess.startsWith('❌');
+                      const text = isError ? smSuccess.replace(/^❌\s*/, '') : smSuccess;
+                      return (
+                        <div style={{
+                          background: isError ? 'rgba(239,68,68,0.1)' : 'rgba(34,197,94,0.1)',
+                          border: isError ? '1px solid rgba(239,68,68,0.3)' : '1px solid rgba(34,197,94,0.3)',
+                          borderRadius: 6, padding: '8px 12px', marginBottom: 8, fontSize: 13,
+                          color: isError ? '#ef4444' : '#22c55e',
+                          display: 'flex', alignItems: 'flex-start', gap: 6,
+                        }}>
+                          {isError ? <XCircle size={15} style={{ flexShrink: 0, marginTop: 1 }} /> : <CheckCircle size={15} style={{ flexShrink: 0, marginTop: 1 }} />}
+                          <span style={{ wordBreak: 'break-word' }}>{text}</span>
+                        </div>
+                      );
+                    })()}
                     <div>
                       <label style={{ fontSize: 11, color: '#6a6058', fontWeight: 600, display: 'block', marginBottom: 3 }}>MEETING TYPE</label>
                       <select value={smCalendarId} onChange={e => { setSmCalendarId(e.target.value); const mt = MEETING_TYPES.find(m => m.id === e.target.value); if (mt) setSmDuration(mt.duration); }}
