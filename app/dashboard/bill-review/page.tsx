@@ -137,6 +137,49 @@ export default function BillReviewPage() {
   // can be long, so we collapse by default and let the user expand.
   const [showDesc, setShowDesc] = useState<Set<string>>(new Set());
 
+  // Searchable picker state: which row's picker is currently open, the
+  // current search query, and a per-job cache of all approved budget items
+  // (fetched lazily on first open of a row in that job).
+  type BudgetItem = {
+    id: string;
+    name: string | null;
+    costCodeId: string | null;
+    costCodeNumber: string | null;
+    costCodeName: string | null;
+    cost: number;
+  };
+  const [openPickerRowId, setOpenPickerRowId] = useState<string | null>(null);
+  const [pickerSearch, setPickerSearch] = useState('');
+  const [budgetItemsCache, setBudgetItemsCache] = useState<Record<string, BudgetItem[]>>({});
+  const [budgetItemsLoading, setBudgetItemsLoading] = useState<Record<string, boolean>>({});
+
+  // Close picker when clicking outside of it.
+  useEffect(() => {
+    if (!openPickerRowId) return;
+    const handler = (e: MouseEvent) => {
+      const target = e.target as HTMLElement | null;
+      if (!target?.closest(`[data-picker-row="${openPickerRowId}"]`)) {
+        setOpenPickerRowId(null);
+        setPickerSearch('');
+      }
+    };
+    document.addEventListener('mousedown', handler);
+    return () => document.removeEventListener('mousedown', handler);
+  }, [openPickerRowId]);
+
+  async function fetchBudgetItemsForJob(jobId: string) {
+    if (budgetItemsCache[jobId] || budgetItemsLoading[jobId]) return;
+    setBudgetItemsLoading(prev => ({ ...prev, [jobId]: true }));
+    try {
+      const res = await fetch(`/api/dashboard/bill-review/budget-items?jobId=${encodeURIComponent(jobId)}`, { headers });
+      const json = await res.json();
+      if (res.ok) {
+        setBudgetItemsCache(prev => ({ ...prev, [jobId]: json.items || [] }));
+      }
+    } catch { /* swallow — picker will fall back to candidates only */ }
+    setBudgetItemsLoading(prev => ({ ...prev, [jobId]: false }));
+  }
+
   const token = typeof window !== 'undefined' ? localStorage.getItem('bkb-token') : null;
   const headers = token ? { Authorization: `Bearer ${token}` } : {};
 
@@ -744,28 +787,184 @@ export default function BillReviewPage() {
                       <Tag size={12} style={{ color: '#8a8078' }} />
                       <span className="text-xs" style={{ color: '#8a8078' }}>Apply to:</span>
 
-                      {candidates.length > 0 ? (
-                        <select
-                          value={currentPick}
-                          onChange={(e) =>
-                            setPickedCandidate(prev => ({ ...prev, [row.id]: e.target.value }))
-                          }
-                          className="px-2 py-1.5 rounded text-xs"
-                          style={{ background: '#ffffff', border: '1px solid #e8e5e0', color: '#1a1a1a', minWidth: 280 }}
-                        >
-                          {candidates.map((c) => (
-                            <option key={c.jobCostItemId} value={c.jobCostItemId}>
-                              {c.costCodeNumber ? `${c.costCodeNumber} · ` : ''}{c.name || 'Unnamed'}
-                              {' '}
-                              ({Math.round((c.score || 0) * 100)}% — {c.reason})
-                            </option>
-                          ))}
-                        </select>
-                      ) : (
-                        <span className="text-xs italic" style={{ color: '#b91c1c' }}>
-                          No candidate budget items — pick one in JT or dismiss
-                        </span>
-                      )}
+                      {/* Searchable budget-item picker. Shows the matcher's
+                          top suggestions at the top, then a search box that
+                          filters the full list of approved budget items on
+                          the job — so the user can route a bill to ANY real
+                          budget bucket, not just the top 5 candidates. */}
+                      {(() => {
+                        // Find what to display in the closed picker button.
+                        // Prefer the candidate match (carries score + reason),
+                        // then the job's full budget item list, then a
+                        // generic fallback.
+                        const allItems = budgetItemsCache[row.job_id] || [];
+                        const picked =
+                          candidates.find(c => c.jobCostItemId === currentPick) ||
+                          (currentPick
+                            ? (() => {
+                                const b = allItems.find(b => b.id === currentPick);
+                                return b
+                                  ? { jobCostItemId: b.id, name: b.name, costCodeNumber: b.costCodeNumber, costCodeName: b.costCodeName, costCodeId: b.costCodeId, score: 0, reason: 'Manually picked' }
+                                  : null;
+                              })()
+                            : null);
+                        const isOpen = openPickerRowId === row.id;
+                        const isLoading = !!budgetItemsLoading[row.job_id];
+                        const q = pickerSearch.trim().toLowerCase();
+                        const candidateIds = new Set(candidates.map(c => c.jobCostItemId));
+                        const filteredAll = q
+                          ? allItems.filter(b => {
+                              const hay = `${b.costCodeNumber || ''} ${b.name || ''} ${b.costCodeName || ''}`.toLowerCase();
+                              return hay.includes(q);
+                            })
+                          : allItems;
+                        // Always show all candidates in the suggested section,
+                        // even when searching, so the user can fall back if
+                        // the search matches nothing useful.
+                        return (
+                          <div data-picker-row={row.id} className="relative" style={{ minWidth: 320 }}>
+                            <button
+                              type="button"
+                              onClick={() => {
+                                const next = isOpen ? null : row.id;
+                                setOpenPickerRowId(next);
+                                setPickerSearch('');
+                                if (next) void fetchBudgetItemsForJob(row.job_id);
+                              }}
+                              className="w-full flex items-center gap-2 px-2 py-1.5 rounded text-xs text-left"
+                              style={{ background: '#ffffff', border: '1px solid #e8e5e0', color: '#1a1a1a' }}
+                            >
+                              <span className="flex-1 truncate">
+                                {picked ? (
+                                  <>
+                                    {picked.costCodeNumber ? <span style={{ color: '#8a8078' }}>{picked.costCodeNumber} · </span> : null}
+                                    <span style={{ color: '#1a1a1a' }}>{picked.name || 'Unnamed'}</span>
+                                    {picked.score > 0 && (
+                                      <span style={{ color: '#8a8078' }}> · {Math.round(picked.score * 100)}%</span>
+                                    )}
+                                  </>
+                                ) : (
+                                  <span style={{ color: '#8a8078' }}>
+                                    {candidates.length === 0 ? 'Pick any budget item…' : 'Pick a budget item…'}
+                                  </span>
+                                )}
+                              </span>
+                              <ChevronDown size={12} style={{ color: '#8a8078' }} />
+                            </button>
+
+                            {isOpen && (
+                              <div
+                                className="absolute z-20 left-0 right-0 mt-1 rounded-lg shadow-lg"
+                                style={{
+                                  background: '#ffffff',
+                                  border: '1px solid #e8e5e0',
+                                  maxHeight: 380,
+                                  overflow: 'hidden',
+                                  display: 'flex',
+                                  flexDirection: 'column',
+                                }}
+                              >
+                                <div className="p-2" style={{ borderBottom: '1px solid #f0ece6' }}>
+                                  <div className="relative">
+                                    <Search size={12} className="absolute left-2 top-1/2 -translate-y-1/2" style={{ color: '#8a8078' }} />
+                                    <input
+                                      type="text"
+                                      autoFocus
+                                      value={pickerSearch}
+                                      onChange={(e) => setPickerSearch(e.target.value)}
+                                      placeholder="Search by cost code or name…"
+                                      className="w-full pl-7 pr-2 py-1.5 rounded text-xs"
+                                      style={{ background: '#faf8f5', border: '1px solid #e8e5e0', color: '#1a1a1a' }}
+                                    />
+                                  </div>
+                                </div>
+                                <div style={{ overflowY: 'auto', flex: 1 }}>
+                                  {/* Suggested section */}
+                                  {candidates.length > 0 && (
+                                    <div>
+                                      <div className="px-2 py-1 text-[10px] uppercase tracking-wide font-semibold" style={{ color: '#8a8078', background: '#faf8f5' }}>
+                                        Suggested
+                                      </div>
+                                      {candidates
+                                        .filter(c => !q || `${c.costCodeNumber || ''} ${c.name || ''}`.toLowerCase().includes(q))
+                                        .map((c) => {
+                                          const isPicked = c.jobCostItemId === currentPick;
+                                          return (
+                                            <button
+                                              key={'sug-' + c.jobCostItemId}
+                                              type="button"
+                                              onClick={() => {
+                                                setPickedCandidate(prev => ({ ...prev, [row.id]: c.jobCostItemId }));
+                                                setOpenPickerRowId(null);
+                                                setPickerSearch('');
+                                              }}
+                                              className="w-full text-left px-2 py-1.5 text-xs flex items-center gap-2 hover:bg-stone-50"
+                                              style={{ background: isPicked ? 'rgba(104,5,10,0.06)' : 'transparent' }}
+                                            >
+                                              {isPicked && <Check size={11} style={{ color: '#68050a' }} />}
+                                              <span className="flex-1 min-w-0">
+                                                {c.costCodeNumber && <span style={{ color: '#8a8078' }}>{c.costCodeNumber} · </span>}
+                                                <span style={{ color: '#1a1a1a' }}>{c.name || 'Unnamed'}</span>
+                                                <span className="block text-[10px]" style={{ color: '#8a8078' }}>
+                                                  {Math.round((c.score || 0) * 100)}% · {c.reason}
+                                                </span>
+                                              </span>
+                                            </button>
+                                          );
+                                        })}
+                                    </div>
+                                  )}
+                                  {/* All approved budget items section. Exclude the
+                                      ones already shown in Suggested to keep the list tidy. */}
+                                  <div>
+                                    <div className="px-2 py-1 text-[10px] uppercase tracking-wide font-semibold flex items-center justify-between" style={{ color: '#8a8078', background: '#faf8f5' }}>
+                                      <span>All approved budget items{allItems.length > 0 ? ` (${allItems.length})` : ''}</span>
+                                      {isLoading && <Loader2 size={10} className="animate-spin" />}
+                                    </div>
+                                    {filteredAll.length === 0 && !isLoading ? (
+                                      <div className="px-2 py-3 text-xs italic" style={{ color: '#8a8078' }}>
+                                        {allItems.length === 0
+                                          ? 'No approved budget items on this job.'
+                                          : 'No items match the search.'}
+                                      </div>
+                                    ) : (
+                                      filteredAll
+                                        .filter(b => !candidateIds.has(b.id))
+                                        .map((b) => {
+                                          const isPicked = b.id === currentPick;
+                                          return (
+                                            <button
+                                              key={'all-' + b.id}
+                                              type="button"
+                                              onClick={() => {
+                                                setPickedCandidate(prev => ({ ...prev, [row.id]: b.id }));
+                                                setOpenPickerRowId(null);
+                                                setPickerSearch('');
+                                              }}
+                                              className="w-full text-left px-2 py-1.5 text-xs flex items-center gap-2 hover:bg-stone-50"
+                                              style={{ background: isPicked ? 'rgba(104,5,10,0.06)' : 'transparent' }}
+                                            >
+                                              {isPicked && <Check size={11} style={{ color: '#68050a' }} />}
+                                              <span className="flex-1 min-w-0">
+                                                {b.costCodeNumber && <span style={{ color: '#8a8078' }}>{b.costCodeNumber} · </span>}
+                                                <span style={{ color: '#1a1a1a' }}>{b.name || 'Unnamed'}</span>
+                                                {b.costCodeName && (
+                                                  <span className="block text-[10px]" style={{ color: '#8a8078' }}>
+                                                    {b.costCodeName}
+                                                  </span>
+                                                )}
+                                              </span>
+                                            </button>
+                                          );
+                                        })
+                                    )}
+                                  </div>
+                                </div>
+                              </div>
+                            )}
+                          </div>
+                        );
+                      })()}
 
                       {candidates.length > 0 && confidence > 0 && (
                         <span className="text-xs" style={{ color: '#8a8078' }}>
@@ -774,14 +973,17 @@ export default function BillReviewPage() {
                         </span>
                       )}
 
+                      {/* Apply is enabled as long as something has been
+                          picked — either a candidate or any budget item from
+                          the searchable picker. */}
                       <button
                         onClick={() => approveRow(row)}
-                        disabled={isActing || candidates.length === 0}
+                        disabled={isActing || !currentPick}
                         className="flex items-center gap-1 px-3 py-1.5 rounded text-xs font-medium ml-auto"
                         style={{
                           background: '#68050a', color: '#ffffff',
                           border: '1px solid #68050a',
-                          opacity: (isActing || candidates.length === 0) ? 0.5 : 1,
+                          opacity: (isActing || !currentPick) ? 0.5 : 1,
                         }}
                       >
                         {isActing ? <Loader2 size={12} className="animate-spin" /> : <Check size={12} />}
