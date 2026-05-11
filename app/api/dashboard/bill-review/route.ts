@@ -97,7 +97,13 @@ export async function GET(req: NextRequest) {
     response.stats = {
       pendingTotal: (counts || []).length,
       pendingByType: byType,
-      byJob: [...jobMap.values()].sort((a, b) => b.total - a.total),
+      // Alphabetical by job name so the filter dropdown is easy to scan;
+      // ties fall back to job number then pending count.
+      byJob: [...jobMap.values()].sort((a, b) =>
+        (a.jobName || '').localeCompare(b.jobName || '') ||
+        (a.jobNumber || '').localeCompare(b.jobNumber || '') ||
+        (b.total - a.total)
+      ),
       lastScan,
     };
   }
