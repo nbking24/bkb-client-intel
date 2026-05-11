@@ -52,6 +52,79 @@ export function extractDivision(costCodeNumber: string | null): string | null {
 }
 
 // ------------------------------------------------------------
+// Keyword overlap for ranking same-cost-code candidates
+// ------------------------------------------------------------
+
+/** Common construction/admin words we strip so they don't dominate the
+ * overlap signal. Anything in here that does match still contributes 0,
+ * preventing "materials" / "labor" / etc. from being the only word
+ * matching across every candidate in a division.
+ *
+ * Also drops generic English filler. Kept conservative — we want to
+ * preserve meaningful nouns like "framing", "plumbing", "engineering". */
+const KEYWORD_STOPWORDS = new Set([
+  // English filler
+  'the', 'and', 'for', 'this', 'that', 'with', 'from', 'your', 'our', 'about',
+  'into', 'onto', 'over', 'have', 'has', 'are', 'were', 'was', 'will', 'would',
+  'inc', 'llc', 'co', 'company', 'corp', 'incorporated',
+  // Generic construction/admin words that appear too broadly to be useful
+  // tiebreakers in BKB's budget item names (almost every name has them).
+  'cost', 'costs', 'item', 'items', 'budget', 'admin', 'general', 'misc',
+  'project', 'job', 'work', 'works', 'fee', 'fees', 'service', 'services',
+  'sub', 'subcontractor', 'subcontract', 'labor', 'material', 'materials',
+  'allowance', 'allowances', 'standard', 'custom', 'new', 'rep', 'reps',
+]);
+
+/** Lowercase, strip non-alphanumeric, split into a set of meaningful word
+ * tokens. Numbers are kept (so "1502" or "PA18951" still match). Tokens
+ * shorter than 3 chars or in the stopword list are dropped. */
+function tokenize(...texts: (string | null | undefined)[]): Set<string> {
+  const out = new Set<string>();
+  for (const t of texts) {
+    if (!t) continue;
+    const cleaned = String(t).toLowerCase().replace(/[^a-z0-9]+/g, ' ');
+    for (const w of cleaned.split(/\s+/)) {
+      if (w.length < 3) continue;
+      if (KEYWORD_STOPWORDS.has(w)) continue;
+      out.add(w);
+    }
+  }
+  return out;
+}
+
+/** Count overlapping tokens between two sets. Uses forEach because the
+ * project's TS target doesn't support direct for-of iteration over Set. */
+function overlapCount(a: Set<string>, b: Set<string>): number {
+  let n = 0;
+  a.forEach((w) => { if (b.has(w)) n++; });
+  return n;
+}
+
+/** Score boost for shared keywords between a bill line and a candidate
+ * budget item. Caps at +0.15 so the boost never overrides a learned
+ * pattern's high score but still meaningfully differentiates same-cc
+ * candidates (which otherwise all share the same base 0.7 / 0.85 score).
+ *
+ * Returns 0 when there's no overlap, so candidates that share nothing with
+ * the line keep their base score. */
+function keywordBoost(
+  lineTokens: Set<string>,
+  candidateName: string | null,
+  candidateCostCodeName: string | null
+): number {
+  if (lineTokens.size === 0) return 0;
+  const candTokens = tokenize(candidateName, candidateCostCodeName);
+  if (candTokens.size === 0) return 0;
+  const matched = overlapCount(lineTokens, candTokens);
+  if (matched === 0) return 0;
+  // Each match contributes 0.05 up to the cap. A typical good match
+  // (e.g. vendor "Providence Engineering" → "Engineering" item) hits at
+  // least one overlap; a more specific match (vendor + description both
+  // hit) can hit three or four and saturate the boost.
+  return Math.min(0.15, matched * 0.05);
+}
+
+// ------------------------------------------------------------
 // Classification
 // ------------------------------------------------------------
 
@@ -211,6 +284,20 @@ export function matchBudgetItem(
   const lineDiv = extractDivision(lineCc);
   const lineSub = extractSubTypeToken(lineCc);
 
+  // Keyword token set built once from everything we know about the line:
+  // vendor, line name, description, and the line's cost code name. Each
+  // scoring path below applies keywordBoost() so candidates that share
+  // tokens with the bill (e.g. "Engineering" in both vendor and a budget
+  // item named "Engineering Fees") rise above same-cc siblings that share
+  // nothing. Without this, every 14-way same-cc tie scored 0.7 across the
+  // board and the picker default was arbitrary.
+  const lineTokens = tokenize(
+    line.vendorName,
+    line.lineName,
+    line.lineDescription,
+    line.lineCostCodeName
+  );
+
   // ---- 1) Learned patterns ----------------------------------
   // (vendor_account_id, division, sub_type_token) can now have MULTIPLE
   // stored targets (migration 011). Surface each as its own candidate
@@ -254,12 +341,17 @@ export function matchBudgetItem(
   }
 
   // ---- 2) Cost code exact match ------------------------------
+  // Same-cc candidates get a base score; keywordBoost differentiates them
+  // when many budget items share the same code (e.g. 14 items on cc01).
   if (lineCc && !ADMIN_COST_CODES.has(lineCc)) {
     const matches = plannedBudgetItems.filter(b => b.costCodeNumber === lineCc);
     for (const b of matches) {
       // If we've already added it from learned pattern, skip dup.
       if (candidates.some(c => c.jobCostItemId === b.id)) continue;
-      const score = matches.length === 1 ? 0.85 : 0.7;
+      const base = matches.length === 1 ? 0.85 : 0.7;
+      const boost = keywordBoost(lineTokens, b.name, b.costCodeName);
+      const score = Math.min(0.95, base + boost);
+      const boostNote = boost > 0 ? ` · keyword match boost +${Math.round(boost * 100)}%` : '';
       candidates.push({
         jobCostItemId: b.id,
         name: b.name,
@@ -268,8 +360,8 @@ export function matchBudgetItem(
         costCodeName: b.costCodeName,
         budgetCost: b.cost,
         reason: matches.length === 1
-          ? `Exact cost code match (${lineCc})`
-          : `Cost code match (${lineCc}) — ${matches.length} budget items share this code`,
+          ? `Exact cost code match (${lineCc})${boostNote}`
+          : `Cost code match (${lineCc}) — ${matches.length} budget items share this code${boostNote}`,
         score,
       });
     }
@@ -285,6 +377,9 @@ export function matchBudgetItem(
     );
     for (const b of matches) {
       if (candidates.some(c => c.jobCostItemId === b.id)) continue;
+      const boost = keywordBoost(lineTokens, b.name, b.costCodeName);
+      const score = Math.min(0.95, 0.6 + boost);
+      const boostNote = boost > 0 ? ` · keyword match boost +${Math.round(boost * 100)}%` : '';
       candidates.push({
         jobCostItemId: b.id,
         name: b.name,
@@ -292,8 +387,8 @@ export function matchBudgetItem(
         costCodeNumber: b.costCodeNumber,
         costCodeName: b.costCodeName,
         budgetCost: b.cost,
-        reason: `Same division + sub-type (${familyCode})`,
-        score: 0.6,
+        reason: `Same division + sub-type (${familyCode})${boostNote}`,
+        score,
       });
     }
   }
@@ -305,6 +400,9 @@ export function matchBudgetItem(
     const matches = plannedBudgetItems.filter(b => extractDivision(b.costCodeNumber) === lineCc);
     for (const b of matches) {
       if (candidates.some(c => c.jobCostItemId === b.id)) continue;
+      const boost = keywordBoost(lineTokens, b.name, b.costCodeName);
+      const score = Math.min(0.95, 0.5 + boost);
+      const boostNote = boost > 0 ? ` · keyword match boost +${Math.round(boost * 100)}%` : '';
       candidates.push({
         jobCostItemId: b.id,
         name: b.name,
@@ -312,8 +410,8 @@ export function matchBudgetItem(
         costCodeNumber: b.costCodeNumber,
         costCodeName: b.costCodeName,
         budgetCost: b.cost,
-        reason: `Division match (${lineCc})`,
-        score: 0.5,
+        reason: `Division match (${lineCc})${boostNote}`,
+        score,
       });
     }
   }
