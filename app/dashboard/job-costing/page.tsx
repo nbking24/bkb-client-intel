@@ -141,8 +141,8 @@ interface JobDetail {
     collectedAmount: number;
     scheduleProgress: number;
     // Manual % complete override state (server reads from job_manual_progress)
-    progressSource?: 'manual' | 'schedule';
-    effectiveProgress?: number;
+    progressSource?: 'manual' | 'none';
+    effectiveProgress?: number | null;
     manualProgress?: number | null;
     manualSetBy?: string | null;
     manualSetAt?: string | null;
@@ -284,7 +284,7 @@ export default function JobCostingDashboard() {
 
   async function clearManualProgress() {
     if (!detail) return;
-    if (!confirm('Clear the manual % complete override? The dashboard and AI analysis will go back to using the schedule-derived value.')) return;
+    if (!confirm('Clear the saved % complete? The dashboard and AI analysis will show "Not set" until you save a new value.')) return;
     setProgressSaving(true);
     try {
       const res = await fetch(`/api/dashboard/job-costing/manual-progress?jobId=${encodeURIComponent(detail.job.id)}`, {
@@ -794,7 +794,9 @@ export default function JobCostingDashboard() {
                     key={i}
                     onClick={isProgress
                       ? () => {
-                          setProgressInput(String(detail.financialSummary.effectiveProgress ?? detail.financialSummary.scheduleProgress));
+                          setProgressInput(detail.financialSummary.effectiveProgress != null
+                            ? String(detail.financialSummary.effectiveProgress)
+                            : '');
                           setProgressNotes(detail.financialSummary.manualNotes || '');
                           setProgressEditOpen(true);
                         }
@@ -834,10 +836,10 @@ export default function JobCostingDashboard() {
                   </span>
                   {detail.financialSummary.progressSource === 'manual' && (
                     <span className="text-xs" style={{ color: '#8a8078' }}>
-                      currently manual ({detail.financialSummary.manualProgress}%
+                      currently {detail.financialSummary.manualProgress}%
                       {detail.financialSummary.manualSetAt
                         ? ` · set ${new Date(detail.financialSummary.manualSetAt).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}`
-                        : ''})
+                        : ''}
                     </span>
                   )}
                   <button
@@ -904,13 +906,13 @@ export default function JobCostingDashboard() {
                         cursor: progressSaving ? 'not-allowed' : 'pointer',
                       }}
                     >
-                      Clear override (use schedule)
+                      Clear
                     </button>
                   )}
                 </div>
                 <p className="text-xs mt-2" style={{ color: '#8a8078' }}>
-                  The schedule-derived % from JT tasks is currently <strong style={{ color: '#1a1a1a' }}>{detail.financialSummary.scheduleProgress}%</strong>.
-                  Setting a manual value here replaces it in the dashboard and the AI cost analysis.
+                  The value you save here is the only project % the dashboard and AI cost analysis use.
+                  It persists across page loads and only changes when you update it.
                 </p>
               </div>
             )}
@@ -943,20 +945,21 @@ export default function JobCostingDashboard() {
                   color: '#8a8078',
                 },
                 (() => {
-                  // Progress card with manual % override support. When Nathan
-                  // has set a manual value, that's what the card (and the AI
-                  // analysis) uses; otherwise we fall back to the schedule-
-                  // derived count of completed tasks.
-                  const eff = detail.financialSummary.effectiveProgress
-                    ?? detail.financialSummary.scheduleProgress;
-                  const isManual = detail.financialSummary.progressSource === 'manual';
+                  // Progress card. Manual-only — schedule data is no longer
+                  // displayed or used as a fallback. Shows "Not set" until
+                  // Nathan saves a value; once set, the value persists across
+                  // page loads and stays put until he edits it.
+                  const eff = detail.financialSummary.effectiveProgress;
+                  const hasValue = typeof eff === 'number';
                   return {
-                    label: isManual ? 'Progress (manual)' : 'Progress (schedule)',
-                    value: eff + '%',
-                    sub: isManual
-                      ? 'manual override · click to edit'
-                      : 'tasks complete · click to set manually',
-                    color: eff >= 75 ? '#22c55e' : eff >= 25 ? '#c88c00' : '#8a8078',
+                    label: 'Project % Complete',
+                    value: hasValue ? eff + '%' : 'Not set',
+                    sub: hasValue
+                      ? 'click to edit'
+                      : 'click to set',
+                    color: hasValue
+                      ? (eff >= 75 ? '#22c55e' : eff >= 25 ? '#c88c00' : '#8a8078')
+                      : '#8a8078',
                     isProgress: true,
                   } as any;
                 })(),

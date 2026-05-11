@@ -503,8 +503,13 @@ export async function POST(req: Request) {
     } catch (e: any) {
       console.warn('[job-costing/detail] manual progress lookup failed:', e?.message || e);
     }
-    const effectiveProgress = manualProgress != null ? manualProgress : scheduleProgress;
-    const progressSource: 'manual' | 'schedule' = manualProgress != null ? 'manual' : 'schedule';
+    // Progress on a job is now a manual-only field (Nathan's call: BKB
+    // schedules don't track actual progress accurately enough to use, even
+    // as a fallback). effectiveProgress is null until a manual value is
+    // set; the AI prompt omits the PROGRESS line entirely when that's the
+    // case so it doesn't get a misleading 0% / schedule-derived signal.
+    const effectiveProgress: number | null = manualProgress;
+    const progressSource: 'manual' | 'none' = manualProgress != null ? 'manual' : 'none';
 
 
     // ============================================================

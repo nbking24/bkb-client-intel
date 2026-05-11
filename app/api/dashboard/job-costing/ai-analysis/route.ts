@@ -56,15 +56,16 @@ export async function POST(req: Request) {
     const totalBreakHours = Number(ta.actualBreakHours) || 0;
     const totalActualHrs = totalWorkHours + totalTravelHours + totalBreakHours;
 
-    const effectiveProgress = fs.effectiveProgress != null ? fs.effectiveProgress : fs.scheduleProgress || 0;
-    const progressSource = fs.progressSource || 'schedule';
+    // Progress is now a manual-only field. effectiveProgress is null when
+    // Nathan hasn't set one; we omit the PROGRESS line from the prompt in
+    // that case so the model doesn't anchor on a fake 0% / schedule-derived
+    // number.
+    const effectiveProgress: number | null = fs.effectiveProgress != null ? fs.effectiveProgress : null;
     const manualSetBy = fs.manualSetBy || null;
     const manualNotes = fs.manualNotes || null;
-    const scheduleProgress = Number(fs.scheduleProgress) || 0;
-
-    // The detail endpoint doesn't return raw task counts so synthesize a
-    // best-effort string. The exact ratio matters less than the % anyway.
-    const scheduleDetail = `${scheduleProgress}% schedule`;
+    const progressLine = effectiveProgress != null
+      ? `PROGRESS: ${effectiveProgress}% complete (manually set${manualSetBy ? ' by ' + manualSetBy : ''}${manualNotes ? '; notes: ' + manualNotes : ''})\n`
+      : '';
 
     const overBudgetCodes = bd
       .filter((c) => c.status === 'over' || c.status === 'watch')
@@ -111,10 +112,7 @@ LABOR:
 - Estimated Hours: ${estimatedLaborHours}
 - Actual Hours: ${totalActualHrs.toFixed(1)} (work: ${totalWorkHours.toFixed(1)}, travel: ${totalTravelHours.toFixed(1)})
 
-PROGRESS: ${effectiveProgress}% complete${progressSource === 'manual'
-  ? ` (manual override${manualSetBy ? ' set by ' + manualSetBy : ''}${manualNotes ? '; notes: ' + manualNotes : ''})`
-  : ` (${scheduleDetail})`}
-
+${progressLine}
 ${overBudgetCodes ? `COST CODES OVER/NEAR BUDGET:\n${overBudgetCodes}` : 'All cost codes within budget.'}
 
 ${zeroCodes ? `UPCOMING COSTS (budgeted but no spend yet):\n${zeroCodes}` : ''}
