@@ -5600,19 +5600,16 @@ export async function updateDocumentCostItem(
   if (fields.name !== undefined) params.name = fields.name;
   if (fields.description !== undefined) params.description = fields.description;
 
-  const data = await pave({
-    updateCostItem: {
-      $: params,
-      updatedCostItem: {
-        id: {},
-        name: {},
-      },
-    },
+  // JT PAVE update mutations don't expose an `updatedCostItem` response
+  // sub-selection — every other update mutation in this codebase passes
+  // `{ $: params }` only and treats no-thrown-error as success. The earlier
+  // attempt to request `updatedCostItem: { id, name }` was rejected by JT
+  // with: `The field "updatedCostItem" does not exist at "updateCostItem"`.
+  // Success path returns the id we passed in (caller already knows the
+  // name; if it ever needs the post-write name, fetch the cost item
+  // separately).
+  await pave({
+    updateCostItem: { $: params },
   });
-
-  const updated = (data as any)?.updateCostItem?.updatedCostItem;
-  if (!updated?.id) {
-    throw new Error('updateCostItem failed: ' + JSON.stringify(data));
-  }
-  return { id: updated.id, name: updated.name || null };
+  return { id: costItemId, name: null };
 }
