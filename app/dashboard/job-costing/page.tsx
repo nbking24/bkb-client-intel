@@ -140,6 +140,13 @@ interface JobDetail {
     draftInvoiceTotal?: number;
     collectedAmount: number;
     scheduleProgress: number;
+    // Manual % complete override state (server reads from job_manual_progress)
+    progressSource?: 'manual' | 'schedule';
+    effectiveProgress?: number;
+    manualProgress?: number | null;
+    manualSetBy?: string | null;
+    manualSetAt?: string | null;
+    manualNotes?: string | null;
   };
   costCodeBreakdown: CostCodeRow[];
   timeAnalysis: {
@@ -206,6 +213,60 @@ export default function JobCostingDashboard() {
   // cost code key (number+name). When a key is in this set, the budget
   // line item list renders ALL items for that row instead of the top 5.
   const [showAllItems, setShowAllItems] = useState<Set<string>>(new Set());
+
+  // Manual % complete override editor state. Open/closed, current input
+  // value, and whether a save is in flight.
+  const [progressEditOpen, setProgressEditOpen] = useState(false);
+  const [progressInput, setProgressInput] = useState('');
+  const [progressSaving, setProgressSaving] = useState(false);
+  const [progressNotes, setProgressNotes] = useState('');
+
+  async function saveManualProgress() {
+    if (!detail) return;
+    const pct = Number(progressInput);
+    if (!Number.isFinite(pct) || pct < 0 || pct > 100) {
+      alert('Enter a number between 0 and 100.');
+      return;
+    }
+    setProgressSaving(true);
+    try {
+      const res = await fetch('/api/dashboard/job-costing/manual-progress', {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ jobId: detail.job.id, percentComplete: pct, notes: progressNotes || null }),
+      });
+      if (!res.ok) {
+        const j = await res.json().catch(() => ({}));
+        alert(`Save failed: ${j.error || res.status}`);
+        return;
+      }
+      setProgressEditOpen(false);
+      // Refetch so the cards + AI analysis re-render with the new value.
+      await loadDetail(detail.job.id);
+    } finally {
+      setProgressSaving(false);
+    }
+  }
+
+  async function clearManualProgress() {
+    if (!detail) return;
+    if (!confirm('Clear the manual % complete override? The dashboard and AI analysis will go back to using the schedule-derived value.')) return;
+    setProgressSaving(true);
+    try {
+      const res = await fetch(`/api/dashboard/job-costing/manual-progress?jobId=${encodeURIComponent(detail.job.id)}`, {
+        method: 'DELETE',
+      });
+      if (!res.ok) {
+        const j = await res.json().catch(() => ({}));
+        alert(`Clear failed: ${j.error || res.status}`);
+        return;
+      }
+      setProgressEditOpen(false);
+      await loadDetail(detail.job.id);
+    } finally {
+      setProgressSaving(false);
+    }
+  }
 
   // Per-job Ask AI chat state. Each turn is { role, content }. Resets when
   // the user opens a different job so the conversation stays scoped.
@@ -276,6 +337,9 @@ export default function JobCostingDashboard() {
     setAskMessages([]);
     setAskInput('');
     setAskError(null);
+    setProgressEditOpen(false);
+    setProgressInput('');
+    setProgressNotes('');
     try {
       const res = await fetch('/api/dashboard/job-costing/detail', {
         method: 'POST',
@@ -627,18 +691,135 @@ export default function JobCostingDashboard() {
                     : 'No contract',
                   color: '#c88c00',
                 },
-              ].map((card, i) => (
-                <div
-                  key={i}
-                  className="rounded-lg p-3"
-                  style={{ background: '#ffffff', border: '1px solid rgba(200,140,0,0.1)' }}
-                >
-                  <p className="text-xs mb-1" style={{ color: '#8a8078' }}>{card.label}</p>
-                  <p className="text-xl font-bold" style={{ color: card.color }}>{card.value}</p>
-                  <p className="text-xs mt-1" style={{ color: card.color }}>{card.sub}</p>
-                </div>
-              ))}
+              ].map((card: any, i) => {
+                // The Progress card is clickable — opens an inline editor to
+                // set/clear the manual override. All other cards stay static.
+                const isProgress = !!card.isProgress;
+                return (
+                  <div
+                    key={i}
+                    onClick={isProgress
+                      ? () => {
+                          setProgressInput(String(detail.financialSummary.effectiveProgress ?? detail.financialSummary.scheduleProgress));
+                          setProgressNotes(detail.financialSummary.manualNotes || '');
+                          setProgressEditOpen(true);
+                        }
+                      : undefined}
+                    className={`rounded-lg p-3 ${isProgress ? 'cursor-pointer hover:bg-stone-50 transition-colors' : ''}`}
+                    style={{
+                      background: '#ffffff',
+                      border: isProgress
+                        ? '1px solid rgba(79,70,229,0.30)'
+                        : '1px solid rgba(200,140,0,0.1)',
+                    }}
+                  >
+                    <p className="text-xs mb-1" style={{ color: '#8a8078' }}>{card.label}</p>
+                    <p className="text-xl font-bold" style={{ color: card.color }}>{card.value}</p>
+                    <p className="text-xs mt-1" style={{ color: card.color }}>{card.sub}</p>
+                  </div>
+                );
+              })}
             </div>
+
+            {/* Manual % complete override editor. Inline form that appears
+                below the cards when the user clicks the Progress card. Save
+                writes to job_manual_progress and refetches the detail so
+                the AI analysis reruns with the new value. "Clear override"
+                removes the row and falls back to the schedule-derived %. */}
+            {progressEditOpen && (
+              <div
+                className="rounded-lg p-4"
+                style={{
+                  background: 'rgba(79,70,229,0.04)',
+                  border: '1px solid rgba(79,70,229,0.20)',
+                }}
+              >
+                <div className="flex items-center gap-2 mb-3">
+                  <span className="text-sm font-semibold" style={{ color: '#3730a3' }}>
+                    Set project % complete for {detail.job.name}
+                  </span>
+                  {detail.financialSummary.progressSource === 'manual' && (
+                    <span className="text-xs" style={{ color: '#8a8078' }}>
+                      currently manual ({detail.financialSummary.manualProgress}%
+                      {detail.financialSummary.manualSetAt
+                        ? ` · set ${new Date(detail.financialSummary.manualSetAt).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}`
+                        : ''})
+                    </span>
+                  )}
+                  <button
+                    type="button"
+                    onClick={() => setProgressEditOpen(false)}
+                    className="ml-auto text-xs underline-offset-2 hover:underline"
+                    style={{ color: '#8a8078' }}
+                  >
+                    Close
+                  </button>
+                </div>
+
+                <div className="flex flex-wrap items-center gap-3">
+                  <label className="flex items-center gap-2 text-sm" style={{ color: '#1a1a1a' }}>
+                    <span>%:</span>
+                    <input
+                      type="number"
+                      min={0}
+                      max={100}
+                      step={5}
+                      value={progressInput}
+                      onChange={(e) => setProgressInput(e.target.value)}
+                      disabled={progressSaving}
+                      className="rounded-md px-2 py-1 text-sm w-24"
+                      style={{ background: '#ffffff', border: '1px solid rgba(200,140,0,0.20)', color: '#1a1a1a' }}
+                    />
+                  </label>
+                  <label className="flex items-center gap-2 text-sm flex-1 min-w-[240px]" style={{ color: '#1a1a1a' }}>
+                    <span className="shrink-0">Note (optional):</span>
+                    <input
+                      type="text"
+                      value={progressNotes}
+                      onChange={(e) => setProgressNotes(e.target.value)}
+                      disabled={progressSaving}
+                      placeholder="e.g. drywall done, paint started"
+                      className="rounded-md px-2 py-1 text-sm flex-1"
+                      style={{ background: '#ffffff', border: '1px solid rgba(200,140,0,0.20)', color: '#1a1a1a' }}
+                    />
+                  </label>
+                  <button
+                    type="button"
+                    onClick={saveManualProgress}
+                    disabled={progressSaving}
+                    className="rounded-md px-3 py-1.5 text-sm font-medium flex items-center gap-1.5"
+                    style={{
+                      background: progressSaving ? 'rgba(79,70,229,0.30)' : '#4f46e5',
+                      color: '#ffffff',
+                      cursor: progressSaving ? 'not-allowed' : 'pointer',
+                    }}
+                  >
+                    {progressSaving ? <Loader2 size={13} className="animate-spin" /> : <CheckCircle size={13} />}
+                    Save
+                  </button>
+                  {detail.financialSummary.progressSource === 'manual' && (
+                    <button
+                      type="button"
+                      onClick={clearManualProgress}
+                      disabled={progressSaving}
+                      className="rounded-md px-3 py-1.5 text-sm"
+                      style={{
+                        background: '#ffffff',
+                        border: '1px solid rgba(239,68,68,0.30)',
+                        color: '#b91c1c',
+                        cursor: progressSaving ? 'not-allowed' : 'pointer',
+                      }}
+                    >
+                      Clear override (use schedule)
+                    </button>
+                  )}
+                </div>
+                <p className="text-xs mt-2" style={{ color: '#8a8078' }}>
+                  The schedule-derived % from JT tasks is currently <strong style={{ color: '#1a1a1a' }}>{detail.financialSummary.scheduleProgress}%</strong>.
+                  Setting a manual value here replaces it in the dashboard and the AI cost analysis.
+                </p>
+              </div>
+            )}
 
             {/* Financial Summary Cards - Row 2: Revenue & margin */}
             <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
@@ -667,12 +848,24 @@ export default function JobCostingDashboard() {
                     : 'No budget set',
                   color: '#8a8078',
                 },
-                {
-                  label: 'Schedule',
-                  value: detail.financialSummary.scheduleProgress + '%',
-                  sub: 'tasks complete',
-                  color: detail.financialSummary.scheduleProgress >= 75 ? '#22c55e' : detail.financialSummary.scheduleProgress >= 25 ? '#c88c00' : '#8a8078',
-                },
+                (() => {
+                  // Progress card with manual % override support. When Nathan
+                  // has set a manual value, that's what the card (and the AI
+                  // analysis) uses; otherwise we fall back to the schedule-
+                  // derived count of completed tasks.
+                  const eff = detail.financialSummary.effectiveProgress
+                    ?? detail.financialSummary.scheduleProgress;
+                  const isManual = detail.financialSummary.progressSource === 'manual';
+                  return {
+                    label: isManual ? 'Progress (manual)' : 'Progress (schedule)',
+                    value: eff + '%',
+                    sub: isManual
+                      ? 'manual override · click to edit'
+                      : 'tasks complete · click to set manually',
+                    color: eff >= 75 ? '#22c55e' : eff >= 25 ? '#c88c00' : '#8a8078',
+                    isProgress: true,
+                  } as any;
+                })(),
               ].map((card, i) => (
                 <div
                   key={i}

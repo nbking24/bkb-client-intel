@@ -472,11 +472,40 @@ export async function POST(req: Request) {
     }
 
     // ============================================================
-    // 6. Schedule progress
+    // 6. Schedule progress (with manual override fallback)
     // ============================================================
     const totalTasks = tasks.length;
     const completedTasks = tasks.filter((t: any) => t.progress >= 1).length;
     const scheduleProgress = totalTasks > 0 ? Math.round((completedTasks / totalTasks) * 100) : 0;
+
+    // BKB schedules are often out of date — Nathan can override the schedule-
+    // derived % with a manual value (stored in job_manual_progress). When
+    // present, the manual value is what the AI cost analysis reasons about
+    // and the UI display uses. The schedule value stays in the response so
+    // the UI can show both ("Manual 65%, schedule says 48%") if useful.
+    let manualProgress: number | null = null;
+    let manualSetBy: string | null = null;
+    let manualSetAt: string | null = null;
+    let manualNotes: string | null = null;
+    try {
+      const { getSupabase } = await import('../../../lib/supabase');
+      const supabase = getSupabase();
+      const { data: overrideRow } = await supabase
+        .from('job_manual_progress')
+        .select('percent_complete, set_by, set_at, notes')
+        .eq('job_id', jobId)
+        .maybeSingle();
+      if (overrideRow) {
+        manualProgress = overrideRow.percent_complete;
+        manualSetBy = overrideRow.set_by || null;
+        manualSetAt = overrideRow.set_at || null;
+        manualNotes = overrideRow.notes || null;
+      }
+    } catch (e: any) {
+      console.warn('[job-costing/detail] manual progress lookup failed:', e?.message || e);
+    }
+    const effectiveProgress = manualProgress != null ? manualProgress : scheduleProgress;
+    const progressSource: 'manual' | 'schedule' = manualProgress != null ? 'manual' : 'schedule';
 
     // ============================================================
     // 7. Financial summary — cost-plus aware, completion-aware
@@ -549,6 +578,13 @@ export async function POST(req: Request) {
       draftInvoiceTotal: Math.round(draftInvoiceTotal * 100) / 100,
       collectedAmount: Math.round(collectedAmount * 100) / 100,
       scheduleProgress,
+      // Manual % override state (null when no override is set).
+      progressSource,
+      effectiveProgress,
+      manualProgress,
+      manualSetBy,
+      manualSetAt,
+      manualNotes,
     };
 
     // ============================================================
@@ -598,7 +634,9 @@ LABOR:
 - Estimated Hours: ${estimatedLaborHours}
 - Actual Hours: ${totalActualHrs.toFixed(1)} (work: ${totalWorkHours.toFixed(1)}, travel: ${totalTravelHours.toFixed(1)})
 
-SCHEDULE: ${scheduleProgress}% complete (${completedTasks}/${totalTasks} tasks)
+PROGRESS: ${effectiveProgress}% complete${progressSource === 'manual'
+  ? ` (manual override${manualSetBy ? ' set by ' + manualSetBy : ''}${manualNotes ? '; notes: ' + manualNotes : ''})`
+  : ` (schedule: ${completedTasks}/${totalTasks} tasks)`}
 
 ${overBudgetCodes ? `COST CODES OVER/NEAR BUDGET:\n${overBudgetCodes}` : 'All cost codes within budget.'}
 
