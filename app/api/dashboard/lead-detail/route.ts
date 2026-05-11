@@ -89,8 +89,54 @@ export async function GET(req: NextRequest) {
       }
     }
 
+    // ── Project address salvage ────────────────────────────────
+    // Many leads come in with the Loop contact's address1/city/state/zip
+    // blank — the address actually lives in a custom field (e.g. "Project
+    // Address", "Property Location") or buried in a note. Try multiple
+    // sources in priority order so the briefing always has SOMETHING to
+    // anchor the map / Zillow / Google Maps links on.
+    const fmtContactAddr = [contact.address1, contact.city, contact.state, contact.postalCode]
+      .filter(Boolean)
+      .join(', ')
+      .trim();
+
+    // Custom fields whose name suggests they hold a property address.
+    // Anchored on common BKB/Loop naming conventions.
+    const addressFieldRegex = /address|location|property|street|site|project[\s_-]*(address|location|site)/i;
+    const customAddressField = [...moscowFields, ...customFields].find(f =>
+      addressFieldRegex.test(f.name) && typeof f.value === 'string' && f.value.trim().length > 5
+    );
+
+    // Last resort: regex-extract a US-style address from any note body.
+    // Looks for "<number> <street name> <suffix>", optionally followed by
+    // a city/state/zip. Returns the first match.
+    function findAddressInText(text: string): string | null {
+      if (!text) return null;
+      const m = text.match(
+        /\b(\d{1,6}\s+[A-Za-z0-9][\w .'-]{2,}?\s+(?:Street|St|Avenue|Ave|Road|Rd|Lane|Ln|Drive|Dr|Court|Ct|Way|Place|Pl|Boulevard|Blvd|Highway|Hwy|Parkway|Pkwy|Terrace|Ter|Circle|Cir|Square|Sq|Trail|Tr|Crossing|Xing|Pike)\b\.?(?:\s*,\s*[A-Za-z .'-]+(?:\s*,\s*[A-Z]{2}(?:\s+\d{5}(?:-\d{4})?)?)?)?)/i
+      );
+      return m ? m[1].trim() : null;
+    }
+    const noteAddress = (notes || [])
+      .map((n: any) => findAddressInText(n.body || ''))
+      .find((s: string | null) => !!s) || null;
+
+    const projectAddress = {
+      // The best address string we could find, plain text.
+      text: fmtContactAddr || customAddressField?.value || noteAddress || '',
+      // Where it came from, for UI to label / debug.
+      source: fmtContactAddr
+        ? 'contact'
+        : customAddressField
+          ? `custom field "${customAddressField.name}"`
+          : noteAddress
+            ? 'note body'
+            : 'none',
+    };
+
     // Build response
     return NextResponse.json({
+      projectAddress,
       contact: {
         id: contact.id,
         firstName: contact.firstName || '',

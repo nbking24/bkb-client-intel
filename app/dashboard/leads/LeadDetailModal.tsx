@@ -68,7 +68,17 @@ interface OpportunityData {
   stageName: string;
 }
 
+// Project address salvaged server-side from multiple sources (Loop contact,
+// custom fields named like "address" / "property location", or regex-parsed
+// out of a note body). Always present in the response; .text is empty only
+// when none of the sources had anything usable.
+interface ProjectAddress {
+  text: string;
+  source: string; // 'contact' | 'custom field "..."' | 'note body' | 'none'
+}
+
 interface DetailData {
+  projectAddress?: ProjectAddress;
   contact: ContactData;
   moscowFields: CustomField[];
   customFields: CustomField[];
@@ -249,12 +259,90 @@ export default function LeadDetailModal({ contactId, opportunityId, contactName,
                     </div>
                   )}
                   {/* Address */}
-                  {fullAddress && (
-                    <div className="flex items-start gap-2 col-span-2">
-                      <MapPin size={12} className="flex-shrink-0 mt-0.5" style={{ color: '#c88c00' }} />
-                      <span className="text-sm" style={{ color: '#1a1a1a' }}>{fullAddress}</span>
-                    </div>
-                  )}
+                  {/* Project address. Prefers the salvaged value from the
+                      server (which already checked custom fields and notes)
+                      over the raw Loop contact fields, so we still surface
+                      something useful when address1 is empty. Always two
+                      quick-action buttons: open the address on Google Maps
+                      and search for it on Zillow in a new tab. */}
+                  {(() => {
+                    const salvaged = data.projectAddress?.text || '';
+                    const addr = salvaged || fullAddress;
+                    if (!addr) {
+                      return (
+                        <div className="flex items-start gap-2 col-span-2">
+                          <MapPin size={12} className="flex-shrink-0 mt-0.5" style={{ color: '#bcb5ad' }} />
+                          <span className="text-sm italic" style={{ color: '#8a8078' }}>
+                            No project address on file.
+                          </span>
+                        </div>
+                      );
+                    }
+                    const enc = encodeURIComponent(addr);
+                    const mapsUrl = `https://www.google.com/maps/search/?api=1&query=${enc}`;
+                    const zillowUrl = `https://www.zillow.com/homes/${enc}_rb/`;
+                    const source = data.projectAddress?.source;
+                    return (
+                      <div className="flex items-start gap-2 col-span-2">
+                        <MapPin size={12} className="flex-shrink-0 mt-0.5" style={{ color: '#c88c00' }} />
+                        <div className="flex-1 min-w-0">
+                          <div className="text-sm" style={{ color: '#1a1a1a' }}>{addr}</div>
+                          {source && source !== 'contact' && source !== 'none' && (
+                            <div className="text-[10px] mt-0.5" style={{ color: '#8a8078' }}>
+                              (from {source})
+                            </div>
+                          )}
+                          <div className="flex flex-wrap gap-1.5 mt-1.5">
+                            <a
+                              href={zillowUrl}
+                              target="_blank"
+                              rel="noopener noreferrer"
+                              className="inline-flex items-center gap-1 text-[11px] px-2 py-0.5 rounded hover:underline"
+                              style={{
+                                background: 'rgba(0,106,177,0.08)',
+                                color: '#006aa7',
+                                border: '1px solid rgba(0,106,177,0.20)',
+                              }}
+                              title="Open the address in Zillow's listing search"
+                            >
+                              <ExternalLink size={10} /> Zillow
+                            </a>
+                            <a
+                              href={mapsUrl}
+                              target="_blank"
+                              rel="noopener noreferrer"
+                              className="inline-flex items-center gap-1 text-[11px] px-2 py-0.5 rounded hover:underline"
+                              style={{
+                                background: 'rgba(34,134,58,0.08)',
+                                color: '#1e7a3b',
+                                border: '1px solid rgba(34,134,58,0.20)',
+                              }}
+                              title="Open the address in Google Maps"
+                            >
+                              <ExternalLink size={10} /> Google Maps
+                            </a>
+                            <button
+                              type="button"
+                              onClick={() => {
+                                try {
+                                  navigator.clipboard.writeText(addr);
+                                } catch { /* ignore — older browsers */ }
+                              }}
+                              className="inline-flex items-center gap-1 text-[11px] px-2 py-0.5 rounded hover:underline"
+                              style={{
+                                background: '#f8f6f3',
+                                color: '#5a5550',
+                                border: '1px solid #e8e5e0',
+                              }}
+                              title="Copy address to clipboard"
+                            >
+                              <Clipboard size={10} /> Copy
+                            </button>
+                          </div>
+                        </div>
+                      </div>
+                    );
+                  })()}
                   {/* Company */}
                   {contact?.companyName && (
                     <div className="flex items-center gap-2">
