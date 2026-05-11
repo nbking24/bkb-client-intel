@@ -153,6 +153,11 @@ export default function BillReviewPage() {
   const [pickerSearch, setPickerSearch] = useState('');
   const [budgetItemsCache, setBudgetItemsCache] = useState<Record<string, BudgetItem[]>>({});
   const [budgetItemsLoading, setBudgetItemsLoading] = useState<Record<string, boolean>>({});
+  // Direction to open the picker popover ('down' below the button, 'up'
+  // above it). Computed at open time from the button's bounding rect so
+  // the dropdown flips up when the row is too close to the bottom of the
+  // viewport (the common case being one-row-left in the queue).
+  const [pickerOpenDir, setPickerOpenDir] = useState<'down' | 'up'>('down');
 
   // Close picker when clicking outside of it.
   useEffect(() => {
@@ -594,7 +599,13 @@ export default function BillReviewPage() {
       )}
 
       {/* Rows */}
-      <div className="rounded-xl overflow-hidden" style={{ background: '#ffffff', border: '1px solid #e8e5e0' }}>
+      {/* Note: NOT using overflow-hidden here — the per-row "Apply to" picker
+          is absolutely positioned, and clipping the container caused the
+          dropdown to be cut off whenever the row sat near the bottom of the
+          container (worst case: only one row left in the queue). The
+          dropdown also auto-flips upward when there isn't room below the
+          button, so both edge cases are covered. */}
+      <div className="rounded-xl" style={{ background: '#ffffff', border: '1px solid #e8e5e0' }}>
         {loading ? (
           <div className="p-8 text-center" style={{ color: '#8a8078' }}>
             <Loader2 size={18} className="inline-block animate-spin mr-2" />
@@ -839,11 +850,26 @@ export default function BillReviewPage() {
                           <div data-picker-row={row.id} className="relative" style={{ minWidth: 320 }}>
                             <button
                               type="button"
-                              onClick={() => {
+                              onClick={(e) => {
                                 const next = isOpen ? null : row.id;
+                                if (next) {
+                                  // Measure room below the button vs the
+                                  // dropdown's max height (380px). If not
+                                  // enough room below AND there's more room
+                                  // above, open upward.
+                                  const rect = (e.currentTarget as HTMLElement).getBoundingClientRect();
+                                  const spaceBelow = window.innerHeight - rect.bottom;
+                                  const spaceAbove = rect.top;
+                                  const POPOVER_HEIGHT = 380;
+                                  setPickerOpenDir(
+                                    spaceBelow < POPOVER_HEIGHT + 20 && spaceAbove > spaceBelow
+                                      ? 'up'
+                                      : 'down'
+                                  );
+                                  void fetchBudgetItemsForJob(row.job_id);
+                                }
                                 setOpenPickerRowId(next);
                                 setPickerSearch('');
-                                if (next) void fetchBudgetItemsForJob(row.job_id);
                               }}
                               className="w-full flex items-center gap-2 px-2 py-1.5 rounded text-xs text-left"
                               style={{ background: '#ffffff', border: '1px solid #e8e5e0', color: '#1a1a1a' }}
@@ -868,7 +894,7 @@ export default function BillReviewPage() {
 
                             {isOpen && (
                               <div
-                                className="absolute z-20 left-0 right-0 mt-1 rounded-lg shadow-lg"
+                                className="absolute z-20 left-0 right-0 rounded-lg shadow-lg"
                                 style={{
                                   background: '#ffffff',
                                   border: '1px solid #e8e5e0',
@@ -876,6 +902,11 @@ export default function BillReviewPage() {
                                   overflow: 'hidden',
                                   display: 'flex',
                                   flexDirection: 'column',
+                                  // Flip up when there isn't enough room below
+                                  // the button (computed in the click handler).
+                                  ...(pickerOpenDir === 'up'
+                                    ? { bottom: 'calc(100% + 4px)' }
+                                    : { top: 'calc(100% + 4px)' }),
                                 }}
                               >
                                 <div className="p-2" style={{ borderBottom: '1px solid #f0ece6' }}>
