@@ -19,6 +19,9 @@ import {
   Users,
   FileText,
   X,
+  MessageSquare,
+  Send,
+  Sparkles,
 } from 'lucide-react';
 
 // ============================================================
@@ -204,6 +207,48 @@ export default function JobCostingDashboard() {
   // line item list renders ALL items for that row instead of the top 5.
   const [showAllItems, setShowAllItems] = useState<Set<string>>(new Set());
 
+  // Per-job Ask AI chat state. Each turn is { role, content }. Resets when
+  // the user opens a different job so the conversation stays scoped.
+  type ChatMsg = { role: 'user' | 'assistant'; content: string };
+  const [askMessages, setAskMessages] = useState<ChatMsg[]>([]);
+  const [askInput, setAskInput] = useState('');
+  const [askLoading, setAskLoading] = useState(false);
+  const [askError, setAskError] = useState<string | null>(null);
+
+  async function sendAskQuestion(text: string) {
+    const question = (text || '').trim();
+    if (!question || !detail || askLoading) return;
+    setAskError(null);
+    const next = [...askMessages, { role: 'user' as const, content: question }];
+    setAskMessages(next);
+    setAskInput('');
+    setAskLoading(true);
+    try {
+      const res = await fetch('/api/dashboard/job-costing/ask', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          question,
+          history: askMessages, // pass prior turns, NOT including the new question
+          detail,
+        }),
+      });
+      const data = await res.json();
+      if (!res.ok) {
+        throw new Error(data.error || `Ask failed (${res.status})`);
+      }
+      const answer = (data.answer || '').trim();
+      setAskMessages([...next, { role: 'assistant', content: answer || 'No response.' }]);
+    } catch (err: any) {
+      setAskError(err?.message || 'Ask failed');
+      // Roll back the user turn so they can edit and retry
+      setAskMessages(askMessages);
+      setAskInput(question);
+    } finally {
+      setAskLoading(false);
+    }
+  }
+
   // ---- Load summary data ----
   async function loadSummary() {
     setLoading(true);
@@ -228,6 +273,9 @@ export default function JobCostingDashboard() {
     setDetail(null);
     setExpandedCodes(new Set());
     setShowAllItems(new Set());
+    setAskMessages([]);
+    setAskInput('');
+    setAskError(null);
     try {
       const res = await fetch('/api/dashboard/job-costing/detail', {
         method: 'POST',
@@ -375,6 +423,140 @@ export default function JobCostingDashboard() {
                 />
               </div>
             )}
+
+            {/* Ask AI about this job. Chat is scoped to the currently-open
+                job — passes the full detail object on every request so the
+                AI reasons over exactly what's on screen. State resets when
+                the user opens a different job. */}
+            <div
+              className="rounded-lg p-4"
+              style={{
+                background: 'rgba(79,70,229,0.04)',
+                border: '1px solid rgba(79,70,229,0.20)',
+              }}
+            >
+              <div className="flex items-center gap-2 mb-2">
+                <Sparkles size={16} style={{ color: '#3730a3' }} />
+                <span className="text-sm font-semibold" style={{ color: '#3730a3' }}>
+                  Ask AI about this job
+                </span>
+                {askMessages.length > 0 && (
+                  <button
+                    type="button"
+                    onClick={() => { setAskMessages([]); setAskError(null); }}
+                    className="ml-auto text-xs underline-offset-2 hover:underline"
+                    style={{ color: '#8a8078' }}
+                  >
+                    Clear chat
+                  </button>
+                )}
+              </div>
+
+              {/* Message history */}
+              {askMessages.length > 0 && (
+                <div className="space-y-2 mb-3 max-h-[420px] overflow-y-auto pr-1">
+                  {askMessages.map((m, i) => (
+                    <div
+                      key={i}
+                      className="rounded-md px-3 py-2 text-sm"
+                      style={{
+                        background: m.role === 'user' ? 'rgba(79,70,229,0.08)' : '#ffffff',
+                        border: m.role === 'user' ? '1px solid rgba(79,70,229,0.18)' : '1px solid rgba(200,140,0,0.12)',
+                        color: '#1a1a1a',
+                        lineHeight: '1.55',
+                        whiteSpace: 'pre-wrap',
+                      }}
+                    >
+                      <div
+                        className="text-[10px] uppercase tracking-wide font-semibold mb-1"
+                        style={{ color: m.role === 'user' ? '#3730a3' : '#a06f00' }}
+                      >
+                        {m.role === 'user' ? 'You' : 'AI'}
+                      </div>
+                      {m.content}
+                    </div>
+                  ))}
+                  {askLoading && (
+                    <div className="flex items-center gap-2 text-xs px-2" style={{ color: '#8a8078' }}>
+                      <Loader2 size={12} className="animate-spin" />
+                      Thinking…
+                    </div>
+                  )}
+                </div>
+              )}
+
+              {/* Error banner */}
+              {askError && (
+                <div
+                  className="rounded-md px-3 py-2 text-xs mb-2"
+                  style={{ background: 'rgba(239,68,68,0.08)', color: '#b91c1c', border: '1px solid rgba(239,68,68,0.2)' }}
+                >
+                  {askError}
+                </div>
+              )}
+
+              {/* Input row */}
+              <form
+                onSubmit={(e) => { e.preventDefault(); void sendAskQuestion(askInput); }}
+                className="flex items-center gap-2"
+              >
+                <input
+                  type="text"
+                  value={askInput}
+                  onChange={(e) => setAskInput(e.target.value)}
+                  placeholder={`Ask anything about ${detail.job.name}'s costing…`}
+                  disabled={askLoading}
+                  className="flex-1 rounded-md px-3 py-2 text-sm"
+                  style={{
+                    background: '#ffffff',
+                    border: '1px solid rgba(200,140,0,0.20)',
+                    color: '#1a1a1a',
+                  }}
+                />
+                <button
+                  type="submit"
+                  disabled={askLoading || !askInput.trim()}
+                  className="rounded-md px-3 py-2 text-sm font-medium flex items-center gap-1.5"
+                  style={{
+                    background: askLoading || !askInput.trim() ? 'rgba(79,70,229,0.30)' : '#4f46e5',
+                    color: '#ffffff',
+                    cursor: askLoading || !askInput.trim() ? 'not-allowed' : 'pointer',
+                  }}
+                >
+                  {askLoading ? <Loader2 size={14} className="animate-spin" /> : <Send size={14} />}
+                  <span>Ask</span>
+                </button>
+              </form>
+
+              {/* Quick suggested questions — only shown when the chat is empty
+                  so the user has a starting point. Click sends immediately. */}
+              {askMessages.length === 0 && !askLoading && (
+                <div className="flex flex-wrap gap-1.5 mt-2.5">
+                  {[
+                    'Which categories are most over budget and why?',
+                    detail.financialSummary.isCostPlus
+                      ? 'Are collections keeping pace with costs?'
+                      : 'What is my projected final margin?',
+                    'Which vendors have the largest bills on this job?',
+                    'What pending bills or POs do I still need to resolve?',
+                  ].map((q) => (
+                    <button
+                      key={q}
+                      type="button"
+                      onClick={() => void sendAskQuestion(q)}
+                      className="text-xs px-2 py-1 rounded hover:opacity-80"
+                      style={{
+                        background: 'rgba(79,70,229,0.06)',
+                        color: '#3730a3',
+                        border: '1px solid rgba(79,70,229,0.18)',
+                      }}
+                    >
+                      {q}
+                    </button>
+                  ))}
+                </div>
+              )}
+            </div>
 
             {/* Completed project banner */}
             {detail.job.isCompleted && (
