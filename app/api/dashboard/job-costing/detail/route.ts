@@ -345,6 +345,32 @@ export async function POST(req: Request) {
     };
 
     // ============================================================
+    // Per-cost-code manual % overrides — loaded BEFORE the breakdown is
+    // built so the costCodeBreakdown.map() below can annotate each row
+    // without hitting a temporal dead zone on ccProgressMap.
+    // ============================================================
+    type CcProgress = { percentComplete: number; setBy: string | null; setAt: string | null; notes: string | null };
+    const ccProgressMap = new Map<string, CcProgress>();
+    try {
+      const { getSupabase } = await import('../../../lib/supabase');
+      const supabase = getSupabase();
+      const { data: ccRows } = await supabase
+        .from('job_cost_code_progress')
+        .select('cost_code_number, percent_complete, set_by, set_at, notes')
+        .eq('job_id', jobId);
+      for (const r of (ccRows || [])) {
+        ccProgressMap.set(r.cost_code_number, {
+          percentComplete: r.percent_complete,
+          setBy: r.set_by || null,
+          setAt: r.set_at || null,
+          notes: r.notes || null,
+        });
+      }
+    } catch (e: any) {
+      console.warn('[job-costing/detail] cost-code progress lookup failed:', e?.message || e);
+    }
+
+    // ============================================================
     // 4. Merge into cost code breakdown
     //    Includes: budgeted, actual, pending, remaining, % used
     // ============================================================
@@ -514,29 +540,6 @@ export async function POST(req: Request) {
     const effectiveProgress = manualProgress != null ? manualProgress : scheduleProgress;
     const progressSource: 'manual' | 'schedule' = manualProgress != null ? 'manual' : 'schedule';
 
-    // Per-cost-code manual % overrides. Map keyed by costCodeNumber so the
-    // breakdown loop below can annotate each row in O(1). Each entry carries
-    // the percent + a denormalized name + set_at for display.
-    type CcProgress = { percentComplete: number; setBy: string | null; setAt: string | null; notes: string | null };
-    const ccProgressMap = new Map<string, CcProgress>();
-    try {
-      const { getSupabase } = await import('../../../lib/supabase');
-      const supabase = getSupabase();
-      const { data: ccRows } = await supabase
-        .from('job_cost_code_progress')
-        .select('cost_code_number, percent_complete, set_by, set_at, notes')
-        .eq('job_id', jobId);
-      for (const r of (ccRows || [])) {
-        ccProgressMap.set(r.cost_code_number, {
-          percentComplete: r.percent_complete,
-          setBy: r.set_by || null,
-          setAt: r.set_at || null,
-          notes: r.notes || null,
-        });
-      }
-    } catch (e: any) {
-      console.warn('[job-costing/detail] cost-code progress lookup failed:', e?.message || e);
-    }
 
     // ============================================================
     // 7. Financial summary — cost-plus aware, completion-aware
