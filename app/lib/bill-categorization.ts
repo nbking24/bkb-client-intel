@@ -64,29 +64,53 @@ export interface Classification {
   reason: string;
 }
 
+/** Budget items JT auto-creates when a bill lands in a division without a
+ * planned item — e.g. "Uncategorized 01 Planning, Admin Subcontractor",
+ * "Uncategorized 15 Painting Materials". Lines linked to these aren't on a
+ * real planned bucket; they should fall into the same review queue as lines
+ * with no budget link at all. Match is case-insensitive and anchored at the
+ * start so we don't accidentally catch user-named items containing the word. */
+function isJTPlaceholderBudgetItem(budgetItemName: string | null | undefined): boolean {
+  if (!budgetItemName) return false;
+  return /^uncategorized\b/i.test(budgetItemName.trim());
+}
+
 export function classifyBillLine(
   line: JobBillLine,
   budgetItems: JobBudgetItem[]
 ): Classification {
-  const hasBudgetLink = !!line.jobCostItemId;
+  // JT-auto-generated "Uncategorized XX ..." buckets are treated as if the
+  // line had no real budget link, so they flow into the review queue with
+  // suggestions instead of silently passing as "good".
+  const linkedToPlaceholder = !!line.jobCostItemId && isJTPlaceholderBudgetItem(line.budgetItemName);
+  const hasRealBudgetLink = !!line.jobCostItemId && !linkedToPlaceholder;
 
-  if (!hasBudgetLink) {
-    // No link → uncategorized. If there's a matching budget cc, it's
-    // a routine fix; if not, it's a planning gap.
+  if (!hasRealBudgetLink) {
+    // No link (or only a placeholder link) → uncategorized. If there's a
+    // matching budget cc, it's a routine fix; if not, it's a planning gap.
     const lineCc = line.lineCostCodeNumber;
+    // Exclude placeholder items when checking for a matching real budget
+    // bucket — otherwise the placeholder satisfies "hasMatchingBudget" and
+    // we mis-classify lines that have no real plan to anchor to.
     const hasMatchingBudget =
-      !!lineCc && budgetItems.some(b => b.costCodeNumber === lineCc);
+      !!lineCc && budgetItems.some(
+        b => b.costCodeNumber === lineCc && !isJTPlaceholderBudgetItem(b.name)
+      );
     if (!hasMatchingBudget && lineCc && !ADMIN_COST_CODES.has(lineCc)) {
       return {
         issueType: 'budget_gap',
-        reason: `Line is uncategorized and no budget item exists for cost code ${lineCc}`,
+        reason: linkedToPlaceholder
+          ? `Line is on JT's auto "${line.budgetItemName}" bucket and no planned budget item exists for cost code ${lineCc}`
+          : `Line is uncategorized and no budget item exists for cost code ${lineCc}`,
       };
     }
     return {
       issueType: 'uncategorized',
-      reason: lineCc
-        ? `Line uses cost code ${lineCc} but is not linked to a budget item`
-        : 'Line has no budget link and no cost code',
+      reason: linkedToPlaceholder
+        ? `Line is on JT's auto "${line.budgetItemName}" bucket (not a real planned budget item)`
+        : (lineCc
+            ? `Line uses cost code ${lineCc} but is not linked to a budget item`
+            : 'Line has no budget link and no cost code'),
     };
   }
 
@@ -178,6 +202,11 @@ export function matchBudgetItem(
 ): MatchResult {
   const candidates: CandidateBudgetItem[] = [];
 
+  // Strip JT-auto placeholder buckets from the suggestion pool. We never want
+  // to "suggest" moving a line from one Uncategorized bucket to another — the
+  // whole point of flagging is to route it onto a real planned budget item.
+  const plannedBudgetItems = budgetItems.filter(b => !/^uncategorized\b/i.test((b.name || '').trim()));
+
   const lineCc = line.lineCostCodeNumber;
   const lineDiv = extractDivision(lineCc);
   const lineSub = extractSubTypeToken(lineCc);
@@ -192,7 +221,7 @@ export function matchBudgetItem(
       (p.sub_type_token ?? null) === lineSub
     );
     if (hit) {
-      const bItem = budgetItems.find(b => b.costCodeNumber === hit.target_cost_code_number);
+      const bItem = plannedBudgetItems.find(b => b.costCodeNumber === hit.target_cost_code_number);
       if (bItem) {
         const trust = hit.times_confirmed / Math.max(1, hit.times_confirmed + hit.times_overridden);
         const confidenceBoost = Math.min(1, 0.7 + 0.05 * hit.times_confirmed);
@@ -212,7 +241,7 @@ export function matchBudgetItem(
 
   // ---- 2) Cost code exact match ------------------------------
   if (lineCc && !ADMIN_COST_CODES.has(lineCc)) {
-    const matches = budgetItems.filter(b => b.costCodeNumber === lineCc);
+    const matches = plannedBudgetItems.filter(b => b.costCodeNumber === lineCc);
     for (const b of matches) {
       // If we've already added it from learned pattern, skip dup.
       if (candidates.some(c => c.jobCostItemId === b.id)) continue;
@@ -235,7 +264,7 @@ export function matchBudgetItem(
   // ---- 3) Cost code family (same division + sub_type) --------
   if (lineDiv && lineSub && !ADMIN_COST_CODES.has(lineCc ?? '')) {
     const familyCode = lineDiv + lineSub;
-    const matches = budgetItems.filter(b =>
+    const matches = plannedBudgetItems.filter(b =>
       b.costCodeNumber === familyCode ||
       (extractDivision(b.costCodeNumber) === lineDiv &&
        extractSubTypeToken(b.costCodeNumber) === lineSub)
@@ -259,7 +288,7 @@ export function matchBudgetItem(
   // If line is 2-digit code (e.g. "10"), match any budget item in
   // division "10" — lower confidence than a 4-digit match.
   if (lineCc && lineCc.length === 2 && !ADMIN_COST_CODES.has(lineCc)) {
-    const matches = budgetItems.filter(b => extractDivision(b.costCodeNumber) === lineCc);
+    const matches = plannedBudgetItems.filter(b => extractDivision(b.costCodeNumber) === lineCc);
     for (const b of matches) {
       if (candidates.some(c => c.jobCostItemId === b.id)) continue;
       candidates.push({
@@ -285,7 +314,7 @@ export function matchBudgetItem(
         // Skip if this is the SAME jobCostItem the current line already
         // points at — we can't "suggest" what's already linked.
         if (line.jobCostItemId && jciId === line.jobCostItemId) continue;
-        const b = budgetItems.find(b => b.id === jciId);
+        const b = plannedBudgetItems.find(b => b.id === jciId);
         if (!b) continue;
         if (candidates.some(c => c.jobCostItemId === b.id)) continue;
         candidates.push({
