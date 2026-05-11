@@ -1256,6 +1256,11 @@ export interface JTDocumentContent {
 
 export async function getDocumentContent(documentId: string): Promise<JTDocumentContent | null> {
   try {
+    // First pull: doc metadata + costGroups (costGroups for big proposals/contracts
+    // are still bounded — JT's UI doesn't realistically have hundreds of groups
+    // per doc — but the costItems list at the document level can absolutely exceed
+    // 100 (Edwards Pool House Construction Contract has 134). PAVE caps $size at
+    // 100, so we paginate costItems separately and merge below.
     const data = await pave({
       document: {
         $: { id: documentId },
@@ -1291,30 +1296,58 @@ export async function getDocumentContent(documentId: string): Promise<JTDocument
             },
           },
         },
-        costItems: {
-          $: { size: 100 },
-          nodes: {
-            id: {},
-            name: {},
-            description: {},
-            quantity: {},
-            unitCost: {},
-            unitPrice: {},
-            unitId: {},
-            isSelected: {},
-            costCode: { name: {}, number: {} },
-            costGroup: {
-              id: {},
-              name: {},
-              isSelected: {},
-              parentCostGroup: { id: {}, name: {}, isSelected: {} },
-            },
-          },
-        },
       },
     });
     const doc = (data as any)?.document;
     if (!doc) return null;
+
+    // Pull document-level costItems with pagination so big contracts don't
+    // silently drop their tail. Cap at 20 pages / 2,000 lines.
+    const docCostItemNodes: any[] = [];
+    {
+      const MAX_PAGES = 20;
+      let nextPage: string | null = null;
+      for (let p = 0; p < MAX_PAGES; p++) {
+        const params: Record<string, unknown> = { size: 100 };
+        if (nextPage) params.page = nextPage;
+        const pageData = await pave({
+          document: {
+            $: { id: documentId },
+            costItems: {
+              $: params,
+              nextPage: {},
+              nodes: {
+                id: {},
+                name: {},
+                description: {},
+                quantity: {},
+                unitCost: {},
+                unitPrice: {},
+                unitId: {},
+                isSelected: {},
+                costCode: { name: {}, number: {} },
+                costGroup: {
+                  id: {},
+                  name: {},
+                  isSelected: {},
+                  parentCostGroup: { id: {}, name: {}, isSelected: {} },
+                },
+              },
+            },
+          },
+        });
+        const ciPage = (pageData as any)?.document?.costItems;
+        const pageItems = (ciPage?.nodes || []) as any[];
+        docCostItemNodes.push(...pageItems);
+        nextPage = ciPage?.nextPage || null;
+        if (!nextPage || pageItems.length < 100) break;
+        if (p === MAX_PAGES - 1) {
+          console.warn(`[getDocumentContent] doc ${documentId} hit MAX_PAGES=${MAX_PAGES}; tail may be truncated`);
+        }
+      }
+    }
+    // Re-shape so the downstream code can read doc.costItems.nodes as before.
+    doc.costItems = { nodes: docCostItemNodes };
 
     // Helper: determine if a cost item is an unselected option
     // Item is unselected if: the item itself is unselected, OR its cost group is unselected,
@@ -2213,7 +2246,15 @@ export async function getDocumentCostItemsForJob(jobId: string): Promise<JTCostI
   // Batch of 5 matches getJobBillLines / getUninvoicedCC23ForJob. Skip denied
   // bills the same way getJobBillLines does — they shouldn't drive cost
   // rollup numbers.
+  //
+  // IMPORTANT: paginate *within* each document. PAVE caps page size at 100;
+  // a single-page fetch silently truncated the tail on any doc with >100
+  // line items. Edwards Pool House Construction Contract has 134 items —
+  // the last 34 (including the $24k SalfordWorks cabinetry line on cc16)
+  // were being dropped, which made the cc16 budget show $15k instead of
+  // the real ~$39k. Cap at 20 pages (2,000 items / doc) as a safety brake.
   const BATCH_SIZE = 5;
+  const MAX_DOC_PAGES = 20;
   const activeDocs = docs.filter(d => d.status !== 'denied');
   const allItems: JTCostItem[] = [];
 
@@ -2222,25 +2263,39 @@ export async function getDocumentCostItemsForJob(jobId: string): Promise<JTCostI
     const batchResults = await Promise.all(
       batch.map(async (doc) => {
         try {
-          const itemData = await pave({
-            document: {
-              $: { id: doc.id },
-              costItems: {
-                $: { size: 100 },
-                nodes: {
-                  id: {},
-                  name: {},
-                  cost: {},
-                  price: {},
-                  quantity: {},
-                  costType: { name: {} },
-                  costCode: { name: {}, number: {} },
-                  jobCostItem: { id: {}, costCode: { name: {}, number: {} } },
+          const items: any[] = [];
+          let docNextPage: string | null = null;
+          for (let p = 0; p < MAX_DOC_PAGES; p++) {
+            const params: Record<string, unknown> = { size: 100 };
+            if (docNextPage) params.page = docNextPage;
+            const itemData = await pave({
+              document: {
+                $: { id: doc.id },
+                costItems: {
+                  $: params,
+                  nextPage: {},
+                  nodes: {
+                    id: {},
+                    name: {},
+                    cost: {},
+                    price: {},
+                    quantity: {},
+                    costType: { name: {} },
+                    costCode: { name: {}, number: {} },
+                    jobCostItem: { id: {}, costCode: { name: {}, number: {} } },
+                  },
                 },
               },
-            },
-          });
-          const items = (itemData as any)?.document?.costItems?.nodes || [];
+            });
+            const page = (itemData as any)?.document?.costItems;
+            const pageItems = (page?.nodes || []) as any[];
+            items.push(...pageItems);
+            docNextPage = page?.nextPage || null;
+            if (!docNextPage || pageItems.length < 100) break;
+            if (p === MAX_DOC_PAGES - 1) {
+              console.warn(`[getDocumentCostItemsForJob] doc ${doc.id} hit MAX_DOC_PAGES=${MAX_DOC_PAGES}; tail may be truncated`);
+            }
+          }
           return { doc, items };
         } catch (err: any) {
           console.warn(`[getDocumentCostItemsForJob] doc ${doc.id} cost items failed:`, err?.message || err);
@@ -3518,21 +3573,41 @@ export async function createDraftCostPlusInvoice(jobId: string): Promise<{
   const locationName = job.location?.name || '';
   const locationAddress = job.location?.address || locationName;
 
-  // 2. Fetch all documents for the job
-  const docsData = await pave({
-    job: {
-      $: { id: jobId },
-      documents: {
-        $: { size: 100 },
-        nodes: {
-          id: {}, name: {}, type: {}, status: {}, number: {},
-          createdAt: {},
-          account: { name: {} },
+  // 2. Fetch all documents for the job.
+  // PAVE caps $size at 100; long-running jobs (Edwards Pool House has 147
+  // docs) need pagination or vendor bills past position 100 get dropped
+  // from the cost-plus invoice silently. Cap at 30 pages = 3,000 docs.
+  const allDocs: any[] = [];
+  {
+    const MAX_PAGES = 30;
+    let nextPage: string | null = null;
+    for (let p = 0; p < MAX_PAGES; p++) {
+      const params: Record<string, unknown> = { size: 100 };
+      if (nextPage) params.page = nextPage;
+      const docsData = await pave({
+        job: {
+          $: { id: jobId },
+          documents: {
+            $: params,
+            nextPage: {},
+            nodes: {
+              id: {}, name: {}, type: {}, status: {}, number: {},
+              createdAt: {},
+              account: { name: {} },
+            },
+          },
         },
-      },
-    },
-  });
-  const allDocs = (docsData as any)?.job?.documents?.nodes || [];
+      });
+      const page = (docsData as any)?.job?.documents;
+      const pageDocs = (page?.nodes || []) as any[];
+      allDocs.push(...pageDocs);
+      nextPage = page?.nextPage || null;
+      if (!nextPage || pageDocs.length < 100) break;
+      if (p === MAX_PAGES - 1) {
+        console.warn(`[createDraftCostPlusInvoice] job ${jobId} docs hit MAX_PAGES=${MAX_PAGES}; tail may be truncated`);
+      }
+    }
+  }
   const vendorBills = allDocs.filter((d: any) => d.type === 'vendorBill' && d.status !== 'denied');
   const nonDraftInvoices = allDocs.filter((d: any) => d.type === 'customerInvoice' && d.status !== 'draft');
 
@@ -3600,21 +3675,40 @@ export async function createDraftCostPlusInvoice(jobId: string): Promise<{
     }
   });
 
-  // 6. Fetch time entries and find uninvoiced ones
-  const teData = await pave({
-    job: {
-      $: { id: jobId },
-      timeEntries: {
-        $: { size: 100 },
-        nodes: {
-          id: {}, startedAt: {}, endedAt: {}, type: {}, cost: {}, notes: {},
-          user: { id: {}, name: {} },
-          costItem: { id: {}, name: {}, costCode: { number: {}, name: {} } },
+  // 6. Fetch time entries and find uninvoiced ones.
+  // Paginate — long jobs accumulate hundreds of time entries; a single
+  // page-of-100 fetch would drop the tail and under-bill labor.
+  const timeEntries: any[] = [];
+  {
+    const MAX_PAGES = 30;
+    let nextPage: string | null = null;
+    for (let p = 0; p < MAX_PAGES; p++) {
+      const params: Record<string, unknown> = { size: 100 };
+      if (nextPage) params.page = nextPage;
+      const teData = await pave({
+        job: {
+          $: { id: jobId },
+          timeEntries: {
+            $: params,
+            nextPage: {},
+            nodes: {
+              id: {}, startedAt: {}, endedAt: {}, type: {}, cost: {}, notes: {},
+              user: { id: {}, name: {} },
+              costItem: { id: {}, name: {}, costCode: { number: {}, name: {} } },
+            },
+          },
         },
-      },
-    },
-  });
-  const timeEntries = (teData as any)?.job?.timeEntries?.nodes || [];
+      });
+      const page = (teData as any)?.job?.timeEntries;
+      const pageEntries = (page?.nodes || []) as any[];
+      timeEntries.push(...pageEntries);
+      nextPage = page?.nextPage || null;
+      if (!nextPage || pageEntries.length < 100) break;
+      if (p === MAX_PAGES - 1) {
+        console.warn(`[createDraftCostPlusInvoice] job ${jobId} timeEntries hit MAX_PAGES=${MAX_PAGES}; tail may be truncated`);
+      }
+    }
+  }
 
   // Group time entries by budget cost item
   type TEInfo = { id: string; user: string; hours: number; cost: number; date: string; costItemId: string; costItemName: string; notes: string };
@@ -4632,8 +4726,12 @@ export async function reorganizeCostPlusInvoice(documentId: string, jobId: strin
   materialsDescription: string;
   adminDescription: string;
 }> {
-  // 1. Read the invoice's current cost groups and items
-  const invoiceData = await pave({
+  // 1. Read the invoice's current cost groups and items.
+  // Cost-plus invoices on long-running jobs routinely break 100 line items
+  // (every vendor bill line + every time entry rolls in), so we paginate
+  // costItems explicitly — PAVE caps $size at 100 and the old single-page
+  // fetch would silently drop the tail.
+  const invoiceMeta = await pave({
     document: {
       $: { id: documentId },
       costGroups: {
@@ -4643,20 +4741,42 @@ export async function reorganizeCostPlusInvoice(documentId: string, jobId: strin
           parentCostGroup: { id: {} },
         },
       },
-      costItems: {
-        $: { size: 100 },
-        nodes: {
-          id: {}, name: {}, cost: {}, price: {}, quantity: {},
-          costGroup: { id: {}, name: {} },
-          costCode: { number: {}, name: {} },
-          costType: { id: {}, name: {} },
-        },
-      },
     },
   });
+  const groups = (invoiceMeta as any)?.document?.costGroups?.nodes || [];
 
-  const groups = (invoiceData as any)?.document?.costGroups?.nodes || [];
-  const items = (invoiceData as any)?.document?.costItems?.nodes || [];
+  const items: any[] = [];
+  {
+    const MAX_PAGES = 30; // up to 3,000 line items on a single cost-plus invoice
+    let nextPage: string | null = null;
+    for (let p = 0; p < MAX_PAGES; p++) {
+      const params: Record<string, unknown> = { size: 100 };
+      if (nextPage) params.page = nextPage;
+      const itemData = await pave({
+        document: {
+          $: { id: documentId },
+          costItems: {
+            $: params,
+            nextPage: {},
+            nodes: {
+              id: {}, name: {}, cost: {}, price: {}, quantity: {},
+              costGroup: { id: {}, name: {} },
+              costCode: { number: {}, name: {} },
+              costType: { id: {}, name: {} },
+            },
+          },
+        },
+      });
+      const page = (itemData as any)?.document?.costItems;
+      const pageItems = (page?.nodes || []) as any[];
+      items.push(...pageItems);
+      nextPage = page?.nextPage || null;
+      if (!nextPage || pageItems.length < 100) break;
+      if (p === MAX_PAGES - 1) {
+        console.warn(`[reorganizeCostPlusInvoice] doc ${documentId} hit MAX_PAGES=${MAX_PAGES}; tail may be truncated`);
+      }
+    }
+  }
 
   // 2a. Detect if this invoice was created by our API (not JT's Bills & Time UI).
   // Our API creates "Vendor Bills" and "BKB Labor" parent groups with child items.
@@ -4900,19 +5020,37 @@ If a section is "(none)", return empty string for that key.`;
   // 3. Fetch time entry notes for the job (for BKB Labor description)
   // Only include notes from time entries whose dates match the invoice's
   // "Time Cost for [date]" groups â not ALL time entries on the job.
-  const teData = await pave({
-    job: {
-      $: { id: jobId },
-      timeEntries: {
-        $: { size: 100 },
-        nodes: {
-          id: {}, startedAt: {}, notes: {},
-          user: { name: {} },
+  // Paginate so long-running jobs (>100 time entries) don't drop the tail.
+  const timeEntries: any[] = [];
+  {
+    const MAX_PAGES = 30;
+    let nextPage: string | null = null;
+    for (let p = 0; p < MAX_PAGES; p++) {
+      const params: Record<string, unknown> = { size: 100 };
+      if (nextPage) params.page = nextPage;
+      const teData = await pave({
+        job: {
+          $: { id: jobId },
+          timeEntries: {
+            $: params,
+            nextPage: {},
+            nodes: {
+              id: {}, startedAt: {}, notes: {},
+              user: { name: {} },
+            },
+          },
         },
-      },
-    },
-  });
-  const timeEntries = (teData as any)?.job?.timeEntries?.nodes || [];
+      });
+      const page = (teData as any)?.job?.timeEntries;
+      const pageEntries = (page?.nodes || []) as any[];
+      timeEntries.push(...pageEntries);
+      nextPage = page?.nextPage || null;
+      if (!nextPage || pageEntries.length < 100) break;
+      if (p === MAX_PAGES - 1) {
+        console.warn(`[reorganizeCostPlusInvoice] job ${jobId} timeEntries hit MAX_PAGES=${MAX_PAGES}; tail may be truncated`);
+      }
+    }
+  }
 
   // Extract dates from the "Time Cost for [date]" group names on the invoice
   const invoiceDates = new Set<string>();
@@ -5434,7 +5572,13 @@ export async function getJobBillLines(jobId: string): Promise<JobBillLine[]> {
   // ── Pass 2: expand cost items in batches of 5 ──
   // Per-doc query keeps each payload small enough to dodge 413. Batching
   // at 5 concurrent matches what getUninvoicedCC23ForJob uses safely.
+  //
+  // Paginate *within* each document — PAVE caps `size` at 100, so any bill
+  // with >100 line items silently truncates the tail (same systemic bug
+  // fixed in getDocumentCostItemsForJob). Cap at 20 pages / 2,000 lines
+  // per doc; warn loudly if we hit the ceiling.
   const BILL_BATCH_SIZE = 5;
+  const MAX_BILL_DOC_PAGES = 20;
   const activeDocs = docs.filter(d => d.status !== 'denied');
 
   for (let i = 0; i < activeDocs.length; i += BILL_BATCH_SIZE) {
@@ -5442,28 +5586,42 @@ export async function getJobBillLines(jobId: string): Promise<JobBillLine[]> {
     const batchResults = await Promise.all(
       batch.map(async (doc) => {
         try {
-          const itemData = await pave({
-            document: {
-              $: { id: doc.id },
-              costItems: {
-                $: { size: 100 },
-                nodes: {
-                  id: {},
-                  name: {},
-                  description: {},
-                  quantity: {},
-                  cost: {},
-                  costCode: { id: {}, number: {}, name: {} },
-                  jobCostItem: {
+          const items: any[] = [];
+          let docNextPage: string | null = null;
+          for (let p = 0; p < MAX_BILL_DOC_PAGES; p++) {
+            const params: Record<string, unknown> = { size: 100 };
+            if (docNextPage) params.page = docNextPage;
+            const itemData = await pave({
+              document: {
+                $: { id: doc.id },
+                costItems: {
+                  $: params,
+                  nextPage: {},
+                  nodes: {
                     id: {},
                     name: {},
+                    description: {},
+                    quantity: {},
+                    cost: {},
                     costCode: { id: {}, number: {}, name: {} },
+                    jobCostItem: {
+                      id: {},
+                      name: {},
+                      costCode: { id: {}, number: {}, name: {} },
+                    },
                   },
                 },
               },
-            },
-          });
-          const items = (itemData as any)?.document?.costItems?.nodes || [];
+            });
+            const page = (itemData as any)?.document?.costItems;
+            const pageItems = (page?.nodes || []) as any[];
+            items.push(...pageItems);
+            docNextPage = page?.nextPage || null;
+            if (!docNextPage || pageItems.length < 100) break;
+            if (p === MAX_BILL_DOC_PAGES - 1) {
+              console.warn(`[getJobBillLines] doc ${doc.id} hit MAX_BILL_DOC_PAGES=${MAX_BILL_DOC_PAGES}; tail may be truncated`);
+            }
+          }
           return { doc, items };
         } catch (err: any) {
           // Surface but don't kill the whole job — skip this bill.
