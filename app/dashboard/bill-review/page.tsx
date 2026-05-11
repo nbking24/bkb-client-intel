@@ -37,7 +37,11 @@ type Candidate = {
   score: number;
 };
 
+// Carry status + last_error so the UI can highlight rows that previously
+// failed an apply attempt (so the user knows to retry rather than treating
+// them as fresh).
 type ReviewRow = {
+  last_error?: string | null;
   id: string;
   job_id: string;
   job_name: string;
@@ -608,6 +612,24 @@ export default function BillReviewPage() {
                     >
                       <Icon size={11} /> {meta.label}
                     </span>
+                    {/* Previous-apply-failed indicator. Surfaced when the row
+                        is currently in 'failed' status (typically a prior JT
+                        update threw) so the user knows it needs a retry. The
+                        last_error tooltip is the raw JT message for diagnosis. */}
+                    {row.status === 'failed' && (
+                      <span
+                        className="inline-flex items-center gap-1 px-2 py-0.5 rounded text-xs"
+                        style={{
+                          background: 'rgba(239,68,68,0.10)',
+                          color: '#b91c1c',
+                          border: '1px solid rgba(239,68,68,0.25)',
+                        }}
+                        title={row.last_error || 'Previous apply attempt failed — try again.'}
+                      >
+                        <AlertTriangle size={10} />
+                        Previous apply failed — retry
+                      </span>
+                    )}
                     <div className="flex-1 min-w-0">
                       <div className="text-sm font-medium flex items-center gap-2 flex-wrap" style={{ color: '#1a1a1a' }}>
                         <span>

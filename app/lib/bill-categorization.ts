@@ -464,11 +464,19 @@ export async function scanJobBills(
 
     if (existing) {
       // Already-known flag. Refresh it, but don't reset status if
-      // Nathan already approved or dismissed.
+      // Nathan already approved/applied/dismissed.
       if (existing.status === 'pending' || existing.status === 'failed') {
+        // For previously-failed rows, also reset status back to 'pending'
+        // and clear last_error — the issue is still present, the prior
+        // apply attempt should be retried (often the prior error was a
+        // transient JT issue or a bug we've since fixed).
+        const updatePayload =
+          existing.status === 'failed'
+            ? { ...payload, status: 'pending', last_error: null }
+            : payload;
         await supabase
           .from('bill_review_queue')
-          .update(payload)
+          .update(updatePayload)
           .eq('id', existing.id);
         result.rowsUpserted++;
       } else {

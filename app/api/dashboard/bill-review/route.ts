@@ -24,10 +24,14 @@ export async function GET(req: NextRequest) {
   const limit = Math.min(500, Number(req.nextUrl.searchParams.get('limit') || 100));
   const includeStats = req.nextUrl.searchParams.get('includeStats') === '1';
 
+  // Include both 'pending' (waiting for review) and 'failed' (a prior apply
+  // attempt failed in JT — the line is still uncategorized and needs another
+  // try). 'failed' rows surface a retry-indicator in the UI so they don't
+  // silently disappear from view after a transient JT error.
   let query = supabase
     .from('bill_review_queue')
     .select('*')
-    .eq('status', 'pending')
+    .in('status', ['pending', 'failed'])
     .order('first_seen_at', { ascending: true })
     .limit(limit);
 
@@ -42,11 +46,12 @@ export async function GET(req: NextRequest) {
   const response: any = { rows: data || [] };
 
   if (includeStats) {
-    // Pending counts by issue_type
+    // Pending counts by issue_type (counts both pending and failed since
+    // both surface in the queue UI).
     const { data: counts } = await supabase
       .from('bill_review_queue')
       .select('issue_type')
-      .eq('status', 'pending');
+      .in('status', ['pending', 'failed']);
     const byType: Record<string, number> = {
       uncategorized: 0,
       miscategorized: 0,
@@ -64,11 +69,11 @@ export async function GET(req: NextRequest) {
       .limit(1)
       .maybeSingle();
 
-    // Per-job rollup of pending rows
+    // Per-job rollup (pending + failed since both surface in the queue UI)
     const { data: byJob } = await supabase
       .from('bill_review_queue')
       .select('job_id, job_name, job_number, issue_type')
-      .eq('status', 'pending');
+      .in('status', ['pending', 'failed']);
     const jobMap = new Map<string, any>();
     for (const r of byJob || []) {
       if (!jobMap.has(r.job_id)) {
