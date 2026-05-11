@@ -123,6 +123,59 @@ export async function POST(req: Request) {
       }
     }
 
+    // ── Supplement: job-level standalone budget items ────────────────────
+    // Some budget items live at the job level in JT WITHOUT being on any
+    // customer-order document (e.g. items added directly to the Budget view,
+    // or items whose originating CO was denied but Nathan kept them in the
+    // budget). The doc-level pull above misses these. We supplement by
+    // walking job-level costItems and including any with no document link
+    // AND a positive cost. Items that ARE on an approved CO are already
+    // captured above and we dedupe on item id.
+    const seenJobCostItemIds = new Set<string>();
+    for (const dci of docCostItems) {
+      if (dci.document?.type === 'customerOrder' &&
+          budgetedApprovedOrderIds.has(dci.document?.id || '')) {
+        // Track both the doc-level item id and the linked job-level id so
+        // we don't double-count if a standalone shows up with either id.
+        if (dci.id) seenJobCostItemIds.add(dci.id);
+        const jcid = (dci as any).jobCostItem?.id;
+        if (jcid) seenJobCostItemIds.add(jcid);
+      }
+    }
+    for (const ci of costItems) {
+      if (seenJobCostItemIds.has(ci.id)) continue;
+      // Skip items that ARE linked to a document — those are on some doc
+      // (likely denied/draft/pending). The doc-level loop would have
+      // included them if the doc was approved; since it didn't, the doc is
+      // explicitly NOT approved and we should respect that.
+      if (ci.document?.id) continue;
+      const cost = Number(ci.cost) || 0;
+      const price = Number(ci.price) || 0;
+      // Skip zero-cost placeholders (often drafts / Nathan exploring).
+      if (cost <= 0 && price <= 0) continue;
+
+      const ccName = ci.costCode?.name || 'Uncoded';
+      const ccNum = ci.costCode?.number || '00';
+      const key = ccNum + '-' + ccName;
+      if (!budgetByCostCode[key]) {
+        budgetByCostCode[key] = {
+          costCodeName: ccName, costCodeNumber: ccNum,
+          estimatedCost: 0, estimatedPrice: 0, itemCount: 0, items: [],
+        };
+      }
+      budgetByCostCode[key].estimatedCost += cost;
+      budgetByCostCode[key].estimatedPrice += price;
+      budgetByCostCode[key].itemCount++;
+      budgetByCostCode[key].items.push({
+        name: ci.name, cost, price, quantity: Number(ci.quantity) || 0,
+      });
+      budgetBreakdownTotal += cost;
+      const costType = ci.costType?.name?.toLowerCase() || '';
+      if (costType.includes('labor') || costType.includes('time')) {
+        estimatedLaborHours += Number(ci.quantity) || 0;
+      }
+    }
+
     // Fallback: if docCostItems came back empty (e.g. JT API failure earlier
     // in the request) but the job has approved customer orders, fall back to
     // the legacy job-level cost item path so the rollup degrades gracefully
