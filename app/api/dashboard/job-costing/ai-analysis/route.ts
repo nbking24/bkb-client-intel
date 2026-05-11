@@ -76,21 +76,10 @@ export async function POST(req: Request) {
       .map((c) => `${c.costCodeName}: $${fmt(c.estimatedCost)} budgeted, $0 actual`)
       .join('\n');
 
-    const cccComplete = bd
-      .filter((c) => c.manualPercentComplete === 100)
-      .map((c) => `${c.costCodeName}: 100% complete, $${fmt(c.actualCost)} actual vs $${fmt(c.estimatedCost)} budgeted${c.actualCost - c.estimatedCost !== 0 ? ` (variance $${fmt(c.actualCost - c.estimatedCost)})` : ''}`)
-      .join('\n');
-    const cccInProgress = bd
-      .filter((c) => c.manualPercentComplete != null && c.manualPercentComplete < 100)
-      .map((c) => {
-        const pct = c.manualPercentComplete;
-        const forecast = pct > 0 ? Math.round(c.actualCost / (pct / 100)) : 0;
-        const forecastNote = pct > 0
-          ? ` — at this rate forecast final $${fmt(forecast)} (vs $${fmt(c.estimatedCost)} budget)`
-          : '';
-        return `${c.costCodeName}: ${pct}% complete, $${fmt(c.actualCost)} actual on $${fmt(c.estimatedCost)} budget${forecastNote}`;
-      })
-      .join('\n');
+    // Per-cost-code % overrides were retired (the per-row editor was too
+    // granular for the workflow). The AI now reasons from the job-level
+    // PROGRESS line + the over/under signals from each cost code's
+    // budget-vs-actual numbers.
 
     const costPlusNote = isCostPlus
       ? `\nNOTE: This is a COST-PLUS job. There is no fixed contract price. The client is billed for actual costs plus a markup/fee. Margin = Collected - Actual Costs. Focus on whether collections are keeping pace with spending, not on estimated price (which is $0 for cost-plus).`
@@ -129,10 +118,6 @@ PROGRESS: ${effectiveProgress}% complete${progressSource === 'manual'
 ${overBudgetCodes ? `COST CODES OVER/NEAR BUDGET:\n${overBudgetCodes}` : 'All cost codes within budget.'}
 
 ${zeroCodes ? `UPCOMING COSTS (budgeted but no spend yet):\n${zeroCodes}` : ''}
-
-${cccComplete ? `CATEGORIES MARKED COMPLETE (final numbers — variance is FINAL, not a forecast):\n${cccComplete}` : ''}
-
-${cccInProgress ? `CATEGORIES WITH PARTIAL PROGRESS SET (use the forecast to project final spend; flag any where forecast exceeds budget):\n${cccInProgress}` : ''}
 
 Provide:
 ${isCompleted ? `1. A 2-3 sentence final assessment of the job's profitability and performance

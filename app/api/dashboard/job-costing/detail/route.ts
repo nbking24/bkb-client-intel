@@ -344,32 +344,6 @@ export async function POST(req: Request) {
     };
 
     // ============================================================
-    // Per-cost-code manual % overrides — loaded BEFORE the breakdown is
-    // built so the costCodeBreakdown.map() below can annotate each row
-    // without hitting a temporal dead zone on ccProgressMap.
-    // ============================================================
-    type CcProgress = { percentComplete: number; setBy: string | null; setAt: string | null; notes: string | null };
-    const ccProgressMap = new Map<string, CcProgress>();
-    try {
-      const { getSupabase } = await import('../../../lib/supabase');
-      const supabase = getSupabase();
-      const { data: ccRows } = await supabase
-        .from('job_cost_code_progress')
-        .select('cost_code_number, percent_complete, set_by, set_at, notes')
-        .eq('job_id', jobId);
-      for (const r of (ccRows || [])) {
-        ccProgressMap.set(r.cost_code_number, {
-          percentComplete: r.percent_complete,
-          setBy: r.set_by || null,
-          setAt: r.set_at || null,
-          notes: r.notes || null,
-        });
-      }
-    } catch (e: any) {
-      console.warn('[job-costing/detail] cost-code progress lookup failed:', e?.message || e);
-    }
-
-    // ============================================================
     // 4. Merge into cost code breakdown
     //    Includes: budgeted, actual, pending, remaining, % used
     // ============================================================
@@ -443,13 +417,6 @@ export async function POST(req: Request) {
           topItems: budget.items.sort((a, b) => b.cost - a.cost),
           actualLines: sortLines(actualBucket.lines),
           pendingLines: sortLines(pendingBucket.lines),
-          // Per-cost-code manual % override (null when not set). The UI
-          // surfaces a "Mark complete" / "% done" pill on the row, and the
-          // AI prompt includes it in the per-category context.
-          manualPercentComplete: ccProgressMap.get(budget.costCodeNumber)?.percentComplete ?? null,
-          manualPercentSetAt: ccProgressMap.get(budget.costCodeNumber)?.setAt ?? null,
-          manualPercentSetBy: ccProgressMap.get(budget.costCodeNumber)?.setBy ?? null,
-          manualPercentNotes: ccProgressMap.get(budget.costCodeNumber)?.notes ?? null,
         };
       })
       .sort((a, b) => a.costCodeNumber.localeCompare(b.costCodeNumber));
