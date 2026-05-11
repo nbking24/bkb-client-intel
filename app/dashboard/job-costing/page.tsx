@@ -963,17 +963,36 @@ export default function JobCostingDashboard() {
                     isProgress: true,
                   } as any;
                 })(),
-              ].map((card, i) => (
-                <div
-                  key={i}
-                  className="rounded-lg p-3"
-                  style={{ background: '#ffffff', border: '1px solid rgba(200,140,0,0.1)' }}
-                >
-                  <p className="text-xs mb-1" style={{ color: '#8a8078' }}>{card.label}</p>
-                  <p className="text-xl font-bold" style={{ color: card.color }}>{card.value}</p>
-                  <p className="text-xs mt-1" style={{ color: card.color }}>{card.sub}</p>
-                </div>
-              ))}
+              ].map((card: any, i) => {
+                // The Progress card in this row is clickable — opens the
+                // inline editor below the cards. Other cards are static.
+                const isProgress = !!card.isProgress;
+                return (
+                  <div
+                    key={i}
+                    onClick={isProgress
+                      ? () => {
+                          setProgressInput(detail.financialSummary.effectiveProgress != null
+                            ? String(detail.financialSummary.effectiveProgress)
+                            : '');
+                          setProgressNotes(detail.financialSummary.manualNotes || '');
+                          setProgressEditOpen(true);
+                        }
+                      : undefined}
+                    className={`rounded-lg p-3 ${isProgress ? 'cursor-pointer hover:bg-stone-50 transition-colors' : ''}`}
+                    style={{
+                      background: '#ffffff',
+                      border: isProgress
+                        ? '1px solid rgba(79,70,229,0.30)'
+                        : '1px solid rgba(200,140,0,0.1)',
+                    }}
+                  >
+                    <p className="text-xs mb-1" style={{ color: '#8a8078' }}>{card.label}</p>
+                    <p className="text-xl font-bold" style={{ color: card.color }}>{card.value}</p>
+                    <p className="text-xs mt-1" style={{ color: card.color }}>{card.sub}</p>
+                  </div>
+                );
+              })}
             </div>
 
             {/* Cost Code Breakdown */}
