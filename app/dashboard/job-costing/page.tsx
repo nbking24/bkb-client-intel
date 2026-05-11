@@ -255,6 +255,40 @@ export default function JobCostingDashboard() {
     }
   }
 
+  // On-demand AI analysis state. The detail endpoint no longer auto-runs
+  // the AI — we hold the analysis text in component state and only
+  // populate it when the user clicks "Run AI Analysis". When the user
+  // switches jobs, the analysis resets so they don't see a stale summary
+  // from a different project.
+  const [aiAnalysis, setAiAnalysis] = useState<string>('');
+  const [aiAnalysisAt, setAiAnalysisAt] = useState<string | null>(null);
+  const [aiAnalysisLoading, setAiAnalysisLoading] = useState(false);
+  const [aiAnalysisError, setAiAnalysisError] = useState<string | null>(null);
+
+  async function runAiAnalysis() {
+    if (!detail || aiAnalysisLoading) return;
+    setAiAnalysisLoading(true);
+    setAiAnalysisError(null);
+    try {
+      const res = await fetch('/api/dashboard/job-costing/ai-analysis', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ detail }),
+      });
+      const data = await res.json();
+      if (!res.ok) {
+        setAiAnalysisError(data.error || `Analysis failed (${res.status})`);
+      } else {
+        setAiAnalysis(data.analysis || '');
+        setAiAnalysisAt(new Date().toISOString());
+      }
+    } catch (e: any) {
+      setAiAnalysisError(e?.message || 'Network error');
+    } finally {
+      setAiAnalysisLoading(false);
+    }
+  }
+
   // Per-cost-code progress editor state. ccProgressOpen is the row-key
   // (costCodeNumber + costCodeName) of the currently-open editor, or null.
   // ccProgressInput / ccProgressNotes hold the in-progress values; saving
@@ -409,6 +443,9 @@ export default function JobCostingDashboard() {
     setCcProgressOpen(null);
     setCcProgressInput('');
     setCcProgressNotes('');
+    setAiAnalysis('');
+    setAiAnalysisAt(null);
+    setAiAnalysisError(null);
     try {
       const res = await fetch('/api/dashboard/job-costing/detail', {
         method: 'POST',
@@ -526,27 +563,64 @@ export default function JobCostingDashboard() {
               )}
             </div>
 
-            {/* AI Analysis. Body text is dark so it reads on the page's
-                near-white background; inline replacements inherit the body
-                color (strong is just bolded, no color override). Headers stay
-                gold to anchor the section visually. */}
-            {detail.aiAnalysis && (
-              <div
-                className="rounded-lg p-4"
-                style={{
-                  background: 'rgba(201,168,76,0.06)',
-                  border: '1px solid rgba(201,168,76,0.25)',
-                }}
-              >
-                <div className="flex items-center gap-2 mb-2">
-                  <BarChart3 size={16} style={{ color: '#a06f00' }} />
-                  <span className="text-sm font-semibold" style={{ color: '#a06f00' }}>
-                    {detail.job.isCompleted ? 'AI Final Assessment' : 'AI Cost Analysis'}
+            {/* AI Analysis — on-demand. The detail endpoint stopped auto-
+                running this so a job page loads fast and per-% saves don't
+                trigger a fresh Haiku call. The user clicks "Run AI Analysis"
+                when they want a summary; result lives in component state
+                until they switch jobs or re-run. Three states: placeholder
+                (no analysis yet), loading, and result. */}
+            <div
+              className="rounded-lg p-4"
+              style={{
+                background: 'rgba(201,168,76,0.06)',
+                border: '1px solid rgba(201,168,76,0.25)',
+              }}
+            >
+              <div className="flex items-center gap-2 mb-2">
+                <BarChart3 size={16} style={{ color: '#a06f00' }} />
+                <span className="text-sm font-semibold" style={{ color: '#a06f00' }}>
+                  {detail.job.isCompleted ? 'AI Final Assessment' : 'AI Cost Analysis'}
+                </span>
+                {aiAnalysisAt && !aiAnalysisLoading && (
+                  <span className="text-[11px]" style={{ color: '#8a8078' }}>
+                    last run {new Date(aiAnalysisAt).toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' })}
                   </span>
+                )}
+                {aiAnalysis && !aiAnalysisLoading && (
+                  <button
+                    type="button"
+                    onClick={runAiAnalysis}
+                    className="ml-auto flex items-center gap-1 text-xs px-2 py-1 rounded"
+                    style={{
+                      background: 'rgba(160,111,0,0.10)',
+                      color: '#a06f00',
+                      border: '1px solid rgba(160,111,0,0.25)',
+                    }}
+                    title="Re-run with the current numbers and overrides"
+                  >
+                    <RefreshCw size={11} /> Re-run
+                  </button>
+                )}
+              </div>
+
+              {aiAnalysisError && (
+                <div
+                  className="mb-2 rounded-md px-3 py-2 text-xs"
+                  style={{ background: 'rgba(239,68,68,0.08)', color: '#b91c1c', border: '1px solid rgba(239,68,68,0.20)' }}
+                >
+                  {aiAnalysisError}
                 </div>
+              )}
+
+              {aiAnalysisLoading ? (
+                <div className="flex items-center gap-2 text-sm" style={{ color: '#8a8078' }}>
+                  <Loader2 size={14} className="animate-spin" />
+                  Generating analysis…
+                </div>
+              ) : aiAnalysis ? (
                 <div className="text-sm" style={{ color: '#1a1a1a', lineHeight: '1.7' }}
                   dangerouslySetInnerHTML={{
-                    __html: detail.aiAnalysis
+                    __html: aiAnalysis
                       .replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>')
                       .replace(/^### (.+)$/gm, '<div style="font-weight:600;color:#a06f00;margin-top:0.75rem">$1</div>')
                       .replace(/^## (.+)$/gm, '<div style="font-weight:600;color:#a06f00;margin-top:0.75rem">$1</div>')
@@ -554,8 +628,28 @@ export default function JobCostingDashboard() {
                       .replace(/\n/g, '<br/>')
                   }}
                 />
-              </div>
-            )}
+              ) : (
+                <div className="text-sm flex items-center justify-between gap-3 flex-wrap" style={{ color: '#5a5550' }}>
+                  <span>
+                    Set your % complete overrides above, then click <strong>Run AI Analysis</strong> to get
+                    an executive summary based on the current numbers.
+                  </span>
+                  <button
+                    type="button"
+                    onClick={runAiAnalysis}
+                    className="flex items-center gap-1.5 px-3 py-1.5 rounded text-sm font-medium"
+                    style={{
+                      background: '#a06f00',
+                      color: '#ffffff',
+                      border: '1px solid #a06f00',
+                    }}
+                  >
+                    <BarChart3 size={13} />
+                    Run AI Analysis
+                  </button>
+                </div>
+              )}
+            </div>
 
             {/* Ask AI about this job. Chat is scoped to the currently-open
                 job — passes the full detail object on every request so the

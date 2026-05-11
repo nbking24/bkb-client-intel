@@ -9,7 +9,6 @@ import {
   getTimeEntriesForJob,
   getTasksForJob,
 } from '../../../../lib/jobtread';
-import Anthropic from '@anthropic-ai/sdk';
 
 // ============================================================
 // Job Costing Detail API
@@ -622,108 +621,16 @@ export async function POST(req: Request) {
     };
 
     // ============================================================
-    // 8. AI Analysis
+    // 8. AI Analysis — now ON-DEMAND
     // ============================================================
-    let aiAnalysis = '';
-    try {
-      const overBudgetCodes = costCodeBreakdown
-        .filter((c) => c.status === 'over' || c.status === 'watch')
-        .map((c) => `${c.costCodeName}: est $${c.estimatedCost.toLocaleString()}, actual $${c.actualCost.toLocaleString()} (${c.pctUsed}%)`)
-        .join('\n');
-
-      const zeroCodes = costCodeBreakdown
-        .filter((c) => c.estimatedCost > 500 && c.actualCost === 0)
-        .map((c) => `${c.costCodeName}: $${c.estimatedCost.toLocaleString()} budgeted, $0 actual`)
-        .join('\n');
-
-      // Per-cost-code % complete Nathan has set. Group into "complete" (=100%)
-      // and "in progress" (<100%) blocks so the AI can reason about which
-      // categories are final vs trending. Categories with no manual % are
-      // omitted from this section — the AI falls back to the cost-vs-budget
-      // signal alone for those.
-      const cccComplete = costCodeBreakdown
-        .filter((c) => c.manualPercentComplete === 100)
-        .map((c) => `${c.costCodeName}: 100% complete, $${c.actualCost.toLocaleString()} actual vs $${c.estimatedCost.toLocaleString()} budgeted${c.actualCost - c.estimatedCost !== 0 ? ` (variance $${(c.actualCost - c.estimatedCost).toLocaleString()})` : ''}`)
-        .join('\n');
-      const cccInProgress = costCodeBreakdown
-        .filter((c) => c.manualPercentComplete != null && c.manualPercentComplete < 100)
-        .map((c) => {
-          const pct = c.manualPercentComplete!;
-          const forecast = pct > 0 ? Math.round(c.actualCost / (pct / 100)) : 0;
-          const forecastNote = pct > 0
-            ? ` — at this rate forecast final $${forecast.toLocaleString()} (vs $${c.estimatedCost.toLocaleString()} budget)`
-            : '';
-          return `${c.costCodeName}: ${pct}% complete, $${c.actualCost.toLocaleString()} actual on $${c.estimatedCost.toLocaleString()} budget${forecastNote}`;
-        })
-        .join('\n');
-
-      const totalActualHrs = totalWorkHours + totalTravelHours + totalBreakHours;
-
-      const costPlusNote = isCostPlus
-        ? `\nNOTE: This is a COST-PLUS job. There is no fixed contract price. The client is billed for actual costs plus a markup/fee. Margin = Collected - Actual Costs. Focus on whether collections are keeping pace with spending, not on estimated price (which is $0 for cost-plus).`
-        : '';
-
-      const completedNote = isCompleted
-        ? `\nIMPORTANT: This project is SUBSTANTIALLY COMPLETE (status: "${job?.customStatus || 'Closed'}"). The construction work is done. Any remaining costs are final billing items (retention, punch-list, final invoices from subs/vendors). Treat all numbers as FINAL figures, not projections. Use "final margin" instead of "projected margin." Flag any pending bills/POs that still need to be closed out. Evaluate the overall job profitability as a completed project — what went well, what lessons can be applied to future jobs.`
-        : '';
-
-      const prompt = `You are a construction job costing analyst for Brett King Builder, a high-end residential renovation company in the Philadelphia area.
-
-Analyze this job's financial health and provide a concise executive summary.
-
-JOB: ${job?.name || 'Unknown'} (${job?.clientName || ''})
-TYPE: ${isCostPlus ? 'Cost-Plus' : 'Fixed Price'}${costPlusNote}${completedNote}
-STATUS: ${isCompleted ? 'PROJECT COMPLETE' : 'In Progress'} (JobTread status: ${job?.customStatus || 'N/A'})
-
-FINANCIAL OVERVIEW:
-- Contract Price (what client pays): $${totalEstimatedPrice.toLocaleString()}
-- Internal Cost Budget: $${totalEstimatedCost.toLocaleString()}
-- Paid Costs (approved bills/POs + labor): $${totalActualCost.toLocaleString()}
-- Pending Costs (draft/pending bills/POs): $${totalPendingCost.toLocaleString()}
-- Total Costs (paid + pending): $${totalCommitted.toLocaleString()}
-${isCostPlus ? `- Collected from Client: $${collectedAmount.toLocaleString()}` : `- Contract Value: $${contractTotal.toLocaleString()}`}
-- ${isCostPlus ? 'Profit (Collected - Total Costs)' : 'Margin (Contract - Total Costs)'}: $${margin.toLocaleString()} (${marginPct.toFixed(1)}%)
-- Invoiced: $${invoicedTotal.toLocaleString()}
-
-LABOR:
-- Estimated Hours: ${estimatedLaborHours}
-- Actual Hours: ${totalActualHrs.toFixed(1)} (work: ${totalWorkHours.toFixed(1)}, travel: ${totalTravelHours.toFixed(1)})
-
-PROGRESS: ${effectiveProgress}% complete${progressSource === 'manual'
-  ? ` (manual override${manualSetBy ? ' set by ' + manualSetBy : ''}${manualNotes ? '; notes: ' + manualNotes : ''})`
-  : ` (schedule: ${completedTasks}/${totalTasks} tasks)`}
-
-${overBudgetCodes ? `COST CODES OVER/NEAR BUDGET:\n${overBudgetCodes}` : 'All cost codes within budget.'}
-
-${zeroCodes ? `UPCOMING COSTS (budgeted but no spend yet):\n${zeroCodes}` : ''}
-
-${cccComplete ? `CATEGORIES MARKED COMPLETE (final numbers — variance is FINAL, not a forecast):\n${cccComplete}` : ''}
-
-${cccInProgress ? `CATEGORIES WITH PARTIAL PROGRESS SET (use the forecast to project final spend; flag any where forecast exceeds budget):\n${cccInProgress}` : ''}
-
-Provide:
-${isCompleted ? `1. A 2-3 sentence final assessment of the job's profitability and performance
-2. Top 2-3 specific wins or lessons learned (with dollar amounts)
-3. One actionable item — either a closeout task (pending bills to resolve, final invoicing) or a lesson for future jobs
-4. If there are pending/draft vendor bills or POs, flag them as items needing resolution before the job can be fully closed out` :
-`1. A 2-3 sentence executive summary of the job's financial health
-2. Top 2-3 specific areas of concern or strength (with dollar amounts)
-3. One actionable recommendation`}
-
-Keep it direct and practical — this is for a construction project manager. Use plain language, no jargon. No markdown formatting — use plain text only. Total response under 200 words.`;
-
-      const client = new Anthropic();
-      const response = await client.messages.create({
-        model: 'claude-haiku-4-5-20251001',
-        max_tokens: 400,
-        messages: [{ role: 'user', content: prompt }],
-      });
-
-      aiAnalysis = response.content[0]?.type === 'text' ? response.content[0].text : '';
-    } catch (err: any) {
-      console.error('AI analysis error:', err.message);
-      aiAnalysis = 'AI analysis unavailable.';
-    }
+    // Previously the AI analysis ran on every detail load. That was costly
+    // and slow, and it re-fired after every per-cost-code % save (which
+    // re-fetches the detail). The AI is now triggered explicitly via the
+    // separate POST /api/dashboard/job-costing/ai-analysis endpoint, which
+    // takes the detail object the client already has and returns just the
+    // analysis text. The detail response returns an empty string here so
+    // the UI knows to show the "Run AI Analysis" placeholder card.
+    const aiAnalysis = '';
 
     return NextResponse.json({
       job: {
