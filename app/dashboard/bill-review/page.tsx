@@ -21,7 +21,8 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import {
   RefreshCw, Check, X, Loader2, AlertTriangle, HelpCircle, PieChart,
-  Search, Filter, Zap, Tag, Clock, ChevronDown,
+  Search, Filter, Zap, Tag, Clock, ChevronDown, ChevronRight,
+  ExternalLink, FileText, CheckSquare, Square,
 } from 'lucide-react';
 import { useAuth } from '../../hooks/useAuth';
 
@@ -122,6 +123,15 @@ export default function BillReviewPage() {
   const [pickedCandidate, setPickedCandidate] = useState<Record<string, string>>({});
   const [lastError, setLastError] = useState<string | null>(null);
   const [running, setRunning] = useState(false);
+  // Row IDs the user has checked for bulk-approve. We only allow bulk-
+  // approve on rows that have at least one candidate budget item.
+  const [selected, setSelected] = useState<Set<string>>(new Set());
+  // Bulk-action progress: when running, shows "Applying N of M…" so the
+  // user knows it's working through the queue.
+  const [bulk, setBulk] = useState<{ done: number; total: number; failed: number } | null>(null);
+  // Per-row "show description" toggle — line_description from the JT bill
+  // can be long, so we collapse by default and let the user expand.
+  const [showDesc, setShowDesc] = useState<Set<string>>(new Set());
 
   const token = typeof window !== 'undefined' ? localStorage.getItem('bkb-token') : null;
   const headers = token ? { Authorization: `Bearer ${token}` } : {};
@@ -215,6 +225,120 @@ export default function BillReviewPage() {
     } finally {
       setActingId(null);
     }
+  }
+
+  // Rows eligible for bulk-approve: must have at least one candidate
+  // (budget_gap rows can't be approved — only dismissed).
+  const approvableRows = useMemo(
+    () => filteredRows.filter(r => r.issue_type !== 'budget_gap' && (r.candidate_budget_items?.length || 0) > 0),
+    [filteredRows]
+  );
+
+  function toggleSelect(id: string) {
+    setSelected(prev => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  }
+
+  function toggleSelectAll() {
+    const ids = approvableRows.map(r => r.id);
+    const allSelected = ids.length > 0 && ids.every(id => selected.has(id));
+    if (allSelected) {
+      // Deselect everything currently in approvableRows; keep any selections
+      // for rows that aren't in the current filter view.
+      setSelected(prev => {
+        const next = new Set(prev);
+        for (const id of ids) next.delete(id);
+        return next;
+      });
+    } else {
+      setSelected(prev => {
+        const next = new Set(prev);
+        for (const id of ids) next.add(id);
+        return next;
+      });
+    }
+  }
+
+  // Bulk approve every selected row, sequentially. Sequential matters
+  // because each approval writes back to JT and seeds the pattern store —
+  // we don't want a fan-out that could rate-limit JT or race on the
+  // pattern table. Each approval uses the user's picked candidate if set,
+  // otherwise the top suggestion.
+  async function bulkApprove() {
+    const ids = approvableRows.filter(r => selected.has(r.id)).map(r => r.id);
+    if (ids.length === 0) return;
+    if (!confirm(`Approve ${ids.length} bill line${ids.length === 1 ? '' : 's'}? Each will be linked to its selected budget item in JobTread.`)) return;
+
+    setBulk({ done: 0, total: ids.length, failed: 0 });
+    let done = 0;
+    let failed = 0;
+    for (const id of ids) {
+      const row = filteredRows.find(r => r.id === id);
+      if (!row) { done++; setBulk({ done, total: ids.length, failed }); continue; }
+      const picked = pickedCandidate[id] || row.suggested_job_cost_item_id;
+      if (!picked) { failed++; done++; setBulk({ done, total: ids.length, failed }); continue; }
+      try {
+        const res = await fetch(`/api/dashboard/bill-review/${id}/approve`, {
+          method: 'POST',
+          headers: { ...headers, 'Content-Type': 'application/json' },
+          body: JSON.stringify({ jobCostItemId: picked, approvedBy: auth.userId || 'nathan' }),
+        });
+        if (res.ok) {
+          // Optimistically remove from the visible list as each succeeds.
+          setRows(prev => prev.filter(r => r.id !== id));
+        } else {
+          failed++;
+        }
+      } catch {
+        failed++;
+      }
+      done++;
+      setBulk({ done, total: ids.length, failed });
+    }
+    // Clear selection for processed IDs
+    setSelected(prev => {
+      const next = new Set(prev);
+      for (const id of ids) next.delete(id);
+      return next;
+    });
+    setBulk(null);
+    if (failed > 0) alert(`${failed} approval${failed === 1 ? '' : 's'} failed. Refresh to see which lines are still pending.`);
+  }
+
+  async function bulkDismiss() {
+    const ids = filteredRows.filter(r => selected.has(r.id)).map(r => r.id);
+    if (ids.length === 0) return;
+    if (!confirm(`Dismiss ${ids.length} bill line${ids.length === 1 ? '' : 's'}? They'll be marked OK and removed from the queue (no JobTread change).`)) return;
+
+    setBulk({ done: 0, total: ids.length, failed: 0 });
+    let done = 0;
+    let failed = 0;
+    for (const id of ids) {
+      try {
+        const res = await fetch(`/api/dashboard/bill-review/${id}/dismiss`, {
+          method: 'POST',
+          headers: { ...headers, 'Content-Type': 'application/json' },
+          body: JSON.stringify({ reason: 'Bulk-dismissed by Nathan', dismissedBy: auth.userId || 'nathan' }),
+        });
+        if (res.ok) setRows(prev => prev.filter(r => r.id !== id));
+        else failed++;
+      } catch {
+        failed++;
+      }
+      done++;
+      setBulk({ done, total: ids.length, failed });
+    }
+    setSelected(prev => {
+      const next = new Set(prev);
+      for (const id of ids) next.delete(id);
+      return next;
+    });
+    setBulk(null);
+    if (failed > 0) alert(`${failed} dismissal${failed === 1 ? '' : 's'} failed.`);
   }
 
   async function dismissRow(row: ReviewRow) {
@@ -364,6 +488,50 @@ export default function BillReviewPage() {
         </div>
       </div>
 
+      {/* Bulk action toolbar — only visible when at least one row is checked.
+          Sticky-ish at the top of the rows table so it stays in view while
+          the user scrolls through the queue. */}
+      {selected.size > 0 && (
+        <div
+          className="flex items-center gap-2 mb-2 px-3 py-2 rounded-lg"
+          style={{ background: 'rgba(104,5,10,0.06)', border: '1px solid rgba(104,5,10,0.20)' }}
+        >
+          <span className="text-sm" style={{ color: '#68050a' }}>
+            <strong>{selected.size}</strong> selected
+            {bulk && (
+              <span className="ml-2" style={{ color: '#5a5550' }}>
+                · Applying {bulk.done} of {bulk.total}…
+              </span>
+            )}
+          </span>
+          <button
+            onClick={bulkApprove}
+            disabled={!!bulk}
+            className="ml-auto flex items-center gap-1.5 px-3 py-1.5 rounded text-sm font-medium"
+            style={{ background: '#68050a', color: '#ffffff', opacity: bulk ? 0.5 : 1 }}
+          >
+            {bulk ? <Loader2 size={13} className="animate-spin" /> : <Check size={13} />}
+            Approve selected
+          </button>
+          <button
+            onClick={bulkDismiss}
+            disabled={!!bulk}
+            className="flex items-center gap-1.5 px-3 py-1.5 rounded text-sm"
+            style={{ background: '#ffffff', border: '1px solid #e8e5e0', color: '#5a5550', opacity: bulk ? 0.5 : 1 }}
+          >
+            <X size={13} /> Dismiss selected
+          </button>
+          <button
+            onClick={() => setSelected(new Set())}
+            disabled={!!bulk}
+            className="text-xs px-2 py-1.5 rounded"
+            style={{ color: '#8a8078' }}
+          >
+            Clear
+          </button>
+        </div>
+      )}
+
       {/* Rows */}
       <div className="rounded-xl overflow-hidden" style={{ background: '#ffffff', border: '1px solid #e8e5e0' }}>
         {loading ? (
@@ -378,6 +546,27 @@ export default function BillReviewPage() {
           </div>
         ) : (
           <div>
+            {/* Select-all header — only appears when there's at least one
+                approvable row in the current filter view. Clicking toggles
+                every approvable row in this view (budget_gap rows excluded). */}
+            {approvableRows.length > 0 && (
+              <div
+                className="flex items-center gap-2 px-4 py-2 text-xs"
+                style={{ background: '#faf8f5', borderBottom: '1px solid #e8e5e0', color: '#5a5550' }}
+              >
+                <button
+                  type="button"
+                  onClick={toggleSelectAll}
+                  className="flex items-center gap-1.5"
+                  style={{ color: '#5a5550' }}
+                >
+                  {approvableRows.length > 0 && approvableRows.every(r => selected.has(r.id))
+                    ? <CheckSquare size={14} style={{ color: '#68050a' }} />
+                    : <Square size={14} />}
+                  Select all approvable ({approvableRows.length})
+                </button>
+              </div>
+            )}
             {filteredRows.map((row, idx) => {
               const meta = ISSUE_META[row.issue_type] || ISSUE_META.uncategorized;
               const Icon = meta.icon;
@@ -385,6 +574,12 @@ export default function BillReviewPage() {
               const currentPick = pickedCandidate[row.id] || row.suggested_job_cost_item_id || '';
               const confidence = row.match_confidence || 0;
               const isActing = actingId === row.id;
+              const isApprovable = row.issue_type !== 'budget_gap' && candidates.length > 0;
+              const isSelected = selected.has(row.id);
+              const isDescOpen = showDesc.has(row.id);
+              const jtBillUrl = row.job_id && row.document_id
+                ? `https://app.jobtread.com/jobs/${row.job_id}/documents/${row.document_id}`
+                : null;
 
               return (
                 <div
@@ -394,8 +589,19 @@ export default function BillReviewPage() {
                     borderBottom: idx < filteredRows.length - 1 ? '1px solid #e8e5e0' : 'none',
                   }}
                 >
-                  {/* Top row — issue pill, vendor, amount */}
+                  {/* Top row — checkbox, issue pill, vendor, JT deep link, amount */}
                   <div className="flex items-start gap-3 flex-wrap">
+                    {/* Bulk-approve checkbox. Greyed out (but still clickable
+                        for dismiss) when the row has no approvable candidate. */}
+                    <button
+                      type="button"
+                      onClick={() => toggleSelect(row.id)}
+                      className="mt-0.5 shrink-0"
+                      title={isApprovable ? 'Select for bulk approve' : 'Row has no candidate — can only be bulk-dismissed'}
+                      style={{ color: isSelected ? '#68050a' : '#8a8078' }}
+                    >
+                      {isSelected ? <CheckSquare size={16} /> : <Square size={16} />}
+                    </button>
                     <span
                       className="inline-flex items-center gap-1.5 px-2 py-0.5 rounded text-xs font-medium"
                       style={{ background: meta.bg, color: meta.color }}
@@ -403,9 +609,28 @@ export default function BillReviewPage() {
                       <Icon size={11} /> {meta.label}
                     </span>
                     <div className="flex-1 min-w-0">
-                      <div className="text-sm font-medium" style={{ color: '#1a1a1a' }}>
-                        {row.vendor_name || 'Unknown vendor'}
-                        {row.document_number ? ` · Bill #${row.document_number}` : ''}
+                      <div className="text-sm font-medium flex items-center gap-2 flex-wrap" style={{ color: '#1a1a1a' }}>
+                        <span>
+                          {row.vendor_name || 'Unknown vendor'}
+                          {row.document_number ? ` · Bill #${row.document_number}` : ''}
+                        </span>
+                        {jtBillUrl && (
+                          <a
+                            href={jtBillUrl}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            className="inline-flex items-center gap-1 text-xs px-1.5 py-0.5 rounded hover:underline"
+                            style={{
+                              background: 'rgba(99,102,241,0.10)',
+                              color: '#3730a3',
+                              border: '1px solid rgba(99,102,241,0.20)',
+                            }}
+                            title="Open this bill in JobTread (attachments are on the right-side panel)"
+                          >
+                            <ExternalLink size={10} />
+                            Open bill in JobTread
+                          </a>
+                        )}
                       </div>
                       <div className="text-xs mt-0.5" style={{ color: '#8a8078' }}>
                         {row.job_name}
@@ -419,6 +644,43 @@ export default function BillReviewPage() {
                       </div>
                     </div>
                   </div>
+
+                  {/* Bill description — captured from JT at scan time. Collapsed
+                      by default; click "Show description" to expand. Hidden
+                      entirely when no description is present. */}
+                  {row.line_description && row.line_description.trim().length > 0 && (
+                    <div className="mt-2">
+                      <button
+                        type="button"
+                        onClick={() => setShowDesc(prev => {
+                          const next = new Set(prev);
+                          if (next.has(row.id)) next.delete(row.id);
+                          else next.add(row.id);
+                          return next;
+                        })}
+                        className="flex items-center gap-1 text-xs hover:underline"
+                        style={{ color: '#5a5550' }}
+                      >
+                        {isDescOpen ? <ChevronDown size={11} /> : <ChevronRight size={11} />}
+                        <FileText size={11} style={{ color: '#8a8078' }} />
+                        {isDescOpen ? 'Hide description' : 'Show description from JobTread'}
+                      </button>
+                      {isDescOpen && (
+                        <div
+                          className="mt-1.5 p-2.5 rounded text-xs"
+                          style={{
+                            background: '#faf8f5',
+                            border: '1px solid #e8e5e0',
+                            color: '#1a1a1a',
+                            whiteSpace: 'pre-wrap',
+                            lineHeight: '1.5',
+                          }}
+                        >
+                          {row.line_description}
+                        </div>
+                      )}
+                    </div>
+                  )}
 
                   {/* Current state row */}
                   <div className="flex items-center gap-3 mt-3 text-xs" style={{ color: '#5a5550' }}>
