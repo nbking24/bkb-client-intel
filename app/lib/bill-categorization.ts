@@ -211,31 +211,45 @@ export function matchBudgetItem(
   const lineDiv = extractDivision(lineCc);
   const lineSub = extractSubTypeToken(lineCc);
 
-  // ---- 1) Learned pattern ------------------------------------
-  // (vendor_account_id, division, sub_type_token) -> target cc.
-  // Resolve target to an actual budget item on this job.
+  // ---- 1) Learned patterns ----------------------------------
+  // (vendor_account_id, division, sub_type_token) can now have MULTIPLE
+  // stored targets (migration 011). Surface each as its own candidate
+  // ranked by share of approvals, so a vendor that legitimately splits
+  // between two divisions gets both options offered instead of the
+  // matcher flipping the single stored target each time. Resolve each
+  // target to an actual budget item on this job.
   if (line.vendorAccountId && lineDiv) {
-    const hit = patterns.find(p =>
+    const hits = patterns.filter(p =>
       p.vendor_account_id === line.vendorAccountId &&
       p.cost_code_number === lineDiv &&
       (p.sub_type_token ?? null) === lineSub
     );
-    if (hit) {
+    const totalConfirms = hits.reduce((s, h) => s + (h.times_confirmed || 0), 0);
+    // Sort by confirm count desc so the most-learned target is the top
+    // candidate the matcher emits, and downstream consumers preserve the
+    // priority when the candidate list gets sorted again by score.
+    const ranked = hits.slice().sort((a, b) => (b.times_confirmed || 0) - (a.times_confirmed || 0));
+    for (const hit of ranked) {
       const bItem = plannedBudgetItems.find(b => b.costCodeNumber === hit.target_cost_code_number);
-      if (bItem) {
-        const trust = hit.times_confirmed / Math.max(1, hit.times_confirmed + hit.times_overridden);
-        const confidenceBoost = Math.min(1, 0.7 + 0.05 * hit.times_confirmed);
-        candidates.push({
-          jobCostItemId: bItem.id,
-          name: bItem.name,
-          costCodeId: bItem.costCodeId,
-          costCodeNumber: bItem.costCodeNumber,
-          costCodeName: bItem.costCodeName,
-          budgetCost: bItem.cost,
-          reason: `Learned: ${hit.vendor_name || 'this vendor'} + cc${lineDiv}${lineSub ? lineSub : ''} → ${bItem.costCodeNumber} (confirmed ${hit.times_confirmed}x)`,
-          score: Math.min(1, confidenceBoost * trust),
-        });
-      }
+      if (!bItem) continue;
+      // Score blends (a) absolute confirmation count (rewards well-trained
+      // patterns) and (b) share of approvals (down-weights a target that
+      // only gets picked occasionally vs the alternatives). Cap at 0.95 so
+      // a learned pattern never beats a manually-picked candidate's 1.0.
+      const share = totalConfirms > 0 ? (hit.times_confirmed || 0) / totalConfirms : 1;
+      const absBoost = Math.min(0.45, 0.05 * (hit.times_confirmed || 1));
+      const score = Math.min(0.95, 0.5 + absBoost + 0.4 * share);
+      const shareLabel = ranked.length > 1 ? `, ${Math.round(share * 100)}% of approvals` : '';
+      candidates.push({
+        jobCostItemId: bItem.id,
+        name: bItem.name,
+        costCodeId: bItem.costCodeId,
+        costCodeNumber: bItem.costCodeNumber,
+        costCodeName: bItem.costCodeName,
+        budgetCost: bItem.cost,
+        reason: `Learned: ${hit.vendor_name || 'this vendor'} + cc${lineDiv}${lineSub ? lineSub : ''} → ${bItem.costCodeNumber} (confirmed ${hit.times_confirmed}x${shareLabel})`,
+        score,
+      });
     }
   }
 
@@ -537,9 +551,15 @@ export async function loadAllPatterns(
 
 /**
  * Record a Nathan-approved match into the pattern store so future scans
- * can auto-suggest it. If a row exists for this (vendor, division, sub)
- * and the chosen target matches, increment times_confirmed. If it
- * doesn't match, increment times_overridden and rewrite the target.
+ * can auto-suggest it.
+ *
+ * Multi-target model (migration 011): the unique key is
+ * (vendor, division, sub_type, target_cost_code) — one row per target. So
+ * approving the same target again increments that row's confirm count;
+ * approving a *different* target for the same (vendor, division, sub) just
+ * inserts a new row alongside. The matcher then surfaces all of them as
+ * candidates ranked by share of approvals, instead of "latest wins" with
+ * an override counter.
  */
 export async function recordApproval(
   supabase: SupabaseClient,
@@ -557,30 +577,33 @@ export async function recordApproval(
   if (!division || !params.vendorAccountId) return;
   const sub = extractSubTypeToken(params.lineCostCodeNumber);
 
+  // Look up the SPECIFIC (vendor, division, sub, target) row. If it exists,
+  // we increment its confirm count; otherwise we insert a new row so the
+  // alternate target lives alongside any pre-existing ones for this vendor.
   let query = supabase
     .from('bill_categorization_patterns')
-    .select('id, target_cost_code_number, times_confirmed, times_overridden')
+    .select('id, times_confirmed')
     .eq('vendor_account_id', params.vendorAccountId)
-    .eq('cost_code_number', division);
+    .eq('cost_code_number', division)
+    .eq('target_cost_code_number', params.targetCostCodeNumber);
   query = sub === null ? query.is('sub_type_token', null) : query.eq('sub_type_token', sub);
   const { data: existing } = await query.maybeSingle();
 
   if (existing) {
-    const sameTarget = existing.target_cost_code_number === params.targetCostCodeNumber;
+    // Same vendor + cc + sub + target → routine confirmation.
     await supabase
       .from('bill_categorization_patterns')
       .update({
-        target_cost_code_number: params.targetCostCodeNumber,
         target_cost_code_name: params.targetCostCodeName,
         target_budget_item_name_hint: params.targetBudgetItemName,
         vendor_name: params.vendorName,
-        times_confirmed: sameTarget ? existing.times_confirmed + 1 : existing.times_confirmed,
-        times_overridden: sameTarget ? existing.times_overridden : existing.times_overridden + 1,
+        times_confirmed: existing.times_confirmed + 1,
         last_confirmed_at: new Date().toISOString(),
         last_job_id: params.jobId,
       })
       .eq('id', existing.id);
   } else {
+    // New target option for this (vendor, cc, sub) — insert a new row.
     await supabase
       .from('bill_categorization_patterns')
       .insert({

@@ -22,8 +22,9 @@ import { useCallback, useEffect, useMemo, useState } from 'react';
 import {
   RefreshCw, Check, X, Loader2, AlertTriangle, HelpCircle, PieChart,
   Search, Filter, Zap, Tag, Clock, ChevronDown, ChevronRight,
-  ExternalLink, FileText, CheckSquare, Square,
+  ExternalLink, FileText, CheckSquare, Square, Brain,
 } from 'lucide-react';
+import Link from 'next/link';
 import { useAuth } from '../../hooks/useAuth';
 
 type Candidate = {
@@ -419,6 +420,19 @@ export default function BillReviewPage() {
           </div>
         </div>
         <div className="flex items-center gap-2">
+          <Link
+            href="/dashboard/bill-review/patterns"
+            className="flex items-center gap-2 px-3 py-2 rounded-lg text-sm"
+            style={{
+              background: '#ffffff',
+              border: '1px solid rgba(79,70,229,0.30)',
+              color: '#3730a3',
+            }}
+            title="See what the matcher has learned from your approvals"
+          >
+            <Brain size={14} />
+            Learned Patterns
+          </Link>
           <button
             onClick={runScanNow}
             disabled={running}
