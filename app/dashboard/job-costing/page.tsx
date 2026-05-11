@@ -93,6 +93,13 @@ interface CostCodeRow {
   // Per-line breakdowns surfaced when a row is expanded.
   actualLines?: CostLine[];
   pendingLines?: CostLine[];
+  // Per-cost-code manual % complete override (null if none set). The AI
+  // analysis uses this to reason about which categories are done vs in
+  // progress.
+  manualPercentComplete?: number | null;
+  manualPercentSetAt?: string | null;
+  manualPercentSetBy?: string | null;
+  manualPercentNotes?: string | null;
 }
 
 interface CostLine {
@@ -248,6 +255,65 @@ export default function JobCostingDashboard() {
     }
   }
 
+  // Per-cost-code progress editor state. ccProgressOpen is the row-key
+  // (costCodeNumber + costCodeName) of the currently-open editor, or null.
+  // ccProgressInput / ccProgressNotes hold the in-progress values; saving
+  // persists to the API and refetches the detail so AI + cards re-render.
+  const [ccProgressOpen, setCcProgressOpen] = useState<string | null>(null);
+  const [ccProgressInput, setCcProgressInput] = useState('');
+  const [ccProgressNotes, setCcProgressNotes] = useState('');
+  const [ccProgressSaving, setCcProgressSaving] = useState(false);
+
+  async function saveCostCodeProgress(cc: CostCodeRow, pct: number, notes: string | null) {
+    if (!detail) return;
+    if (!Number.isFinite(pct) || pct < 0 || pct > 100) {
+      alert('Enter a number between 0 and 100.');
+      return;
+    }
+    setCcProgressSaving(true);
+    try {
+      const res = await fetch('/api/dashboard/job-costing/cost-code-progress', {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          jobId: detail.job.id,
+          costCodeNumber: cc.costCodeNumber,
+          costCodeName: cc.costCodeName,
+          percentComplete: pct,
+          notes: notes || null,
+        }),
+      });
+      if (!res.ok) {
+        const j = await res.json().catch(() => ({}));
+        alert(`Save failed: ${j.error || res.status}`);
+        return;
+      }
+      setCcProgressOpen(null);
+      await loadDetail(detail.job.id);
+    } finally {
+      setCcProgressSaving(false);
+    }
+  }
+
+  async function clearCostCodeProgress(cc: CostCodeRow) {
+    if (!detail) return;
+    if (!confirm(`Clear the % complete override for ${cc.costCodeNumber} ${cc.costCodeName}?`)) return;
+    setCcProgressSaving(true);
+    try {
+      const params = new URLSearchParams({ jobId: detail.job.id, costCodeNumber: cc.costCodeNumber });
+      const res = await fetch(`/api/dashboard/job-costing/cost-code-progress?${params}`, { method: 'DELETE' });
+      if (!res.ok) {
+        const j = await res.json().catch(() => ({}));
+        alert(`Clear failed: ${j.error || res.status}`);
+        return;
+      }
+      setCcProgressOpen(null);
+      await loadDetail(detail.job.id);
+    } finally {
+      setCcProgressSaving(false);
+    }
+  }
+
   async function clearManualProgress() {
     if (!detail) return;
     if (!confirm('Clear the manual % complete override? The dashboard and AI analysis will go back to using the schedule-derived value.')) return;
@@ -340,6 +406,9 @@ export default function JobCostingDashboard() {
     setProgressEditOpen(false);
     setProgressInput('');
     setProgressNotes('');
+    setCcProgressOpen(null);
+    setCcProgressInput('');
+    setCcProgressNotes('');
     try {
       const res = await fetch('/api/dashboard/job-costing/detail', {
         method: 'POST',
@@ -949,6 +1018,43 @@ export default function JobCostingDashboard() {
                             {cc.costCodeNumber}
                           </span>
                           <span className="truncate" style={{ color: '#1a1a1a' }}>{cc.costCodeName}</span>
+                          {/* Per-cost-code % complete pill. Click to open
+                              the editor (stopPropagation so the row's
+                              expand/collapse doesn't toggle at the same
+                              time). Green-checkmark style when 100%, gold
+                              when partial, gray when unset. */}
+                          <span
+                            role="button"
+                            tabIndex={0}
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              const open = ccProgressOpen === key ? null : key;
+                              setCcProgressOpen(open);
+                              if (open) {
+                                setCcProgressInput(cc.manualPercentComplete != null ? String(cc.manualPercentComplete) : '');
+                                setCcProgressNotes(cc.manualPercentNotes || '');
+                              }
+                            }}
+                            className="shrink-0 text-[10px] px-1.5 py-0.5 rounded cursor-pointer hover:opacity-80"
+                            style={
+                              cc.manualPercentComplete === 100
+                                ? { background: 'rgba(34,197,94,0.12)', color: '#15803d', border: '1px solid rgba(34,197,94,0.30)', fontWeight: 600 }
+                                : cc.manualPercentComplete != null
+                                  ? { background: 'rgba(245,158,11,0.10)', color: '#a06f00', border: '1px solid rgba(245,158,11,0.30)', fontWeight: 600 }
+                                  : { background: '#f0ece6', color: '#8a8078', border: '1px solid #e8e5e0' }
+                            }
+                            title={
+                              cc.manualPercentComplete != null
+                                ? `${cc.manualPercentComplete}% complete${cc.manualPercentNotes ? ' — ' + cc.manualPercentNotes : ''}`
+                                : 'Set % complete for this category'
+                            }
+                          >
+                            {cc.manualPercentComplete === 100
+                              ? '✓ Done'
+                              : cc.manualPercentComplete != null
+                                ? `${cc.manualPercentComplete}% done`
+                                : 'Set %'}
+                          </span>
                         </div>
                         <div className="text-right" style={{ color: '#8a8078' }}>
                           ${fmt(cc.estimatedCost)}
@@ -1012,6 +1118,123 @@ export default function JobCostingDashboard() {
                           </span>
                         </div>
                       </button>
+
+                      {/* Per-cost-code % complete editor. Opens inline when
+                          the pill on the row is clicked; quick buttons set
+                          common values without typing. Save persists to the
+                          API and refetches the detail so the AI re-runs. */}
+                      {ccProgressOpen === key && (
+                        <div
+                          onClick={(e) => e.stopPropagation()}
+                          className="mx-4 mb-3 mt-1 rounded-lg p-3"
+                          style={{
+                            background: 'rgba(79,70,229,0.04)',
+                            border: '1px solid rgba(79,70,229,0.20)',
+                          }}
+                        >
+                          <div className="flex items-center gap-2 mb-2 flex-wrap">
+                            <span className="text-xs font-semibold" style={{ color: '#3730a3' }}>
+                              {cc.costCodeNumber} {cc.costCodeName} · % complete
+                            </span>
+                            {cc.manualPercentSetAt && (
+                              <span className="text-[10px]" style={{ color: '#8a8078' }}>
+                                last set {new Date(cc.manualPercentSetAt).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}
+                              </span>
+                            )}
+                            <button
+                              type="button"
+                              onClick={() => setCcProgressOpen(null)}
+                              className="ml-auto text-[10px] underline-offset-2 hover:underline"
+                              style={{ color: '#8a8078' }}
+                            >
+                              Close
+                            </button>
+                          </div>
+
+                          {/* Quick buttons */}
+                          <div className="flex flex-wrap items-center gap-1.5 mb-2">
+                            {[0, 25, 50, 75, 100].map((p) => (
+                              <button
+                                key={p}
+                                type="button"
+                                disabled={ccProgressSaving}
+                                onClick={() => saveCostCodeProgress(cc, p, ccProgressNotes || null)}
+                                className="text-xs px-2 py-1 rounded font-medium"
+                                style={{
+                                  background: p === 100
+                                    ? 'rgba(34,197,94,0.12)'
+                                    : 'rgba(79,70,229,0.08)',
+                                  color: p === 100 ? '#15803d' : '#3730a3',
+                                  border: `1px solid ${p === 100 ? 'rgba(34,197,94,0.30)' : 'rgba(79,70,229,0.30)'}`,
+                                  opacity: ccProgressSaving ? 0.5 : 1,
+                                }}
+                              >
+                                {p === 100 ? '✓ Mark 100% complete' : `${p}%`}
+                              </button>
+                            ))}
+                          </div>
+
+                          {/* Custom input + notes */}
+                          <div className="flex flex-wrap items-center gap-2">
+                            <label className="flex items-center gap-1.5 text-xs" style={{ color: '#1a1a1a' }}>
+                              <span>Custom %:</span>
+                              <input
+                                type="number"
+                                min={0}
+                                max={100}
+                                step={5}
+                                value={ccProgressInput}
+                                onChange={(e) => setCcProgressInput(e.target.value)}
+                                disabled={ccProgressSaving}
+                                className="rounded-md px-2 py-1 text-xs w-20"
+                                style={{ background: '#ffffff', border: '1px solid rgba(200,140,0,0.20)', color: '#1a1a1a' }}
+                              />
+                            </label>
+                            <label className="flex items-center gap-1.5 text-xs flex-1 min-w-[200px]" style={{ color: '#1a1a1a' }}>
+                              <span className="shrink-0">Note:</span>
+                              <input
+                                type="text"
+                                value={ccProgressNotes}
+                                onChange={(e) => setCcProgressNotes(e.target.value)}
+                                disabled={ccProgressSaving}
+                                placeholder="optional"
+                                className="rounded-md px-2 py-1 text-xs flex-1"
+                                style={{ background: '#ffffff', border: '1px solid rgba(200,140,0,0.20)', color: '#1a1a1a' }}
+                              />
+                            </label>
+                            <button
+                              type="button"
+                              onClick={() => saveCostCodeProgress(cc, Number(ccProgressInput), ccProgressNotes || null)}
+                              disabled={ccProgressSaving || ccProgressInput === ''}
+                              className="rounded-md px-2.5 py-1 text-xs font-medium flex items-center gap-1"
+                              style={{
+                                background: ccProgressSaving || ccProgressInput === '' ? 'rgba(79,70,229,0.30)' : '#4f46e5',
+                                color: '#ffffff',
+                                cursor: ccProgressSaving || ccProgressInput === '' ? 'not-allowed' : 'pointer',
+                              }}
+                            >
+                              {ccProgressSaving ? <Loader2 size={11} className="animate-spin" /> : <CheckCircle size={11} />}
+                              Save custom
+                            </button>
+                            {cc.manualPercentComplete != null && (
+                              <button
+                                type="button"
+                                onClick={() => clearCostCodeProgress(cc)}
+                                disabled={ccProgressSaving}
+                                className="rounded-md px-2.5 py-1 text-xs"
+                                style={{
+                                  background: '#ffffff',
+                                  border: '1px solid rgba(239,68,68,0.30)',
+                                  color: '#b91c1c',
+                                  cursor: ccProgressSaving ? 'not-allowed' : 'pointer',
+                                }}
+                              >
+                                Clear
+                              </button>
+                            )}
+                          </div>
+                        </div>
+                      )}
 
                       {/* Expanded drawer: budget line items + actual + pending breakdowns */}
                       {isExpanded && (

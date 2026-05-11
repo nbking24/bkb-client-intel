@@ -418,6 +418,13 @@ export async function POST(req: Request) {
           topItems: budget.items.sort((a, b) => b.cost - a.cost),
           actualLines: sortLines(actualBucket.lines),
           pendingLines: sortLines(pendingBucket.lines),
+          // Per-cost-code manual % override (null when not set). The UI
+          // surfaces a "Mark complete" / "% done" pill on the row, and the
+          // AI prompt includes it in the per-category context.
+          manualPercentComplete: ccProgressMap.get(budget.costCodeNumber)?.percentComplete ?? null,
+          manualPercentSetAt: ccProgressMap.get(budget.costCodeNumber)?.setAt ?? null,
+          manualPercentSetBy: ccProgressMap.get(budget.costCodeNumber)?.setBy ?? null,
+          manualPercentNotes: ccProgressMap.get(budget.costCodeNumber)?.notes ?? null,
         };
       })
       .sort((a, b) => a.costCodeNumber.localeCompare(b.costCodeNumber));
@@ -506,6 +513,30 @@ export async function POST(req: Request) {
     }
     const effectiveProgress = manualProgress != null ? manualProgress : scheduleProgress;
     const progressSource: 'manual' | 'schedule' = manualProgress != null ? 'manual' : 'schedule';
+
+    // Per-cost-code manual % overrides. Map keyed by costCodeNumber so the
+    // breakdown loop below can annotate each row in O(1). Each entry carries
+    // the percent + a denormalized name + set_at for display.
+    type CcProgress = { percentComplete: number; setBy: string | null; setAt: string | null; notes: string | null };
+    const ccProgressMap = new Map<string, CcProgress>();
+    try {
+      const { getSupabase } = await import('../../../lib/supabase');
+      const supabase = getSupabase();
+      const { data: ccRows } = await supabase
+        .from('job_cost_code_progress')
+        .select('cost_code_number, percent_complete, set_by, set_at, notes')
+        .eq('job_id', jobId);
+      for (const r of (ccRows || [])) {
+        ccProgressMap.set(r.cost_code_number, {
+          percentComplete: r.percent_complete,
+          setBy: r.set_by || null,
+          setAt: r.set_at || null,
+          notes: r.notes || null,
+        });
+      }
+    } catch (e: any) {
+      console.warn('[job-costing/detail] cost-code progress lookup failed:', e?.message || e);
+    }
 
     // ============================================================
     // 7. Financial summary — cost-plus aware, completion-aware
@@ -602,6 +633,27 @@ export async function POST(req: Request) {
         .map((c) => `${c.costCodeName}: $${c.estimatedCost.toLocaleString()} budgeted, $0 actual`)
         .join('\n');
 
+      // Per-cost-code % complete Nathan has set. Group into "complete" (=100%)
+      // and "in progress" (<100%) blocks so the AI can reason about which
+      // categories are final vs trending. Categories with no manual % are
+      // omitted from this section — the AI falls back to the cost-vs-budget
+      // signal alone for those.
+      const cccComplete = costCodeBreakdown
+        .filter((c) => c.manualPercentComplete === 100)
+        .map((c) => `${c.costCodeName}: 100% complete, $${c.actualCost.toLocaleString()} actual vs $${c.estimatedCost.toLocaleString()} budgeted${c.actualCost - c.estimatedCost !== 0 ? ` (variance $${(c.actualCost - c.estimatedCost).toLocaleString()})` : ''}`)
+        .join('\n');
+      const cccInProgress = costCodeBreakdown
+        .filter((c) => c.manualPercentComplete != null && c.manualPercentComplete < 100)
+        .map((c) => {
+          const pct = c.manualPercentComplete!;
+          const forecast = pct > 0 ? Math.round(c.actualCost / (pct / 100)) : 0;
+          const forecastNote = pct > 0
+            ? ` — at this rate forecast final $${forecast.toLocaleString()} (vs $${c.estimatedCost.toLocaleString()} budget)`
+            : '';
+          return `${c.costCodeName}: ${pct}% complete, $${c.actualCost.toLocaleString()} actual on $${c.estimatedCost.toLocaleString()} budget${forecastNote}`;
+        })
+        .join('\n');
+
       const totalActualHrs = totalWorkHours + totalTravelHours + totalBreakHours;
 
       const costPlusNote = isCostPlus
@@ -641,6 +693,10 @@ PROGRESS: ${effectiveProgress}% complete${progressSource === 'manual'
 ${overBudgetCodes ? `COST CODES OVER/NEAR BUDGET:\n${overBudgetCodes}` : 'All cost codes within budget.'}
 
 ${zeroCodes ? `UPCOMING COSTS (budgeted but no spend yet):\n${zeroCodes}` : ''}
+
+${cccComplete ? `CATEGORIES MARKED COMPLETE (final numbers — variance is FINAL, not a forecast):\n${cccComplete}` : ''}
+
+${cccInProgress ? `CATEGORIES WITH PARTIAL PROGRESS SET (use the forecast to project final spend; flag any where forecast exceeds budget):\n${cccInProgress}` : ''}
 
 Provide:
 ${isCompleted ? `1. A 2-3 sentence final assessment of the job's profitability and performance
