@@ -463,6 +463,53 @@ export default function LeadsPage() {
   // Lead detail modal state
   const [detailModal, setDetailModal] = useState<{ contactId: string; opportunityId?: string; jobId?: string; contactName?: string } | null>(null);
 
+  // Inline cancel state for the per-row "Next event" indicator. Tracks
+  // which event id is in confirm mode and which is currently in-flight.
+  // Successful cancel clears the row's nextCalendarEvent locally so the
+  // UI updates without a full kpi refetch. Edit always opens the lead
+  // detail modal (the edit form lives there) — no separate state needed.
+  const [cancelConfirmEvId, setCancelConfirmEvId] = useState<string | null>(null);
+  const [cancelBusyEvId, setCancelBusyEvId] = useState<string | null>(null);
+  const [cancelToast, setCancelToast] = useState<{ kind: 'success' | 'error'; text: string } | null>(null);
+
+  async function cancelInlineMeeting(eventId: string, opportunityId: string) {
+    setCancelBusyEvId(eventId);
+    setCancelToast(null);
+    try {
+      const res = await fetch('/api/dashboard/schedule-meeting', {
+        method: 'DELETE',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${getToken()}` },
+        body: JSON.stringify({ ghlEventId: eventId }),
+      });
+      if (!res.ok) {
+        const t = await res.text();
+        throw new Error(t || 'Failed to cancel meeting');
+      }
+      const d = await res.json();
+      const count = (d?.cancelledEventIds || []).length || 1;
+      const jtBit = d?.jtTaskCancelled ? ' + JobTread task' : '';
+      setCancelToast({
+        kind: 'success',
+        text: `Cancelled ${count} calendar event${count === 1 ? '' : 's'}${jtBit}.`,
+      });
+      setCancelConfirmEvId(null);
+      // Clear the local nextCalendarEvent for the matching estimating job
+      // row so the UI immediately reflects the cancellation. Then refetch
+      // KPIs in the background to re-pull whatever's next (if anything).
+      setEstimatingJobs(prev => prev.map(j =>
+        j.ghlOpportunityId === opportunityId ? { ...j, nextCalendarEvent: null } : j
+      ));
+      loadEstimatingData();
+      loadKpis();
+      // Auto-clear the toast after a few seconds.
+      setTimeout(() => setCancelToast(null), 5000);
+    } catch (err: any) {
+      setCancelToast({ kind: 'error', text: err.message || 'Failed to cancel meeting' });
+    } finally {
+      setCancelBusyEvId(null);
+    }
+  }
+
   // Lead action panel state
   const [actionPanelExpanded, setActionPanelExpanded] = useState(false);
   const [actionPanelLead, setActionPanelLead] = useState<PendingLead | null>(null);
@@ -1779,6 +1826,26 @@ export default function LeadsPage() {
 
         {estimatingExpanded && (
           <div>
+            {/* Toast surfaced from inline meeting cancel. Auto-dismisses
+                after 5s; user can also click it to dismiss now. */}
+            {cancelToast && (
+              <div className="px-5 pt-3">
+                <button
+                  type="button"
+                  onClick={() => setCancelToast(null)}
+                  className="w-full text-left text-xs flex items-center gap-1.5 px-3 py-2 rounded-md"
+                  style={{
+                    background: cancelToast.kind === 'success' ? 'rgba(34,197,94,0.10)' : 'rgba(239,68,68,0.10)',
+                    color: cancelToast.kind === 'success' ? '#16a34a' : '#b91c1c',
+                    border: `1px solid ${cancelToast.kind === 'success' ? 'rgba(34,197,94,0.25)' : 'rgba(239,68,68,0.25)'}`,
+                  }}
+                >
+                  {cancelToast.kind === 'success' ? <CheckCircle2 size={11} /> : <AlertCircle size={11} />}
+                  <span className="flex-1">{cancelToast.text}</span>
+                  <span style={{ opacity: 0.7 }}>dismiss</span>
+                </button>
+              </div>
+            )}
             {estimatingLoading ? (
               <div className="flex items-center justify-center gap-2 py-8" style={{ color: '#8a8078' }}>
                 <Loader2 size={14} className="animate-spin" /> Loading estimating jobs...
@@ -1968,10 +2035,17 @@ export default function LeadsPage() {
                           const calDate = nextCal?.startTime ? new Date(nextCal.startTime).getTime() : Infinity;
 
                           if (nextCal && calDate <= taskDate) {
-                            // Show calendar event
+                            // Show calendar event + inline Edit/Cancel
+                            // controls. Edit opens the lead detail modal
+                            // (the inline edit form lives there). Cancel
+                            // is a two-click confirm that fires the
+                            // group-aware DELETE — wipes every sibling
+                            // event + the JT task.
                             const evDate = new Date(nextCal.startTime);
                             const timeStr = evDate.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' });
                             const dateStr = evDate.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+                            const confirming = cancelConfirmEvId === nextCal.id;
+                            const cancelBusy = cancelBusyEvId === nextCal.id;
                             return (
                               <>
                                 <span style={{ color: 'rgba(200,140,0,0.2)' }}>|</span>
@@ -1982,6 +2056,58 @@ export default function LeadsPage() {
                                     · {dateStr} {timeStr}
                                   </span>
                                 </span>
+                                {/* Edit → opens detail modal scrolled to
+                                    Upcoming Appointments. Cancel → click
+                                    once for confirm, click again to fire
+                                    the group-aware DELETE. */}
+                                {job.ghlContactId && (
+                                  <button
+                                    type="button"
+                                    onClick={(e) => {
+                                      e.stopPropagation();
+                                      setDetailModal({
+                                        contactId: job.ghlContactId!,
+                                        opportunityId: job.ghlOpportunityId,
+                                        jobId: job.jtJobId || undefined,
+                                        contactName: job.contactName || job.ghlName,
+                                      });
+                                    }}
+                                    className="text-[10px] px-1.5 py-0.5 rounded hover:opacity-80"
+                                    style={{ color: '#3730a3', border: '1px solid rgba(79,70,229,0.20)' }}
+                                    title="Edit this meeting (opens detail panel)"
+                                  >
+                                    Edit
+                                  </button>
+                                )}
+                                <button
+                                  type="button"
+                                  onClick={(e) => {
+                                    e.stopPropagation();
+                                    if (confirming) {
+                                      cancelInlineMeeting(nextCal.id, job.ghlOpportunityId);
+                                    } else {
+                                      setCancelConfirmEvId(nextCal.id);
+                                    }
+                                  }}
+                                  disabled={cancelBusy}
+                                  className="text-[10px] px-1.5 py-0.5 rounded hover:opacity-80 flex items-center gap-0.5"
+                                  style={{ color: '#b91c1c', border: '1px solid rgba(239,68,68,0.25)' }}
+                                  title={confirming ? 'Click again to confirm — cancels every attendee + JT task' : 'Cancel this meeting (all attendees + JT task)'}
+                                >
+                                  {cancelBusy
+                                    ? <Loader2 size={9} className="animate-spin" />
+                                    : confirming ? 'Confirm?' : 'Cancel'}
+                                </button>
+                                {confirming && !cancelBusy && (
+                                  <button
+                                    type="button"
+                                    onClick={(e) => { e.stopPropagation(); setCancelConfirmEvId(null); }}
+                                    className="text-[10px] px-1.5 py-0.5 rounded hover:opacity-80"
+                                    style={{ color: '#6a6058' }}
+                                  >
+                                    Keep
+                                  </button>
+                                )}
                               </>
                             );
                           } else if (nextTask) {
