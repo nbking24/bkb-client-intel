@@ -746,46 +746,87 @@ export default function JobCostingDashboard() {
               </div>
             )}
 
-            {/* Financial Summary Cards - Row 1: Budget overview */}
+            {/* Financial Summary Cards - Row 1
+                Layout swaps based on price type. Fixed-price jobs track
+                budget vs contract; cost-plus jobs don't have a budget, so
+                we show how spend, invoicing, collections, and profit are
+                tracking against each other instead. */}
             <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
-              {[
-                {
-                  label: 'Contract Price',
-                  value: '$' + fmt(detail.financialSummary.contractPrice || detail.financialSummary.estimatedPrice),
-                  sub: detail.financialSummary.isCostPlus
-                    ? 'Cost-Plus'
-                    : `$${fmt(detail.financialSummary.estimatedCost)} internal cost budget`,
-                  color: '#c88c00',
-                },
-                {
-                  label: 'Total Costs',
-                  value: '$' + fmt(detail.financialSummary.totalCosts || detail.financialSummary.committedCost),
-                  sub: detail.financialSummary.pendingCost > 0
-                    ? `$${fmt(detail.financialSummary.actualCost)} paid · $${fmt(detail.financialSummary.pendingCost)} pending`
-                    : `$${fmt(detail.financialSummary.actualCost)} paid`,
-                  color: (detail.financialSummary.totalCosts || detail.financialSummary.committedCost) > detail.financialSummary.estimatedCost && detail.financialSummary.estimatedCost > 0
-                    ? '#ef4444' : '#1a1a1a',
-                },
-                {
-                  label: detail.job.isCompleted ? 'Final Margin' : 'Margin',
-                  value: '$' + fmt(detail.financialSummary.margin ?? detail.financialSummary.projectedMargin),
-                  sub: (detail.financialSummary.marginPct ?? detail.financialSummary.projectedMarginPct) !== undefined
-                    ? `${(detail.financialSummary.marginPct ?? detail.financialSummary.projectedMarginPct).toFixed(1)}% of contract`
-                    : '',
-                  color: (detail.financialSummary.margin ?? detail.financialSummary.projectedMargin) >= 0 ? '#22c55e' : '#ef4444',
-                },
-                {
-                  label: 'Invoiced',
-                  value: '$' + fmt(detail.financialSummary.invoicedTotal),
-                  sub: detail.financialSummary.contractValue > 0
-                    ? `${Math.round((detail.financialSummary.invoicedTotal / detail.financialSummary.contractValue) * 100)}% of contract`
-                    + (detail.financialSummary.draftInvoiceTotal > 0
-                      ? ` · $${fmt(detail.financialSummary.draftInvoiceTotal)} in draft`
-                      : '')
-                    : 'No contract',
-                  color: '#c88c00',
-                },
-              ].map((card: any, i) => {
+              {(detail.financialSummary.isCostPlus
+                ? [
+                    {
+                      label: 'Total Costs',
+                      value: '$' + fmt(detail.financialSummary.totalCosts || detail.financialSummary.committedCost),
+                      sub: detail.financialSummary.pendingCost > 0
+                        ? `$${fmt(detail.financialSummary.actualCost)} paid · $${fmt(detail.financialSummary.pendingCost)} pending`
+                        : `$${fmt(detail.financialSummary.actualCost)} paid`,
+                      color: '#1a1a1a',
+                    },
+                    {
+                      label: 'Invoiced',
+                      value: '$' + fmt(detail.financialSummary.invoicedTotal),
+                      sub: (() => {
+                        const tc = detail.financialSummary.totalCosts || detail.financialSummary.committedCost || 0;
+                        if (tc <= 0) return 'No costs yet';
+                        return `${Math.round((detail.financialSummary.invoicedTotal / tc) * 100)}% of costs billed`
+                          + (detail.financialSummary.draftInvoiceTotal > 0
+                            ? ` · $${fmt(detail.financialSummary.draftInvoiceTotal)} in draft`
+                            : '');
+                      })(),
+                      color: '#c88c00',
+                    },
+                    {
+                      label: 'Collected',
+                      value: '$' + fmt(detail.financialSummary.collectedAmount),
+                      sub: detail.financialSummary.invoicedTotal > 0
+                        ? `${Math.round((detail.financialSummary.collectedAmount / detail.financialSummary.invoicedTotal) * 100)}% of invoiced`
+                        : 'Nothing invoiced',
+                      color: '#c88c00',
+                    },
+                    {
+                      label: detail.job.isCompleted ? 'Final Profit' : 'Profit',
+                      value: '$' + fmt(detail.financialSummary.margin ?? detail.financialSummary.projectedMargin),
+                      sub: `${(detail.financialSummary.marginPct ?? detail.financialSummary.projectedMarginPct ?? 0).toFixed(1)}% of collected`,
+                      color: (detail.financialSummary.margin ?? detail.financialSummary.projectedMargin) >= 0 ? '#22c55e' : '#ef4444',
+                    },
+                  ]
+                : [
+                    {
+                      label: 'Contract Price',
+                      value: '$' + fmt(detail.financialSummary.contractPrice || detail.financialSummary.estimatedPrice),
+                      sub: `$${fmt(detail.financialSummary.estimatedCost)} internal cost budget`,
+                      color: '#c88c00',
+                    },
+                    {
+                      label: 'Total Costs',
+                      value: '$' + fmt(detail.financialSummary.totalCosts || detail.financialSummary.committedCost),
+                      sub: detail.financialSummary.pendingCost > 0
+                        ? `$${fmt(detail.financialSummary.actualCost)} paid · $${fmt(detail.financialSummary.pendingCost)} pending`
+                        : `$${fmt(detail.financialSummary.actualCost)} paid`,
+                      color: (detail.financialSummary.totalCosts || detail.financialSummary.committedCost) > detail.financialSummary.estimatedCost && detail.financialSummary.estimatedCost > 0
+                        ? '#ef4444' : '#1a1a1a',
+                    },
+                    {
+                      label: detail.job.isCompleted ? 'Final Margin' : 'Margin',
+                      value: '$' + fmt(detail.financialSummary.margin ?? detail.financialSummary.projectedMargin),
+                      sub: (detail.financialSummary.marginPct ?? detail.financialSummary.projectedMarginPct) !== undefined
+                        ? `${(detail.financialSummary.marginPct ?? detail.financialSummary.projectedMarginPct).toFixed(1)}% of contract`
+                        : '',
+                      color: (detail.financialSummary.margin ?? detail.financialSummary.projectedMargin) >= 0 ? '#22c55e' : '#ef4444',
+                    },
+                    {
+                      label: 'Invoiced',
+                      value: '$' + fmt(detail.financialSummary.invoicedTotal),
+                      sub: detail.financialSummary.contractValue > 0
+                        ? `${Math.round((detail.financialSummary.invoicedTotal / detail.financialSummary.contractValue) * 100)}% of contract`
+                        + (detail.financialSummary.draftInvoiceTotal > 0
+                          ? ` · $${fmt(detail.financialSummary.draftInvoiceTotal)} in draft`
+                          : '')
+                        : 'No contract',
+                      color: '#c88c00',
+                    },
+                  ]
+              ).map((card: any, i) => {
                 // The Progress card is clickable — opens an inline editor to
                 // set/clear the manual override. All other cards stay static.
                 const isProgress = !!card.isProgress;
@@ -917,53 +958,111 @@ export default function JobCostingDashboard() {
               </div>
             )}
 
-            {/* Financial Summary Cards - Row 2: Revenue & margin */}
+            {/* Financial Summary Cards - Row 2
+                Fixed-price: collected, remaining to bill, cost budget, progress.
+                Cost-plus: cost-vs-billing cashflow gap, markup yield, paid
+                breakout, progress — these are the levers Brett actually
+                manages on a cost-plus job. */}
             <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
-              {[
-                {
-                  label: 'Collected',
-                  value: '$' + fmt(detail.financialSummary.collectedAmount),
-                  sub: detail.financialSummary.invoicedTotal > 0
-                    ? `${Math.round((detail.financialSummary.collectedAmount / detail.financialSummary.invoicedTotal) * 100)}% of invoiced`
-                    : 'Nothing invoiced',
-                  color: '#c88c00',
-                },
-                {
-                  label: 'Remaining to Bill',
-                  value: '$' + fmt(Math.max(0, detail.financialSummary.contractValue - detail.financialSummary.invoicedTotal)),
-                  sub: detail.financialSummary.contractValue > 0
-                    ? `${Math.round(((detail.financialSummary.contractValue - detail.financialSummary.invoicedTotal) / detail.financialSummary.contractValue) * 100)}% unbilled`
-                    : 'No contract',
-                  color: detail.financialSummary.contractValue - detail.financialSummary.invoicedTotal > 0 ? '#f59e0b' : '#22c55e',
-                },
-                {
-                  label: 'Internal Cost Budget',
-                  value: '$' + fmt(detail.financialSummary.estimatedCost),
-                  sub: detail.financialSummary.estimatedCost > 0
-                    ? `${Math.round(((detail.financialSummary.totalCosts || detail.financialSummary.committedCost) / detail.financialSummary.estimatedCost) * 100)}% of budget spent`
-                    : 'No budget set',
-                  color: '#8a8078',
-                },
-                (() => {
-                  // Progress card. Manual-only — schedule data is no longer
-                  // displayed or used as a fallback. Shows "Not set" until
-                  // Nathan saves a value; once set, the value persists across
-                  // page loads and stays put until he edits it.
-                  const eff = detail.financialSummary.effectiveProgress;
-                  const hasValue = typeof eff === 'number';
-                  return {
-                    label: 'Project % Complete',
-                    value: hasValue ? eff + '%' : 'Not set',
-                    sub: hasValue
-                      ? 'click to edit'
-                      : 'click to set',
-                    color: hasValue
-                      ? (eff >= 75 ? '#22c55e' : eff >= 25 ? '#c88c00' : '#8a8078')
-                      : '#8a8078',
-                    isProgress: true,
-                  } as any;
-                })(),
-              ].map((card: any, i) => {
+              {(detail.financialSummary.isCostPlus
+                ? [
+                    (() => {
+                      // Costs Awaiting Billing = total costs incurred but not
+                      // yet invoiced. On cost-plus this is the cashflow gap
+                      // — every dollar here is one we're floating the client.
+                      const tc = detail.financialSummary.totalCosts || detail.financialSummary.committedCost || 0;
+                      const gap = Math.max(0, tc - detail.financialSummary.invoicedTotal);
+                      return {
+                        label: 'Costs Awaiting Billing',
+                        value: '$' + fmt(gap),
+                        sub: tc > 0
+                          ? `${Math.round((gap / tc) * 100)}% of costs not yet invoiced`
+                          : 'No costs yet',
+                        color: gap > 0 ? '#f59e0b' : '#22c55e',
+                      };
+                    })(),
+                    (() => {
+                      // Markup Yield = profit / total costs. Effective markup
+                      // we're earning on top of costs. Compare to the markup
+                      // promised in the cost-plus agreement.
+                      const tc = detail.financialSummary.totalCosts || detail.financialSummary.committedCost || 0;
+                      const profit = detail.financialSummary.margin ?? detail.financialSummary.projectedMargin ?? 0;
+                      const yieldPct = tc > 0 ? (profit / tc) * 100 : 0;
+                      return {
+                        label: 'Markup Yield',
+                        value: tc > 0 ? `${yieldPct.toFixed(1)}%` : '—',
+                        sub: tc > 0 ? `profit ÷ costs` : 'No costs yet',
+                        color: yieldPct >= 0 ? '#22c55e' : '#ef4444',
+                      };
+                    })(),
+                    {
+                      label: 'Pending Costs',
+                      value: '$' + fmt(detail.financialSummary.pendingCost),
+                      sub: detail.financialSummary.pendingCost > 0
+                        ? 'draft / pending bills + POs'
+                        : 'No pending bills',
+                      color: detail.financialSummary.pendingCost > 0 ? '#f59e0b' : '#8a8078',
+                    },
+                    (() => {
+                      const eff = detail.financialSummary.effectiveProgress;
+                      const hasValue = typeof eff === 'number';
+                      return {
+                        label: 'Project % Complete',
+                        value: hasValue ? eff + '%' : 'Not set',
+                        sub: hasValue ? 'click to edit' : 'click to set',
+                        color: hasValue
+                          ? (eff >= 75 ? '#22c55e' : eff >= 25 ? '#c88c00' : '#8a8078')
+                          : '#8a8078',
+                        isProgress: true,
+                      } as any;
+                    })(),
+                  ]
+                : [
+                    {
+                      label: 'Collected',
+                      value: '$' + fmt(detail.financialSummary.collectedAmount),
+                      sub: detail.financialSummary.invoicedTotal > 0
+                        ? `${Math.round((detail.financialSummary.collectedAmount / detail.financialSummary.invoicedTotal) * 100)}% of invoiced`
+                        : 'Nothing invoiced',
+                      color: '#c88c00',
+                    },
+                    {
+                      label: 'Remaining to Bill',
+                      value: '$' + fmt(Math.max(0, detail.financialSummary.contractValue - detail.financialSummary.invoicedTotal)),
+                      sub: detail.financialSummary.contractValue > 0
+                        ? `${Math.round(((detail.financialSummary.contractValue - detail.financialSummary.invoicedTotal) / detail.financialSummary.contractValue) * 100)}% unbilled`
+                        : 'No contract',
+                      color: detail.financialSummary.contractValue - detail.financialSummary.invoicedTotal > 0 ? '#f59e0b' : '#22c55e',
+                    },
+                    {
+                      label: 'Internal Cost Budget',
+                      value: '$' + fmt(detail.financialSummary.estimatedCost),
+                      sub: detail.financialSummary.estimatedCost > 0
+                        ? `${Math.round(((detail.financialSummary.totalCosts || detail.financialSummary.committedCost) / detail.financialSummary.estimatedCost) * 100)}% of budget spent`
+                        : 'No budget set',
+                      color: '#8a8078',
+                    },
+                    (() => {
+                      // Progress card. Manual-only — schedule data is no longer
+                      // displayed or used as a fallback. Shows "Not set" until
+                      // Nathan saves a value; once set, the value persists across
+                      // page loads and stays put until he edits it.
+                      const eff = detail.financialSummary.effectiveProgress;
+                      const hasValue = typeof eff === 'number';
+                      return {
+                        label: 'Project % Complete',
+                        value: hasValue ? eff + '%' : 'Not set',
+                        sub: hasValue
+                          ? 'click to edit'
+                          : 'click to set',
+                        color: hasValue
+                          ? (eff >= 75 ? '#22c55e' : eff >= 25 ? '#c88c00' : '#8a8078')
+                          : '#8a8078',
+                        isProgress: true,
+                      } as any;
+                    })(),
+                  ]
+              ).map((card: any, i) => {
                 // The Progress card in this row is clickable — opens the
                 // inline editor below the cards. Other cards are static.
                 const isProgress = !!card.isProgress;
@@ -1005,36 +1104,59 @@ export default function JobCostingDashboard() {
                   Cost Breakdown by Category
                 </h2>
                 <p className="text-xs mt-1" style={{ color: '#8a8078' }}>
-                  Budget from approved proposals · Actual from approved bills/POs · Pending from draft/pending bills/POs
+                  {detail.financialSummary.isCostPlus
+                    ? 'Actual from approved bills/POs · Pending from draft/pending bills/POs'
+                    : 'Budget from approved proposals · Actual from approved bills/POs · Pending from draft/pending bills/POs'}
                 </p>
               </div>
 
-              {/* Table header */}
-              <div
-                className="grid gap-2 px-4 py-2 text-xs font-medium"
-                style={{
-                  color: '#8a8078',
-                  borderBottom: '1px solid rgba(200,140,0,0.06)',
-                  gridTemplateColumns: '2.5fr 1fr 1fr 1fr 1fr 80px',
-                }}
-              >
-                <div>Cost Code</div>
-                <div className="text-right">Budgeted</div>
-                <div className="text-right">Actual</div>
-                <div className="text-right">Pending</div>
-                <div className="text-right">Remaining</div>
-                <div className="text-right">Status</div>
-              </div>
+              {/* Table header. Cost-plus drops Budgeted + Remaining since
+                  there's no budget on cost-plus jobs. */}
+              {(() => {
+                const cp = detail.financialSummary.isCostPlus;
+                const gridCols = cp
+                  ? '2.5fr 1fr 1fr 1fr 80px'
+                  : '2.5fr 1fr 1fr 1fr 1fr 80px';
+                return (
+                  <div
+                    className="grid gap-2 px-4 py-2 text-xs font-medium"
+                    style={{
+                      color: '#8a8078',
+                      borderBottom: '1px solid rgba(200,140,0,0.06)',
+                      gridTemplateColumns: gridCols,
+                    }}
+                  >
+                    <div>Cost Code</div>
+                    {!cp && <div className="text-right">Budgeted</div>}
+                    <div className="text-right">Actual</div>
+                    <div className="text-right">Pending</div>
+                    <div className="text-right">{cp ? 'Total' : 'Remaining'}</div>
+                    <div className="text-right">{cp ? '% of spend' : 'Status'}</div>
+                  </div>
+                );
+              })()}
 
               {/* Rows */}
               {detail.costCodeBreakdown.length === 0 ? (
                 <div className="px-4 py-6 text-center text-xs" style={{ color: '#8a8078' }}>
-                  No cost code breakdown available. Budget totals are shown in summary cards above.
+                  {detail.financialSummary.isCostPlus
+                    ? 'No spend recorded yet on this job.'
+                    : 'No cost code breakdown available. Budget totals are shown in summary cards above.'}
                 </div>
               ) : (
                 detail.costCodeBreakdown.map((cc) => {
                   const key = cc.costCodeNumber + cc.costCodeName;
                   const isExpanded = expandedCodes.has(key);
+                  const cp = detail.financialSummary.isCostPlus;
+                  // On cost-plus, "% of spend" is this cost code's share of
+                  // the job's total spend — the biggest spend drivers float
+                  // to the top of the eye instead of "% of budget".
+                  const totalJobSpend = (detail.financialSummary.totalCosts || detail.financialSummary.committedCost || 0);
+                  const codeTotal = cc.committedCost; // actual + pending
+                  const shareOfSpend = totalJobSpend > 0 ? (codeTotal / totalJobSpend) * 100 : 0;
+                  const gridCols = cp
+                    ? '2.5fr 1fr 1fr 1fr 80px'
+                    : '2.5fr 1fr 1fr 1fr 1fr 80px';
                   return (
                     <div key={key}>
                       <button
@@ -1049,7 +1171,7 @@ export default function JobCostingDashboard() {
                         className="w-full grid gap-2 px-4 py-2.5 text-sm hover:bg-white/[0.02] transition-colors items-center"
                         style={{
                           borderBottom: '1px solid rgba(200,140,0,0.04)',
-                          gridTemplateColumns: '2.5fr 1fr 1fr 1fr 1fr 80px',
+                          gridTemplateColumns: gridCols,
                         }}
                       >
                         <div className="flex items-center gap-2 text-left min-w-0">
@@ -1066,67 +1188,92 @@ export default function JobCostingDashboard() {
                           </span>
                           <span className="truncate" style={{ color: '#1a1a1a' }}>{cc.costCodeName}</span>
                         </div>
-                        <div className="text-right" style={{ color: '#8a8078' }}>
-                          ${fmt(cc.estimatedCost)}
-                        </div>
+                        {!cp && (
+                          <div className="text-right" style={{ color: '#8a8078' }}>
+                            ${fmt(cc.estimatedCost)}
+                          </div>
+                        )}
                         <div className="text-right" style={{ color: '#1a1a1a' }}>
                           ${fmt(cc.actualCost)}
                         </div>
                         <div className="text-right" style={{ color: cc.pendingCost > 0 ? '#f59e0b' : '#555' }}>
                           {cc.pendingCost > 0 ? `$${fmt(cc.pendingCost)}` : '—'}
                         </div>
-                        {/* Remaining column: green dollars when under budget,
-                            red "−$X over" when committed exceeds budget. The
-                            server caps remaining at 0 via Math.max(), so we
-                            recompute the overage here from the raw fields. */}
-                        {(() => {
-                          const overAmount = cc.committedCost - cc.estimatedCost;
-                          const isOver = cc.estimatedCost > 0 && overAmount > 0;
-                          const hasAnyData = cc.estimatedCost > 0 || cc.committedCost > 0;
-                          return (
-                            <div className="text-right" style={{
-                              color: isOver
-                                ? '#ef4444'
-                                : cc.remaining > 0
-                                  ? '#22c55e'
-                                  : cc.remaining === 0 && cc.estimatedCost === 0
-                                    ? '#555'
-                                    : '#ef4444',
-                              fontWeight: isOver ? 600 : undefined,
-                            }}>
-                              {!hasAnyData
-                                ? '—'
-                                : isOver
-                                  ? `−$${fmt(overAmount)} over`
-                                  : `$${fmt(cc.remaining)}`}
-                            </div>
-                          );
-                        })()}
-                        <div className="text-right flex items-center justify-end gap-1.5">
-                          {/* Stacked progress bar: actual (solid) + pending (striped) */}
-                          <div className="w-12 h-1.5 rounded-full overflow-hidden relative" style={{ background: '#333' }}>
-                            <div
-                              className="h-full rounded-full absolute left-0 top-0"
-                              style={{
-                                width: `${Math.min(cc.pctUsed, 100)}%`,
-                                background: statusColor(cc.status),
-                              }}
-                            />
-                            {cc.pendingCost > 0 && cc.estimatedCost > 0 && (
+                        {cp ? (
+                          // Cost-plus: show total spend per code instead of
+                          // "Remaining" — there's no budget to remain against.
+                          <div className="text-right" style={{ color: codeTotal > 0 ? '#1a1a1a' : '#555', fontWeight: 600 }}>
+                            {codeTotal > 0 ? `$${fmt(codeTotal)}` : '—'}
+                          </div>
+                        ) : (
+                          // Fixed-price: Remaining column with over-budget surfacing.
+                          (() => {
+                            const overAmount = cc.committedCost - cc.estimatedCost;
+                            const isOver = cc.estimatedCost > 0 && overAmount > 0;
+                            const hasAnyData = cc.estimatedCost > 0 || cc.committedCost > 0;
+                            return (
+                              <div className="text-right" style={{
+                                color: isOver
+                                  ? '#ef4444'
+                                  : cc.remaining > 0
+                                    ? '#22c55e'
+                                    : cc.remaining === 0 && cc.estimatedCost === 0
+                                      ? '#555'
+                                      : '#ef4444',
+                                fontWeight: isOver ? 600 : undefined,
+                              }}>
+                                {!hasAnyData
+                                  ? '—'
+                                  : isOver
+                                    ? `−$${fmt(overAmount)} over`
+                                    : `$${fmt(cc.remaining)}`}
+                              </div>
+                            );
+                          })()
+                        )}
+                        {cp ? (
+                          // Cost-plus status column = share of total job spend.
+                          <div className="text-right flex items-center justify-end gap-1.5">
+                            <div className="w-12 h-1.5 rounded-full overflow-hidden relative" style={{ background: '#333' }}>
                               <div
-                                className="h-full absolute top-0"
+                                className="h-full rounded-full absolute left-0 top-0"
                                 style={{
-                                  left: `${Math.min(cc.pctUsed, 100)}%`,
-                                  width: `${Math.min((cc.pendingCost / cc.estimatedCost) * 100, 100 - Math.min(cc.pctUsed, 100))}%`,
-                                  background: 'rgba(245,158,11,0.5)',
+                                  width: `${Math.min(shareOfSpend, 100)}%`,
+                                  background: '#c88c00',
                                 }}
                               />
-                            )}
+                            </div>
+                            <span className="text-xs w-8 text-right" style={{ color: '#8a8078' }}>
+                              {Math.round(shareOfSpend)}%
+                            </span>
                           </div>
-                          <span className="text-xs w-8 text-right" style={{ color: statusColor(cc.status) }}>
-                            {cc.pctUsed}%
-                          </span>
-                        </div>
+                        ) : (
+                          <div className="text-right flex items-center justify-end gap-1.5">
+                            {/* Stacked progress bar: actual (solid) + pending (striped) */}
+                            <div className="w-12 h-1.5 rounded-full overflow-hidden relative" style={{ background: '#333' }}>
+                              <div
+                                className="h-full rounded-full absolute left-0 top-0"
+                                style={{
+                                  width: `${Math.min(cc.pctUsed, 100)}%`,
+                                  background: statusColor(cc.status),
+                                }}
+                              />
+                              {cc.pendingCost > 0 && cc.estimatedCost > 0 && (
+                                <div
+                                  className="h-full absolute top-0"
+                                  style={{
+                                    left: `${Math.min(cc.pctUsed, 100)}%`,
+                                    width: `${Math.min((cc.pendingCost / cc.estimatedCost) * 100, 100 - Math.min(cc.pctUsed, 100))}%`,
+                                    background: 'rgba(245,158,11,0.5)',
+                                  }}
+                                />
+                              )}
+                            </div>
+                            <span className="text-xs w-8 text-right" style={{ color: statusColor(cc.status) }}>
+                              {cc.pctUsed}%
+                            </span>
+                          </div>
+                        )}
                       </button>
 
                       {/* Expanded drawer: budget line items + actual + pending breakdowns */}
@@ -1231,8 +1378,10 @@ export default function JobCostingDashboard() {
                           {/* Budget line items — original estimate breakdown.
                               Renders the top 5 by default; the "Show all"
                               link toggles the rest into view (state lives in
-                              showAllItems, keyed on the row's cost code key). */}
-                          {cc.topItems.length > 0 && (() => {
+                              showAllItems, keyed on the row's cost code key).
+                              Hidden on cost-plus jobs since there's no budget
+                              to compare actuals against. */}
+                          {!cp && cc.topItems.length > 0 && (() => {
                             const showAll = showAllItems.has(key);
                             const items = showAll ? cc.topItems : cc.topItems.slice(0, 5);
                             const hidden = cc.topItems.length - items.length;
@@ -1292,51 +1441,69 @@ export default function JobCostingDashboard() {
                 })
               )}
 
-              {/* Totals row */}
-              {detail.costCodeBreakdown.length > 0 && (
-                <div
-                  className="grid gap-2 px-4 py-3 text-sm font-bold"
-                  style={{
-                    borderTop: '1px solid rgba(200,140,0,0.15)',
-                    background: 'rgba(201,168,76,0.04)',
-                    gridTemplateColumns: '2.5fr 1fr 1fr 1fr 1fr 80px',
-                  }}
-                >
-                  <div style={{ color: '#c88c00' }}>TOTAL</div>
-                  <div className="text-right" style={{ color: '#8a8078' }}>
-                    ${fmt(detail.financialSummary.estimatedCost)}
-                  </div>
-                  <div className="text-right" style={{ color: '#1a1a1a' }}>
-                    ${fmt(detail.financialSummary.actualCost)}
-                  </div>
-                  <div className="text-right" style={{ color: detail.financialSummary.pendingCost > 0 ? '#f59e0b' : '#555' }}>
-                    {detail.financialSummary.pendingCost > 0 ? `$${fmt(detail.financialSummary.pendingCost)}` : '—'}
-                  </div>
-                  {/* Totals "Remaining" cell — same over-budget surfacing as
-                      the per-row column. estimatedCost / committedCost are
-                      raw (not capped), so we recompute the overage here. */}
-                  {(() => {
-                    const totBudget = detail.financialSummary.estimatedCost || 0;
-                    const totCommitted = (detail.financialSummary.actualCost || 0) + (detail.financialSummary.pendingCost || 0);
-                    const totOver = totCommitted - totBudget;
-                    const totIsOver = totBudget > 0 && totOver > 0;
-                    return (
-                      <div className="text-right" style={{
-                        color: totIsOver ? '#ef4444' : detail.financialSummary.remainingBudget > 0 ? '#22c55e' : '#ef4444',
-                      }}>
-                        {totIsOver
-                          ? `−$${fmt(totOver)} over`
-                          : `$${fmt(detail.financialSummary.remainingBudget)}`}
+              {/* Totals row. Mirrors the per-row column layout — drops
+                  Budgeted + Remaining on cost-plus jobs, shows job-wide
+                  spend total instead. */}
+              {detail.costCodeBreakdown.length > 0 && (() => {
+                const cp = detail.financialSummary.isCostPlus;
+                const totActual = detail.financialSummary.actualCost || 0;
+                const totPending = detail.financialSummary.pendingCost || 0;
+                const totSpend = totActual + totPending;
+                const gridCols = cp
+                  ? '2.5fr 1fr 1fr 1fr 80px'
+                  : '2.5fr 1fr 1fr 1fr 1fr 80px';
+                return (
+                  <div
+                    className="grid gap-2 px-4 py-3 text-sm font-bold"
+                    style={{
+                      borderTop: '1px solid rgba(200,140,0,0.15)',
+                      background: 'rgba(201,168,76,0.04)',
+                      gridTemplateColumns: gridCols,
+                    }}
+                  >
+                    <div style={{ color: '#c88c00' }}>TOTAL</div>
+                    {!cp && (
+                      <div className="text-right" style={{ color: '#8a8078' }}>
+                        ${fmt(detail.financialSummary.estimatedCost)}
                       </div>
-                    );
-                  })()}
-                  <div className="text-right text-xs" style={{ color: '#8a8078' }}>
-                    {detail.financialSummary.estimatedCost > 0
-                      ? Math.round((detail.financialSummary.actualCost / detail.financialSummary.estimatedCost) * 100) + '%'
-                      : '—'}
+                    )}
+                    <div className="text-right" style={{ color: '#1a1a1a' }}>
+                      ${fmt(totActual)}
+                    </div>
+                    <div className="text-right" style={{ color: totPending > 0 ? '#f59e0b' : '#555' }}>
+                      {totPending > 0 ? `$${fmt(totPending)}` : '—'}
+                    </div>
+                    {cp ? (
+                      <div className="text-right" style={{ color: '#1a1a1a' }}>
+                        ${fmt(totSpend)}
+                      </div>
+                    ) : (
+                      (() => {
+                        const totBudget = detail.financialSummary.estimatedCost || 0;
+                        const totCommitted = totActual + totPending;
+                        const totOver = totCommitted - totBudget;
+                        const totIsOver = totBudget > 0 && totOver > 0;
+                        return (
+                          <div className="text-right" style={{
+                            color: totIsOver ? '#ef4444' : detail.financialSummary.remainingBudget > 0 ? '#22c55e' : '#ef4444',
+                          }}>
+                            {totIsOver
+                              ? `−$${fmt(totOver)} over`
+                              : `$${fmt(detail.financialSummary.remainingBudget)}`}
+                          </div>
+                        );
+                      })()
+                    )}
+                    <div className="text-right text-xs" style={{ color: '#8a8078' }}>
+                      {cp
+                        ? (totSpend > 0 ? '100%' : '—')
+                        : (detail.financialSummary.estimatedCost > 0
+                            ? Math.round((detail.financialSummary.actualCost / detail.financialSummary.estimatedCost) * 100) + '%'
+                            : '—')}
+                    </div>
                   </div>
-                </div>
-              )}
+                );
+              })()}
             </div>
 
             {/* Time Analysis */}
