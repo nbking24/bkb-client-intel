@@ -1818,12 +1818,20 @@ export default function JobCostingDashboard() {
                         {colJobs.map((job) => {
                           const hc = healthColor(job.health);
                           const jobTotalCosts = job.totalCosts ?? job.actualCost;
-                          const budgetPct = job.estimatedCost > 0
-                            ? Math.min((jobTotalCosts / job.estimatedCost) * 100, 120)
-                            : 0;
                           const marginPct = job.marginPct ?? job.estimatedMarginPct ?? 0;
                           const overAmount = jobTotalCosts - job.estimatedCost;
-                          const isOverBudget = job.estimatedCost > 0 && overAmount > 0;
+                          // "Over budget" is a fixed-price-only concept.
+                          // Cost-plus jobs don't have a budget to be over.
+                          const isOverBudget = !job.isCostPlus && job.estimatedCost > 0 && overAmount > 0;
+                          // Progress bar: fixed-price shows spend vs cost budget;
+                          // cost-plus shows costs vs collections (cashflow pace).
+                          const budgetPct = job.isCostPlus
+                            ? (job.collectedAmount > 0
+                                ? Math.min((jobTotalCosts / job.collectedAmount) * 100, 120)
+                                : 0)
+                            : (job.estimatedCost > 0
+                                ? Math.min((jobTotalCosts / job.estimatedCost) * 100, 120)
+                                : 0);
                           return (
                             <button
                               key={job.jobId}

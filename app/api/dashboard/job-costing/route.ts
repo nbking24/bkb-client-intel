@@ -179,33 +179,53 @@ export async function POST(req: Request) {
             const hoursVariance = estimatedHours - actualHours;
 
             // ---- Health assessment ----
-            // Based on totalCosts (paid + pending) vs estimatedCost
+            // Cost-plus and fixed-price jobs use different signals:
+            //   - Fixed-price: totalCosts vs estimatedCost budget. Over budget
+            //     means we're losing margin, watch means we're approaching it.
+            //   - Cost-plus: there is no budget. Health is driven by whether
+            //     collections are keeping pace with costs (a cashflow risk)
+            //     and whether profit has gone negative.
+            // Pre-fix, cost-plus jobs were being marked "over-budget" against
+            // estimatedCost — but estimatedCost on cost-plus is just the cost
+            // side of approved COs (or whatever happens to be in the budget
+            // view), not a real budget. Beamlander Stonehouse Reno was getting
+            // flagged that way even though it's a cost-plus job.
             const alerts: string[] = [];
             let health: 'on-track' | 'watch' | 'over-budget' = 'on-track';
 
-            if (estimatedCost > 0 && totalCosts > estimatedCost) {
-              health = 'over-budget';
-              alerts.push(`Total costs exceed budget by $${fmt0(totalCosts - estimatedCost)}`);
-            } else if (estimatedCost > 0 && totalCosts / estimatedCost > 0.85) {
-              health = 'watch';
-              alerts.push(`${((totalCosts / estimatedCost) * 100).toFixed(0)}% of cost budget committed`);
+            if (isCostPlus) {
+              // Cost-plus health signals.
+              if (margin < 0 && collectedAmount > 0) {
+                // We've collected money and we're underwater on the job —
+                // markup isn't covering costs, treat as over-budget for
+                // sorting/filtering purposes.
+                health = 'over-budget';
+                alerts.push(`Negative profit: -$${fmt0(Math.abs(margin))}`);
+              } else if (totalCosts > collectedAmount && collectedAmount > 0) {
+                // Costs are running ahead of collections — cashflow risk.
+                alerts.push(`Costs exceed collections by $${fmt0(totalCosts - collectedAmount)}`);
+                if (health === 'on-track') health = 'watch';
+              }
+            } else {
+              // Fixed-price health signals.
+              if (estimatedCost > 0 && totalCosts > estimatedCost) {
+                health = 'over-budget';
+                alerts.push(`Total costs exceed budget by $${fmt0(totalCosts - estimatedCost)}`);
+              } else if (estimatedCost > 0 && totalCosts / estimatedCost > 0.85) {
+                health = 'watch';
+                alerts.push(`${((totalCosts / estimatedCost) * 100).toFixed(0)}% of cost budget committed`);
+              }
+              if (margin < 0 && estimatedPrice > 0) {
+                if (health !== 'over-budget') health = 'over-budget';
+                alerts.push(`Negative margin: -$${fmt0(Math.abs(margin))}`);
+              }
             }
 
+            // Hours-over-estimate flags both kinds of jobs (it speaks to
+            // labor efficiency, which matters regardless of contract type).
             if (estimatedHours > 0 && actualHours > estimatedHours) {
               alerts.push(`${(actualHours - estimatedHours).toFixed(1)} hrs over labor estimate`);
               if (health === 'on-track') health = 'watch';
-            }
-
-            // Cost-plus specific alert: if spending exceeds collections
-            if (isCostPlus && totalCosts > collectedAmount && collectedAmount > 0) {
-              alerts.push(`Costs exceed collections by $${fmt0(totalCosts - collectedAmount)}`);
-              if (health === 'on-track') health = 'watch';
-            }
-
-            // Negative margin alert for fixed-price
-            if (!isCostPlus && margin < 0 && estimatedPrice > 0) {
-              if (health !== 'over-budget') health = 'over-budget';
-              alerts.push(`Negative margin: -$${fmt0(Math.abs(margin))}`);
             }
 
             return {
