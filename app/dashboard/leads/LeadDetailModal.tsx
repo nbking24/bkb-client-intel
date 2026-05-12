@@ -25,7 +25,7 @@ interface ActivityItem {
   direction: 'inbound' | 'outbound' | null;
   subject: string;
   date: string;
-  source: 'jobtread' | 'loop';
+  source: 'jobtread' | 'loop' | 'pml';
 }
 
 interface ContactData {
@@ -437,13 +437,16 @@ export default function LeadDetailModal({ contactId, opportunityId, jobId, conta
                       {data.recentActivity.map((act, i) => {
                         // Pick an icon + label per activity kind.
                         const iconFor = () => {
+                          if (act.source === 'pml') return <FileText size={11} />;
                           if (act.source === 'jobtread') return <MessageSquare size={11} />;
                           if (act.kind === 'sms') return <MessageCircle size={11} />;
                           if (act.kind === 'email') return <MailIcon size={11} />;
                           if (act.kind === 'call') return <PhoneCall size={11} />;
                           return <MessageCircle size={11} />;
                         };
-                        const sourceLabel = act.source === 'jobtread'
+                        const sourceLabel = act.source === 'pml'
+                          ? (act.kind === 'pml_transcript' ? 'Call Transcript' : 'Project Memory')
+                          : act.source === 'jobtread'
                           ? 'JobTread comment'
                           : act.kind === 'sms' ? 'SMS'
                           : act.kind === 'email' ? 'Email'
@@ -455,7 +458,11 @@ export default function LeadDetailModal({ contactId, opportunityId, jobId, conta
                           : act.direction === 'outbound'
                           ? { label: 'Out', icon: <ArrowUpRight size={9} />, bg: 'rgba(79,70,229,0.10)', fg: '#4f46e5' }
                           : null;
-                        const accentColor = act.source === 'jobtread' ? '#c88c00' : '#6a6058';
+                        const accentColor = act.source === 'pml'
+                          ? '#4f46e5' // indigo for project memory / transcripts
+                          : act.source === 'jobtread'
+                            ? '#c88c00'
+                            : '#6a6058';
                         return (
                           <div
                             key={i}

@@ -266,6 +266,56 @@ export async function POST(req: NextRequest) {
       return NextResponse.json(results);
     }
 
+    // ── Action: Save Call Transcript ──
+    // Mirrors the Ask Agent transcript-save flow on ongoing projects: the
+    // full transcript text goes into the project_events table (PML), so the
+    // agent and the dashboard timeline can both surface it. We also link
+    // through the GHL contact + opportunity so the transcript "follows" the
+    // lead when it converts to a JT job (the leads-action flow already
+    // stamps source_ref the same way on schedule/nurture/design actions).
+    if (action === 'save_transcript') {
+      const { transcript, meetingType } = body;
+      const transcriptText = typeof transcript === 'string' ? transcript.trim() : '';
+      if (!transcriptText) {
+        return NextResponse.json({ error: 'transcript is required' }, { status: 400 });
+      }
+      const mt = (typeof meetingType === 'string' && meetingType.trim()) ? meetingType.trim() : 'Phone Call';
+
+      // Channel mapping — keep 'meeting' for the in-person / on-site flavor
+      // and 'phone' for everything else. The agent's filters use this.
+      const channel: 'meeting' | 'phone' = /on[- ]?site|in[- ]?person|virtual|meeting/i.test(mt)
+        ? 'meeting'
+        : 'phone';
+
+      try {
+        const event = await createProjectEvent({
+          job_id: jtJobId || null,
+          channel,
+          event_type: 'meeting_held',
+          summary: `${mt} with ${contactName || 'lead'}`,
+          detail: transcriptText,
+          participants: contactName ? ['Nathan', contactName] : ['Nathan'],
+          source_ref: {
+            ghl_opportunity_id: opportunityId || null,
+            ghl_contact_id: contactId || null,
+            jt_job_id: jtJobId || null,
+            meeting_type: mt,
+            // Approximate word count so the UI can show "transcript: X words"
+            // without re-parsing the detail field.
+            word_count: transcriptText.split(/\s+/).filter(Boolean).length,
+          },
+          event_date: new Date().toISOString().split('T')[0],
+        });
+        results.eventId = event.id;
+        results.projectEventSaved = true;
+        results.wordCount = transcriptText.split(/\s+/).filter(Boolean).length;
+        return NextResponse.json(results);
+      } catch (err: any) {
+        console.error('[leads-action] save_transcript failed:', err.message);
+        return NextResponse.json({ error: err.message || 'Failed to save transcript' }, { status: 500 });
+      }
+    }
+
     return NextResponse.json({ error: `Unknown action: ${action}` }, { status: 400 });
   } catch (err: any) {
     console.error('[leads-action] Error:', err);

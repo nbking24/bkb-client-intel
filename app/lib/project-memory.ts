@@ -208,6 +208,89 @@ export async function getProjectMemory(options: GetProjectMemoryOptions): Promis
   return (data || []) as ProjectEvent[];
 }
 
+// ── Get Project Memory For Lead ────────────────────────────────
+// Lead-stage events may have been saved BEFORE a JT job existed
+// (e.g. transcript captured during the discovery call when the
+// lead was still in Pending Discovery). Those rows have job_id = null
+// but carry the GHL contact / opportunity in source_ref. This helper
+// queries BOTH paths and merges so the lead detail modal can show
+// every project event tied to this lead — whether it's been linked
+// to a JT job yet or not.
+export interface GetProjectMemoryForLeadOptions {
+  jobId?: string | null;
+  ghlContactId?: string | null;
+  ghlOpportunityId?: string | null;
+  daysBack?: number;
+  limit?: number;
+}
+
+export async function getProjectMemoryForLead(
+  options: GetProjectMemoryForLeadOptions
+): Promise<ProjectEvent[]> {
+  const { jobId, ghlContactId, ghlOpportunityId, daysBack = 180, limit = 50 } = options;
+  if (!jobId && !ghlContactId && !ghlOpportunityId) return [];
+
+  const cutoffDate = new Date(Date.now() - daysBack * 24 * 60 * 60 * 1000).toISOString();
+  const sb = getSupabase();
+
+  // We need an OR across (job_id = X) and (source_ref->>ghl_contact_id = Y)
+  // and (source_ref->>ghl_opportunity_id = Z). Supabase's PostgREST `.or()`
+  // supports JSON path lookups, but building one combined `.or()` with
+  // JSON path is finicky — easier to run them as separate queries and
+  // merge in JS.
+  const queries: Promise<{ data: any[] | null; error: any }>[] = [];
+  if (jobId) {
+    queries.push(
+      sb.from('project_events')
+        .select('*')
+        .eq('job_id', jobId)
+        .gte('created_at', cutoffDate)
+        .order('created_at', { ascending: false })
+        .limit(limit)
+        .then(({ data, error }) => ({ data, error }))
+    );
+  }
+  if (ghlContactId) {
+    queries.push(
+      sb.from('project_events')
+        .select('*')
+        .eq('source_ref->>ghl_contact_id', ghlContactId)
+        .gte('created_at', cutoffDate)
+        .order('created_at', { ascending: false })
+        .limit(limit)
+        .then(({ data, error }) => ({ data, error }))
+    );
+  }
+  if (ghlOpportunityId) {
+    queries.push(
+      sb.from('project_events')
+        .select('*')
+        .eq('source_ref->>ghl_opportunity_id', ghlOpportunityId)
+        .gte('created_at', cutoffDate)
+        .order('created_at', { ascending: false })
+        .limit(limit)
+        .then(({ data, error }) => ({ data, error }))
+    );
+  }
+
+  const results = await Promise.all(queries);
+  const seen = new Set<string>();
+  const merged: ProjectEvent[] = [];
+  for (const r of results) {
+    if (r.error) {
+      console.warn('[getProjectMemoryForLead] query error:', r.error.message);
+      continue;
+    }
+    for (const ev of (r.data || []) as ProjectEvent[]) {
+      if (seen.has(ev.id)) continue;
+      seen.add(ev.id);
+      merged.push(ev);
+    }
+  }
+  merged.sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime());
+  return merged.slice(0, limit);
+}
+
 // ── Get Open Items ─────────────────────────────────────────────
 
 export interface GetOpenItemsOptions {

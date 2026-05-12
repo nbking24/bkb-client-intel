@@ -16,6 +16,7 @@ import {
   getMessagesFromDB,
 } from '@/app/lib/ghl';
 import { getCommentsFromDB } from '@/app/lib/jobtread';
+import { getProjectMemoryForLead } from '@/app/lib/project-memory';
 
 // Fields to skip in the custom fields display (internal/system fields)
 const SKIP_FIELD_KEYS = new Set([
@@ -37,8 +38,8 @@ export async function GET(req: NextRequest) {
     }
 
     // Fetch contact, notes, appointments, optional opportunity + the activity
-    // feed sources (JT comments + Loop messages) in parallel.
-    const [contactRes, notes, appointments, opportunity, jtComments, loopMessages] = await Promise.all([
+    // feed sources (JT comments + Loop messages + PML project events) in parallel.
+    const [contactRes, notes, appointments, opportunity, jtComments, loopMessages, pmlEvents] = await Promise.all([
       getContact(contactId).catch((e: any) => {
         console.warn('[lead-detail] getContact failed:', e.message);
         return null;
@@ -69,6 +70,21 @@ export async function GET(req: NextRequest) {
       // (ghl_messages table), falls back to live GHL API when DB is empty.
       getMessagesFromDB(contactId, 50).catch((e: any) => {
         console.warn('[lead-detail] getMessagesFromDB failed:', e.message);
+        return [];
+      }),
+      // Project Memory Layer events — call transcripts, decisions, meeting
+      // logs saved by Nathan / Terri through the Post-Call Actions panel
+      // or Ask Agent. Queries by jobId (when matched) AND by GHL contact /
+      // opportunity in source_ref so transcripts saved at the lead stage
+      // (before a JT job exists) still appear.
+      getProjectMemoryForLead({
+        jobId: jobId || null,
+        ghlContactId: contactId,
+        ghlOpportunityId: opportunityId || null,
+        daysBack: 365,
+        limit: 50,
+      }).catch((e: any) => {
+        console.warn('[lead-detail] getProjectMemoryForLead failed:', e.message);
         return [];
       }),
     ]);
@@ -163,13 +179,13 @@ export async function GET(req: NextRequest) {
     // no UI to read the actual comment body.
     //
     // Each activity item carries:
-    //   kind:        'jt_comment' | 'sms' | 'email' | 'call' | 'message'
-    //   body:        plain text of the comment / message
-    //   author:      who wrote it (JT user name, or "Inbound"/"Outbound" for messages)
+    //   kind:        'jt_comment' | 'sms' | 'email' | 'call' | 'message' | 'pml_transcript' | 'pml_event'
+    //   body:        plain text of the comment / message / event detail
+    //   author:      who wrote it (JT user name, "Inbound"/"Outbound", or PML participants)
     //   direction:   'inbound' | 'outbound' | null (only for Loop messages)
-    //   subject:     email subject (Loop emails only)
+    //   subject:     email subject (Loop emails only) or PML event summary
     //   date:        ISO timestamp
-    //   source:      'jobtread' | 'loop' (for the icon / color in the UI)
+    //   source:      'jobtread' | 'loop' | 'pml'
     type ActivityItem = {
       kind: string;
       body: string;
@@ -177,9 +193,31 @@ export async function GET(req: NextRequest) {
       direction: 'inbound' | 'outbound' | null;
       subject: string;
       date: string;
-      source: 'jobtread' | 'loop';
+      source: 'jobtread' | 'loop' | 'pml';
     };
     const recentActivity: ActivityItem[] = [];
+
+    // PML events come first since these are the most semantically rich
+    // (full transcripts, decisions, action items). Channel maps to the
+    // visual kind on the UI side.
+    for (const ev of (pmlEvents || []) as any[]) {
+      const body = (ev.detail || ev.summary || '').toString().trim();
+      if (!body) continue;
+      const channel = (ev.channel || '').toString().toLowerCase();
+      const kind = ev.event_type === 'meeting_held' || channel === 'meeting' || channel === 'phone'
+        ? 'pml_transcript'
+        : 'pml_event';
+      const participants = Array.isArray(ev.participants) ? ev.participants.filter(Boolean).join(', ') : '';
+      recentActivity.push({
+        kind,
+        body,
+        author: participants || 'Project Memory',
+        direction: null,
+        subject: (ev.summary || '').toString(),
+        date: ev.event_date || ev.created_at || '',
+        source: 'pml',
+      });
+    }
 
     for (const c of (jtComments || []) as any[]) {
       const body = (c.message || '').trim();

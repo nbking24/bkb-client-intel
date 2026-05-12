@@ -232,9 +232,16 @@ export default function LeadActionPanel({ lead, pendingLeads, onSelectLead, onCl
     (selectedAction === 'schedule' && smCalendarId && smTitle.trim() && smDate && smTime)
   );
 
-  // Save the pasted transcript to Loop as a contact note (or multi-part notes
-  // for long transcripts). Independent of the action picker — clicking Save
-  // here only saves the transcript and does NOT submit any action.
+  // Save the pasted transcript to the Project Memory Layer (project_events
+  // table in Supabase), same destination the Ask Agent uses when Nathan
+  // pastes a transcript for an ongoing project. The leads-action route
+  // links it to:
+  //   - the matched JT job (jtJobId) when present, so it shows up in Ask
+  //     Agent against the project immediately
+  //   - the GHL contact + opportunity (source_ref) so a transcript saved
+  //     before the lead has a JT job can be backfilled / discovered later
+  // Independent of the Next Step action picker — clicking Save here only
+  // saves the transcript and does NOT submit any action.
   const handleSaveTranscript = async () => {
     if (!lead || !lead.contactId) {
       setTranscriptError('No GHL contact linked to this lead — transcript can\'t be saved.');
@@ -248,14 +255,17 @@ export default function LeadActionPanel({ lead, pendingLeads, onSelectLead, onCl
     setTranscriptSaving(true);
     setTranscriptSaved(null);
     try {
-      const res = await fetch('/api/notes', {
+      const res = await fetch('/api/dashboard/leads-action', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${getToken()}` },
         body: JSON.stringify({
+          action: 'save_transcript',
+          opportunityId: lead.id,
           contactId: lead.contactId,
+          contactName,
+          ...(lead.jtJobId ? { jtJobId: lead.jtJobId } : {}),
           transcript: transcriptText.trim(),
           meetingType: transcriptType || 'Phone Call',
-          meetingDate: new Date().toLocaleDateString('en-US'),
         }),
       });
       if (!res.ok) {
@@ -263,13 +273,16 @@ export default function LeadActionPanel({ lead, pendingLeads, onSelectLead, onCl
         throw new Error(t || 'Failed to save transcript');
       }
       const data = await res.json();
-      const parts = data?.partsCreated || 1;
-      setTranscriptSaved(parts > 1
-        ? `Transcript saved as ${parts} notes on ${contactName || 'this contact'}.`
-        : `Transcript saved to ${contactName || 'this contact'}.`);
+      const words = data?.wordCount || 0;
+      const jobLabel = lead.jtJobId ? ' (linked to JT job)' : '';
+      setTranscriptSaved(
+        words > 0
+          ? `Transcript saved to Project Memory${jobLabel} — ${words.toLocaleString()} words.`
+          : `Transcript saved to Project Memory${jobLabel}.`
+      );
       setTranscriptText('');
-      // Keep the section open so the user sees the success message; auto-clear
-      // it on the next keystroke.
+      // Keep the section open so the user sees the success message; it
+      // auto-clears the next time they type into the textarea.
     } catch (err: any) {
       setTranscriptError(err.message || 'Failed to save transcript');
     } finally {
