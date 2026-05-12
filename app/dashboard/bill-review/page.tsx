@@ -166,11 +166,18 @@ export default function BillReviewPage() {
     costCodeNumber: string | null;
     costCodeName: string | null;
     cost: number;
+    // True when this budget item is on an approved CO. Fixed-price jobs
+    // gate picker visibility on this (cc23 items are always allowed).
+    // Cost-plus jobs ignore it.
+    isApproved?: boolean;
   };
   const [openPickerRowId, setOpenPickerRowId] = useState<string | null>(null);
   const [pickerSearch, setPickerSearch] = useState('');
   const [budgetItemsCache, setBudgetItemsCache] = useState<Record<string, BudgetItem[]>>({});
   const [budgetItemsLoading, setBudgetItemsLoading] = useState<Record<string, boolean>>({});
+  // Per-job cost-plus flag returned alongside the budget items. Used by
+  // the picker to skip the "approved only" gate on cost-plus jobs.
+  const [jobIsCostPlus, setJobIsCostPlus] = useState<Record<string, boolean>>({});
   // Direction to open the picker popover ('down' below the button, 'up'
   // above it). Computed at open time from the button's bounding rect so
   // the dropdown flips up when the row is too close to the bottom of the
@@ -199,6 +206,7 @@ export default function BillReviewPage() {
       const json = await res.json();
       if (res.ok) {
         setBudgetItemsCache(prev => ({ ...prev, [jobId]: json.items || [] }));
+        setJobIsCostPlus(prev => ({ ...prev, [jobId]: !!json.isCostPlus }));
       }
     } catch { /* swallow — picker will fall back to candidates only */ }
     setBudgetItemsLoading(prev => ({ ...prev, [jobId]: false }));
@@ -858,12 +866,29 @@ export default function BillReviewPage() {
                         const isLoading = !!budgetItemsLoading[row.job_id];
                         const q = pickerSearch.trim().toLowerCase();
                         const candidateIds = new Set(candidates.map(c => c.jobCostItemId));
+                        // Enforce BKB's matching rule per pricing type:
+                        // - Fixed-price: only show budget items that are on
+                        //   an approved CO. ALWAYS allow cost code 23 items
+                        //   (the billable labor / sub / materials buckets
+                        //   used for change-order billable lines) regardless
+                        //   of approval state.
+                        // - Cost-plus: no approval gate — pick from anything.
+                        // The flag is loaded alongside the items; while it's
+                        // still loading we default to fixed-price gating
+                        // (the safer behavior).
+                        const isCostPlus = !!jobIsCostPlus[row.job_id];
+                        const isAllowedTarget = (b: BudgetItem): boolean => {
+                          if (isCostPlus) return true;
+                          if ((b.costCodeNumber || '').trim() === '23') return true;
+                          return !!b.isApproved;
+                        };
+                        const allowedItems = allItems.filter(isAllowedTarget);
                         const filteredAll = q
-                          ? allItems.filter(b => {
+                          ? allowedItems.filter(b => {
                               const hay = `${b.costCodeNumber || ''} ${b.name || ''} ${b.costCodeName || ''}`.toLowerCase();
                               return hay.includes(q);
                             })
-                          : allItems;
+                          : allowedItems;
                         // Always show all candidates in the suggested section,
                         // even when searching, so the user can fall back if
                         // the search matches nothing useful.
@@ -945,13 +970,24 @@ export default function BillReviewPage() {
                                   </div>
                                 </div>
                                 <div style={{ overflowY: 'auto', flex: 1 }}>
-                                  {/* Suggested section */}
-                                  {candidates.length > 0 && (
+                                  {/* Suggested section. Same pricing-type
+                                      gate as the All section — fixed-price
+                                      jobs only show suggestions that are
+                                      on an approved CO (cc23 always allowed). */}
+                                  {(() => {
+                                    const suggested = candidates.filter(c => {
+                                      if (isCostPlus) return true;
+                                      if ((c.costCodeNumber || '').trim() === '23') return true;
+                                      const b = allItems.find(b => b.id === c.jobCostItemId);
+                                      return !!b?.isApproved;
+                                    });
+                                    if (suggested.length === 0) return null;
+                                    return (
                                     <div>
                                       <div className="px-2 py-1 text-[10px] uppercase tracking-wide font-semibold" style={{ color: '#8a8078', background: '#faf8f5' }}>
                                         Suggested
                                       </div>
-                                      {candidates
+                                      {suggested
                                         .filter(c => !q || `${c.costCodeNumber || ''} ${c.name || ''}`.toLowerCase().includes(q))
                                         .map((c) => {
                                           const isPicked = c.jobCostItemId === currentPick;
@@ -979,12 +1015,20 @@ export default function BillReviewPage() {
                                           );
                                         })}
                                     </div>
-                                  )}
-                                  {/* All approved budget items section. Exclude the
-                                      ones already shown in Suggested to keep the list tidy. */}
+                                    );
+                                  })()}
+                                  {/* "All" section. Label and count adjust by
+                                      pricing type — fixed-price says "approved
+                                      budget items", cost-plus says "all
+                                      budget items". The count reflects what's
+                                      actually selectable, not the raw item
+                                      count returned from JT. */}
                                   <div>
                                     <div className="px-2 py-1 text-[10px] uppercase tracking-wide font-semibold flex items-center justify-between" style={{ color: '#8a8078', background: '#faf8f5' }}>
-                                      <span>All approved budget items{allItems.length > 0 ? ` (${allItems.length})` : ''}</span>
+                                      <span>
+                                        {isCostPlus ? 'All budget items' : 'All approved budget items'}
+                                        {allowedItems.length > 0 ? ` (${allowedItems.length})` : ''}
+                                      </span>
                                       {isLoading && <Loader2 size={10} className="animate-spin" />}
                                     </div>
                                     {filteredAll.length === 0 && !isLoading ? (
