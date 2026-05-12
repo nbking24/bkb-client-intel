@@ -97,21 +97,22 @@ export async function GET() {
     const sevenDaysAgo = new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000);
     const thirtyDaysAgo = new Date(now.getTime() - 30 * 24 * 60 * 60 * 1000);
 
-    // 60-day primary window + the same 60-day window from one year ago.
-    // Nathan wants the top KPI cards and the comparison chart on a 60-day
-    // basis with a true year-over-year delta (seasonality matters more than
-    // raw rolling 12-month volume).
+    // 60-day primary window + the immediately preceding 60-day window.
+    // Nathan asked for prior-period comparison rather than year-over-year
+    // (BKB doesn't have a full year of clean lead data in Loop yet, so the
+    // YoY delta isn't meaningful — but the prior 60 days are).
+    //   currentWindow = (now - 60d, now]
+    //   priorWindow   = (now - 120d, now - 60d]
     const sixtyDaysAgo = new Date(now.getTime() - 60 * 24 * 60 * 60 * 1000);
-    // "Same 60 days last year" = shift both endpoints back 365 days.
-    const sixtyDaysAgoLastYear = new Date(sixtyDaysAgo.getTime() - 365 * 24 * 60 * 60 * 1000);
-    const nowLastYear = new Date(now.getTime() - 365 * 24 * 60 * 60 * 1000);
+    const oneTwentyDaysAgo = new Date(now.getTime() - 120 * 24 * 60 * 60 * 1000);
 
     // Fetch ALL opportunities (paginated)
     const opps = await fetchAllOpportunities();
 
-    // Fetch calendar events. The pull spans 24 months ago → now so it
-    // covers both the rolling 12-month frame AND the "60 days last year"
-    // window (which sits inside the 12–14-months-ago slice).
+    // Fetch calendar events. Pull spans 24 months ago → now so it
+    // covers both the rolling 12-month frame (used by monthly trend +
+    // source breakdown) and the 120-day window we need for the 60d
+    // prior-period comparison.
     const calStart = twentyFourMonthsAgo.getTime();
     const calEnd = now.getTime();
     const [discoveryData, onsiteData] = await Promise.all([
@@ -144,21 +145,21 @@ export async function GET() {
       isInPeriod(e.startTime || e.createdAt, twentyFourMonthsAgo, twelveMonthsAgo)
     );
 
-    // 60-day windows: this year and same 60 days a year ago.
+    // 60-day windows: current 60d and the immediately preceding 60d.
     const opps60d = opps.filter((o: any) => isInPeriod(o.createdAt, sixtyDaysAgo, now));
-    const oppsPrior60d = opps.filter((o: any) => isInPeriod(o.createdAt, sixtyDaysAgoLastYear, nowLastYear));
+    const oppsPrior60d = opps.filter((o: any) => isInPeriod(o.createdAt, oneTwentyDaysAgo, sixtyDaysAgo));
 
     const discovery60d = allDiscoveryEvents.filter((e: any) =>
       isInPeriod(e.startTime || e.createdAt, sixtyDaysAgo, now)
     );
     const discoveryPrior60d = allDiscoveryEvents.filter((e: any) =>
-      isInPeriod(e.startTime || e.createdAt, sixtyDaysAgoLastYear, nowLastYear)
+      isInPeriod(e.startTime || e.createdAt, oneTwentyDaysAgo, sixtyDaysAgo)
     );
     const onsite60d = allOnsiteEvents.filter((e: any) =>
       isInPeriod(e.startTime || e.createdAt, sixtyDaysAgo, now)
     );
     const onsitePrior60d = allOnsiteEvents.filter((e: any) =>
-      isInPeriod(e.startTime || e.createdAt, sixtyDaysAgoLastYear, nowLastYear)
+      isInPeriod(e.startTime || e.createdAt, oneTwentyDaysAgo, sixtyDaysAgo)
     );
 
     // ── Pipeline breakdown (open only — all time) ──
@@ -211,10 +212,11 @@ export async function GET() {
       ? Math.round((securedClientsPrior / totalLeadsPrior) * 100)
       : 0;
 
-    // ── 60-Day window with year-over-year comparison ──
+    // ── 60-Day window with prior-period comparison ──
     // Primary metrics on the dashboard top row. The "prior" baseline is
-    // the same 60-day window from a year ago (true YoY), not the prior
-    // rolling 60 days, so seasonality is preserved.
+    // the immediately preceding 60-day window (days 60–120 ago). Period-
+    // over-period was Nathan's call: BKB doesn't yet have a full year of
+    // lead data in Loop, so YoY isn't meaningful.
     const totalLeads60d = opps60d.length;
     const totalLeads60dPrior = oppsPrior60d.length;
 
@@ -227,7 +229,7 @@ export async function GET() {
     // Secured: count stage-change events into Secured stages that fell in
     // the window (see countSecuredInWindow comment for rationale).
     const securedClients60d = countSecuredInWindow(sixtyDaysAgo, now);
-    const securedClients60dPrior = countSecuredInWindow(sixtyDaysAgoLastYear, nowLastYear);
+    const securedClients60dPrior = countSecuredInWindow(oneTwentyDaysAgo, sixtyDaysAgo);
 
     // Active leads = currently open in lead stages
     const activeLeads = openOpps.filter((o: any) =>
@@ -245,15 +247,15 @@ export async function GET() {
       return Math.round(((current - prior) / prior) * 100);
     };
 
-    // ── Year-over-Year 60-day comparison ──
-    // Replaces the old 12-month funnel chart. Lets Nathan eyeball
-    // whether the most recent 60 days are running ahead of or behind
-    // the same 60-day window from last year (seasonality matters).
-    const yearOverYear60d = [
-      { label: 'Total Leads',     thisYear: totalLeads60d,     lastYear: totalLeads60dPrior },
-      { label: 'Discovery Calls', thisYear: discoveryCalls60d, lastYear: discoveryCalls60dPrior },
-      { label: 'On-Site Visits',  thisYear: onsiteVisits60d,   lastYear: onsiteVisits60dPrior },
-      { label: 'Secured',         thisYear: securedClients60d, lastYear: securedClients60dPrior },
+    // ── 60-day period-over-period comparison ──
+    // Most recent 60 days vs the immediately preceding 60 days. Replaces
+    // the old 12-month funnel chart. Field names use current/prior so the
+    // intent is clear regardless of how the front-end labels it.
+    const periodComparison60d = [
+      { label: 'Total Leads',     current: totalLeads60d,     prior: totalLeads60dPrior },
+      { label: 'Discovery Calls', current: discoveryCalls60d, prior: discoveryCalls60dPrior },
+      { label: 'On-Site Visits',  current: onsiteVisits60d,   prior: onsiteVisits60dPrior },
+      { label: 'Secured',         current: securedClients60d, prior: securedClients60dPrior },
     ];
 
     // ── Monthly lead creation trend (last 12 months) ──
@@ -395,7 +397,7 @@ export async function GET() {
         totalPipeline: openOpps.length,
       },
       pipelineBreakdown,
-      yearOverYear60d,
+      periodComparison60d,
       monthlyTrend,
       recentLeads,
       pendingNewLeads,
