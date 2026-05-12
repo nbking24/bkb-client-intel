@@ -32,7 +32,7 @@ import {
   PIPELINE_STAGES,
   GHL_CALENDARS,
 } from '@/app/lib/ghl';
-import { createProjectEvent } from '@/app/lib/project-memory';
+import { createProjectEvent, backfillProjectEventsForLead } from '@/app/lib/project-memory';
 import { updateJob, createComment, setJobStatus } from '@/app/lib/jobtread';
 import { STATUS_VALUES } from '@/app/lib/constants';
 
@@ -46,6 +46,25 @@ export async function POST(req: NextRequest) {
     }
 
     const results: Record<string, any> = { success: true, action };
+
+    // Eager backfill: if this request carries a jtJobId, promote any orphan
+    // project_events for this contact / opportunity into the job. Catches
+    // transcripts (and other PML rows) that were saved at the lead stage,
+    // BEFORE a JT job existed — once any leads-action call shows up with
+    // a jtJobId, the orphans roll up to that job immediately so Ask Agent
+    // and other job-scoped queries surface them on the next read.
+    if (jtJobId) {
+      try {
+        const { updated } = await backfillProjectEventsForLead({
+          jobId: jtJobId,
+          ghlContactId: contactId,
+          ghlOpportunityId: opportunityId,
+        });
+        if (updated > 0) results.eventsBackfilled = updated;
+      } catch (err: any) {
+        console.warn('[leads-action] backfill failed (non-fatal):', err.message);
+      }
+    }
 
     // ── Save call notes (shared across all actions) ──
     // For move_to_nurture, we build a composite body so the reason is always persisted

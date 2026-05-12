@@ -208,6 +208,82 @@ export async function getProjectMemory(options: GetProjectMemoryOptions): Promis
   return (data || []) as ProjectEvent[];
 }
 
+// ── Backfill orphan events when a JT job becomes available ─────
+// Lead-stage events get saved with job_id = null because no JT job
+// exists yet. When the lead converts (a JT job is created and linked
+// to the GHL contact), we want every prior project_event tied to that
+// contact / opportunity to "catch up" — set its job_id so Ask Agent
+// surfaces it against the new project, the job-costing dashboard
+// agent answers include it, etc.
+//
+// Strategy: defensive UPDATE. Whenever code has BOTH a JT job_id AND
+// a GHL contact id (or opportunity id) in hand, call this to sweep
+// any orphans for that contact / opportunity into the job. Safe to
+// call repeatedly — it only touches rows where job_id IS NULL.
+//
+// Called from:
+//   - leads-action route, on every action that carries jtJobId
+//     (schedule_meeting, move_to_design, move_to_nurture, save_transcript)
+//   - getProjectMemoryForLead, as a defensive read-time backfill so the
+//     lead detail modal and Ask Agent's project queries both benefit
+//   - /api/cron/backfill-pml (sweep endpoint) for historical cleanup
+export async function backfillProjectEventsForLead(args: {
+  jobId: string;
+  ghlContactId?: string | null;
+  ghlOpportunityId?: string | null;
+  jobName?: string | null;
+  jobNumber?: string | null;
+}): Promise<{ updated: number }> {
+  const { jobId, ghlContactId, ghlOpportunityId, jobName, jobNumber } = args;
+  if (!jobId || (!ghlContactId && !ghlOpportunityId)) return { updated: 0 };
+
+  const sb = getSupabase();
+  const update: Record<string, any> = { job_id: jobId };
+  if (jobName) update.job_name = jobName;
+  if (jobNumber) update.job_number = jobNumber;
+
+  let totalUpdated = 0;
+
+  // Pass 1: rows tagged with this GHL contact id (most reliable — same
+  // person, possibly multiple opportunities over time, all should roll
+  // up to this JT job).
+  if (ghlContactId) {
+    const { data, error } = await sb
+      .from('project_events')
+      .update(update)
+      .is('job_id', null)
+      .eq('source_ref->>ghl_contact_id', ghlContactId)
+      .select('id');
+    if (error) {
+      console.warn('[backfillProjectEventsForLead] contact-id sweep failed:', error.message);
+    } else {
+      totalUpdated += (data || []).length;
+    }
+  }
+
+  // Pass 2: rows tagged with this GHL opportunity id but not the
+  // contact id (rare — different opportunity, same contact would
+  // have been caught above; but defensive).
+  if (ghlOpportunityId) {
+    const { data, error } = await sb
+      .from('project_events')
+      .update(update)
+      .is('job_id', null)
+      .eq('source_ref->>ghl_opportunity_id', ghlOpportunityId)
+      .select('id');
+    if (error) {
+      console.warn('[backfillProjectEventsForLead] opportunity-id sweep failed:', error.message);
+    } else {
+      totalUpdated += (data || []).length;
+    }
+  }
+
+  if (totalUpdated > 0) {
+    console.log(`[backfillProjectEventsForLead] Backfilled ${totalUpdated} orphan event(s) to job ${jobId}`);
+  }
+  return { updated: totalUpdated };
+}
+
 // ── Get Project Memory For Lead ────────────────────────────────
 // Lead-stage events may have been saved BEFORE a JT job existed
 // (e.g. transcript captured during the discovery call when the
@@ -229,6 +305,22 @@ export async function getProjectMemoryForLead(
 ): Promise<ProjectEvent[]> {
   const { jobId, ghlContactId, ghlOpportunityId, daysBack = 180, limit = 50 } = options;
   if (!jobId && !ghlContactId && !ghlOpportunityId) return [];
+
+  // Defensive backfill: if a JT job is now linked to this lead, promote any
+  // orphan (job_id IS NULL) events for the contact / opportunity into the
+  // job before we read. After backfill, the job_id query path picks them
+  // up naturally and the source_ref path is just a safety net.
+  if (jobId && (ghlContactId || ghlOpportunityId)) {
+    try {
+      await backfillProjectEventsForLead({
+        jobId,
+        ghlContactId: ghlContactId || null,
+        ghlOpportunityId: ghlOpportunityId || null,
+      });
+    } catch (err: any) {
+      console.warn('[getProjectMemoryForLead] backfill failed (continuing):', err?.message || err);
+    }
+  }
 
   const cutoffDate = new Date(Date.now() - daysBack * 24 * 60 * 60 * 1000).toISOString();
   const sb = getSupabase();
