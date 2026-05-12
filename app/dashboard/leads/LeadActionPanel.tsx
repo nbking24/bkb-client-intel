@@ -103,6 +103,19 @@ export default function LeadActionPanel({ lead, pendingLeads, onSelectLead, onCl
   const [leadSearch, setLeadSearch] = useState('');
   const searchRef = useRef<HTMLInputElement>(null);
 
+  // Call transcript state. Independent of the action picker — Nathan / Terri
+  // can paste a transcript and save it to the contact regardless of whether
+  // they're also scheduling a follow-up, moving to nurture, etc. Transcripts
+  // are saved as Loop contact notes via /api/notes (auto-chunked at 64k).
+  // The Loop contact stays linked when the lead becomes a JT job, so the
+  // transcript travels with the project automatically.
+  const [transcriptOpen, setTranscriptOpen] = useState(false);
+  const [transcriptText, setTranscriptText] = useState('');
+  const [transcriptType, setTranscriptType] = useState('Phone Call');
+  const [transcriptSaving, setTranscriptSaving] = useState(false);
+  const [transcriptSaved, setTranscriptSaved] = useState<string | null>(null);
+  const [transcriptError, setTranscriptError] = useState('');
+
   // Schedule meeting state
   const [smCalendarId, setSmCalendarId] = useState('');
   const [smTitle, setSmTitle] = useState('');
@@ -142,6 +155,12 @@ export default function LeadActionPanel({ lead, pendingLeads, onSelectLead, onCl
     setLoading(false);
     setSuccess(null);
     setError('');
+    setTranscriptOpen(false);
+    setTranscriptText('');
+    setTranscriptType('Phone Call');
+    setTranscriptSaving(false);
+    setTranscriptSaved(null);
+    setTranscriptError('');
     const tomorrow = new Date();
     tomorrow.setDate(tomorrow.getDate() + 1);
     setSmDate(tomorrow.toISOString().split('T')[0]);
@@ -212,6 +231,51 @@ export default function LeadActionPanel({ lead, pendingLeads, onSelectLead, onCl
     selectedAction === 'design' ||
     (selectedAction === 'schedule' && smCalendarId && smTitle.trim() && smDate && smTime)
   );
+
+  // Save the pasted transcript to Loop as a contact note (or multi-part notes
+  // for long transcripts). Independent of the action picker — clicking Save
+  // here only saves the transcript and does NOT submit any action.
+  const handleSaveTranscript = async () => {
+    if (!lead || !lead.contactId) {
+      setTranscriptError('No GHL contact linked to this lead — transcript can\'t be saved.');
+      return;
+    }
+    if (!transcriptText.trim()) {
+      setTranscriptError('Paste the transcript text first.');
+      return;
+    }
+    setTranscriptError('');
+    setTranscriptSaving(true);
+    setTranscriptSaved(null);
+    try {
+      const res = await fetch('/api/notes', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${getToken()}` },
+        body: JSON.stringify({
+          contactId: lead.contactId,
+          transcript: transcriptText.trim(),
+          meetingType: transcriptType || 'Phone Call',
+          meetingDate: new Date().toLocaleDateString('en-US'),
+        }),
+      });
+      if (!res.ok) {
+        const t = await res.text();
+        throw new Error(t || 'Failed to save transcript');
+      }
+      const data = await res.json();
+      const parts = data?.partsCreated || 1;
+      setTranscriptSaved(parts > 1
+        ? `Transcript saved as ${parts} notes on ${contactName || 'this contact'}.`
+        : `Transcript saved to ${contactName || 'this contact'}.`);
+      setTranscriptText('');
+      // Keep the section open so the user sees the success message; auto-clear
+      // it on the next keystroke.
+    } catch (err: any) {
+      setTranscriptError(err.message || 'Failed to save transcript');
+    } finally {
+      setTranscriptSaving(false);
+    }
+  };
 
   const handleSubmit = async () => {
     if (!selectedAction || !lead) return;
@@ -527,6 +591,126 @@ export default function LeadActionPanel({ lead, pendingLeads, onSelectLead, onCl
                 <span className="text-[10px]" style={{ color: '#c88c00' }}>
                   {notes.trim().split(/\s+/).filter(Boolean).length} words
                 </span>
+              </div>
+            )}
+          </div>
+
+          {/* ── Call Transcript ── */}
+          {/* Collapsible section for pasting and saving a call transcript.
+              Independent of the Next Step action — Nathan / Terri can save
+              a transcript regardless of whether they're also taking an
+              action below. Transcripts post to /api/notes which auto-chunks
+              long content into multiple Loop contact notes (64k max each).
+              Loop contact stays linked to JT, so transcripts travel with
+              the project when it moves forward. */}
+          <div className="mb-4 rounded-lg" style={{ background: '#ffffff', border: '1px solid rgba(200,140,0,0.12)' }}>
+            <button
+              onClick={() => setTranscriptOpen(!transcriptOpen)}
+              className="w-full flex items-center gap-2 px-3 py-2.5 text-left"
+            >
+              <FileText size={13} style={{ color: '#c88c00' }} />
+              <span className="text-xs font-semibold uppercase tracking-wider flex-1" style={{ color: '#8a8078' }}>
+                Save Call Transcript
+              </span>
+              {transcriptSaved && !transcriptOpen && (
+                <span className="text-[10px] flex items-center gap-1" style={{ color: '#22c55e' }}>
+                  <CheckCircle2 size={10} /> saved
+                </span>
+              )}
+              <span className="text-[10px]" style={{ color: '#8a8078' }}>
+                {transcriptOpen ? 'hide' : 'expand'}
+              </span>
+              {transcriptOpen
+                ? <ChevronDown size={12} style={{ color: '#8a8078' }} />
+                : <ChevronRight size={12} style={{ color: '#8a8078' }} />}
+            </button>
+            {transcriptOpen && (
+              <div className="px-3 pb-3 pt-1">
+                {!lead ? (
+                  <p className="text-xs py-2" style={{ color: '#8a8078' }}>
+                    Pick a lead above first — the transcript will save to that contact in Loop.
+                  </p>
+                ) : !lead.contactId ? (
+                  <p className="text-xs py-2" style={{ color: '#ef4444' }}>
+                    This lead doesn't have a Loop contact linked, so a transcript can't be saved to it.
+                  </p>
+                ) : (
+                  <>
+                    {/* Meeting type + date row */}
+                    <div className="flex items-center gap-2 mb-2">
+                      <label className="text-[10px] font-semibold uppercase tracking-wider" style={{ color: '#8a8078' }}>
+                        Type:
+                      </label>
+                      <select
+                        value={transcriptType}
+                        onChange={(e) => setTranscriptType(e.target.value)}
+                        disabled={transcriptSaving}
+                        className="rounded-md px-2 py-1 text-xs outline-none"
+                        style={{ background: '#ffffff', border: '1px solid rgba(200,140,0,0.2)', color: '#1a1a1a' }}
+                      >
+                        <option>Phone Call</option>
+                        <option>Discovery Call</option>
+                        <option>Informational Call</option>
+                        <option>On-Site Visit</option>
+                        <option>In-Person Meeting</option>
+                        <option>Virtual Meeting</option>
+                        <option>Follow-up Call</option>
+                        <option>Other</option>
+                      </select>
+                      <span className="text-[10px] ml-auto" style={{ color: '#8a8078' }}>
+                        Saving to {contactName} in Loop
+                      </span>
+                    </div>
+                    {/* Textarea */}
+                    <textarea
+                      value={transcriptText}
+                      onChange={(e) => {
+                        setTranscriptText(e.target.value);
+                        if (transcriptSaved) setTranscriptSaved(null);
+                        if (transcriptError) setTranscriptError('');
+                      }}
+                      disabled={transcriptSaving}
+                      placeholder="Paste the call transcript or notes here. Long transcripts will be split into multiple Loop notes automatically."
+                      className="w-full rounded-md px-3 py-2 text-sm outline-none resize-y"
+                      style={{
+                        background: '#ffffff',
+                        border: '1px solid rgba(200,140,0,0.2)',
+                        color: '#1a1a1a',
+                        minHeight: 140,
+                      }}
+                    />
+                    {/* Save row */}
+                    <div className="flex items-center gap-2 mt-2">
+                      <span className="text-[10px]" style={{ color: '#8a8078' }}>
+                        {transcriptText.trim().length.toLocaleString()} chars
+                      </span>
+                      {transcriptSaved && (
+                        <span className="text-[11px] flex items-center gap-1" style={{ color: '#16a34a' }}>
+                          <CheckCircle2 size={11} /> {transcriptSaved}
+                        </span>
+                      )}
+                      {transcriptError && (
+                        <span className="text-[11px]" style={{ color: '#ef4444' }}>
+                          {transcriptError}
+                        </span>
+                      )}
+                      <button
+                        type="button"
+                        onClick={handleSaveTranscript}
+                        disabled={transcriptSaving || !transcriptText.trim()}
+                        className="ml-auto rounded-md px-3 py-1.5 text-xs font-medium flex items-center gap-1.5"
+                        style={{
+                          background: transcriptSaving || !transcriptText.trim() ? 'rgba(200,140,0,0.4)' : '#c88c00',
+                          color: '#ffffff',
+                          cursor: transcriptSaving || !transcriptText.trim() ? 'not-allowed' : 'pointer',
+                        }}
+                      >
+                        {transcriptSaving ? <Loader2 size={11} className="animate-spin" /> : <FileText size={11} />}
+                        {transcriptSaving ? 'Saving…' : 'Save Transcript'}
+                      </button>
+                    </div>
+                  </>
+                )}
               </div>
             )}
           </div>
