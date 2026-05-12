@@ -23,12 +23,28 @@ import {
   updateTask,
   updateTaskProgress,
 } from '@/app/lib/jobtread';
+import { getSupabase } from '@/app/api/lib/supabase';
 
 export const runtime = 'nodejs';
 export const maxDuration = 30;
 
 // Task prefix to match GHL-synced tasks
 const GHL_TASK_PREFIX = '📅 ';
+
+// Shared BKB virtual-meeting room. When a meeting is scheduled on a
+// virtual calendar (detected by name keyword match below) this URL gets
+// stamped into the event so every attendee joins the same room — even
+// though we fan out one Loop appointment per BKB attendee for Loop's
+// per-user automations. Set in Vercel env; falls back to the literal
+// URL of the room I created on 2026-05-12.
+const BKB_VIRTUAL_MEET_URL = process.env.BKB_VIRTUAL_MEET_URL || 'https://meet.google.com/uzc-zkfm-juk';
+const BKB_VIRTUAL_MEET_DIALIN = 'Dial-in: +1 475-549-0467  ·  PIN: 234 030 853#';
+
+// Returns true when the dropdown calendar looks like a virtual meeting
+// type — same keyword sniffer the per-attendee calendar map uses below.
+function isVirtualCalendar(name: string | undefined): boolean {
+  return /virtual|online|zoom|google\s*meet|meet/i.test(name || '');
+}
 
 // -- GET: Fetch available GHL calendars --------------------------
 export async function GET(req: NextRequest) {
@@ -249,6 +265,46 @@ export async function POST(req: NextRequest) {
       }
     }
 
+    // Resolve the dropdown calendar's name + virtual-ness. We need the name
+    // for the group row (so the management UI doesn't have to round-trip)
+    // and the virtual flag to decide whether to stamp the shared BKB Meet
+    // URL into the event. The multi-attendee block above already fetches
+    // calendar details, but it only runs when ghlUserIds.length > 1 — so
+    // we do a lightweight standalone lookup here for the single-attendee
+    // and no-attendee paths.
+    let dropdownCalendarName = '';
+    try {
+      const ghlBase = 'https://services.leadconnectorhq.com';
+      const ghlHeaders = {
+        Authorization: 'Bearer ' + (process.env.GHL_API_KEY || ''),
+        'Content-Type': 'application/json',
+        Version: '2021-04-15',
+      };
+      const r = await fetch(`${ghlBase}/calendars/${calendarId}`, { headers: ghlHeaders });
+      if (r.ok) {
+        const d = await r.json();
+        dropdownCalendarName = (d.calendar || d)?.name || '';
+      }
+    } catch (err: any) {
+      console.warn('[schedule-meeting] Could not fetch dropdown calendar name:', err.message);
+    }
+    const isVirtual = isVirtualCalendar(dropdownCalendarName);
+
+    // For virtual meetings, write the shared BKB Google Meet URL into the
+    // event's address + notes so every attendee — across the fan-out
+    // sibling appointments — joins the same room. Loop's own virtual
+    // integration would otherwise generate a fresh Meet link per
+    // appointment, splitting attendees across different rooms.
+    let effectiveAddress = address;
+    let effectiveNotes = notes;
+    if (isVirtual) {
+      effectiveAddress = BKB_VIRTUAL_MEET_URL;
+      const meetBlock = `Virtual meeting: ${BKB_VIRTUAL_MEET_URL}\n${BKB_VIRTUAL_MEET_DIALIN}`;
+      effectiveNotes = effectiveNotes
+        ? `${meetBlock}\n\n${effectiveNotes}`
+        : meetBlock;
+    }
+
     // Helper: extract event ID from GHL response (may be top-level or nested)
     const extractEventId = (resp: any): string | null => {
       if (!resp) return null;
@@ -267,8 +323,8 @@ export async function POST(req: NextRequest) {
         startTime,
         endTime,
         title,
-        notes,
-        address,
+        notes: effectiveNotes,
+        address: effectiveAddress,
         status: 'confirmed' as const,
         ...(customTime ? { ignoreDateRange: true } : {}),
       };
@@ -436,10 +492,49 @@ export async function POST(req: NextRequest) {
       // Continue anyway - GHL appointments were created successfully
     }
 
+    // ── 3. Write the meeting group row ──
+    // Stores the fan-out sibling event ids + the JT task id + display
+    // metadata so the cancel/edit endpoints (and the management UI)
+    // can act on the whole group from any single event id.
+    let meetingGroupId: string | null = null;
+    if (ghlAppointments.length > 0) {
+      try {
+        const { data: groupRow, error: groupErr } = await getSupabase()
+          .from('meeting_groups')
+          .insert({
+            ghl_event_ids: ghlAppointments.map(a => a.ghlEventId),
+            jt_task_id: jtTaskId,
+            jt_job_id: hasJobId ? jobId : null,
+            title,
+            start_time: startTime,
+            end_time: endTime,
+            notes: effectiveNotes || null,
+            address: effectiveAddress || null,
+            calendar_id: calendarId,
+            calendar_name: dropdownCalendarName || null,
+            is_virtual: isVirtual,
+            contacts: contactsToUse,
+            assignees: teamAssignees,
+          })
+          .select('id')
+          .single();
+        if (groupErr) {
+          console.warn('[schedule-meeting] Could not write meeting_groups row:', groupErr.message);
+        } else {
+          meetingGroupId = groupRow?.id || null;
+        }
+      } catch (err: any) {
+        console.warn('[schedule-meeting] meeting_groups insert threw:', err?.message || err);
+      }
+    }
+
     return NextResponse.json({
       success: true,
       ghlAppointments,
       jtTaskId,
+      meetingGroupId,
+      isVirtual,
+      virtualMeetUrl: isVirtual ? BKB_VIRTUAL_MEET_URL : null,
       errors: errors.length > 0 ? errors : undefined,
       skippedAttendees: skippedAttendees.length > 0 ? skippedAttendees : undefined,
       message:
@@ -457,38 +552,85 @@ export async function POST(req: NextRequest) {
 }
 
 // -- PUT: Update a meeting in GHL + JT ---------------------------
+// Group-aware: applies title / time / notes / address changes to every
+// sibling appointment in the meeting group AND updates the JT task.
+// Falls back to single-event update for meetings created before group
+// tracking landed.
 export async function PUT(req: NextRequest) {
   try {
-    const {
-      ghlEventId,
-      jtTaskId,
-      startTime,
-      endTime,
-      title,
-      notes,
-      address,
-    } = await req.json();
+    const body = await req.json();
+    const ghlEventId: string | undefined = body.ghlEventId;
+    const meetingGroupId: string | undefined = body.meetingGroupId;
+    let jtTaskId: string | undefined = body.jtTaskId;
+    const { startTime, endTime, title, notes, address } = body;
 
-    if (!ghlEventId) {
+    if (!ghlEventId && !meetingGroupId) {
       return NextResponse.json(
-        { error: 'ghlEventId is required' },
+        { error: 'ghlEventId or meetingGroupId is required' },
         { status: 400 }
       );
     }
 
-    // 1. Update GHL appointment
+    const sb = getSupabase();
+    let group: any = null;
+    try {
+      if (meetingGroupId) {
+        const r = await sb.from('meeting_groups').select('*').eq('id', meetingGroupId).maybeSingle();
+        group = r.data;
+      } else if (ghlEventId) {
+        const r = await sb.from('meeting_groups')
+          .select('*')
+          .contains('ghl_event_ids', [ghlEventId])
+          .maybeSingle();
+        group = r.data;
+      }
+    } catch (err: any) {
+      console.warn('[schedule-meeting] group lookup failed (falling back to single):', err?.message || err);
+    }
+
+    const eventIdsToUpdate: string[] = group?.ghl_event_ids?.length
+      ? group.ghl_event_ids
+      : (ghlEventId ? [ghlEventId] : []);
+    if (!jtTaskId && group?.jt_task_id) jtTaskId = group.jt_task_id;
+
+    // Re-stamp the shared Meet URL on virtual edits so a user editing
+    // notes/address can't accidentally wipe the room URL. Falls back to
+    // whatever the caller passed when the group isn't virtual.
+    const isVirtual = !!group?.is_virtual;
+    let effectiveAddress = address;
+    let effectiveNotes = notes;
+    if (isVirtual) {
+      effectiveAddress = BKB_VIRTUAL_MEET_URL;
+      if (notes !== undefined) {
+        const meetBlock = `Virtual meeting: ${BKB_VIRTUAL_MEET_URL}\n${BKB_VIRTUAL_MEET_DIALIN}`;
+        effectiveNotes = notes ? `${meetBlock}\n\n${notes}` : meetBlock;
+      }
+    }
+
     const updateParams: any = {};
     if (startTime) updateParams.startTime = startTime;
     if (endTime) updateParams.endTime = endTime;
     if (title) updateParams.title = title;
-    if (notes) updateParams.notes = notes;
-    if (address) updateParams.address = address;
+    if (effectiveNotes !== undefined) updateParams.notes = effectiveNotes;
+    if (effectiveAddress !== undefined) updateParams.address = effectiveAddress;
 
+    const ghlErrors: Array<{ ghlEventId: string; error: string }> = [];
+
+    // 1. Push the same update to every sibling event. Best-effort across
+    //    failures so a hiccup on one sibling doesn't roll back the others.
     if (Object.keys(updateParams).length > 0) {
-      await updateAppointment(ghlEventId, updateParams);
+      for (const eid of eventIdsToUpdate) {
+        try {
+          await updateAppointment(eid, updateParams);
+        } catch (err: any) {
+          const msg = err?.message || String(err);
+          console.warn(`[schedule-meeting] update ${eid} failed:`, msg);
+          ghlErrors.push({ ghlEventId: eid, error: msg });
+        }
+      }
     }
 
-    // 2. Update JT task if provided
+    // 2. Update JT task fields that mirror the meeting (name + dates).
     if (jtTaskId) {
       const updateFields: any = {};
       if (title) updateFields.name = `${GHL_TASK_PREFIX}${title}`;
@@ -496,15 +638,40 @@ export async function PUT(req: NextRequest) {
       if (endTime) updateFields.endDate = new Date(endTime).toISOString().split('T')[0];
 
       if (Object.keys(updateFields).length > 0) {
-        await updateTask(jtTaskId, updateFields);
+        try {
+          await updateTask(jtTaskId, updateFields);
+        } catch (jtErr: any) {
+          console.warn('Failed to update JT task:', jtErr.message);
+        }
+      }
+    }
+
+    // 3. Update the group row's display metadata so subsequent reads
+    //    show the latest title/time/notes without round-tripping Loop.
+    if (group?.id) {
+      try {
+        const groupUpdate: any = { updated_at: new Date().toISOString() };
+        if (title) groupUpdate.title = title;
+        if (startTime) groupUpdate.start_time = startTime;
+        if (endTime) groupUpdate.end_time = endTime;
+        if (effectiveNotes !== undefined) groupUpdate.notes = effectiveNotes;
+        if (effectiveAddress !== undefined) groupUpdate.address = effectiveAddress;
+        await sb.from('meeting_groups').update(groupUpdate).eq('id', group.id);
+      } catch (err: any) {
+        console.warn('[schedule-meeting] group metadata update failed:', err?.message || err);
       }
     }
 
     return NextResponse.json({
       success: true,
-      ghlEventId,
-      jtTaskId,
-      message: 'Meeting updated',
+      updatedEventIds: eventIdsToUpdate.filter(id => !ghlErrors.find(e => e.ghlEventId === id)),
+      jtTaskId: jtTaskId || null,
+      groupId: group?.id || null,
+      errors: ghlErrors.length > 0 ? ghlErrors : undefined,
+      message:
+        ghlErrors.length === 0
+          ? `Meeting updated (${eventIdsToUpdate.length} appointment${eventIdsToUpdate.length === 1 ? '' : 's'})`
+          : `Updated ${eventIdsToUpdate.length - ghlErrors.length}/${eventIdsToUpdate.length} appointments`,
     });
   } catch (err: any) {
     console.error('Update meeting failed:', err);
@@ -516,35 +683,104 @@ export async function PUT(req: NextRequest) {
 }
 
 // -- DELETE: Cancel a meeting in GHL + JT -------------------------
+// Group-aware: a single ghlEventId (or meetingGroupId) cancels every
+// sibling appointment in the meeting group AND the linked JT task in
+// one shot. Pre-group meetings (no meeting_groups row) still work as
+// before — we fall back to single-event cancel.
 export async function DELETE(req: NextRequest) {
   try {
-    const { ghlEventId, jtTaskId } = await req.json();
+    const body = await req.json();
+    const ghlEventId: string | undefined = body.ghlEventId;
+    const meetingGroupId: string | undefined = body.meetingGroupId;
+    let jtTaskId: string | undefined = body.jtTaskId;
 
-    if (!ghlEventId) {
+    if (!ghlEventId && !meetingGroupId) {
       return NextResponse.json(
-        { error: 'ghlEventId is required' },
+        { error: 'ghlEventId or meetingGroupId is required' },
         { status: 400 }
       );
     }
 
-    // 1. Cancel GHL appointment
-    await cancelAppointment(ghlEventId);
+    // Resolve the meeting group. Either we were given its id directly,
+    // or we look it up by any one sibling event id. If neither lookup
+    // hits, we fall back to "cancel just this one event" — that's the
+    // legacy behavior for meetings created before group tracking.
+    const sb = getSupabase();
+    let group: any = null;
+    try {
+      if (meetingGroupId) {
+        const r = await sb.from('meeting_groups').select('*').eq('id', meetingGroupId).maybeSingle();
+        group = r.data;
+      } else if (ghlEventId) {
+        const r = await sb.from('meeting_groups')
+          .select('*')
+          .contains('ghl_event_ids', [ghlEventId])
+          .maybeSingle();
+        group = r.data;
+      }
+    } catch (err: any) {
+      console.warn('[schedule-meeting] group lookup failed (falling back to single):', err?.message || err);
+    }
 
-    // 2. Mark JT task as completed if provided
+    const eventIdsToCancel: string[] = group?.ghl_event_ids?.length
+      ? group.ghl_event_ids
+      : (ghlEventId ? [ghlEventId] : []);
+    if (!jtTaskId && group?.jt_task_id) jtTaskId = group.jt_task_id;
+
+    const ghlErrors: Array<{ ghlEventId: string; error: string }> = [];
+
+    // 1. Cancel every Loop appointment in the group. We don't bail on
+    //    first error — we want best-effort across siblings so the user
+    //    isn't left with half-cancelled meetings.
+    for (const eid of eventIdsToCancel) {
+      try {
+        await cancelAppointment(eid);
+      } catch (err: any) {
+        const msg = err?.message || String(err);
+        console.warn(`[schedule-meeting] cancel ${eid} failed:`, msg);
+        ghlErrors.push({ ghlEventId: eid, error: msg });
+      }
+    }
+
+    // 2. Complete the JT task (marks the "Meetings" phase task done).
+    let jtTaskCancelled = false;
     if (jtTaskId) {
       try {
         await updateTaskProgress(jtTaskId, 1);
+        jtTaskCancelled = true;
       } catch (jtErr: any) {
         console.warn('Failed to complete JT task:', jtErr.message);
-        // Continue anyway - GHL appointment was cancelled
+      }
+    }
+
+    // 3. Mark the group cancelled. Skip silently if there's no group.
+    if (group?.id) {
+      try {
+        await sb
+          .from('meeting_groups')
+          .update({
+            status: 'cancelled',
+            cancelled_at: new Date().toISOString(),
+            cancelled_by: body.cancelledBy || 'nathan',
+            updated_at: new Date().toISOString(),
+          })
+          .eq('id', group.id);
+      } catch (err: any) {
+        console.warn('[schedule-meeting] group status update failed:', err?.message || err);
       }
     }
 
     return NextResponse.json({
       success: true,
-      ghlEventId,
-      jtTaskId,
-      message: 'Meeting cancelled',
+      cancelledEventIds: eventIdsToCancel.filter(id => !ghlErrors.find(e => e.ghlEventId === id)),
+      jtTaskCancelled,
+      jtTaskId: jtTaskId || null,
+      groupId: group?.id || null,
+      errors: ghlErrors.length > 0 ? ghlErrors : undefined,
+      message:
+        ghlErrors.length === 0
+          ? `Meeting cancelled (${eventIdsToCancel.length} appointment${eventIdsToCancel.length === 1 ? '' : 's'})`
+          : `Cancelled ${eventIdsToCancel.length - ghlErrors.length}/${eventIdsToCancel.length} appointments`,
     });
   } catch (err: any) {
     console.error('Cancel meeting failed:', err);

@@ -6,7 +6,7 @@ import {
   X, Loader2, Phone, Mail, MapPin, Tag, Calendar, Clock,
   FileText, User, Building2, Globe, ExternalLink, ChevronDown, ChevronRight,
   Star, Clipboard, MessageSquare, MessageCircle, PhoneCall, Mail as MailIcon,
-  ArrowDownLeft, ArrowUpRight,
+  ArrowDownLeft, ArrowUpRight, Pencil, Trash2, CheckCircle2,
 } from 'lucide-react';
 
 /* ── Types ── */
@@ -152,6 +152,119 @@ export default function LeadDetailModal({ contactId, opportunityId, jobId, conta
   const [customExpanded, setCustomExpanded] = useState(false);
   const [activityExpanded, setActivityExpanded] = useState(true);
   const modalRef = useRef<HTMLDivElement>(null);
+
+  // Per-appointment edit/cancel state. Keyed on the GHL event id (which
+  // is also the row's apt.id). When a row is in edit mode the form
+  // appears inline below the row. Cancel runs through a confirm step
+  // before firing the DELETE.
+  const [editingApptId, setEditingApptId] = useState<string | null>(null);
+  const [editForm, setEditForm] = useState<{ title: string; date: string; time: string; notes: string }>({
+    title: '', date: '', time: '', notes: '',
+  });
+  const [apptBusy, setApptBusy] = useState<string | null>(null);
+  const [apptError, setApptError] = useState<string | null>(null);
+  const [apptSuccess, setApptSuccess] = useState<string | null>(null);
+  const [cancelConfirm, setCancelConfirm] = useState<string | null>(null);
+
+  function getToken(): string {
+    return typeof window !== 'undefined' ? localStorage.getItem('bkb-token') || '' : '';
+  }
+
+  // Open the inline edit form for an appointment. Pre-fills with current
+  // values so the user only has to change what's different.
+  function startEdit(apt: Appointment) {
+    setApptError(null);
+    setApptSuccess(null);
+    setCancelConfirm(null);
+    const d = new Date(apt.startTime);
+    const yyyy = d.getFullYear();
+    const mm = String(d.getMonth() + 1).padStart(2, '0');
+    const dd = String(d.getDate()).padStart(2, '0');
+    const hh = String(d.getHours()).padStart(2, '0');
+    const min = String(d.getMinutes()).padStart(2, '0');
+    setEditForm({
+      title: apt.title || '',
+      date: `${yyyy}-${mm}-${dd}`,
+      time: `${hh}:${min}`,
+      notes: '',
+    });
+    setEditingApptId(apt.id);
+  }
+
+  // Save edits. Computes a new start/end (preserving original duration)
+  // from the form's date+time and posts to the group-aware PUT endpoint.
+  async function saveEdit(apt: Appointment) {
+    setApptError(null);
+    setApptBusy(apt.id);
+    try {
+      const startMs = new Date(apt.startTime).getTime();
+      const endMs = new Date(apt.endTime).getTime();
+      const durationMs = Math.max(endMs - startMs, 30 * 60 * 1000);
+      const newStart = new Date(`${editForm.date}T${editForm.time}:00`);
+      const newEnd = new Date(newStart.getTime() + durationMs);
+      const res = await fetch('/api/dashboard/schedule-meeting', {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${getToken()}` },
+        body: JSON.stringify({
+          ghlEventId: apt.id,
+          title: editForm.title.trim() || undefined,
+          startTime: newStart.toISOString(),
+          endTime: newEnd.toISOString(),
+          ...(editForm.notes.trim() ? { notes: editForm.notes.trim() } : {}),
+        }),
+      });
+      if (!res.ok) {
+        const t = await res.text();
+        throw new Error(t || 'Failed to update meeting');
+      }
+      const d = await res.json();
+      const count = (d?.updatedEventIds || []).length || 1;
+      setApptSuccess(`Updated ${count} calendar event${count === 1 ? '' : 's'}.`);
+      setEditingApptId(null);
+    } catch (err: any) {
+      setApptError(err.message || 'Failed to update meeting');
+    } finally {
+      setApptBusy(null);
+    }
+  }
+
+  // Cancel the entire meeting group (every sibling appointment + the JT
+  // task). User clicks Cancel once to show the confirm row, then Cancel
+  // again to confirm.
+  async function cancelAppt(apt: Appointment) {
+    setApptError(null);
+    setApptBusy(apt.id);
+    try {
+      const res = await fetch('/api/dashboard/schedule-meeting', {
+        method: 'DELETE',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${getToken()}` },
+        body: JSON.stringify({ ghlEventId: apt.id }),
+      });
+      if (!res.ok) {
+        const t = await res.text();
+        throw new Error(t || 'Failed to cancel meeting');
+      }
+      const d = await res.json();
+      const count = (d?.cancelledEventIds || []).length || 1;
+      const jtBit = d?.jtTaskCancelled ? ' + JobTread task' : '';
+      setApptSuccess(`Cancelled ${count} calendar event${count === 1 ? '' : 's'}${jtBit}.`);
+      setCancelConfirm(null);
+      // Mark this appointment locally as cancelled so the row updates
+      // immediately without a full modal refetch.
+      if (data) {
+        setData({
+          ...data,
+          appointments: data.appointments.map(a =>
+            a.id === apt.id ? { ...a, status: 'cancelled' } : a
+          ),
+        });
+      }
+    } catch (err: any) {
+      setApptError(err.message || 'Failed to cancel meeting');
+    } finally {
+      setApptBusy(null);
+    }
+  }
 
   useEffect(() => {
     const fetchDetail = async () => {
@@ -589,7 +702,12 @@ export default function LeadDetailModal({ contactId, opportunityId, jobId, conta
                 )}
               </div>
 
-              {/* ── Upcoming Appointments ── */}
+              {/* ── Upcoming Appointments ──
+                  Each row has Edit + Cancel buttons that apply to the
+                  entire meeting group (every sibling appointment created
+                  for the per-attendee fan-out + the linked JobTread
+                  task). Backend resolves the group from any one event
+                  id, so the UI only needs to pass the appointment's id. */}
               {data.appointments.length > 0 && (
                 <div style={{ borderBottom: '1px solid rgba(200,140,0,0.06)' }}>
                   <div className="flex items-center gap-2 px-5 py-3">
@@ -598,24 +716,156 @@ export default function LeadDetailModal({ contactId, opportunityId, jobId, conta
                       Upcoming
                     </span>
                   </div>
-                  <div className="px-5 pb-4 space-y-2">
-                    {data.appointments.map((apt) => (
-                      <div key={apt.id} className="flex items-center gap-3 px-3 py-2 rounded-lg" style={{ background: 'rgba(200,140,0,0.04)' }}>
-                        <Clock size={12} style={{ color: '#c88c00' }} />
-                        <div className="flex-1 min-w-0">
-                          <div className="text-sm truncate" style={{ color: '#1a1a1a' }}>{apt.title || 'Appointment'}</div>
-                          <div className="text-[11px]" style={{ color: '#6a6058' }}>{formatDateTime(apt.startTime)}</div>
+                  {(apptSuccess || apptError) && (
+                    <div className="px-5 pb-2">
+                      {apptSuccess && (
+                        <div className="text-xs flex items-center gap-1.5 px-3 py-1.5 rounded" style={{ background: 'rgba(34,197,94,0.08)', color: '#16a34a' }}>
+                          <CheckCircle2 size={11} /> {apptSuccess}
                         </div>
-                        {apt.status && (
-                          <span className="text-[10px] px-1.5 py-0.5 rounded" style={{
-                            background: apt.status === 'confirmed' ? 'rgba(34,197,94,0.1)' : 'rgba(200,140,0,0.08)',
-                            color: apt.status === 'confirmed' ? '#16a34a' : '#8a8078',
-                          }}>
-                            {apt.status}
-                          </span>
-                        )}
-                      </div>
-                    ))}
+                      )}
+                      {apptError && (
+                        <div className="text-xs px-3 py-1.5 rounded" style={{ background: 'rgba(239,68,68,0.08)', color: '#b91c1c' }}>
+                          {apptError}
+                        </div>
+                      )}
+                    </div>
+                  )}
+                  <div className="px-5 pb-4 space-y-2">
+                    {data.appointments.map((apt) => {
+                      const isEditing = editingApptId === apt.id;
+                      const isCancelled = (apt.status || '').toLowerCase() === 'cancelled';
+                      const isBusy = apptBusy === apt.id;
+                      const confirmingCancel = cancelConfirm === apt.id;
+                      return (
+                        <div key={apt.id} className="rounded-lg" style={{ background: 'rgba(200,140,0,0.04)' }}>
+                          <div className="flex items-center gap-3 px-3 py-2">
+                            <Clock size={12} style={{ color: '#c88c00' }} />
+                            <div className="flex-1 min-w-0">
+                              <div className="text-sm truncate" style={{ color: '#1a1a1a' }}>{apt.title || 'Appointment'}</div>
+                              <div className="text-[11px]" style={{ color: '#6a6058' }}>{formatDateTime(apt.startTime)}</div>
+                            </div>
+                            {apt.status && (
+                              <span className="text-[10px] px-1.5 py-0.5 rounded" style={{
+                                background: isCancelled ? 'rgba(239,68,68,0.10)'
+                                  : apt.status === 'confirmed' ? 'rgba(34,197,94,0.1)' : 'rgba(200,140,0,0.08)',
+                                color: isCancelled ? '#b91c1c'
+                                  : apt.status === 'confirmed' ? '#16a34a' : '#8a8078',
+                              }}>
+                                {apt.status}
+                              </span>
+                            )}
+                            {!isCancelled && (
+                              <div className="flex items-center gap-1">
+                                <button
+                                  type="button"
+                                  onClick={() => isEditing ? setEditingApptId(null) : startEdit(apt)}
+                                  disabled={isBusy}
+                                  className="text-[11px] flex items-center gap-1 px-2 py-1 rounded hover:bg-stone-50"
+                                  style={{ color: '#3730a3', border: '1px solid rgba(79,70,229,0.20)' }}
+                                  title="Edit this meeting (applies to all attendees)"
+                                >
+                                  <Pencil size={10} /> {isEditing ? 'Close' : 'Edit'}
+                                </button>
+                                <button
+                                  type="button"
+                                  onClick={() => confirmingCancel ? cancelAppt(apt) : setCancelConfirm(apt.id)}
+                                  disabled={isBusy}
+                                  className="text-[11px] flex items-center gap-1 px-2 py-1 rounded hover:bg-stone-50"
+                                  style={{ color: '#b91c1c', border: '1px solid rgba(239,68,68,0.25)' }}
+                                  title={confirmingCancel ? 'Click again to confirm' : 'Cancel meeting (all attendees + JT task)'}
+                                >
+                                  {isBusy ? <Loader2 size={10} className="animate-spin" /> : <Trash2 size={10} />}
+                                  {confirmingCancel ? 'Confirm cancel' : 'Cancel'}
+                                </button>
+                                {confirmingCancel && (
+                                  <button
+                                    type="button"
+                                    onClick={() => setCancelConfirm(null)}
+                                    disabled={isBusy}
+                                    className="text-[11px] px-2 py-1 rounded hover:bg-stone-50"
+                                    style={{ color: '#6a6058' }}
+                                  >
+                                    Keep
+                                  </button>
+                                )}
+                              </div>
+                            )}
+                          </div>
+                          {isEditing && (
+                            <div className="px-3 pb-3 pt-1 border-t" style={{ borderColor: 'rgba(200,140,0,0.10)' }}>
+                              <div className="grid grid-cols-1 md:grid-cols-2 gap-2 mt-2">
+                                <label className="text-[11px]" style={{ color: '#8a8078' }}>
+                                  Title
+                                  <input
+                                    type="text"
+                                    value={editForm.title}
+                                    onChange={(e) => setEditForm({ ...editForm, title: e.target.value })}
+                                    disabled={isBusy}
+                                    className="w-full rounded-md px-2 py-1 text-xs mt-0.5"
+                                    style={{ background: '#ffffff', border: '1px solid rgba(200,140,0,0.20)', color: '#1a1a1a' }}
+                                  />
+                                </label>
+                                <div className="grid grid-cols-2 gap-2">
+                                  <label className="text-[11px]" style={{ color: '#8a8078' }}>
+                                    Date
+                                    <input
+                                      type="date"
+                                      value={editForm.date}
+                                      onChange={(e) => setEditForm({ ...editForm, date: e.target.value })}
+                                      disabled={isBusy}
+                                      className="w-full rounded-md px-2 py-1 text-xs mt-0.5"
+                                      style={{ background: '#ffffff', border: '1px solid rgba(200,140,0,0.20)', color: '#1a1a1a' }}
+                                    />
+                                  </label>
+                                  <label className="text-[11px]" style={{ color: '#8a8078' }}>
+                                    Time
+                                    <input
+                                      type="time"
+                                      value={editForm.time}
+                                      onChange={(e) => setEditForm({ ...editForm, time: e.target.value })}
+                                      disabled={isBusy}
+                                      className="w-full rounded-md px-2 py-1 text-xs mt-0.5"
+                                      style={{ background: '#ffffff', border: '1px solid rgba(200,140,0,0.20)', color: '#1a1a1a' }}
+                                    />
+                                  </label>
+                                </div>
+                              </div>
+                              <label className="text-[11px] block mt-2" style={{ color: '#8a8078' }}>
+                                Add to notes (optional)
+                                <textarea
+                                  value={editForm.notes}
+                                  onChange={(e) => setEditForm({ ...editForm, notes: e.target.value })}
+                                  disabled={isBusy}
+                                  placeholder="Any additional notes — appended to the event"
+                                  rows={2}
+                                  className="w-full rounded-md px-2 py-1 text-xs mt-0.5"
+                                  style={{ background: '#ffffff', border: '1px solid rgba(200,140,0,0.20)', color: '#1a1a1a', resize: 'vertical' }}
+                                />
+                              </label>
+                              <div className="flex items-center gap-2 mt-2">
+                                <button
+                                  type="button"
+                                  onClick={() => saveEdit(apt)}
+                                  disabled={isBusy || !editForm.title.trim() || !editForm.date || !editForm.time}
+                                  className="text-xs flex items-center gap-1.5 px-3 py-1.5 rounded"
+                                  style={{
+                                    background: isBusy || !editForm.title.trim() || !editForm.date || !editForm.time ? 'rgba(79,70,229,0.3)' : '#4f46e5',
+                                    color: '#ffffff',
+                                    cursor: isBusy ? 'not-allowed' : 'pointer',
+                                  }}
+                                >
+                                  {isBusy ? <Loader2 size={11} className="animate-spin" /> : <CheckCircle2 size={11} />}
+                                  Save changes
+                                </button>
+                                <span className="text-[10px]" style={{ color: '#8a8078' }}>
+                                  Applies to every attendee + the JobTread task
+                                </span>
+                              </div>
+                            </div>
+                          )}
+                        </div>
+                      );
+                    })}
                   </div>
                 </div>
               )}
