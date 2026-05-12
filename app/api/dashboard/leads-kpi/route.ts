@@ -90,16 +90,28 @@ export async function GET() {
   try {
     const now = new Date();
 
-    // Date boundaries for 12-month rolling windows
+    // Date boundaries for 12-month rolling windows (kept for monthly trend
+    // + source breakdown which still want a year of data).
     const twelveMonthsAgo = new Date(now.getFullYear(), now.getMonth() - 12, now.getDate());
     const twentyFourMonthsAgo = new Date(now.getFullYear(), now.getMonth() - 24, now.getDate());
     const sevenDaysAgo = new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000);
     const thirtyDaysAgo = new Date(now.getTime() - 30 * 24 * 60 * 60 * 1000);
 
+    // 60-day primary window + the same 60-day window from one year ago.
+    // Nathan wants the top KPI cards and the comparison chart on a 60-day
+    // basis with a true year-over-year delta (seasonality matters more than
+    // raw rolling 12-month volume).
+    const sixtyDaysAgo = new Date(now.getTime() - 60 * 24 * 60 * 60 * 1000);
+    // "Same 60 days last year" = shift both endpoints back 365 days.
+    const sixtyDaysAgoLastYear = new Date(sixtyDaysAgo.getTime() - 365 * 24 * 60 * 60 * 1000);
+    const nowLastYear = new Date(now.getTime() - 365 * 24 * 60 * 60 * 1000);
+
     // Fetch ALL opportunities (paginated)
     const opps = await fetchAllOpportunities();
 
-    // Fetch calendar events (last 12 months + prior 12 months)
+    // Fetch calendar events. The pull spans 24 months ago → now so it
+    // covers both the rolling 12-month frame AND the "60 days last year"
+    // window (which sits inside the 12–14-months-ago slice).
     const calStart = twentyFourMonthsAgo.getTime();
     const calEnd = now.getTime();
     const [discoveryData, onsiteData] = await Promise.all([
@@ -132,6 +144,23 @@ export async function GET() {
       isInPeriod(e.startTime || e.createdAt, twentyFourMonthsAgo, twelveMonthsAgo)
     );
 
+    // 60-day windows: this year and same 60 days a year ago.
+    const opps60d = opps.filter((o: any) => isInPeriod(o.createdAt, sixtyDaysAgo, now));
+    const oppsPrior60d = opps.filter((o: any) => isInPeriod(o.createdAt, sixtyDaysAgoLastYear, nowLastYear));
+
+    const discovery60d = allDiscoveryEvents.filter((e: any) =>
+      isInPeriod(e.startTime || e.createdAt, sixtyDaysAgo, now)
+    );
+    const discoveryPrior60d = allDiscoveryEvents.filter((e: any) =>
+      isInPeriod(e.startTime || e.createdAt, sixtyDaysAgoLastYear, nowLastYear)
+    );
+    const onsite60d = allOnsiteEvents.filter((e: any) =>
+      isInPeriod(e.startTime || e.createdAt, sixtyDaysAgo, now)
+    );
+    const onsitePrior60d = allOnsiteEvents.filter((e: any) =>
+      isInPeriod(e.startTime || e.createdAt, sixtyDaysAgoLastYear, nowLastYear)
+    );
+
     // ── Pipeline breakdown (open only — all time) ──
     const openOpps = opps.filter((o: any) => o.status === 'open');
     const pipelineBreakdown: { stage: string; count: number; stageId: string }[] = [];
@@ -146,7 +175,23 @@ export async function GET() {
     const countSecured = (oppSet: any[]) =>
       oppSet.filter((o: any) => SECURED_STAGES.includes(STAGES[o.pipelineStageId] || '')).length;
 
-    // ── 12-Month Rolling KPIs ──
+    // "Secured in <window>" = opps whose lastStageChangeAt fell inside the
+    // window AND whose CURRENT stage is in the secured set. This counts the
+    // moment a lead moved into Design/Production/etc, not the moment it
+    // was first created. For a 60-day window that's far more useful than
+    // "leads created in last 60d that are now secured" (most BKB jobs take
+    // longer than 60 days to convert, so a creation-window definition
+    // would read near-zero).
+    const countSecuredInWindow = (start: Date, end: Date) =>
+      opps.filter((o: any) => {
+        const stageName = STAGES[o.pipelineStageId] || '';
+        if (!SECURED_STAGES.includes(stageName)) return false;
+        const changed = o.lastStageChangeAt || o.createdAt;
+        return isInPeriod(changed, start, end);
+      }).length;
+
+    // ── 12-Month Rolling KPIs (still computed for the conversion rate
+    //    card and any callers that still want the annual view) ──
     const totalLeads12m = currentOpps.length;
     const totalLeadsPrior = priorOpps.length;
 
@@ -166,6 +211,24 @@ export async function GET() {
       ? Math.round((securedClientsPrior / totalLeadsPrior) * 100)
       : 0;
 
+    // ── 60-Day window with year-over-year comparison ──
+    // Primary metrics on the dashboard top row. The "prior" baseline is
+    // the same 60-day window from a year ago (true YoY), not the prior
+    // rolling 60 days, so seasonality is preserved.
+    const totalLeads60d = opps60d.length;
+    const totalLeads60dPrior = oppsPrior60d.length;
+
+    const onsiteVisits60d = onsite60d.length;
+    const onsiteVisits60dPrior = onsitePrior60d.length;
+
+    const discoveryCalls60d = discovery60d.length;
+    const discoveryCalls60dPrior = discoveryPrior60d.length;
+
+    // Secured: count stage-change events into Secured stages that fell in
+    // the window (see countSecuredInWindow comment for rationale).
+    const securedClients60d = countSecuredInWindow(sixtyDaysAgo, now);
+    const securedClients60dPrior = countSecuredInWindow(sixtyDaysAgoLastYear, nowLastYear);
+
     // Active leads = currently open in lead stages
     const activeLeads = openOpps.filter((o: any) =>
       LEAD_STAGES.includes(STAGES[o.pipelineStageId] || '')
@@ -182,14 +245,15 @@ export async function GET() {
       return Math.round(((current - prior) / prior) * 100);
     };
 
-    // ── Funnel (current 12m) ──
-    const inEstimating = openOpps.filter((o: any) => o.pipelineStageId === 'c4012dfe-bc76-4447-8947-96a9e846ff2b').length;
-    const funnel = [
-      { label: 'Total Leads (12mo)', value: totalLeads12m },
-      { label: 'Discovery Calls', value: discoveryCalls12m },
-      { label: 'On-Site Visits', value: onsiteVisits12m },
-      { label: 'Estimating', value: inEstimating },
-      { label: 'Secured (In Design+)', value: securedClients12m },
+    // ── Year-over-Year 60-day comparison ──
+    // Replaces the old 12-month funnel chart. Lets Nathan eyeball
+    // whether the most recent 60 days are running ahead of or behind
+    // the same 60-day window from last year (seasonality matters).
+    const yearOverYear60d = [
+      { label: 'Total Leads',     thisYear: totalLeads60d,     lastYear: totalLeads60dPrior },
+      { label: 'Discovery Calls', thisYear: discoveryCalls60d, lastYear: discoveryCalls60dPrior },
+      { label: 'On-Site Visits',  thisYear: onsiteVisits60d,   lastYear: onsiteVisits60dPrior },
+      { label: 'Secured',         thisYear: securedClients60d, lastYear: securedClients60dPrior },
     ];
 
     // ── Monthly lead creation trend (last 12 months) ──
@@ -283,7 +347,27 @@ export async function GET() {
 
     return NextResponse.json({
       kpis: {
-        // 12-month rolling primary KPIs
+        // 60-day window (primary KPIs Nathan looks at on the dashboard
+        // top row). Change is vs the same 60-day window one year ago.
+        totalLeads60d,
+        totalLeads60dPrior,
+        totalLeads60dChange: pctChange(totalLeads60d, totalLeads60dPrior),
+
+        onsiteVisits60d,
+        onsiteVisits60dPrior,
+        onsiteVisits60dChange: pctChange(onsiteVisits60d, onsiteVisits60dPrior),
+
+        securedClients60d,
+        securedClients60dPrior,
+        securedClients60dChange: pctChange(securedClients60d, securedClients60dPrior),
+
+        discoveryCalls60d,
+        discoveryCalls60dPrior,
+        discoveryCalls60dChange: pctChange(discoveryCalls60d, discoveryCalls60dPrior),
+
+        // 12-month rolling — still surfaced so the Conversion Rate card
+        // (annualized denominator) has a sensible baseline, and so any
+        // downstream client that hasn't migrated yet keeps working.
         totalLeads12m,
         totalLeadsPrior,
         totalLeadsChange: pctChange(totalLeads12m, totalLeadsPrior),
@@ -311,7 +395,7 @@ export async function GET() {
         totalPipeline: openOpps.length,
       },
       pipelineBreakdown,
-      funnel,
+      yearOverYear60d,
       monthlyTrend,
       recentLeads,
       pendingNewLeads,

@@ -88,6 +88,21 @@ interface EstimatingJob {
 
 interface KpiData {
   kpis: {
+    // 60-day primary metrics (top KPI cards) with year-over-year change.
+    totalLeads60d: number;
+    totalLeads60dPrior: number;
+    totalLeads60dChange: number | null;
+    onsiteVisits60d: number;
+    onsiteVisits60dPrior: number;
+    onsiteVisits60dChange: number | null;
+    securedClients60d: number;
+    securedClients60dPrior: number;
+    securedClients60dChange: number | null;
+    discoveryCalls60d: number;
+    discoveryCalls60dPrior: number;
+    discoveryCalls60dChange: number | null;
+    // 12-month rolling — still returned. Used by the Conversion Rate
+    // card which needs an annual denominator to read sensibly.
     totalLeads12m: number;
     totalLeadsPrior: number;
     totalLeadsChange: number | null;
@@ -109,7 +124,7 @@ interface KpiData {
     totalPipeline: number;
   };
   pipelineBreakdown: { stage: string; count: number; stageId: string }[];
-  funnel: { label: string; value: number }[];
+  yearOverYear60d: { label: string; thisYear: number; lastYear: number }[];
   monthlyTrend: { month: string; leads: number; secured: number }[];
   recentLeads: { id: string; name: string; stage: string; status: string; createdAt: string; contactName: string; contactId: string }[];
   pendingNewLeads: PendingLead[];
@@ -247,28 +262,72 @@ function KpiCard({ label, value, icon: Icon, accent, sub, change, prior }: {
 }
 
 /* ── Funnel Bar Chart ── */
-function FunnelChart({ data }: { data: { label: string; value: number }[] }) {
-  const max = Math.max(...data.map(d => d.value), 1);
-  const colors = ['#8a8078', '#c88c00', '#a78bfa', '#c88c00', '#22c55e'];
+/* ── Year-over-Year 60-day Comparison Chart ──
+   Replaces the old top-of-funnel volume chart. Renders one row per metric
+   (Total Leads / Discovery Calls / On-Site Visits / Secured) with two
+   side-by-side bars: amber for this year's most recent 60 days, neutral
+   for the same 60 days a year ago. Each metric is scaled to its own row
+   max so e.g. Total Leads (large) and Secured (small) are both readable. */
+function YearOverYearChart({ data }: { data: { label: string; thisYear: number; lastYear: number }[] }) {
   return (
-    <div className="space-y-2.5">
-      {data.map((d, i) => (
-        <div key={d.label}>
-          <div className="flex items-center justify-between mb-1">
-            <span className="text-xs" style={{ color: '#1a1a1a' }}>{d.label}</span>
-            <span className="text-xs font-bold" style={{ color: colors[i] || '#c88c00' }}>{d.value}</span>
-          </div>
-          <div className="h-5 rounded-md overflow-hidden" style={{ background: 'rgba(200,140,0,0.06)' }}>
-            <div
-              className="h-full rounded-md transition-all duration-700"
-              style={{
-                width: `${Math.max((d.value / max) * 100, 2)}%`,
-                background: `linear-gradient(90deg, ${colors[i] || '#c88c00'}, ${colors[i] || '#c88c00'}88)`,
-              }}
-            />
-          </div>
+    <div className="space-y-3">
+      <div className="flex items-center gap-4 mb-1">
+        <div className="flex items-center gap-1.5">
+          <div className="w-2.5 h-2.5 rounded-sm" style={{ background: '#c88c00' }} />
+          <span className="text-xs" style={{ color: '#8a8078' }}>This Year (60d)</span>
         </div>
-      ))}
+        <div className="flex items-center gap-1.5">
+          <div className="w-2.5 h-2.5 rounded-sm" style={{ background: '#a8a098' }} />
+          <span className="text-xs" style={{ color: '#8a8078' }}>Last Year (same 60d)</span>
+        </div>
+      </div>
+      {data.map((d) => {
+        // Scale each metric row to its own per-row max so small-volume
+        // metrics like Secured (typically single digits) still render a
+        // visible bar next to high-volume metrics like Total Leads.
+        const rowMax = Math.max(d.thisYear, d.lastYear, 1);
+        const delta = d.thisYear - d.lastYear;
+        const deltaColor = delta > 0 ? '#22c55e' : delta < 0 ? '#ef4444' : '#8a8078';
+        const deltaPrefix = delta > 0 ? '+' : '';
+        return (
+          <div key={d.label}>
+            <div className="flex items-center justify-between mb-1">
+              <span className="text-xs" style={{ color: '#1a1a1a' }}>{d.label}</span>
+              <span className="text-[11px]" style={{ color: deltaColor, fontWeight: 600 }}>
+                {deltaPrefix}{delta}
+              </span>
+            </div>
+            <div className="space-y-1">
+              {/* This year bar */}
+              <div className="flex items-center gap-2">
+                <div className="flex-1 h-3.5 rounded-md overflow-hidden" style={{ background: 'rgba(200,140,0,0.06)' }}>
+                  <div
+                    className="h-full rounded-md transition-all duration-700"
+                    style={{
+                      width: `${Math.max((d.thisYear / rowMax) * 100, 2)}%`,
+                      background: 'linear-gradient(90deg, #c88c00, #c88c0088)',
+                    }}
+                  />
+                </div>
+                <span className="text-[11px] font-bold w-7 text-right" style={{ color: '#c88c00' }}>{d.thisYear}</span>
+              </div>
+              {/* Last year bar */}
+              <div className="flex items-center gap-2">
+                <div className="flex-1 h-3.5 rounded-md overflow-hidden" style={{ background: 'rgba(168,160,152,0.10)' }}>
+                  <div
+                    className="h-full rounded-md transition-all duration-700"
+                    style={{
+                      width: `${Math.max((d.lastYear / rowMax) * 100, 2)}%`,
+                      background: 'linear-gradient(90deg, #a8a098, #a8a09888)',
+                    }}
+                  />
+                </div>
+                <span className="text-[11px] font-bold w-7 text-right" style={{ color: '#6a6058' }}>{d.lastYear}</span>
+              </div>
+            </div>
+          </div>
+        );
+      })}
     </div>
   );
 }
@@ -1182,35 +1241,40 @@ export default function LeadsPage() {
       ) : kpis ? (
         <>
           <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 mb-6">
+            {/* Top KPI cards switched to a 60-day window with year-over-
+                year change so seasonality is preserved. Conversion Rate
+                stays on the 12mo basis — 60-day denominators are too
+                small for that ratio to be meaningful for BKB's sales
+                cycle. */}
             <KpiCard
-              label="Total Leads (12mo)"
-              value={kpis.totalLeads12m}
+              label="Total Leads (60d)"
+              value={kpis.totalLeads60d}
               icon={UserPlus}
               accent="#22c55e"
-              change={kpis.totalLeadsChange}
-              prior={kpis.totalLeadsPrior}
-              sub={`${kpis.newLeadsThisWeek} this week`}
+              change={kpis.totalLeads60dChange}
+              prior={kpis.totalLeads60dPrior}
+              sub={`${kpis.newLeadsThisWeek} this week · vs same 60d last yr`}
             />
             <KpiCard
-              label="On-Site Visits (12mo)"
-              value={kpis.onsiteVisits12m}
+              label="On-Site Visits (60d)"
+              value={kpis.onsiteVisits60d}
               icon={MapPin}
               accent="#a78bfa"
-              change={kpis.onsiteVisitsChange}
-              prior={kpis.onsiteVisitsPrior}
-              sub={`${kpis.discoveryCalls12m} discovery calls`}
+              change={kpis.onsiteVisits60dChange}
+              prior={kpis.onsiteVisits60dPrior}
+              sub={`${kpis.discoveryCalls60d} discovery calls · vs same 60d last yr`}
             />
             <KpiCard
-              label="Secured Clients (12mo)"
-              value={kpis.securedClients12m}
+              label="Secured Clients (60d)"
+              value={kpis.securedClients60d}
               icon={Shield}
               accent="#22c55e"
-              change={kpis.securedClientsChange}
-              prior={kpis.securedClientsPrior}
-              sub="In Design or beyond"
+              change={kpis.securedClients60dChange}
+              prior={kpis.securedClients60dPrior}
+              sub="Moved to In Design or beyond"
             />
             <KpiCard
-              label="Conversion Rate"
+              label="Conversion Rate (12mo)"
               value={`${kpis.conversionRate12m}%`}
               icon={Target}
               accent="#c88c00"
@@ -1222,14 +1286,19 @@ export default function LeadsPage() {
 
           {/* Charts Row */}
           <div className="grid grid-cols-1 lg:grid-cols-3 gap-4 mb-6">
-            {/* Funnel Chart */}
+            {/* Year-over-Year 60-day Comparison
+                Replaces the old Lead Funnel. Shows current 60-day window
+                vs the same 60-day window from a year ago across the four
+                key funnel stages. Delta number per metric on the right
+                of each row makes the YoY trend pop without needing to do
+                math. */}
             <div className="rounded-xl p-4" style={{ background: '#ffffff', border: '1px solid rgba(200,140,0,0.12)' }}>
               <div className="flex items-center gap-2 mb-4">
                 <TrendingUp size={14} style={{ color: '#c88c00' }} />
-                <span className="text-sm font-semibold" style={{ color: '#1a1a1a' }}>Lead Funnel</span>
-                <span className="text-xs ml-auto" style={{ color: '#6a6058' }}>Last 12 months</span>
+                <span className="text-sm font-semibold" style={{ color: '#1a1a1a' }}>YoY · Last 60 Days</span>
+                <span className="text-xs ml-auto" style={{ color: '#6a6058' }}>vs same 60d last year</span>
               </div>
-              <FunnelChart data={kpiData!.funnel} />
+              <YearOverYearChart data={kpiData!.yearOverYear60d} />
             </div>
 
             {/* Monthly Trend */}
