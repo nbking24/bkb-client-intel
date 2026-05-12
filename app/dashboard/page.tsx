@@ -1573,6 +1573,14 @@ export default function DashboardOverview() {
           notes: smNotes || undefined,
           address: smAddress || undefined,
           assignees: selectedTeamMembers.length > 0 ? selectedTeamMembers : undefined,
+          // Always bypass Loop's slot/conflict validation on the Quick Add
+          // form. Nathan is manually picking the time — he knows what's on
+          // the calendar — and the previous "conflict at that time" error
+          // was blocking legitimate double-bookings (e.g. two phone calls
+          // overlapping by 10 minutes). The backend route translates
+          // customTime=true into ignoreFreeSlotValidation +
+          // ignoreDateRange + toNotify=false on the GHL call.
+          customTime: true,
         }),
       });
       if (!res.ok) { const t = await res.text(); throw new Error(t); }
