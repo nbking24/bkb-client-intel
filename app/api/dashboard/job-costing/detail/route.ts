@@ -77,6 +77,19 @@ export async function POST(req: Request) {
     let estimatedLaborHours = 0;
     let budgetSourceUsed: 'approved_co_lines' | 'job_budget_items_fallback' = 'approved_co_lines';
 
+    // An option on an approved contract is only part of the budget if the
+    // client actually selected it. JT marks the un-chosen options with
+    // isSelected=false at the item level, or buries them under a
+    // costGroup / parentCostGroup whose isSelected=false. Without this
+    // filter, both Cardene flooring options on Wooley Airbnb got counted
+    // even though only Cardene Alpine was chosen.
+    const isUnselectedItem = (ci: any): boolean => {
+      if (ci?.isSelected === false) return true;
+      if (ci?.costGroup?.isSelected === false) return true;
+      if (ci?.costGroup?.parentCostGroup?.isSelected === false) return true;
+      return false;
+    };
+
     for (const dci of docCostItems) {
       const docType = dci.document?.type || '';
       const docId = dci.document?.id || '';
@@ -85,6 +98,8 @@ export async function POST(req: Request) {
       // from the documents loop above and already excludes "Exclude from
       // Budget" docs, so this single check is enough.
       if (!budgetedApprovedOrderIds.has(docId)) continue;
+      // Skip unselected options (see comment on isUnselectedItem above).
+      if (isUnselectedItem(dci)) continue;
 
       // Cost code lookup mirrors the actuals loop (line cost code first,
       // then linked budget item's cost code, then "00 / Uncoded").
@@ -149,6 +164,8 @@ export async function POST(req: Request) {
       // included them if the doc was approved; since it didn't, the doc is
       // explicitly NOT approved and we should respect that.
       if (ci.document?.id) continue;
+      // Respect JT's selection state — same logic as the doc-level loop.
+      if (isUnselectedItem(ci)) continue;
       const cost = Number(ci.cost) || 0;
       const price = Number(ci.price) || 0;
       // Skip zero-cost placeholders (often drafts / Nathan exploring).
@@ -185,6 +202,7 @@ export async function POST(req: Request) {
       for (const ci of costItems) {
         const isApprovedBudget = !!ci.document?.id && budgetedApprovedOrderIds.has(ci.document.id);
         if (!isApprovedBudget) continue;
+        if (isUnselectedItem(ci)) continue;
         const ccName = ci.costCode?.name || 'Uncoded';
         const ccNum = ci.costCode?.number || '00';
         const key = ccNum + '-' + ccName;

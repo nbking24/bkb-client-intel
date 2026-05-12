@@ -2160,9 +2160,17 @@ export async function getCostItemsForJobLite(jobId: string, limit = 200): Promis
             unitPrice: {},
             cost: {},
             price: {},
+            // Pull isSelected + cost group hierarchy so consumers can filter
+            // unselected options out of approved-budget rollups (otherwise
+            // the un-chosen "Option B" on a contract gets counted as budget).
+            isSelected: {},
             costType: { id: {}, name: {} },
             costCode: { id: {}, name: {}, number: {} },
             document: { id: {}, name: {}, type: {}, status: {} },
+            costGroup: {
+              id: {}, name: {}, isSelected: {},
+              parentCostGroup: { id: {}, name: {}, isSelected: {} },
+            },
           },
         },
       },
@@ -2280,9 +2288,19 @@ export async function getDocumentCostItemsForJob(jobId: string): Promise<JTCostI
                     cost: {},
                     price: {},
                     quantity: {},
+                    // isSelected (+ the costGroup hierarchy's isSelected) lets
+                    // us drop unselected options on approved contracts —
+                    // e.g. the Cardene Sterling flooring option that wasn't
+                    // chosen on Wooley Airbnb shouldn't count as approved
+                    // budget alongside the Cardene Alpine that was.
+                    isSelected: {},
                     costType: { name: {} },
                     costCode: { name: {}, number: {} },
                     jobCostItem: { id: {}, costCode: { name: {}, number: {} } },
+                    costGroup: {
+                      id: {}, name: {}, isSelected: {},
+                      parentCostGroup: { id: {}, name: {}, isSelected: {} },
+                    },
                   },
                 },
               },
