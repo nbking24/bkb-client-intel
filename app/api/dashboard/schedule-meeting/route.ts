@@ -41,9 +41,18 @@ const BKB_VIRTUAL_MEET_URL = process.env.BKB_VIRTUAL_MEET_URL || 'https://meet.g
 const BKB_VIRTUAL_MEET_DIALIN = 'Dial-in: +1 475-549-0467  ·  PIN: 234 030 853#';
 
 // Returns true when the dropdown calendar looks like a virtual meeting
-// type — same keyword sniffer the per-attendee calendar map uses below.
+// type. Word-boundary matches on "virtual", "online", "zoom", "video";
+// plus the literal phrase "google meet". Critically, this does NOT
+// match the bare substring "meet" — that would hit "Meeting" in
+// "60-90 Minute In-Person Meeting", "Brett Standard Meeting", and
+// "Evan - Standard Meeting", and we'd stamp the Meet URL onto
+// in-person events. Real BKB virtual calendars at the time of writing:
+//   - "60 Minute Virtual Meeting" (matches via "virtual")
+//   - "BKB Online Discovery Call" (matches via "online")
+// If you ever add a new virtual calendar in Loop, make sure its name
+// contains one of these keywords or extend the regex.
 function isVirtualCalendar(name: string | undefined): boolean {
-  return /virtual|online|zoom|google\s*meet|meet/i.test(name || '');
+  return /\b(?:virtual|online|zoom|video)\b|google\s*meet/i.test(name || '');
 }
 
 // -- GET: Fetch available GHL calendars --------------------------
