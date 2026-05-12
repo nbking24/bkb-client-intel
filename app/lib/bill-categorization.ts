@@ -551,6 +551,10 @@ export async function scanJobBills(
       job_number: job.number,
       document_id: line.documentId,
       document_number: line.documentNumber,
+      // Issue date from the JT bill document. Shown on the Bill Review row
+      // instead of first_seen_at (which is when our scanner first saw the
+      // line, not when the bill itself was dated).
+      document_issue_date: (line as any).documentIssueDate || null,
       cost_item_id: line.costItemId,
       vendor_account_id: line.vendorAccountId,
       vendor_name: line.vendorName,

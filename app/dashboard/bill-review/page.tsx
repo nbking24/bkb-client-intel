@@ -70,6 +70,9 @@ type ReviewRow = {
   candidate_budget_items: Candidate[] | null;
   status: string;
   first_seen_at: string;
+  // JT bill issueDate (text, e.g. "2026-03-04"). Null on queue rows from
+  // before migration 014 — UI falls back to first_seen_at relative time.
+  document_issue_date?: string | null;
 };
 
 type Stats = {
@@ -114,6 +117,21 @@ function timeAgo(iso: string) {
   if (hrs < 24) return `${hrs}h ago`;
   const d = Math.floor(hrs / 24);
   return `${d}d ago`;
+}
+
+// Format the JT bill date (issueDate) as "Mar 4, 2026". Accepts either an
+// ISO-8601 timestamp or a plain "YYYY-MM-DD" date (which is what JT returns
+// for issueDate). When the date is JT's date-only form, we tack a noon UTC
+// time on it so the locale conversion doesn't flip it back a day in
+// negative UTC offsets.
+function formatBillDate(value: string | null | undefined): string {
+  if (!value) return '';
+  const s = value.trim();
+  if (!s) return '';
+  const isoCandidate = /^\d{4}-\d{2}-\d{2}$/.test(s) ? `${s}T12:00:00` : s;
+  const d = new Date(isoCandidate);
+  if (Number.isNaN(d.getTime())) return '';
+  return d.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
 }
 
 export default function BillReviewPage() {
@@ -730,7 +748,12 @@ export default function BillReviewPage() {
                     <div className="text-right" style={{ color: '#1a1a1a' }}>
                       <div className="text-sm font-semibold">{formatMoney(row.line_cost)}</div>
                       <div className="text-xs" style={{ color: '#8a8078' }}>
-                        {timeAgo(row.first_seen_at)}
+                        {/* Real bill date from JT (document_issue_date) when
+                            available — falls back to scanner first-seen time
+                            for queue rows from before the column existed. */}
+                        {row.document_issue_date
+                          ? formatBillDate(row.document_issue_date)
+                          : timeAgo(row.first_seen_at)}
                       </div>
                     </div>
                   </div>
