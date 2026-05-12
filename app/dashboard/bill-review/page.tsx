@@ -814,24 +814,28 @@ export default function BillReviewPage() {
                     )}
                   </div>
 
-                  {/* Suggestion + dropdown + buttons */}
-                  {row.issue_type === 'budget_gap' ? (
+                  {/* Suggestion + dropdown + buttons.
+                      Budget-gap rows get the same picker as uncategorized /
+                      miscategorized rows so a bill that was tagged with the
+                      wrong cost code can be re-linked to ANY approved budget
+                      item on the job. The blue banner above the picker
+                      explains the situation. */}
+                  {row.issue_type === 'budget_gap' && (
                     <div className="mt-3 p-3 rounded-lg text-sm" style={{ background: '#dbeafe', color: '#1e40af' }}>
                       No budget item exists for cost code{' '}
-                      <strong>{row.line_cost_code_number}</strong> on this job. Add a budget line in
-                      JobTread, then re-run the scan.
-                      <div className="mt-2 flex items-center gap-2">
-                        <button
-                          onClick={() => dismissRow(row)}
-                          disabled={isActing}
-                          className="px-3 py-1 rounded text-xs"
-                          style={{ background: '#ffffff', border: '1px solid #bfdbfe', color: '#1e40af' }}
-                        >
-                          {isActing ? <Loader2 size={12} className="inline animate-spin" /> : 'Acknowledge'}
-                        </button>
+                      <strong>{row.line_cost_code_number}</strong> on this job.
+                      <div className="text-xs mt-1.5" style={{ color: '#1e3a8a' }}>
+                        Two ways to clear this: <strong>(1)</strong> add the missing budget line in
+                        JobTread and the next scan will resolve it automatically, or <strong>(2)</strong> if
+                        the bill was tagged with the wrong cost code, pick the correct budget item
+                        below and click <strong>Apply</strong> — that will re-tag the bill in JobTread.
+                        Or click <strong>Dismiss</strong> if no action is needed.
                       </div>
                     </div>
-                  ) : (
+                  )}
+                  {(() => {
+                    const _unused = row.issue_type; // keep block boundary
+                    return (
                     <div className="mt-3 flex items-center gap-2 flex-wrap">
                       <Tag size={12} style={{ color: '#8a8078' }} />
                       <span className="text-xs" style={{ color: '#8a8078' }}>Apply to:</span>
@@ -1067,7 +1071,8 @@ export default function BillReviewPage() {
                         <X size={12} /> Dismiss
                       </button>
                     </div>
-                  )}
+                    );
+                  })()}
                 </div>
               );
             })}
