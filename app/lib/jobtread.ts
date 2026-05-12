@@ -3504,7 +3504,13 @@ function isValidAiDescription(text: string): boolean {
 }
 
 // Helper: clean markdown formatting artifacts from AI descriptions
-// Strips # headers, ** bold **, __ underline __, and leading/trailing whitespace per line
+// Strips # headers, ** bold **, __ underline __, and leading/trailing whitespace per line.
+// Also rewrites BKB-forbidden vocabulary — Nathan does not want "subcontractor" /
+// "sub" appearing on client-facing change orders or invoices. Even when the AI
+// prompt forbids these words, the model occasionally regresses; this sanitizer
+// is the safety net so a slip-through never makes it onto a customer document.
+// BKB's preferred term is "trade partner(s)" (the JT cost group is already
+// named "Trade Partners" further down in createDraftBillableInvoice).
 function sanitizeAiDescription(text: string): string {
   return text
     .split('\n')
@@ -3512,6 +3518,22 @@ function sanitizeAiDescription(text: string): string {
       .replace(/^#{1,6}\s+/, '')       // strip markdown headers (# ## ### etc.)
       .replace(/\*\*(.*?)\*\*/g, '*$1*') // convert double bold **text** to single *text*
       .replace(/__(.*?)__/g, '$1')       // strip underline __text__
+      // Strip BKB-forbidden vocabulary. Order matters: do plural/inflected
+      // forms before the singular base so we don't half-replace longer words.
+      // \b word boundaries keep "submitted", "subject", "subdivision", etc.
+      // intact — we only target the standalone tokens.
+      .replace(/\bSubcontractors\b/g, 'Trade Partners')
+      .replace(/\bsubcontractors\b/g, 'trade partners')
+      .replace(/\bSubcontractor\b/g, 'Trade Partner')
+      .replace(/\bsubcontractor\b/g, 'trade partner')
+      .replace(/\bSubcontracted\b/g, 'Performed by trade partners')
+      .replace(/\bsubcontracted\b/g, 'performed by trade partners')
+      .replace(/\bSubcontracting\b/g, 'Trade partner work')
+      .replace(/\bsubcontracting\b/g, 'trade partner work')
+      .replace(/\bSubs\b/g, 'Trade partners')
+      .replace(/\bsubs\b/g, 'trade partners')
+      .replace(/\bSub\b/g, 'Trade partner')
+      .replace(/\bsub\b/g, 'trade partner')
       .trim()
     )
     .join('\n')
@@ -4447,6 +4469,8 @@ export async function createDraftBillableInvoice(jobId: string): Promise<{
 
 Always describe SOMETHING that was provided by this bill — the client is being billed for it, so the description must reflect real content. If the bill consists entirely of small tools, blades, caulk, fasteners, tape, or other consumable project supplies, describe it generically as "project supplies and consumables used on site" or similar. Never respond with phrases like "no billable materials", "nothing to report", or any language that suggests there is nothing to bill for — the line item exists and the client will see the charge, so the description must match.
 
+VOCABULARY: Never use the words "subcontractor", "subcontractors", "sub", or "subs" in the output. When referring to outside trades, use "trade partner" / "trade partners" instead.
+
 Original:
 ${billDesc}`,
                 }],
@@ -4535,7 +4559,7 @@ ${billDesc}`,
                 max_tokens: 256,
                 messages: [{
                   role: 'user',
-                  content: `You are writing the header description for the "${categoryName}" section of a renovation change order. Summarize the items below into a short, client-facing bullet list that accurately reflects the actual scope — one bullet per distinct type of work or item, at most ${Math.min(billSummaries.length, 4)} bullets total. Do NOT invent items that aren't listed. Do NOT use generic filler like "project costs billed to client" or "third-party vendor costs" — describe the specific scope shown. Output ONLY the bullet points (using • character), nothing else. No intro, no questions. No markdown headers (#). No pricing. For emphasis use single *asterisks* not double **asterisks**.\n\nItems on this change order:\n${rawDesc}`,
+                  content: `You are writing the header description for the "${categoryName}" section of a renovation change order. Summarize the items below into a short, client-facing bullet list that accurately reflects the actual scope — one bullet per distinct type of work or item, at most ${Math.min(billSummaries.length, 4)} bullets total. Do NOT invent items that aren't listed. Do NOT use generic filler like "project costs billed to client" or "third-party vendor costs" — describe the specific scope shown. Output ONLY the bullet points (using • character), nothing else. No intro, no questions. No markdown headers (#). No pricing. For emphasis use single *asterisks* not double **asterisks**.\n\nVOCABULARY: Never use the words "subcontractor", "subcontractors", "sub", or "subs". When referring to outside trades, use "trade partner" / "trade partners" instead.\n\nItems on this change order:\n${rawDesc}`,
                 }],
               }),
             });
