@@ -13,7 +13,9 @@ import {
   getContactNotes,
   getContactAppointments,
   getOpportunity,
+  getMessagesFromDB,
 } from '@/app/lib/ghl';
+import { getCommentsFromDB } from '@/app/lib/jobtread';
 
 // Fields to skip in the custom fields display (internal/system fields)
 const SKIP_FIELD_KEYS = new Set([
@@ -25,13 +27,18 @@ export async function GET(req: NextRequest) {
   try {
     const contactId = req.nextUrl.searchParams.get('contactId');
     const opportunityId = req.nextUrl.searchParams.get('opportunityId');
+    // jobId (JT job id) is optional — passed by the leads dashboard when we
+    // have a matched JT job for this lead. Drives the "Recent Activity"
+    // feed: JT comments are scoped to a job, GHL messages to a contact.
+    const jobId = req.nextUrl.searchParams.get('jobId');
 
     if (!contactId) {
       return NextResponse.json({ error: 'contactId is required' }, { status: 400 });
     }
 
-    // Fetch contact, notes, and appointments in parallel
-    const [contactRes, notes, appointments, opportunity] = await Promise.all([
+    // Fetch contact, notes, appointments, optional opportunity + the activity
+    // feed sources (JT comments + Loop messages) in parallel.
+    const [contactRes, notes, appointments, opportunity, jtComments, loopMessages] = await Promise.all([
       getContact(contactId).catch((e: any) => {
         console.warn('[lead-detail] getContact failed:', e.message);
         return null;
@@ -50,6 +57,20 @@ export async function GET(req: NextRequest) {
             return null;
           })
         : Promise.resolve(null),
+      // JT job comments — only fetch if we have a job id. Cached in Supabase
+      // (jt_comments table), falls back to live JT API when DB is empty.
+      jobId
+        ? getCommentsFromDB(jobId, 25).catch((e: any) => {
+            console.warn('[lead-detail] getCommentsFromDB failed:', e.message);
+            return [];
+          })
+        : Promise.resolve([]),
+      // Loop/GHL messages (SMS + email) for the contact. Cached in Supabase
+      // (ghl_messages table), falls back to live GHL API when DB is empty.
+      getMessagesFromDB(contactId, 50).catch((e: any) => {
+        console.warn('[lead-detail] getMessagesFromDB failed:', e.message);
+        return [];
+      }),
     ]);
 
     const contact = contactRes?.contact || contactRes || null;
@@ -134,9 +155,82 @@ export async function GET(req: NextRequest) {
             : 'none',
     };
 
+    // ── Recent Activity feed ──────────────────────────────────
+    // Merge JT comments + Loop messages into a single chronological
+    // feed so Nathan / Terri can see the most recent touchpoints on
+    // the project from one place. Fezzuoglio surfaced this gap — the
+    // leads dashboard showed "last activity: comment" but there was
+    // no UI to read the actual comment body.
+    //
+    // Each activity item carries:
+    //   kind:        'jt_comment' | 'sms' | 'email' | 'call' | 'message'
+    //   body:        plain text of the comment / message
+    //   author:      who wrote it (JT user name, or "Inbound"/"Outbound" for messages)
+    //   direction:   'inbound' | 'outbound' | null (only for Loop messages)
+    //   subject:     email subject (Loop emails only)
+    //   date:        ISO timestamp
+    //   source:      'jobtread' | 'loop' (for the icon / color in the UI)
+    type ActivityItem = {
+      kind: string;
+      body: string;
+      author: string;
+      direction: 'inbound' | 'outbound' | null;
+      subject: string;
+      date: string;
+      source: 'jobtread' | 'loop';
+    };
+    const recentActivity: ActivityItem[] = [];
+
+    for (const c of (jtComments || []) as any[]) {
+      const body = (c.message || '').trim();
+      if (!body) continue;
+      recentActivity.push({
+        kind: 'jt_comment',
+        body,
+        author: c.name || 'JobTread',
+        direction: null,
+        subject: '',
+        date: c.createdAt || '',
+        source: 'jobtread',
+      });
+    }
+
+    // Loop messages come from GHL conversations. The shape varies a bit
+    // depending on whether they were pulled from the cache or live API,
+    // so we normalize defensively. Map GHL's numeric/string `type` into
+    // a friendly kind label (SMS / Email / Call).
+    const msgKind = (t: any): string => {
+      const s = String(t || '').toLowerCase();
+      if (s === '1' || s.includes('sms')) return 'sms';
+      if (s === '2' || s.includes('phone') || s.includes('call')) return 'call';
+      if (s === '3' || s.includes('email')) return 'email';
+      return 'message';
+    };
+    for (const m of (loopMessages || []) as any[]) {
+      const bodyRaw = (m.body || m.message || m.preview || '').toString().trim();
+      // Email body sometimes lives in messageHTML; strip HTML for the feed.
+      const body = bodyRaw || ((m.messageHTML || '').toString().replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim());
+      if (!body && !m.subject) continue; // skip purely empty rows
+      const dir = (m.direction || '').toString().toLowerCase();
+      recentActivity.push({
+        kind: msgKind(m.type),
+        body: body || '(no body)',
+        author: dir === 'inbound' ? 'Inbound' : dir === 'outbound' ? 'Outbound' : 'Loop',
+        direction: dir === 'inbound' ? 'inbound' : dir === 'outbound' ? 'outbound' : null,
+        subject: (m.subject || '').toString(),
+        date: m.dateAdded || m.dateUpdated || m.dateCreated || '',
+        source: 'loop',
+      });
+    }
+
+    // Sort newest first, cap at 30 entries so the modal stays responsive.
+    recentActivity.sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
+    const recentActivityCapped = recentActivity.slice(0, 30);
+
     // Build response
     return NextResponse.json({
       projectAddress,
+      recentActivity: recentActivityCapped,
       contact: {
         id: contact.id,
         firstName: contact.firstName || '',

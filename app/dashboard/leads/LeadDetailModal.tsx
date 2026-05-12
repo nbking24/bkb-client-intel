@@ -5,15 +5,27 @@ import { useState, useEffect, useRef } from 'react';
 import {
   X, Loader2, Phone, Mail, MapPin, Tag, Calendar, Clock,
   FileText, User, Building2, Globe, ExternalLink, ChevronDown, ChevronRight,
-  Star, Clipboard,
+  Star, Clipboard, MessageSquare, MessageCircle, PhoneCall, Mail as MailIcon,
+  ArrowDownLeft, ArrowUpRight,
 } from 'lucide-react';
 
 /* ── Types ── */
 interface LeadDetailModalProps {
   contactId: string;
   opportunityId?: string;
+  jobId?: string;
   contactName?: string;
   onClose: () => void;
+}
+
+interface ActivityItem {
+  kind: string;
+  body: string;
+  author: string;
+  direction: 'inbound' | 'outbound' | null;
+  subject: string;
+  date: string;
+  source: 'jobtread' | 'loop';
 }
 
 interface ContactData {
@@ -79,6 +91,7 @@ interface ProjectAddress {
 
 interface DetailData {
   projectAddress?: ProjectAddress;
+  recentActivity?: ActivityItem[];
   contact: ContactData;
   moscowFields: CustomField[];
   customFields: CustomField[];
@@ -130,13 +143,14 @@ function formatFieldValue(value: any): string {
   return String(value || '');
 }
 
-export default function LeadDetailModal({ contactId, opportunityId, contactName, onClose }: LeadDetailModalProps) {
+export default function LeadDetailModal({ contactId, opportunityId, jobId, contactName, onClose }: LeadDetailModalProps) {
   const [data, setData] = useState<DetailData | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
   const [notesExpanded, setNotesExpanded] = useState(true);
   const [moscowExpanded, setMoscowExpanded] = useState(true);
   const [customExpanded, setCustomExpanded] = useState(false);
+  const [activityExpanded, setActivityExpanded] = useState(true);
   const modalRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
@@ -146,6 +160,7 @@ export default function LeadDetailModal({ contactId, opportunityId, contactName,
       try {
         const params = new URLSearchParams({ contactId });
         if (opportunityId) params.set('opportunityId', opportunityId);
+        if (jobId) params.set('jobId', jobId);
         const res = await fetch(`/api/dashboard/lead-detail?${params}`);
         if (!res.ok) throw new Error('Failed to load contact details');
         const json = await res.json();
@@ -157,7 +172,7 @@ export default function LeadDetailModal({ contactId, opportunityId, contactName,
       }
     };
     fetchDetail();
-  }, [contactId, opportunityId]);
+  }, [contactId, opportunityId, jobId]);
 
   // Close on Escape
   useEffect(() => {
@@ -396,6 +411,102 @@ export default function LeadDetailModal({ contactId, opportunityId, contactName,
                   </div>
                 )}
               </div>
+
+              {/* ── Recent Activity ── */}
+              {/* JT job comments + Loop SMS/email/call messages, merged
+                  chronologically. Filled in when the lead has a matched
+                  JT job (comments) and/or any Loop conversation history. */}
+              {data.recentActivity && data.recentActivity.length > 0 && (
+                <div style={{ borderBottom: '1px solid rgba(200,140,0,0.06)' }}>
+                  <button
+                    onClick={() => setActivityExpanded(!activityExpanded)}
+                    className="w-full flex items-center gap-2 px-5 py-3 text-left"
+                    style={{ background: activityExpanded ? 'rgba(200,140,0,0.03)' : 'transparent' }}
+                  >
+                    <MessageSquare size={13} style={{ color: '#c88c00' }} />
+                    <span className="text-xs font-semibold uppercase tracking-wider flex-1" style={{ color: '#8a8078' }}>
+                      Recent Activity
+                    </span>
+                    <span className="text-[10px] px-1.5 py-0.5 rounded-full" style={{ background: 'rgba(200,140,0,0.1)', color: '#c88c00' }}>
+                      {data.recentActivity.length}
+                    </span>
+                    {activityExpanded ? <ChevronDown size={12} style={{ color: '#8a8078' }} /> : <ChevronRight size={12} style={{ color: '#8a8078' }} />}
+                  </button>
+                  {activityExpanded && (
+                    <div className="px-5 pb-4 space-y-2">
+                      {data.recentActivity.map((act, i) => {
+                        // Pick an icon + label per activity kind.
+                        const iconFor = () => {
+                          if (act.source === 'jobtread') return <MessageSquare size={11} />;
+                          if (act.kind === 'sms') return <MessageCircle size={11} />;
+                          if (act.kind === 'email') return <MailIcon size={11} />;
+                          if (act.kind === 'call') return <PhoneCall size={11} />;
+                          return <MessageCircle size={11} />;
+                        };
+                        const sourceLabel = act.source === 'jobtread'
+                          ? 'JobTread comment'
+                          : act.kind === 'sms' ? 'SMS'
+                          : act.kind === 'email' ? 'Email'
+                          : act.kind === 'call' ? 'Call'
+                          : 'Message';
+                        // Direction badge (only for Loop messages).
+                        const dirBadge = act.direction === 'inbound'
+                          ? { label: 'In', icon: <ArrowDownLeft size={9} />, bg: 'rgba(34,197,94,0.10)', fg: '#16a34a' }
+                          : act.direction === 'outbound'
+                          ? { label: 'Out', icon: <ArrowUpRight size={9} />, bg: 'rgba(79,70,229,0.10)', fg: '#4f46e5' }
+                          : null;
+                        const accentColor = act.source === 'jobtread' ? '#c88c00' : '#6a6058';
+                        return (
+                          <div
+                            key={i}
+                            className="rounded-lg px-3 py-2.5"
+                            style={{
+                              background: '#f8f6f3',
+                              border: '1px solid rgba(200,140,0,0.06)',
+                              borderLeft: `2px solid ${accentColor}`,
+                            }}
+                          >
+                            {/* Header row: kind + direction + date */}
+                            <div className="flex items-center gap-2 mb-1.5 text-[10px]" style={{ color: '#8a8078' }}>
+                              <span style={{ color: accentColor }}>{iconFor()}</span>
+                              <span className="uppercase tracking-wider font-semibold" style={{ color: accentColor }}>
+                                {sourceLabel}
+                              </span>
+                              {dirBadge && (
+                                <span
+                                  className="flex items-center gap-0.5 px-1.5 py-0.5 rounded text-[9px] font-semibold"
+                                  style={{ background: dirBadge.bg, color: dirBadge.fg }}
+                                >
+                                  {dirBadge.icon} {dirBadge.label}
+                                </span>
+                              )}
+                              <span className="ml-auto">
+                                {act.date ? `${timeAgo(act.date)} · ${formatDate(act.date)}` : ''}
+                              </span>
+                            </div>
+                            {/* Email subject (Loop email only) */}
+                            {act.subject && (
+                              <div className="text-xs font-semibold mb-1" style={{ color: '#1a1a1a' }}>
+                                {act.subject}
+                              </div>
+                            )}
+                            {/* Body */}
+                            <div className="text-sm leading-relaxed whitespace-pre-wrap" style={{ color: '#1a1a1a' }}>
+                              {act.body}
+                            </div>
+                            {/* Author / by-line for JT comments */}
+                            {act.source === 'jobtread' && act.author && (
+                              <div className="text-[10px] mt-1.5" style={{ color: '#8a8078' }}>
+                                — {act.author}
+                              </div>
+                            )}
+                          </div>
+                        );
+                      })}
+                    </div>
+                  )}
+                </div>
+              )}
 
               {/* ── MOSCOW Fields ── */}
               {data.moscowFields.length > 0 && (

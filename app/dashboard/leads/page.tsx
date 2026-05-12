@@ -402,7 +402,7 @@ export default function LeadsPage() {
   };
 
   // Lead detail modal state
-  const [detailModal, setDetailModal] = useState<{ contactId: string; opportunityId?: string; contactName?: string } | null>(null);
+  const [detailModal, setDetailModal] = useState<{ contactId: string; opportunityId?: string; jobId?: string; contactName?: string } | null>(null);
 
   // Lead action panel state
   const [actionPanelExpanded, setActionPanelExpanded] = useState(false);
@@ -1774,7 +1774,7 @@ export default function LeadsPage() {
                         <span
                           className="text-sm font-semibold cursor-pointer hover:underline"
                           style={{ color: '#1a1a1a', textDecorationColor: '#c88c00' }}
-                          onClick={() => job.ghlContactId && setDetailModal({ contactId: job.ghlContactId, opportunityId: job.ghlOpportunityId, contactName: job.contactName || job.ghlName })}
+                          onClick={() => job.ghlContactId && setDetailModal({ contactId: job.ghlContactId, opportunityId: job.ghlOpportunityId, jobId: job.jtJobId || undefined, contactName: job.contactName || job.ghlName })}
                         >
                           {job.contactName || job.ghlName}
                         </span>
@@ -2131,6 +2131,7 @@ export default function LeadsPage() {
         <LeadDetailModal
           contactId={detailModal.contactId}
           opportunityId={detailModal.opportunityId}
+          jobId={detailModal.jobId}
           contactName={detailModal.contactName}
           onClose={() => setDetailModal(null)}
         />
