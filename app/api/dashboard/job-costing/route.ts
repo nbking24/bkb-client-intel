@@ -221,9 +221,11 @@ export async function POST(req: Request) {
               }
             }
 
-            // Hours-over-estimate flags both kinds of jobs (it speaks to
-            // labor efficiency, which matters regardless of contract type).
-            if (estimatedHours > 0 && actualHours > estimatedHours) {
+            // Hours-over-estimate only matters on fixed-price jobs. On a
+            // cost-plus job there is no budget for labor — the client pays
+            // for actual hours at the burdened rate plus markup, so going
+            // over the original labor estimate doesn't hurt the job.
+            if (!isCostPlus && estimatedHours > 0 && actualHours > estimatedHours) {
               alerts.push(`${(actualHours - estimatedHours).toFixed(1)} hrs over labor estimate`);
               if (health === 'on-track') health = 'watch';
             }
