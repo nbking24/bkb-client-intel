@@ -824,13 +824,6 @@ export default function BillReviewPage() {
                     <div className="mt-3 p-3 rounded-lg text-sm" style={{ background: '#dbeafe', color: '#1e40af' }}>
                       No budget item exists for cost code{' '}
                       <strong>{row.line_cost_code_number}</strong> on this job.
-                      <div className="text-xs mt-1.5" style={{ color: '#1e3a8a' }}>
-                        Two ways to clear this: <strong>(1)</strong> add the missing budget line in
-                        JobTread and the next scan will resolve it automatically, or <strong>(2)</strong> if
-                        the bill was tagged with the wrong cost code, pick the correct budget item
-                        below and click <strong>Apply</strong> — that will re-tag the bill in JobTread.
-                        Or click <strong>Dismiss</strong> if no action is needed.
-                      </div>
                     </div>
                   )}
                   {(() => {
