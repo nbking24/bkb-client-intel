@@ -748,12 +748,13 @@ export default function BillReviewPage() {
                     <div className="text-right" style={{ color: '#1a1a1a' }}>
                       <div className="text-sm font-semibold">{formatMoney(row.line_cost)}</div>
                       <div className="text-xs" style={{ color: '#8a8078' }}>
-                        {/* Real bill date from JT (document_issue_date) when
-                            available — falls back to scanner first-seen time
-                            for queue rows from before the column existed. */}
-                        {row.document_issue_date
-                          ? formatBillDate(row.document_issue_date)
-                          : timeAgo(row.first_seen_at)}
+                        {/* Real bill date from JT (document_issue_date).
+                            No fallback to scanner first-seen time — the
+                            scanner refresh date isn't useful information.
+                            Shows a dash on the rare bill that has no
+                            issueDate set in JT, or on queue rows from
+                            before migration 014 (those clear on next scan). */}
+                        {formatBillDate(row.document_issue_date) || '—'}
                       </div>
                     </div>
                   </div>
