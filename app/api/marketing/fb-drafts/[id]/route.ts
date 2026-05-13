@@ -14,8 +14,8 @@
  *   }
  */
 import { NextRequest, NextResponse } from 'next/server';
-import { getSupabase } from '../../../../lib/supabase';
-import { validateAgentOrUser } from '../../../../lib/auth';
+import { getSupabase } from '../../../lib/supabase';
+import { validateAgentOrUser } from '../../../lib/auth';
 
 export const runtime = 'nodejs';
 
