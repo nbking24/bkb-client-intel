@@ -3,13 +3,14 @@
 
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
-import { Megaphone, Star, Mail, MessageCircle, LayoutDashboard, Users } from 'lucide-react';
+import { Megaphone, Star, Mail, MessageCircle, LayoutDashboard, Users, CalendarDays } from 'lucide-react';
 
 const TABS = [
   { href: '/dashboard/marketing', label: 'Overview', icon: LayoutDashboard, exact: true },
   { href: '/dashboard/marketing/reviews', label: 'Reviews', icon: Star },
   { href: '/dashboard/marketing/past-client-outreach', label: 'Past Clients', icon: Users },
   { href: '/dashboard/marketing/newsletter', label: 'Newsletter', icon: Mail },
+  { href: '/dashboard/marketing/social-calendar', label: 'Social Calendar', icon: CalendarDays },
   { href: '/dashboard/marketing/facebook', label: 'Facebook', icon: MessageCircle },
 ];
 
