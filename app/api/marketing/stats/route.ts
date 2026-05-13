@@ -31,6 +31,9 @@ export async function GET(req: NextRequest) {
     approvalQueueRes,
     makeItRightRes,
     recentEventsRes,
+    researchBriefsRes,
+    newsletterRes,
+    socialWeeksRes,
   ] = await Promise.all([
     supabase.from('review_funnel_90d').select('*'),
     supabase
@@ -53,6 +56,22 @@ export async function GET(req: NextRequest) {
       .select('*')
       .order('occurred_at', { ascending: false })
       .limit(50),
+    // Phase 4: surface latest research brief + counts of content drafts
+    supabase
+      .from('research_briefs')
+      .select('id, brief_type, brief_date, title, summary, drafted_at')
+      .order('brief_date', { ascending: false })
+      .limit(5),
+    supabase
+      .from('newsletter_issues')
+      .select('id, issue_month, status, theme, updated_at')
+      .order('updated_at', { ascending: false })
+      .limit(5),
+    supabase
+      .from('social_calendar_weeks')
+      .select('id, week_of, status, theme, updated_at')
+      .order('week_of', { ascending: false })
+      .limit(5),
   ]);
 
   const queueRows = approvalQueueRes.data || [];
@@ -61,6 +80,7 @@ export async function GET(req: NextRequest) {
     reviewResponses: queueRows.filter((r) => r.kind === 'review_response').length,
     fbDrafts: queueRows.filter((r) => r.kind === 'fb_reply').length,
     newsletterIssues: queueRows.filter((r) => r.kind === 'newsletter_issue').length,
+    socialPosts: queueRows.filter((r) => r.kind === 'social_post').length,
   };
 
   return NextResponse.json({
@@ -69,5 +89,8 @@ export async function GET(req: NextRequest) {
     approvalQueue,
     makeItRight: makeItRightRes.data || [],
     recentEvents: recentEventsRes.data || [],
+    recentResearchBriefs: researchBriefsRes.data || [],
+    recentNewsletters: newsletterRes.data || [],
+    recentSocialWeeks: socialWeeksRes.data || [],
   });
 }

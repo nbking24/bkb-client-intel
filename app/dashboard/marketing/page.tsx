@@ -4,7 +4,7 @@
 import { useEffect, useState } from 'react';
 import Link from 'next/link';
 import {
-  Star, AlertTriangle, Inbox, Activity, Loader2, ArrowRight, Mail, MessageCircle,
+  Star, AlertTriangle, Inbox, Activity, Loader2, ArrowRight, Mail, MessageCircle, BookOpen, CalendarDays, ExternalLink,
 } from 'lucide-react';
 
 function getToken() {
@@ -20,10 +20,13 @@ interface Stats {
     reviews_confirmed: number;
     skipped_total: number;
   }>;
-  approvalQueue: { total: number; reviewResponses: number; fbDrafts: number; newsletterIssues: number };
+  approvalQueue: { total: number; reviewResponses: number; fbDrafts: number; newsletterIssues: number; socialPosts: number };
   makeItRight: Array<any>;
   recentEvents: Array<any>;
   recentReviews: Array<any>;
+  recentResearchBriefs: Array<any>;
+  recentNewsletters: Array<any>;
+  recentSocialWeeks: Array<any>;
 }
 
 export default function MarketingOverview() {
@@ -81,7 +84,7 @@ export default function MarketingOverview() {
         <MetricCard
           label="Approvals Waiting"
           value={s.approvalQueue.total}
-          sub={`${s.approvalQueue.reviewResponses} review replies, ${s.approvalQueue.fbDrafts} FB, ${s.approvalQueue.newsletterIssues} newsletters`}
+          sub={`${s.approvalQueue.reviewResponses} reviews · ${s.approvalQueue.fbDrafts} FB · ${s.approvalQueue.newsletterIssues} newsletter · ${s.approvalQueue.socialPosts} social`}
           accent="blue"
           icon={Inbox}
           href="/dashboard/marketing/reviews"
@@ -194,24 +197,113 @@ export default function MarketingOverview() {
         )}
       </div>
 
-      {/* Phase 2/3 placeholders */}
-      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-        <PlaceholderCard
+      {/* Latest research brief */}
+      <div className="bg-white border border-gray-200 rounded-lg p-5">
+        <div className="flex items-center justify-between mb-3">
+          <h2 className="text-lg font-semibold text-gray-900 flex items-center gap-2">
+            <BookOpen className="w-5 h-5 text-blue-700" />
+            Latest Research Briefs
+          </h2>
+          <Link
+            href="/dashboard/marketing/research-briefs"
+            className="text-sm text-blue-700 hover:underline flex items-center gap-1"
+          >
+            See all <ArrowRight className="w-3.5 h-3.5" />
+          </Link>
+        </div>
+        {(!s.recentResearchBriefs || s.recentResearchBriefs.length === 0) ? (
+          <p className="text-sm text-gray-500">
+            No research briefs yet. The Content Researcher publishes a weekly trend brief and a seasonal idea bank — once it runs, the latest will show up here.
+          </p>
+        ) : (
+          <ul className="divide-y divide-gray-100">
+            {s.recentResearchBriefs.slice(0, 4).map((b: any) => (
+              <li key={b.id} className="py-2.5">
+                <Link
+                  href={`/dashboard/marketing/research-briefs/${b.id}`}
+                  className="flex items-start gap-3 hover:bg-gray-50 rounded-md -mx-2 px-2 py-1"
+                >
+                  <span className="text-xs px-2 py-0.5 rounded-full border bg-blue-50 text-blue-700 border-blue-200 shrink-0 mt-0.5 capitalize">
+                    {(b.brief_type || '').replace(/_/g, ' ')}
+                  </span>
+                  <div className="min-w-0 flex-1">
+                    <div className="text-sm font-medium text-gray-900 truncate">
+                      {b.title || 'Untitled brief'}
+                    </div>
+                    {b.summary && (
+                      <div className="text-xs text-gray-600 mt-0.5 line-clamp-2">{b.summary}</div>
+                    )}
+                  </div>
+                  <span className="text-xs text-gray-400 shrink-0 mt-0.5">
+                    {new Date(b.brief_date).toLocaleDateString()}
+                  </span>
+                </Link>
+              </li>
+            ))}
+          </ul>
+        )}
+      </div>
+
+      {/* Quick links to draft queues */}
+      <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+        <DraftQueueCard
           icon={Mail}
-          title="Newsletter Engine"
-          phase="Phase 2"
-          body="Monthly three-segment newsletter with agent-drafted content. Scaffolded, not yet wired."
+          title="Newsletter"
+          recentCount={s.recentNewsletters?.length || 0}
+          latest={s.recentNewsletters?.[0]?.theme || s.recentNewsletters?.[0]?.issue_month?.slice(0,7)}
+          status={s.recentNewsletters?.[0]?.status}
           href="/dashboard/marketing/newsletter"
         />
-        <PlaceholderCard
+        <DraftQueueCard
+          icon={CalendarDays}
+          title="Social Calendar"
+          recentCount={s.recentSocialWeeks?.length || 0}
+          latest={s.recentSocialWeeks?.[0]?.theme || (s.recentSocialWeeks?.[0]?.week_of ? `Week of ${new Date(s.recentSocialWeeks[0].week_of + 'T00:00:00').toLocaleDateString()}` : null)}
+          status={s.recentSocialWeeks?.[0]?.status}
+          href="/dashboard/marketing/social-calendar"
+        />
+        <DraftQueueCard
           icon={MessageCircle}
-          title="Facebook Scout"
-          phase="Phase 3"
-          body="Local FB group monitoring with draft-mode replies. Scaffolded, not yet wired."
+          title="Facebook Drafts"
+          recentCount={s.approvalQueue.fbDrafts}
+          latest={s.approvalQueue.fbDrafts > 0 ? `${s.approvalQueue.fbDrafts} awaiting review` : 'No pending drafts'}
+          status={s.approvalQueue.fbDrafts > 0 ? 'pending' : null}
           href="/dashboard/marketing/facebook"
         />
       </div>
     </div>
+  );
+}
+
+function DraftQueueCard({ icon: Icon, title, recentCount, latest, status, href }: any) {
+  return (
+    <Link
+      href={href}
+      className="bg-white border border-gray-200 rounded-lg p-4 hover:border-gray-300 transition-colors"
+    >
+      <div className="flex items-center gap-2 mb-1.5">
+        <Icon className="w-4 h-4 text-blue-700" />
+        <h3 className="text-sm font-semibold text-gray-900">{title}</h3>
+        <span className="ml-auto text-xs text-gray-400">{recentCount} recent</span>
+      </div>
+      <div className="text-sm text-gray-700 truncate">{latest || 'Nothing yet'}</div>
+      {status && (
+        <div className="mt-1.5">
+          <span className={
+            'text-xs px-2 py-0.5 rounded-full border capitalize ' +
+            (status === 'pending' || status === 'review'
+              ? 'bg-amber-50 text-amber-800 border-amber-200'
+              : status === 'approved' || status === 'scheduled'
+              ? 'bg-blue-50 text-blue-700 border-blue-200'
+              : status === 'sent' || status === 'posted'
+              ? 'bg-green-50 text-green-700 border-green-200'
+              : 'bg-gray-100 text-gray-600 border-gray-200')
+          }>
+            {status}
+          </span>
+        </div>
+      )}
+    </Link>
   );
 }
 
