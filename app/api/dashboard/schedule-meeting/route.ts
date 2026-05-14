@@ -189,8 +189,15 @@ export async function POST(req: NextRequest) {
     // an attendee owns it, we keep them on it. Otherwise we pick an attendee
     // calendar that matches the dropdown's type (phone / in-person / virtual)
     // by keyword, falling back to whichever calendar the attendee owns.
+    // Build a per-attendee calendar map for EVERY meeting that has at
+    // least one BKB attendee — not just multi-attendee meetings. The
+    // earlier gate (length > 1) was wrong: if the single attendee
+    // (e.g. just Brett) isn't on the dropdown calendar's team, the
+    // direct post 422s with "user id not part of calendar team". By
+    // routing every attendee to a calendar they actually own, we dodge
+    // that error regardless of attendee count.
     const userToCalendarId = new Map<string, string>();
-    if (ghlUserIds.length > 1) {
+    if (ghlUserIds.length >= 1) {
       try {
         const ghlBase = 'https://services.leadconnectorhq.com';
         const ghlHeaders = {
