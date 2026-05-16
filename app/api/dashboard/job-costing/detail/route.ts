@@ -718,6 +718,14 @@ export async function POST(req: Request) {
     const pmPctUsed = pmProjectedHours > 0
       ? (pmActualHours / pmProjectedHours) * 100
       : 0;
+    // Actual PM percent-of-cost on this job. Compare to the formula's
+    // assumed 6% to see if PM is running ahead of, behind, or on top of
+    // the rule. Recording this over time across past projects gives
+    // Nathan the data to validate or recalibrate the 6% assumption.
+    const pmActualPctOfCost = pmBasisCost > 0
+      ? (pmActualCost / pmBasisCost) * 100
+      : 0;
+
     const pmAnalysis = {
       basisCost: Math.round(pmBasisCost * 100) / 100,
       basisLabel: pmBasisLabel,
@@ -726,6 +734,9 @@ export async function POST(req: Request) {
       projectedHours: Math.round(pmProjectedHours * 10) / 10,
       actualHours: Math.round(pmActualHours * 10) / 10,
       actualCost: Math.round(pmActualCost * 100) / 100,
+      // Where this job is actually running on the percent-of-cost axis,
+      // independent of the projected-hours framing.
+      actualPctOfCost: Math.round(pmActualPctOfCost * 100) / 100,
       pctUsed: Math.round(pmPctUsed * 10) / 10,
       remainingHours: Math.round((pmProjectedHours - pmActualHours) * 10) / 10,
       // Per-employee breakdown so the UI can drill into who's spending
