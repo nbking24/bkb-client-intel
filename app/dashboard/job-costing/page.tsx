@@ -170,6 +170,7 @@ interface JobDetail {
     actualHours: number;
     actualCost: number;
     actualPctOfCost: number;
+    actualPctBasis: number;
     pctUsed: number;
     remainingHours: number;
     byUser: { name: string; hours: number; cost: number }[];
@@ -1680,16 +1681,18 @@ export default function JobCostingDashboard() {
                     );
                   })()}
                   {/* Actual % of Cost
-                      The other three cards frame PM in projection-vs-actual
-                      hour terms. This one frames it in the exact axis the
-                      formula uses (6% of cost), so Nathan can see where THIS
-                      project is actually landing on that axis. Compared
-                      across past projects, this is the number that tells
-                      him whether the 6% rule is still calibrated correctly. */}
+                      Reads as the answer to: "what percent would I plug
+                      into the formula on future projects to project the
+                      same PM hours THIS project actually used?"
+                        = actual PM cost / total committed costs
+                      Denominator is paid + pending (totalCommitted), NOT
+                      the budgeted estimate. Across past projects this
+                      number tells Nathan whether the 6% rule should
+                      stay, go up, or come down. */}
                   {(() => {
                     const actualPct = detail.pmAnalysis.actualPctOfCost;
                     const assumedPct = detail.pmAnalysis.pctOfCost;
-                    const basis = detail.pmAnalysis.basisCost;
+                    const basis = detail.pmAnalysis.actualPctBasis;
                     const variance = actualPct - assumedPct;
                     // Color follows the same convention as % of Projected:
                     // under the assumption is green, near it is amber,
@@ -1700,12 +1703,12 @@ export default function JobCostingDashboard() {
                       : variance >= -1 ? '#f59e0b'
                       : '#22c55e';
                     const subText = basis <= 0
-                      ? 'no cost basis yet'
+                      ? 'no costs yet'
                       : variance > 0
-                        ? `+${variance.toFixed(2)}pp vs ${assumedPct}% rule`
+                        ? `+${variance.toFixed(2)}pp vs ${assumedPct}% rule · of $${fmt(basis)} total costs`
                         : variance < 0
-                          ? `${variance.toFixed(2)}pp vs ${assumedPct}% rule`
-                          : `at the ${assumedPct}% rule`;
+                          ? `${variance.toFixed(2)}pp vs ${assumedPct}% rule · of $${fmt(basis)} total costs`
+                          : `at the ${assumedPct}% rule · of $${fmt(basis)} total costs`;
                     return (
                       <div className="rounded-lg p-3" style={{ background: 'rgba(200,140,0,0.04)', border: '1px solid rgba(200,140,0,0.1)' }}>
                         <p className="text-xs mb-1" style={{ color: '#8a8078' }}>Actual % of Cost</p>

@@ -718,12 +718,27 @@ export async function POST(req: Request) {
     const pmPctUsed = pmProjectedHours > 0
       ? (pmActualHours / pmProjectedHours) * 100
       : 0;
-    // Actual PM percent-of-cost on this job. Compare to the formula's
-    // assumed 6% to see if PM is running ahead of, behind, or on top of
-    // the rule. Recording this over time across past projects gives
-    // Nathan the data to validate or recalibrate the 6% assumption.
-    const pmActualPctOfCost = pmBasisCost > 0
-      ? (pmActualCost / pmBasisCost) * 100
+    // Actual PM percent-of-cost on this job. This is the answer to
+    // "what percent would I plug into the formula on future projects
+    // to project the same PM hours this project actually used?"
+    // Derived by solving the BKB formula for pct:
+    //     projected_hours = (total_cost × pct) / hourly_rate
+    //  →  pct = (actual_hours × hourly_rate) / total_cost
+    //
+    // Important: the numerator is actual_hours × $85, NOT the sum of
+    // burdened time-entry costs (pmActualCost). The formula uses a
+    // single fixed PM rate ($85), but team members log time at their
+    // OWN burdened rate (te.cost = hours × employee rate). Using
+    // pmActualCost would give "PM dollar share of project costs", a
+    // different concept; using hours × $85 gives the calibration
+    // number that inverts the formula cleanly.
+    //
+    // Denominator is ALWAYS total committed costs (paid + pending),
+    // not the budget — this is a historical signal, not a forecast.
+    const pmActualPctBasis = totalCommitted;
+    const pmFormulaEquivalentCost = pmActualHours * PM_HOURLY_RATE;
+    const pmActualPctOfCost = pmActualPctBasis > 0
+      ? (pmFormulaEquivalentCost / pmActualPctBasis) * 100
       : 0;
 
     const pmAnalysis = {
@@ -735,8 +750,12 @@ export async function POST(req: Request) {
       actualHours: Math.round(pmActualHours * 10) / 10,
       actualCost: Math.round(pmActualCost * 100) / 100,
       // Where this job is actually running on the percent-of-cost axis,
-      // independent of the projected-hours framing.
+      // independent of the projected-hours framing. The basis used for
+      // this number is always total committed costs (paid + pending) —
+      // see comment above. Surfaced alongside the percent so the UI can
+      // show "X% of $Y total costs".
       actualPctOfCost: Math.round(pmActualPctOfCost * 100) / 100,
+      actualPctBasis: Math.round(pmActualPctBasis * 100) / 100,
       pctUsed: Math.round(pmPctUsed * 10) / 10,
       remainingHours: Math.round((pmProjectedHours - pmActualHours) * 10) / 10,
       // Per-employee breakdown so the UI can drill into who's spending
