@@ -325,6 +325,14 @@ export async function POST(req: Request) {
     // individually since each one represents a discrete vendor commitment.
     const laborByKey: Record<string, Record<string, { name: string; hours: number; cost: number }>> = {};
 
+    // Project Management hours: time entries logged against cc01
+    // "Planning, Admin". BKB tracks PM as a percent-of-project-cost
+    // metric. The detail response below exposes projected vs actual so
+    // the per-job dashboard can show how PM time is tracking.
+    let pmActualHours = 0;
+    let pmActualCost = 0;
+    const pmByUser: Record<string, { name: string; hours: number; cost: number }> = {};
+
     for (const te of timeEntries) {
       const hours = computeHours(te.startedAt, te.endedAt);
       const userName = te.user?.name || 'Unknown';
@@ -373,6 +381,21 @@ export async function POST(req: Request) {
         }
         laborByKey[costKey][userId].hours += hours;
         laborByKey[costKey][userId].cost += teCost;
+      }
+
+      // PM-specific tracking: cc01 "Planning, Admin" is BKB's project
+      // management bucket. Sum the hours + per-employee breakdown so
+      // we can compute actual-vs-projected PM further down. Match the
+      // cost code by number, not name, so re-labels in JT don't break
+      // the metric.
+      if (ccNum === '01') {
+        pmActualHours += hours;
+        pmActualCost += teCost;
+        if (!pmByUser[userId]) {
+          pmByUser[userId] = { name: userName, hours: 0, cost: 0 };
+        }
+        pmByUser[userId].hours += hours;
+        pmByUser[userId].cost += teCost;
       }
     }
 
@@ -664,6 +687,59 @@ export async function POST(req: Request) {
     };
 
     // ============================================================
+    // 7b. Project Management hours analysis
+    // ============================================================
+    // BKB's rule of thumb: PM cost = 6% of the project's total cost,
+    // divided by the PM hourly rate ($85) gives projected PM hours.
+    //   projectedHours = (totalCost * 0.06) / 85
+    //
+    // The basis cost depends on contract type:
+    //   - Fixed-price: use the internal cost budget (estimatedCost)
+    //     when it's set — that's the closest thing to "total cost"
+    //     before the job is done. Fall back to totalCommitted (paid +
+    //     pending) when budget is missing.
+    //   - Cost-plus: there is no budget, so total cost is whatever
+    //     we've committed so far (totalCommitted). The metric drifts
+    //     as the job grows — that's expected.
+    //
+    // Actual PM hours come from time entries logged on cc01
+    // "Planning, Admin" (computed in the time-entry loop above).
+    const PM_PCT_OF_COST = 0.06;
+    const PM_HOURLY_RATE = 85;
+    const pmBasisCost = !isCostPlus && totalEstimatedCost > 0
+      ? totalEstimatedCost
+      : totalCommitted;
+    const pmBasisLabel = !isCostPlus && totalEstimatedCost > 0
+      ? 'Internal Cost Budget'
+      : 'Total Costs (paid + pending)';
+    const pmProjectedHours = pmBasisCost > 0
+      ? (pmBasisCost * PM_PCT_OF_COST) / PM_HOURLY_RATE
+      : 0;
+    const pmPctUsed = pmProjectedHours > 0
+      ? (pmActualHours / pmProjectedHours) * 100
+      : 0;
+    const pmAnalysis = {
+      basisCost: Math.round(pmBasisCost * 100) / 100,
+      basisLabel: pmBasisLabel,
+      pctOfCost: PM_PCT_OF_COST * 100,
+      hourlyRate: PM_HOURLY_RATE,
+      projectedHours: Math.round(pmProjectedHours * 10) / 10,
+      actualHours: Math.round(pmActualHours * 10) / 10,
+      actualCost: Math.round(pmActualCost * 100) / 100,
+      pctUsed: Math.round(pmPctUsed * 10) / 10,
+      remainingHours: Math.round((pmProjectedHours - pmActualHours) * 10) / 10,
+      // Per-employee breakdown so the UI can drill into who's spending
+      // the PM hours. Sorted by hours desc.
+      byUser: Object.values(pmByUser)
+        .map((u) => ({
+          name: u.name,
+          hours: Math.round(u.hours * 10) / 10,
+          cost: Math.round(u.cost * 100) / 100,
+        }))
+        .sort((a, b) => b.hours - a.hours),
+    };
+
+    // ============================================================
     // 8. AI Analysis — now ON-DEMAND
     // ============================================================
     // Previously the AI analysis ran on every detail load. That was costly
@@ -690,6 +766,7 @@ export async function POST(req: Request) {
       costCodeBreakdown,
       docSummary,
       timeAnalysis,
+      pmAnalysis,
       aiAnalysis,
     });
   } catch (err: any) {

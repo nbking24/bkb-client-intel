@@ -22,6 +22,7 @@ import {
   MessageSquare,
   Send,
   Sparkles,
+  Briefcase,
 } from 'lucide-react';
 
 // ============================================================
@@ -159,6 +160,18 @@ interface JobDetail {
     efficiencyRatio: number;
     byUser: TimeUser[];
     byCostCode: { name: string; hours: number }[];
+  };
+  pmAnalysis?: {
+    basisCost: number;
+    basisLabel: string;
+    pctOfCost: number;
+    hourlyRate: number;
+    projectedHours: number;
+    actualHours: number;
+    actualCost: number;
+    pctUsed: number;
+    remainingHours: number;
+    byUser: { name: string; hours: number; cost: number }[];
   };
   docSummary: {
     customerOrders: any[];
@@ -1600,6 +1613,113 @@ export default function JobCostingDashboard() {
                 )}
               </div>
             </div>
+
+            {/* Project Management Hours
+                BKB tracks PM time as a percent-of-project-cost metric:
+                projected PM hours = (total cost × 6%) ÷ $85. Actual PM
+                hours come from time entries on cc01 "Planning, Admin".
+                This card shows projected vs actual side-by-side so
+                Nathan can see at a glance whether PM is tracking close
+                to the budgeted formula. The breakdown lists who's
+                logging the PM time. */}
+            {detail.pmAnalysis && (
+              <div
+                className="rounded-lg p-4"
+                style={{ background: '#ffffff', border: '1px solid rgba(200,140,0,0.1)' }}
+              >
+                <div className="flex items-center gap-2 mb-3">
+                  <Briefcase size={14} style={{ color: '#c88c00' }} />
+                  <h2 className="text-sm font-bold" style={{ color: '#1a1a1a' }}>Project Management Hours</h2>
+                  <span className="text-[10px] ml-auto" style={{ color: '#8a8078' }}>
+                    cc01 Planning, Admin · {detail.pmAnalysis.pctOfCost}% of {detail.pmAnalysis.basisLabel.toLowerCase()} ÷ ${detail.pmAnalysis.hourlyRate}/hr
+                  </span>
+                </div>
+
+                <div className="grid grid-cols-2 md:grid-cols-4 gap-3 mb-4">
+                  {/* Projected */}
+                  <div className="rounded-lg p-3" style={{ background: 'rgba(200,140,0,0.04)', border: '1px solid rgba(200,140,0,0.1)' }}>
+                    <p className="text-xs mb-1" style={{ color: '#8a8078' }}>Projected</p>
+                    <p className="text-xl font-bold" style={{ color: '#8a8078' }}>
+                      {detail.pmAnalysis.projectedHours} hrs
+                    </p>
+                    <p className="text-[11px] mt-1" style={{ color: '#8a8078' }}>
+                      from ${fmt(detail.pmAnalysis.basisCost)}
+                    </p>
+                  </div>
+                  {/* Actual */}
+                  <div className="rounded-lg p-3" style={{ background: 'rgba(200,140,0,0.04)', border: '1px solid rgba(200,140,0,0.1)' }}>
+                    <p className="text-xs mb-1" style={{ color: '#8a8078' }}>Actual</p>
+                    <p className="text-xl font-bold" style={{ color: '#1a1a1a' }}>
+                      {detail.pmAnalysis.actualHours} hrs
+                    </p>
+                    <p className="text-[11px] mt-1" style={{ color: '#8a8078' }}>
+                      ${fmt(detail.pmAnalysis.actualCost)} burdened
+                    </p>
+                  </div>
+                  {/* % used */}
+                  {(() => {
+                    const pct = detail.pmAnalysis.pctUsed;
+                    const projHrs = detail.pmAnalysis.projectedHours;
+                    const color = projHrs <= 0 ? '#8a8078'
+                      : pct > 100 ? '#ef4444'
+                      : pct >= 85 ? '#f59e0b'
+                      : '#22c55e';
+                    return (
+                      <div className="rounded-lg p-3" style={{ background: 'rgba(200,140,0,0.04)', border: '1px solid rgba(200,140,0,0.1)' }}>
+                        <p className="text-xs mb-1" style={{ color: '#8a8078' }}>% of Projected</p>
+                        <p className="text-xl font-bold" style={{ color }}>
+                          {projHrs > 0 ? pct.toFixed(1) + '%' : '—'}
+                        </p>
+                        <p className="text-[11px] mt-1" style={{ color: '#8a8078' }}>
+                          {projHrs > 0
+                            ? pct > 100 ? 'over' : pct >= 85 ? 'approaching' : 'on track'
+                            : 'no projection (no cost basis)'}
+                        </p>
+                      </div>
+                    );
+                  })()}
+                  {/* Remaining */}
+                  {(() => {
+                    const rem = detail.pmAnalysis.remainingHours;
+                    const color = rem < 0 ? '#ef4444' : rem > 0 ? '#22c55e' : '#8a8078';
+                    return (
+                      <div className="rounded-lg p-3" style={{ background: 'rgba(200,140,0,0.04)', border: '1px solid rgba(200,140,0,0.1)' }}>
+                        <p className="text-xs mb-1" style={{ color: '#8a8078' }}>Remaining</p>
+                        <p className="text-xl font-bold" style={{ color }}>
+                          {rem > 0 ? `${rem}` : rem < 0 ? `${rem}` : '0'} hrs
+                        </p>
+                        <p className="text-[11px] mt-1" style={{ color: '#8a8078' }}>
+                          {rem < 0 ? `over by ${Math.abs(rem)} hrs` : rem > 0 ? 'until projected' : 'right at projected'}
+                        </p>
+                      </div>
+                    );
+                  })()}
+                </div>
+
+                {/* Breakdown by team member */}
+                {detail.pmAnalysis.byUser.length > 0 && (
+                  <div className="pt-3" style={{ borderTop: '1px solid rgba(200,140,0,0.1)' }}>
+                    <div className="text-xs font-semibold mb-2" style={{ color: '#8a8078' }}>
+                      Who's logging PM time
+                    </div>
+                    <div className="space-y-1.5">
+                      {detail.pmAnalysis.byUser.map((u) => (
+                        <div key={u.name} className="flex items-center gap-3 text-xs">
+                          <span className="flex-1 truncate" style={{ color: '#1a1a1a' }}>{u.name}</span>
+                          <span className="font-medium" style={{ color: '#c88c00' }}>{u.hours} hrs</span>
+                          <span className="w-20 text-right" style={{ color: '#8a8078' }}>${fmt(u.cost)}</span>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
+                {detail.pmAnalysis.actualHours === 0 && (
+                  <div className="text-xs italic mt-2" style={{ color: '#8a8078' }}>
+                    No PM time logged yet on this job.
+                  </div>
+                )}
+              </div>
+            )}
 
             {/* Documents */}
             <div
