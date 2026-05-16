@@ -117,6 +117,15 @@ interface TimeUser {
 }
 
 interface JobDetail {
+  // Cache metadata: present on every detail response. `cachedAt` is
+  // when the server computed the underlying data; `cacheHit` is true
+  // when the response came straight from Supabase, false when freshly
+  // computed. `cacheComputeMs` is how long the most recent compute
+  // took (useful for sanity-checking that caching is helping).
+  cachedAt?: string;
+  cacheAgeMs?: number;
+  cacheHit?: boolean;
+  cacheComputeMs?: number;
   job: { id: string; name: string; number: string; clientName: string; priceType: string; customStatus: string; isCostPlus: boolean; isCompleted: boolean };
   financialSummary: {
     isCostPlus: boolean;
@@ -377,7 +386,10 @@ export default function JobCostingDashboard() {
   useEffect(() => { loadSummary(); }, []);
 
   // ---- Load detail for a job ----
-  async function loadDetail(jobId: string) {
+  // forceRefresh=true appends ?refresh=1 so the API bypasses its
+  // 5-min cache and re-computes from JT. Used by the Refresh button
+  // on the detail panel.
+  async function loadDetail(jobId: string, forceRefresh = false) {
     setSelectedJobId(jobId);
     setDetailLoading(true);
     setDetail(null);
@@ -393,7 +405,10 @@ export default function JobCostingDashboard() {
     setAiAnalysisAt(null);
     setAiAnalysisError(null);
     try {
-      const res = await fetch('/api/dashboard/job-costing/detail', {
+      const url = forceRefresh
+        ? '/api/dashboard/job-costing/detail?refresh=1'
+        : '/api/dashboard/job-costing/detail';
+      const res = await fetch(url, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ jobId }),
@@ -507,6 +522,47 @@ export default function JobCostingDashboard() {
                   — {detail.job.clientName}
                 </span>
               )}
+              {/* Freshness indicator + manual refresh.
+                  The detail endpoint caches its expensive PAVE computation
+                  for 5 minutes; on cache hits the response comes back in
+                  ~100ms instead of 30-60s. Show "as of X ago" so the user
+                  can tell whether they're looking at fresh data, and a
+                  Refresh button that bypasses the cache for a force-pull
+                  (e.g., after editing something in JT). */}
+              {detail.cachedAt && (() => {
+                const ageMs = Date.now() - new Date(detail.cachedAt).getTime();
+                const ageMin = Math.floor(ageMs / 60000);
+                const ageSec = Math.floor(ageMs / 1000);
+                const ageLabel = ageMin >= 1
+                  ? `${ageMin} min${ageMin === 1 ? '' : 's'} ago`
+                  : ageSec >= 5
+                    ? `${ageSec} sec ago`
+                    : 'just now';
+                return (
+                  <div className="ml-auto flex items-center gap-2 text-xs" style={{ color: '#8a8078' }}>
+                    <span>
+                      Data as of {ageLabel}
+                      {detail.cacheHit ? '' : ` · loaded in ${((detail.cacheComputeMs || 0) / 1000).toFixed(1)}s`}
+                    </span>
+                    <button
+                      type="button"
+                      onClick={() => loadDetail(detail.job.id, true)}
+                      disabled={detailLoading}
+                      className="flex items-center gap-1 px-2 py-1 rounded text-xs hover:opacity-80"
+                      style={{
+                        background: '#ffffff',
+                        border: '1px solid rgba(200,140,0,0.20)',
+                        color: '#c88c00',
+                        cursor: detailLoading ? 'not-allowed' : 'pointer',
+                      }}
+                      title="Force a fresh pull from JobTread (bypasses the 5-minute cache)"
+                    >
+                      <RefreshCw size={11} className={detailLoading ? 'animate-spin' : ''} />
+                      Refresh
+                    </button>
+                  </div>
+                );
+              })()}
             </div>
 
             {/* AI Analysis — on-demand. The detail endpoint stopped auto-

@@ -2251,9 +2251,11 @@ export async function getDocumentCostItemsForJob(jobId: string): Promise<JTCostI
   }
 
   // Pass 2: fetch cost items per document in parallel batches.
-  // Batch of 5 matches getJobBillLines / getUninvoicedCC23ForJob. Skip denied
-  // bills the same way getJobBillLines does — they shouldn't drive cost
-  // rollup numbers.
+  // Batch size doubled from 5 → 10 to cut cold-load time on large jobs
+  // (Edwards has 147 docs; 10 in parallel is ~halves the wall-clock
+  // wait vs the prior 5-at-a-time pacing). 10 is still well under the
+  // observed JT rate-limit ceiling and matches what the bill scan
+  // does on long-running scans.
   //
   // IMPORTANT: paginate *within* each document. PAVE caps page size at 100;
   // a single-page fetch silently truncated the tail on any doc with >100
@@ -2261,7 +2263,7 @@ export async function getDocumentCostItemsForJob(jobId: string): Promise<JTCostI
   // the last 34 (including the $24k SalfordWorks cabinetry line on cc16)
   // were being dropped, which made the cc16 budget show $15k instead of
   // the real ~$39k. Cap at 20 pages (2,000 items / doc) as a safety brake.
-  const BATCH_SIZE = 5;
+  const BATCH_SIZE = 10;
   const MAX_DOC_PAGES = 20;
   const activeDocs = docs.filter(d => d.status !== 'denied');
   const allItems: JTCostItem[] = [];

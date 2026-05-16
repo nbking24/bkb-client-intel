@@ -9,11 +9,17 @@ import {
   getTimeEntriesForJob,
   getTasksForJob,
 } from '../../../../lib/jobtread';
+import { getSupabase } from '@/app/api/lib/supabase';
 
 // ============================================================
 // Job Costing Detail API
 // Deep-dive analysis for a single job
 // ============================================================
+
+// Cache lifetime for the computed payload. After 5 minutes the route
+// re-computes on the next request. The Refresh button on the dashboard
+// hits `?refresh=1` to bypass the cache regardless of age.
+const CACHE_TTL_MS = 5 * 60 * 1000;
 
 function computeHours(startedAt: string, endedAt: string): number {
   if (!startedAt || !endedAt) return 0;
@@ -23,8 +29,44 @@ function computeHours(startedAt: string, endedAt: string): number {
 
 export async function POST(req: Request) {
   try {
+    const url = new URL(req.url);
+    const forceRefresh = url.searchParams.get('refresh') === '1';
     const { jobId } = await req.json();
     if (!jobId) return NextResponse.json({ error: 'jobId required' }, { status: 400 });
+
+    const sb = getSupabase();
+
+    // ── Cache check ──
+    // Returns cached payload when fresh (< CACHE_TTL_MS old) and the
+    // client didn't ask for a force-refresh. The cached payload is
+    // augmented with `cachedAt` + `cacheAgeMs` so the UI can render
+    // "as of X ago" and offer a refresh control.
+    if (!forceRefresh) {
+      try {
+        const { data: cached } = await sb
+          .from('job_costing_cache')
+          .select('payload, computed_at, compute_ms')
+          .eq('job_id', jobId)
+          .maybeSingle();
+        if (cached?.payload && cached?.computed_at) {
+          const ageMs = Date.now() - new Date(cached.computed_at).getTime();
+          if (ageMs < CACHE_TTL_MS) {
+            return NextResponse.json({
+              ...cached.payload,
+              cachedAt: cached.computed_at,
+              cacheAgeMs: ageMs,
+              cacheHit: true,
+              cacheComputeMs: cached.compute_ms,
+            });
+          }
+        }
+      } catch (err: any) {
+        // Cache lookup failures are non-fatal — fall through and compute.
+        console.warn('[job-costing/detail] cache read failed:', err?.message || err);
+      }
+    }
+
+    const computeStartedAt = Date.now();
 
     // Fetch all data in parallel
     const [job, costItems, documents, docCostItems, timeEntries, tasks] = await Promise.all([
@@ -781,7 +823,9 @@ export async function POST(req: Request) {
     // the UI knows to show the "Run AI Analysis" placeholder card.
     const aiAnalysis = '';
 
-    return NextResponse.json({
+    const computeMs = Date.now() - computeStartedAt;
+
+    const payload = {
       job: {
         id: job?.id || jobId,
         name: job?.name || '',
@@ -798,6 +842,32 @@ export async function POST(req: Request) {
       timeAnalysis,
       pmAnalysis,
       aiAnalysis,
+    };
+
+    // Write to cache for the next request. Fire-and-forget — if it
+    // fails we still return the computed payload, the caller doesn't
+    // care that we couldn't memoize. UPSERT on job_id so re-computes
+    // overwrite the prior row cleanly.
+    const computedAtIso = new Date().toISOString();
+    try {
+      await sb
+        .from('job_costing_cache')
+        .upsert({
+          job_id: jobId,
+          payload,
+          computed_at: computedAtIso,
+          compute_ms: computeMs,
+        }, { onConflict: 'job_id' });
+    } catch (err: any) {
+      console.warn('[job-costing/detail] cache write failed:', err?.message || err);
+    }
+
+    return NextResponse.json({
+      ...payload,
+      cachedAt: computedAtIso,
+      cacheAgeMs: 0,
+      cacheHit: false,
+      cacheComputeMs: computeMs,
     });
   } catch (err: any) {
     console.error('Job costing detail error:', err);
