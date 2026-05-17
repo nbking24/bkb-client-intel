@@ -180,6 +180,10 @@ interface JobDetail {
     actualCost: number;
     actualPctOfCost: number;
     actualPctBasis: number;
+    budgetedPctOfCost: number | null;
+    budgetedCost: number;
+    budgetedHours: number;
+    budgetedPctBasis: number;
     pctUsed: number;
     remainingHours: number;
     byUser: { name: string; hours: number; cost: number }[];
@@ -1693,7 +1697,7 @@ export default function JobCostingDashboard() {
                   </span>
                 </div>
 
-                <div className="grid grid-cols-2 md:grid-cols-4 gap-3 mb-4">
+                <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-5 gap-3 mb-4">
                   {/* Projected */}
                   <div className="rounded-lg p-3" style={{ background: 'rgba(200,140,0,0.04)', border: '1px solid rgba(200,140,0,0.1)' }}>
                     <p className="text-xs mb-1" style={{ color: '#8a8078' }}>Projected</p>
@@ -1736,6 +1740,45 @@ export default function JobCostingDashboard() {
                       </div>
                     );
                   })()}
+                  {/* Budgeted % of Cost
+                      What was earmarked for PM up-front, as a % of the
+                      project's internal cost budget. Pairs with the
+                      "Actual % of Cost" card to the right: you see at
+                      a glance whether actual PM is tracking ahead of,
+                      behind, or right on what was budgeted. Reads "—"
+                      when there's no internal cost budget (cost-plus
+                      jobs or pre-budget fixed-price). */}
+                  {(() => {
+                    const budgetedPct = detail.pmAnalysis.budgetedPctOfCost;
+                    const budgetedCost = detail.pmAnalysis.budgetedCost;
+                    const basis = detail.pmAnalysis.budgetedPctBasis;
+                    if (budgetedPct === null || basis <= 0) {
+                      return (
+                        <div className="rounded-lg p-3" style={{ background: 'rgba(200,140,0,0.04)', border: '1px solid rgba(200,140,0,0.1)' }}>
+                          <p className="text-xs mb-1" style={{ color: '#8a8078' }}>Budgeted % of Cost</p>
+                          <p className="text-xl font-bold" style={{ color: '#8a8078' }}>—</p>
+                          <p className="text-[11px] mt-1" style={{ color: '#8a8078' }}>no internal cost budget</p>
+                        </div>
+                      );
+                    }
+                    const assumedPct = detail.pmAnalysis.pctOfCost;
+                    const variance = budgetedPct - assumedPct;
+                    const varianceStr = variance === 0
+                      ? `at the ${assumedPct}% rule`
+                      : `${variance > 0 ? '+' : ''}${variance.toFixed(2)}pp vs ${assumedPct}% rule`;
+                    return (
+                      <div className="rounded-lg p-3" style={{ background: 'rgba(200,140,0,0.04)', border: '1px solid rgba(200,140,0,0.1)' }}>
+                        <p className="text-xs mb-1" style={{ color: '#8a8078' }}>Budgeted % of Cost</p>
+                        <p className="text-xl font-bold" style={{ color: '#8a8078' }}>
+                          {budgetedPct.toFixed(2)}%
+                        </p>
+                        <p className="text-[11px] mt-1" style={{ color: '#8a8078' }}>
+                          ${fmt(budgetedCost)} on cc01 · {varianceStr}
+                        </p>
+                      </div>
+                    );
+                  })()}
+
                   {/* Actual % of Cost
                       Reads as the answer to: "what percent would I plug
                       into the formula on future projects to project the

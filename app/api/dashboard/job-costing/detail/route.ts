@@ -760,6 +760,28 @@ export async function POST(req: Request) {
     const pmPctUsed = pmProjectedHours > 0
       ? (pmActualHours / pmProjectedHours) * 100
       : 0;
+    // Budgeted PM percent-of-cost on this job. Reads from the
+    // approved-CO budget breakdown we already built earlier in the
+    // route: every cc01 budget line item's estimated cost summed up,
+    // divided by the total internal cost budget. Tells Nathan what
+    // percent of the project's total cost was planned for PM up-front.
+    // Compared to the actualPctOfCost number, this surfaces whether
+    // PM is tracking ahead of, behind, or right on what was budgeted.
+    let pmBudgetedCost = 0;
+    let pmBudgetedHours = 0;
+    for (const v of Object.values(budgetByCostCode)) {
+      if (v.costCodeNumber === '01') {
+        pmBudgetedCost += v.estimatedCost;
+        // Approximate budgeted PM hours from the budgeted PM cost using
+        // the formula's $85 rate. Useful for the UI to show projected vs
+        // budgeted side-by-side without mixing reference frames.
+        pmBudgetedHours += v.estimatedCost / PM_HOURLY_RATE;
+      }
+    }
+    const pmBudgetedPctOfCost = totalEstimatedCost > 0
+      ? (pmBudgetedCost / totalEstimatedCost) * 100
+      : 0;
+
     // Actual PM percent-of-cost on this job. This is the answer to
     // "what percent would I plug into the formula on future projects
     // to project the same PM hours this project actually used?"
@@ -798,6 +820,15 @@ export async function POST(req: Request) {
       // show "X% of $Y total costs".
       actualPctOfCost: Math.round(pmActualPctOfCost * 100) / 100,
       actualPctBasis: Math.round(pmActualPctBasis * 100) / 100,
+      // What was budgeted for PM as a % of the project's internal
+      // cost budget. Null when there's no cost budget (cost-plus jobs,
+      // or pre-budget fixed-price jobs) — UI shows "—" in that case.
+      budgetedPctOfCost: totalEstimatedCost > 0
+        ? Math.round(pmBudgetedPctOfCost * 100) / 100
+        : null,
+      budgetedCost: Math.round(pmBudgetedCost * 100) / 100,
+      budgetedHours: Math.round(pmBudgetedHours * 10) / 10,
+      budgetedPctBasis: Math.round(totalEstimatedCost * 100) / 100,
       pctUsed: Math.round(pmPctUsed * 10) / 10,
       remainingHours: Math.round((pmProjectedHours - pmActualHours) * 10) / 10,
       // Per-employee breakdown so the UI can drill into who's spending
