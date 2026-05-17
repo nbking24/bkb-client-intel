@@ -170,6 +170,14 @@ interface JobDetail {
     byUser: TimeUser[];
     byCostCode: { name: string; hours: number }[];
   };
+  laborHoursByCategory?: {
+    costCodeNumber: string;
+    costCodeName: string;
+    budgetedHours: number;
+    actualHours: number;
+    remainingHours: number;
+    hasBudget: boolean;
+  }[];
   pmAnalysis?: {
     basisCost: number;
     basisLabel: string;
@@ -1606,12 +1614,6 @@ export default function JobCostingDashboard() {
                       {detail.timeAnalysis.actualWorkHours} hrs
                     </span>
                   </div>
-                  <div className="flex justify-between items-center">
-                    <span className="text-xs" style={{ color: '#8a8078' }}>Travel</span>
-                    <span className="text-sm font-medium" style={{ color: '#1a1a1a' }}>
-                      {detail.timeAnalysis.actualTravelHours} hrs
-                    </span>
-                  </div>
                   <div
                     className="flex justify-between items-center pt-2"
                     style={{ borderTop: '1px solid rgba(200,140,0,0.1)' }}
@@ -1675,6 +1677,134 @@ export default function JobCostingDashboard() {
                 )}
               </div>
             </div>
+
+            {/* Labor Hours by Category
+                Budgeted vs actual work vs remaining, broken down by
+                cost code. Pulls budgeted hours from labor-type budget
+                items on approved customer orders, actual hours from
+                time entries (work entries only — travel/break are
+                excluded since they're not part of the labor budget).
+                "Remaining" goes red when over budget. Categories with
+                actual time but no budget show "—" in remaining + a
+                "no budget" tag, so it's clear those hours weren't
+                planned for, not that they're miscalculated. */}
+            {detail.laborHoursByCategory && detail.laborHoursByCategory.length > 0 && (
+              <div
+                className="rounded-lg p-4"
+                style={{ background: '#ffffff', border: '1px solid rgba(200,140,0,0.1)' }}
+              >
+                <div className="flex items-center gap-2 mb-3">
+                  <Clock size={14} style={{ color: '#c88c00' }} />
+                  <h2 className="text-sm font-bold" style={{ color: '#1a1a1a' }}>Labor Hours by Category</h2>
+                  <span className="text-[10px] ml-auto" style={{ color: '#8a8078' }}>
+                    Work hours only · travel + break excluded
+                  </span>
+                </div>
+
+                <div
+                  className="grid gap-2 px-3 py-2 text-xs font-medium"
+                  style={{
+                    color: '#8a8078',
+                    borderBottom: '1px solid rgba(200,140,0,0.08)',
+                    gridTemplateColumns: '2.5fr 1fr 1fr 1fr',
+                  }}
+                >
+                  <div>Category</div>
+                  <div className="text-right">Budgeted</div>
+                  <div className="text-right">Actual</div>
+                  <div className="text-right">Remaining</div>
+                </div>
+
+                <div>
+                  {detail.laborHoursByCategory.map((row) => {
+                    const over = row.hasBudget && row.actualHours > row.budgetedHours;
+                    const under = row.hasBudget && row.actualHours <= row.budgetedHours;
+                    const remainingColor = !row.hasBudget ? '#555'
+                      : over ? '#ef4444'
+                      : under ? '#22c55e'
+                      : '#8a8078';
+                    return (
+                      <div
+                        key={row.costCodeNumber + '-' + row.costCodeName}
+                        className="grid gap-2 px-3 py-2 text-sm items-center"
+                        style={{
+                          borderBottom: '1px solid rgba(200,140,0,0.04)',
+                          gridTemplateColumns: '2.5fr 1fr 1fr 1fr',
+                        }}
+                      >
+                        <div className="flex items-center gap-2 min-w-0">
+                          <span
+                            className="text-xs px-1 py-0.5 rounded font-mono shrink-0"
+                            style={{ background: '#222', color: '#f0c060', fontWeight: 600 }}
+                          >
+                            {row.costCodeNumber}
+                          </span>
+                          <span className="truncate" style={{ color: '#1a1a1a' }}>{row.costCodeName}</span>
+                          {!row.hasBudget && row.actualHours > 0 && (
+                            <span className="text-[10px] px-1.5 py-0.5 rounded shrink-0" style={{ background: 'rgba(245,158,11,0.10)', color: '#a16207' }}>
+                              no budget
+                            </span>
+                          )}
+                        </div>
+                        <div className="text-right" style={{ color: row.budgetedHours > 0 ? '#1a1a1a' : '#8a8078' }}>
+                          {row.budgetedHours > 0 ? `${row.budgetedHours} hrs` : '—'}
+                        </div>
+                        <div className="text-right" style={{ color: row.actualHours > 0 ? '#1a1a1a' : '#8a8078' }}>
+                          {row.actualHours > 0 ? `${row.actualHours} hrs` : '—'}
+                        </div>
+                        <div className="text-right font-medium" style={{ color: remainingColor }}>
+                          {!row.hasBudget
+                            ? '—'
+                            : over
+                              ? `−${(row.actualHours - row.budgetedHours).toFixed(1)} hrs`
+                              : `${row.remainingHours} hrs`}
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+
+                {/* Totals row */}
+                {(() => {
+                  const totals = detail.laborHoursByCategory!.reduce(
+                    (acc, r) => ({
+                      budgeted: acc.budgeted + r.budgetedHours,
+                      actual: acc.actual + r.actualHours,
+                    }),
+                    { budgeted: 0, actual: 0 }
+                  );
+                  const totalRemaining = totals.budgeted - totals.actual;
+                  const over = totals.budgeted > 0 && totalRemaining < 0;
+                  return (
+                    <div
+                      className="grid gap-2 px-3 py-2.5 text-sm font-bold items-center"
+                      style={{
+                        borderTop: '1px solid rgba(200,140,0,0.15)',
+                        background: 'rgba(201,168,76,0.04)',
+                        gridTemplateColumns: '2.5fr 1fr 1fr 1fr',
+                      }}
+                    >
+                      <div style={{ color: '#c88c00' }}>TOTAL</div>
+                      <div className="text-right" style={{ color: '#1a1a1a' }}>
+                        {Math.round(totals.budgeted * 10) / 10} hrs
+                      </div>
+                      <div className="text-right" style={{ color: '#1a1a1a' }}>
+                        {Math.round(totals.actual * 10) / 10} hrs
+                      </div>
+                      <div className="text-right" style={{
+                        color: totals.budgeted <= 0 ? '#8a8078' : over ? '#ef4444' : '#22c55e',
+                      }}>
+                        {totals.budgeted <= 0
+                          ? '—'
+                          : over
+                            ? `−${Math.round(Math.abs(totalRemaining) * 10) / 10} hrs`
+                            : `${Math.round(totalRemaining * 10) / 10} hrs`}
+                      </div>
+                    </div>
+                  );
+                })()}
+              </div>
+            )}
 
             {/* Project Management Hours
                 BKB tracks PM time as a percent-of-project-cost metric:

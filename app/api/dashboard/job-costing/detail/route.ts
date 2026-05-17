@@ -119,6 +119,19 @@ export async function POST(req: Request) {
     let estimatedLaborHours = 0;
     let budgetSourceUsed: 'approved_co_lines' | 'job_budget_items_fallback' = 'approved_co_lines';
 
+    // Per-cost-code budgeted labor hours. Sums the `quantity` field on
+    // every labor- or time-type budget item, grouped by cost code key
+    // (ccNum-ccName, same key the budgetByCostCode map uses). Feeds the
+    // "Labor Hours by Category" card on the per-job dashboard so Nathan
+    // can compare budgeted vs actual work hours per category at a glance.
+    const budgetedLaborHoursByCode: Record<string, { ccNum: string; ccName: string; hours: number }> = {};
+    const trackBudgetedLabor = (key: string, ccNum: string, ccName: string, qty: number) => {
+      if (!budgetedLaborHoursByCode[key]) {
+        budgetedLaborHoursByCode[key] = { ccNum, ccName, hours: 0 };
+      }
+      budgetedLaborHoursByCode[key].hours += qty;
+    };
+
     // An option on an approved contract is only part of the budget if the
     // client actually selected it. JT marks the un-chosen options with
     // isSelected=false at the item level, or buries them under a
@@ -176,7 +189,9 @@ export async function POST(req: Request) {
 
       const costType = dci.costType?.name?.toLowerCase() || '';
       if (costType.includes('labor') || costType.includes('time')) {
-        estimatedLaborHours += Number(dci.quantity) || 0;
+        const qty = Number(dci.quantity) || 0;
+        estimatedLaborHours += qty;
+        trackBudgetedLabor(key, ccNum, ccName, qty);
       }
     }
 
@@ -231,7 +246,9 @@ export async function POST(req: Request) {
       budgetBreakdownTotal += cost;
       const costType = ci.costType?.name?.toLowerCase() || '';
       if (costType.includes('labor') || costType.includes('time')) {
-        estimatedLaborHours += Number(ci.quantity) || 0;
+        const qty = Number(ci.quantity) || 0;
+        estimatedLaborHours += qty;
+        trackBudgetedLabor(key, ccNum, ccName, qty);
       }
     }
 
@@ -265,7 +282,9 @@ export async function POST(req: Request) {
         budgetBreakdownTotal += cost;
         const costType = ci.costType?.name?.toLowerCase() || '';
         if (costType.includes('labor') || costType.includes('time')) {
-          estimatedLaborHours += Number(ci.quantity) || 0;
+          const qty = Number(ci.quantity) || 0;
+          estimatedLaborHours += qty;
+          trackBudgetedLabor(key, ccNum, ccName, qty);
         }
       }
     }
@@ -367,6 +386,14 @@ export async function POST(req: Request) {
     // individually since each one represents a discrete vendor commitment.
     const laborByKey: Record<string, Record<string, { name: string; hours: number; cost: number }>> = {};
 
+    // Per-cost-code WORK hours (excludes travel + break). Pairs with the
+    // budgetedLaborHoursByCode map above to build the "Labor Hours by
+    // Category" card: budgeted hours come from labor-type budget items
+    // on approved COs, actual hours come from work-type time entries.
+    // Travel and break time are intentionally NOT included here because
+    // Nathan's labor budget represents productive work time.
+    const workHoursByCode: Record<string, { ccNum: string; ccName: string; hours: number }> = {};
+
     // Project Management hours: time entries logged against cc01
     // "Planning, Admin". BKB tracks PM as a percent-of-project-cost
     // metric. The detail response below exposes projected vs actual so
@@ -386,6 +413,7 @@ export async function POST(req: Request) {
 
       // Categorize by type, but default to 'work' if unrecognized
       const entryType = (te.type || '').toLowerCase();
+      let isWork = false;
       if (entryType === 'travel') {
         timeByUser[userId].travel += hours;
         totalTravelHours += hours;
@@ -396,6 +424,7 @@ export async function POST(req: Request) {
         // 'work', 'standard', null, or any other value → count as work
         timeByUser[userId].work += hours;
         totalWorkHours += hours;
+        isWork = true;
       }
 
       // Add time entry labor cost to actual cost
@@ -410,6 +439,17 @@ export async function POST(req: Request) {
         timeByCostCode[timeKey] = { name: ccName, hours: 0 };
       }
       timeByCostCode[timeKey].hours += hours;
+
+      // Work-only per-cost-code accumulator for the Labor Hours by
+      // Category card. Keyed on ccNum-ccName to align with
+      // budgetedLaborHoursByCode (which uses the same key shape).
+      if (isWork) {
+        const workKey = ccNum + '-' + ccName;
+        if (!workHoursByCode[workKey]) {
+          workHoursByCode[workKey] = { ccNum, ccName, hours: 0 };
+        }
+        workHoursByCode[workKey].hours += hours;
+      }
 
       // Aggregate labor cost & hours per (cost code, employee) — the actual
       // pushLine into actualByCostCode happens after the loop, once per
@@ -478,6 +518,55 @@ export async function POST(req: Request) {
         .map((c) => ({ name: c.name, hours: Math.round(c.hours * 10) / 10 }))
         .sort((a, b) => b.hours - a.hours),
     };
+
+    // Labor Hours by Category — budgeted vs actual work vs remaining,
+    // grouped by cost code. Built from the budgetedLaborHoursByCode +
+    // workHoursByCode maps accumulated above. Union of keys covers
+    // categories that had budget but no actual (under-tracking) and
+    // categories that had actual but no budget (off-budget labor).
+    type CategoryHoursRow = {
+      costCodeNumber: string;
+      costCodeName: string;
+      budgetedHours: number;
+      actualHours: number;
+      remainingHours: number;
+      // True when the category has at least one budgeted hour. UI
+      // uses this to show "no budget" sub-text instead of misleading
+      // negative-remaining numbers when actual exists without budget.
+      hasBudget: boolean;
+    };
+    const laborHoursByCategoryMap: Record<string, CategoryHoursRow> = {};
+    const seedRow = (ccNum: string, ccName: string): CategoryHoursRow => ({
+      costCodeNumber: ccNum,
+      costCodeName: ccName,
+      budgetedHours: 0,
+      actualHours: 0,
+      remainingHours: 0,
+      hasBudget: false,
+    });
+    for (const [key, b] of Object.entries(budgetedLaborHoursByCode)) {
+      if (!laborHoursByCategoryMap[key]) {
+        laborHoursByCategoryMap[key] = seedRow(b.ccNum, b.ccName);
+      }
+      laborHoursByCategoryMap[key].budgetedHours += b.hours;
+      if (b.hours > 0) laborHoursByCategoryMap[key].hasBudget = true;
+    }
+    for (const [key, w] of Object.entries(workHoursByCode)) {
+      if (!laborHoursByCategoryMap[key]) {
+        laborHoursByCategoryMap[key] = seedRow(w.ccNum, w.ccName);
+      }
+      laborHoursByCategoryMap[key].actualHours += w.hours;
+    }
+    const laborHoursByCategory = Object.values(laborHoursByCategoryMap)
+      .map((r) => ({
+        ...r,
+        budgetedHours: Math.round(r.budgetedHours * 10) / 10,
+        actualHours: Math.round(r.actualHours * 10) / 10,
+        remainingHours: Math.round((r.budgetedHours - r.actualHours) * 10) / 10,
+      }))
+      // Sort by budgeted desc, then actual desc — the categories with
+      // real labor activity surface to the top.
+      .sort((a, b) => b.budgetedHours - a.budgetedHours || b.actualHours - a.actualHours);
 
     // ============================================================
     // 4. Merge into cost code breakdown
@@ -871,6 +960,7 @@ export async function POST(req: Request) {
       costCodeBreakdown,
       docSummary,
       timeAnalysis,
+      laborHoursByCategory,
       pmAnalysis,
       aiAnalysis,
     };
