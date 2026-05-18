@@ -125,7 +125,10 @@ export async function POST(req: Request) {
 
     const client = new Anthropic();
     const response = await client.messages.create({
-      model: 'claude-sonnet-4-20250514',
+      // Sonnet 4.6 — current-gen, identical pricing to the prior Sonnet 4
+      // (May 2025) but better at reasoning over the structured job-cost
+      // context we send. Free quality bump; no efficiency cost.
+      model: 'claude-sonnet-4-6',
       max_tokens: 1500,
       system,
       messages,

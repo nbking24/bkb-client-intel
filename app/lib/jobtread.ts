@@ -109,10 +109,22 @@ export async function searchJobsByText(query: string, limit = 25): Promise<JTJob
   if (!term) return [];
   const likePattern = `%${term}%`;
 
+  // PAVE doesn't expose `customStatus` as a direct field on a job —
+  // it lives in the customFieldValues collection keyed by "Status".
+  // This is the same pattern getActiveJobs uses; we resolve it after
+  // the query returns by walking customFieldValues and picking the
+  // one whose customField.name === 'Status'. Same trick for "Project
+  // Manager" if we ever want it.
   const fields = {
     id: {}, name: {}, number: {},
-    customStatus: {}, closedOn: {}, priceType: {},
+    closedOn: {}, priceType: {},
     location: { account: { name: {} } },
+    customFieldValues: {
+      nodes: {
+        value: {},
+        customField: { name: {} },
+      },
+    },
   };
 
   // Two queries in parallel: by name and by number. JT doesn't expose
@@ -147,11 +159,14 @@ export async function searchJobsByText(query: string, limit = 25): Promise<JTJob
     for (const j of (r?.nodes || []) as any[]) {
       if (!j?.id || seen.has(j.id)) continue;
       seen.add(j.id);
+      const statusField = (j.customFieldValues?.nodes || []).find(
+        (cfv: any) => cfv?.customField?.name === 'Status'
+      );
       results.push({
         id: j.id,
         name: j.name || '',
         number: j.number || '',
-        customStatus: j.customStatus || null,
+        customStatus: statusField?.value || null,
         closedOn: j.closedOn || null,
         clientName: j.location?.account?.name || '',
         priceType: j.priceType || null,
