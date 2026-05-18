@@ -34,8 +34,12 @@ export function isFieldStaffRole(role?: string): boolean {
 export function validateAgentOrUser(req: Request | { headers: Headers | { get: (k: string) => string | null } }): AuthResult {
   // Agent token path
   const agentToken = (req as any).headers?.get?.('x-agent-token') || null;
-  const expected = process.env.TICKET_AGENT_TOKEN;
-  if (agentToken && expected && agentToken === expected) {
+  const expectedTicket = process.env.TICKET_AGENT_TOKEN;
+  const expectedMarketing = process.env.MARKETING_AGENT_TOKEN;
+  if (agentToken && (
+    (expectedTicket && agentToken === expectedTicket) ||
+    (expectedMarketing && agentToken === expectedMarketing)
+  )) {
     return { valid: true, userId: 'claude', role: 'owner' };
   }
   // Fall through to user auth
