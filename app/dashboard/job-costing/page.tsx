@@ -240,6 +240,50 @@ export default function JobCostingDashboard() {
   const [filterHealth, setFilterHealth] = useState<string>('all');
   const [sortBy, setSortBy] = useState<string>('health');
 
+  // Past-jobs search: ad-hoc lookup across every job in JT (closed,
+  // active, on hold, any status). The active-jobs index above only
+  // loads in-progress jobs by default, so this is how Nathan pulls
+  // up a finished project to run costing on it. Debounced — the
+  // input fires a search ~350ms after typing stops.
+  const [pastSearchOpen, setPastSearchOpen] = useState(false);
+  const [pastSearchQuery, setPastSearchQuery] = useState('');
+  const [pastSearchLoading, setPastSearchLoading] = useState(false);
+  const [pastSearchResults, setPastSearchResults] = useState<{
+    id: string;
+    name: string;
+    number: string;
+    customStatus: string | null;
+    closedOn: string | null;
+    clientName: string;
+    priceType: string | null;
+  }[]>([]);
+  const [pastSearchError, setPastSearchError] = useState<string | null>(null);
+
+  useEffect(() => {
+    const q = pastSearchQuery.trim();
+    if (!pastSearchOpen || q.length < 2) {
+      setPastSearchResults([]);
+      setPastSearchError(null);
+      return;
+    }
+    setPastSearchLoading(true);
+    setPastSearchError(null);
+    const t = setTimeout(async () => {
+      try {
+        const res = await fetch(`/api/dashboard/job-costing/search?q=${encodeURIComponent(q)}`);
+        const data = await res.json();
+        if (!res.ok) throw new Error(data?.error || 'Search failed');
+        setPastSearchResults(data?.results || []);
+      } catch (err: any) {
+        setPastSearchError(err.message || 'Search failed');
+        setPastSearchResults([]);
+      } finally {
+        setPastSearchLoading(false);
+      }
+    }, 350);
+    return () => clearTimeout(t);
+  }, [pastSearchQuery, pastSearchOpen]);
+
   // Detail view
   const [selectedJobId, setSelectedJobId] = useState<string | null>(null);
   const [detailLoading, setDetailLoading] = useState(false);
@@ -2097,6 +2141,118 @@ export default function JobCostingDashboard() {
               </div>
             </div>
           )}
+
+          {/* Search Past Jobs (closed / not in the active list)
+              Collapsed by default since Nathan uses it occasionally,
+              not every page load. Searches JobTread by name AND
+              number across every job in the org — including closed
+              ones — and lets the user click a result to run the
+              same job-costing analysis on a historical project.
+              The active-jobs index below is untouched. */}
+          <div className="rounded-lg" style={{ background: '#ffffff', border: '1px solid rgba(200,140,0,0.12)' }}>
+            <button
+              type="button"
+              onClick={() => setPastSearchOpen((v) => !v)}
+              className="w-full flex items-center gap-2 px-4 py-2.5 text-left"
+            >
+              <Search size={13} style={{ color: '#c88c00' }} />
+              <span className="text-xs font-semibold uppercase tracking-wider flex-1" style={{ color: '#8a8078' }}>
+                Search Past Jobs (closed or any status)
+              </span>
+              <span className="text-[10px]" style={{ color: '#8a8078' }}>
+                {pastSearchOpen ? 'hide' : 'expand'}
+              </span>
+              {pastSearchOpen
+                ? <ChevronDown size={12} style={{ color: '#8a8078' }} />
+                : <ChevronRight size={12} style={{ color: '#8a8078' }} />}
+            </button>
+            {pastSearchOpen && (
+              <div className="px-4 pb-3 pt-1">
+                <div className="relative">
+                  <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2" style={{ color: '#8a8078' }} />
+                  <input
+                    type="text"
+                    autoFocus
+                    placeholder="Type a job name or number — searches every job in JobTread"
+                    value={pastSearchQuery}
+                    onChange={(e) => setPastSearchQuery(e.target.value)}
+                    className="w-full pl-9 pr-3 py-2 rounded-lg text-sm"
+                    style={{
+                      background: '#ffffff',
+                      border: '1px solid rgba(200,140,0,0.20)',
+                      color: '#1a1a1a',
+                    }}
+                  />
+                </div>
+                <p className="text-[11px] mt-1.5" style={{ color: '#8a8078' }}>
+                  Lookups hit JobTread directly. Click a result to run the same costing analysis on that job.
+                </p>
+
+                {pastSearchLoading && (
+                  <div className="flex items-center gap-2 mt-3 px-1 text-xs" style={{ color: '#8a8078' }}>
+                    <Loader2 size={12} className="animate-spin" /> Searching…
+                  </div>
+                )}
+                {pastSearchError && (
+                  <div className="mt-3 px-3 py-2 rounded text-xs" style={{ background: 'rgba(239,68,68,0.08)', color: '#b91c1c' }}>
+                    {pastSearchError}
+                  </div>
+                )}
+                {!pastSearchLoading && !pastSearchError && pastSearchQuery.trim().length >= 2 && pastSearchResults.length === 0 && (
+                  <div className="mt-3 px-1 text-xs italic" style={{ color: '#8a8078' }}>
+                    No jobs match "{pastSearchQuery}".
+                  </div>
+                )}
+                {pastSearchResults.length > 0 && (
+                  <div className="mt-3 rounded-md overflow-hidden" style={{ border: '1px solid rgba(200,140,0,0.10)' }}>
+                    {pastSearchResults.map((j) => {
+                      const closed = !!j.closedOn;
+                      return (
+                        <button
+                          key={j.id}
+                          type="button"
+                          onClick={() => loadDetail(j.id)}
+                          className="w-full flex items-center gap-3 px-3 py-2.5 text-left hover:bg-stone-50"
+                          style={{ borderBottom: '1px solid rgba(200,140,0,0.06)' }}
+                        >
+                          <span
+                            className="text-xs px-1.5 py-0.5 rounded font-mono shrink-0"
+                            style={{ background: '#222', color: '#f0c060', fontWeight: 600 }}
+                          >
+                            #{j.number || '—'}
+                          </span>
+                          <span className="text-sm flex-1 truncate" style={{ color: '#1a1a1a' }}>
+                            {j.name}
+                          </span>
+                          {j.clientName && (
+                            <span className="text-[11px] shrink-0 truncate max-w-[180px]" style={{ color: '#8a8078' }}>
+                              {j.clientName}
+                            </span>
+                          )}
+                          {j.customStatus && (
+                            <span
+                              className="text-[10px] px-1.5 py-0.5 rounded shrink-0"
+                              style={{
+                                background: closed ? 'rgba(138,128,120,0.15)' : 'rgba(200,140,0,0.10)',
+                                color: closed ? '#6a6058' : '#c88c00',
+                              }}
+                            >
+                              {j.customStatus}
+                            </span>
+                          )}
+                          {closed && (
+                            <span className="text-[10px] shrink-0" style={{ color: '#8a8078' }}>
+                              closed {new Date(j.closedOn!).toLocaleDateString('en-US', { month: 'short', year: 'numeric' })}
+                            </span>
+                          )}
+                        </button>
+                      );
+                    })}
+                  </div>
+                )}
+              </div>
+            )}
+          </div>
 
           {/* Search + filters */}
           <div className="flex flex-wrap gap-3 items-center">

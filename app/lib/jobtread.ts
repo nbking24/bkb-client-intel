@@ -85,6 +85,91 @@ export interface JTJob {
   priceType?: string | null;          // Native JT field: "fixed", "costPlus", etc.
 }
 
+/**
+ * Free-text search across ALL jobs in the org — closed, active, on hold,
+ * any status. Used by the job-costing dashboard's "search past jobs"
+ * feature so Nathan can pull up historical jobs for post-mortem costing
+ * analysis without having to load every job on the index view.
+ *
+ * Searches by name AND number in parallel and merges the results,
+ * deduplicated by job id. JT's PAVE filter syntax is `['field', 'like',
+ * '%pattern%']` for substring matches.
+ */
+export interface JTJobSearchResult {
+  id: string;
+  name: string;
+  number: string;
+  customStatus: string | null;
+  closedOn: string | null;
+  clientName: string;
+  priceType: string | null;
+}
+export async function searchJobsByText(query: string, limit = 25): Promise<JTJobSearchResult[]> {
+  const term = query.trim();
+  if (!term) return [];
+  const likePattern = `%${term}%`;
+
+  const fields = {
+    id: {}, name: {}, number: {},
+    customStatus: {}, closedOn: {}, priceType: {},
+    location: { account: { name: {} } },
+  };
+
+  // Two queries in parallel: by name and by number. JT doesn't expose
+  // an OR across fields in a single `where`, and running both as
+  // separate hits and merging is simpler than learning the AST syntax.
+  let byNameRes: any = { nodes: [] };
+  let byNumberRes: any = { nodes: [] };
+  try {
+    byNameRes = await orgQuery('jobs', {
+      $: { size: limit, where: ['name', 'like', likePattern] },
+      nodes: fields,
+    });
+  } catch (err: any) {
+    console.warn('[searchJobsByText] name query failed:', err?.message || err);
+  }
+  // Skip the number query when the term is clearly text — saves a JT
+  // round-trip and avoids a noisy 'like' against the number column.
+  if (/\d/.test(term)) {
+    try {
+      byNumberRes = await orgQuery('jobs', {
+        $: { size: limit, where: ['number', 'like', likePattern] },
+        nodes: fields,
+      });
+    } catch (err: any) {
+      console.warn('[searchJobsByText] number query failed:', err?.message || err);
+    }
+  }
+
+  const seen = new Set<string>();
+  const results: JTJobSearchResult[] = [];
+  for (const r of [byNameRes, byNumberRes]) {
+    for (const j of (r?.nodes || []) as any[]) {
+      if (!j?.id || seen.has(j.id)) continue;
+      seen.add(j.id);
+      results.push({
+        id: j.id,
+        name: j.name || '',
+        number: j.number || '',
+        customStatus: j.customStatus || null,
+        closedOn: j.closedOn || null,
+        clientName: j.location?.account?.name || '',
+        priceType: j.priceType || null,
+      });
+    }
+  }
+  // Sort: open jobs first (no closedOn), then closed jobs newest-first.
+  results.sort((a, b) => {
+    if (!a.closedOn && b.closedOn) return -1;
+    if (a.closedOn && !b.closedOn) return 1;
+    if (a.closedOn && b.closedOn) {
+      return new Date(b.closedOn).getTime() - new Date(a.closedOn).getTime();
+    }
+    return a.name.localeCompare(b.name);
+  });
+  return results.slice(0, limit);
+}
+
 export async function getActiveJobs(limit = 200): Promise<JTJob[]> {
   // Paginate with direct pave() calls (orgQuery doesn't expose nextPage).
   // PAVE org-level queries cap at 50 per page, so we fetch multiple pages.
