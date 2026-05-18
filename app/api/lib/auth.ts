@@ -77,3 +77,4 @@ export function validateAuth(authHeader: string | null): AuthResult {
     return { valid: false };
   }
 }
+
