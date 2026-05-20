@@ -401,32 +401,48 @@ export async function getOpenTasksForMemberAcrossJobs(
     const batch = activeJobIds.slice(i, i + BATCH_SIZE);
     const batchPromises = batch.map(async (jobId) => {
       try {
-        const result = await pave({
-          job: {
-            $: { id: jobId },
-            tasks: {
-              $: { size: 100 },
-              nodes: {
-                id: {},
-                name: {},
-                progress: {},
-                isGroup: {},
-                assignedMemberships: { nodes: { id: {} } },
+        // Paginate this job's tasks. PAVE caps a task page at 100, and several
+        // BKB jobs carry full construction schedules well over that (Edwards
+        // Pool House had 164, Loder Kitchen 138, etc.). Without following
+        // nextPage, any task assigned to the member beyond the first 100 on a
+        // big-schedule job silently never showed on the dashboard. Cap at 5
+        // pages (500 tasks) as a safety bound.
+        let nextPage: string | null = null;
+        for (let page = 0; page < 5; page++) {
+          const pageParams: Record<string, unknown> = { size: 100 };
+          if (nextPage) pageParams.page = nextPage;
+
+          const result = await pave({
+            job: {
+              $: { id: jobId },
+              tasks: {
+                $: pageParams,
+                nextPage: {},
+                nodes: {
+                  id: {},
+                  name: {},
+                  progress: {},
+                  isGroup: {},
+                  assignedMemberships: { nodes: { id: {} } },
+                },
               },
             },
-          },
-        });
-        const nodes = (result as any)?.job?.tasks?.nodes || [];
-        for (const t of nodes) {
-          if (t.isGroup) continue;
-          // Include tasks that are incomplete (progress < 1 or null)
-          if (t.progress !== null && t.progress !== undefined && t.progress >= 1) continue;
-          const isAssigned = t.assignedMemberships?.nodes?.some(
-            (m: any) => m.id === membershipId
-          );
-          if (isAssigned) {
-            matchedTaskIds.push(t.id);
+          });
+          const tasksConn = (result as any)?.job?.tasks;
+          const nodes = tasksConn?.nodes || [];
+          for (const t of nodes) {
+            if (t.isGroup) continue;
+            // Include tasks that are incomplete (progress < 1 or null)
+            if (t.progress !== null && t.progress !== undefined && t.progress >= 1) continue;
+            const isAssigned = t.assignedMemberships?.nodes?.some(
+              (m: any) => m.id === membershipId
+            );
+            if (isAssigned) {
+              matchedTaskIds.push(t.id);
+            }
           }
+          nextPage = tasksConn?.nextPage || null;
+          if (!nextPage || nodes.length < 100) break;
         }
       } catch {
         // Skip jobs that fail (e.g. too large)

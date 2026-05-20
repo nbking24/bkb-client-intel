@@ -698,7 +698,11 @@ export async function buildUserDashboardData(userId: string): Promise<UserDashbo
     userName,
     role,
     timeContext,
-    tasks: tasks.slice(0, 100),
+    // Cap kept high so it isn't a practical ceiling — Terri already carries
+    // ~68 open tasks (38 on the Admin Project alone). 100 was close enough to
+    // her real count to risk silently truncating; 300 gives ample headroom
+    // while still bounding the AI-analysis payload.
+    tasks: tasks.slice(0, 300),
     tomorrowTasks,
     recentMessages,
     recentDailyLogs,
