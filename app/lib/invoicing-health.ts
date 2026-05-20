@@ -684,7 +684,12 @@ async function analyzeCostPlusJob(
 
   const relevantDocs = [...vendorBills, ...nonDraftInvoices];
   const docCostItems: JTCostItem[] = [];
-  const BATCH_SIZE = 5;
+  // Inner concurrency bumped 5 -> 10 to halve the wall-clock on jobs with
+  // many vendor bills. The outer per-job loop is now also concurrent (in
+  // buildInvoicingContext), so total concurrent PAVE calls = outerBatch *
+  // innerBatch * 4 (docs/cost/time/schedule); kept conservative to avoid
+  // PAVE rate-limit pushback that would itself slow things down.
+  const BATCH_SIZE = 10;
   for (let i = 0; i < relevantDocs.length; i += BATCH_SIZE) {
     const batch = relevantDocs.slice(i, i + BATCH_SIZE);
     const batchResults = await Promise.all(

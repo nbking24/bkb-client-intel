@@ -11,12 +11,13 @@ import { buildInvoicingContext, type InvoicingFullContext } from '@/app/lib/invo
 import { createServerClient } from '@/app/lib/supabase';
 
 export const runtime = 'nodejs';
-// 120s matches the cron version of this analysis (app/api/cron/invoicing-health).
-// The 60s default was causing fresh refreshes to hit Vercel's gateway timeout
-// once the org grew past ~30 open jobs — the per-job analysis loop is the long
-// pole, and the serial flow plus per-contract `getJobSchedule` call was adding
-// ~30–40s on top of the initial data fetch.
-export const maxDuration = 120;
+// Matches the longest analytics routes on the project (design agent,
+// schedule compliance, categorize bills cron — all 300s on Vercel Pro).
+// Originally 60s, but a fresh refresh on a ~40-job org takes substantially
+// longer due to per-cost-plus-job nested doc-costItems fetches; even after
+// parallelizing the outer per-job loop and pre-fetching schedules, 120s
+// still wasn't enough.
+export const maxDuration = 300;
 
 // ============================================================
 // Supabase Cache Helpers
