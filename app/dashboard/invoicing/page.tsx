@@ -1472,7 +1472,11 @@ export default function InvoicingDashboard() {
     );
   }
 
-  if (error) {
+  // Only blow away the dashboard if we have nothing to show. If a refresh
+  // failed but we still have a cached report in state, keep showing the
+  // cached view and surface the error as a banner below (rendered in the
+  // main return so the user can keep working with what they had).
+  if (error && !report) {
     return (
       <div className="flex items-center justify-center h-64">
         <div className="text-center">
@@ -1496,6 +1500,31 @@ export default function InvoicingDashboard() {
 
   return (
     <div className="space-y-6">
+      {/* Refresh error banner — shown only when we already have cached data
+          loaded (otherwise the full-page error state above takes over). Lets
+          the user keep working with the last-cached report instead of being
+          stranded on an error screen when a manual refresh times out. */}
+      {error && (
+        <div
+          className="flex items-start justify-between gap-3 p-3 rounded-lg"
+          style={{ background: 'rgba(239,68,68,0.08)', border: '1px solid rgba(239,68,68,0.2)' }}
+        >
+          <div className="flex items-start gap-2">
+            <AlertTriangle size={16} style={{ color: '#ef4444', flexShrink: 0, marginTop: 2 }} />
+            <div className="text-sm" style={{ color: '#991b1b' }}>
+              Refresh failed: {error}. Showing last cached data.
+            </div>
+          </div>
+          <button
+            onClick={() => fetchReport(true)}
+            disabled={refreshing}
+            className="px-3 py-1 rounded text-xs flex-shrink-0"
+            style={{ background: 'rgba(200,140,0,0.1)', color: '#c88c00' }}
+          >
+            Retry
+          </button>
+        </div>
+      )}
       {/* Header */}
       <div className="flex items-center justify-between">
         <div>

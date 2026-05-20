@@ -250,11 +250,16 @@ async function analyzeContractJob(
   costItems: JTCostItem[],
   timeEntries: JTTimeEntry[],
   todayStr: string,
+  // Schedule can be pre-fetched in parallel with the rest of the job data;
+  // pass `undefined` to keep the legacy behavior of fetching here.
+  prefetchedSchedule?: Awaited<ReturnType<typeof getJobSchedule>>,
 ): Promise<ContractJobHealth> {
   const alerts: string[] = [];
 
-  // Get schedule for milestone tracking
-  const schedule = await getJobSchedule(job.id);
+  // Get schedule for milestone tracking (use pre-fetch if provided)
+  const schedule = prefetchedSchedule !== undefined
+    ? prefetchedSchedule
+    : await getJobSchedule(job.id);
 
   // Separate invoices
   const customerInvoices = documents.filter((d) => d.type === 'customerInvoice');
@@ -1082,35 +1087,45 @@ export async function buildInvoicingContext(): Promise<InvoicingFullContext> {
 
   console.log(`[InvoicingHealth] Filtered ${allJobs.length} active jobs → ${rawJobs.length} with allowed status`);
 
-  // 2. For each job, fetch documents, cost items, and time entries
-  //    Use batched concurrency (5 jobs at a time) to avoid overwhelming the PAVE API
-  const BATCH_SIZE = 5;
+  // 2. For each job, fetch documents, cost items, time entries — AND schedule
+  //    for contract jobs — in parallel. Concurrency 10 (per the same pattern
+  //    used by job-costing detail) balances throughput against PAVE rate
+  //    limits. Pre-fetching the schedule here avoids a second serial round-trip
+  //    inside `analyzeContractJob` and was a major contributor to the 504
+  //    timeouts on the interactive refresh endpoint.
+  const BATCH_SIZE = 10;
+  type JobSchedule = Awaited<ReturnType<typeof getJobSchedule>>;
   const jobContexts: Array<{
     job: JTJob;
     documents: JTDocument[];
     costItems: JTCostItem[];
     timeEntries: JTTimeEntry[];
+    schedule: JobSchedule | undefined;
   }> = [];
 
   for (let i = 0; i < rawJobs.length; i += BATCH_SIZE) {
     const batch = rawJobs.slice(i, i + BATCH_SIZE);
     const batchResults = await Promise.all(
       batch.map(async (job) => {
+        const needsSchedule = job.priceType === 'fixed';
         try {
-          const [documents, costItems, timeEntries] = await Promise.all([
+          const [documents, costItems, timeEntries, schedule] = await Promise.all([
             getDocumentsForJob(job.id),
             getCostItemsForJobLite(job.id, 200),
             getTimeEntriesForJob(job.id),
+            // Only fixed-price jobs need the schedule (for $-task milestones).
+            // Cost-plus jobs short-circuit to undefined to save an API call.
+            needsSchedule ? getJobSchedule(job.id).catch(() => null) : Promise.resolve(undefined as JobSchedule | undefined),
           ]);
 
           if (documents.length === 0 && costItems.length === 0 && timeEntries.length === 0) {
             console.warn(`[InvoicingHealth] WARNING: All data empty for job ${job.name} (${job.id}) — possible API issue`);
           }
 
-          return { job, documents, costItems, timeEntries };
+          return { job, documents, costItems, timeEntries, schedule };
         } catch (err: any) {
           console.error(`[InvoicingHealth] FAILED to fetch data for job ${job.name} (${job.id}): ${err?.message || err}`);
-          return { job, documents: [] as JTDocument[], costItems: [] as JTCostItem[], timeEntries: [] as JTTimeEntry[] };
+          return { job, documents: [] as JTDocument[], costItems: [] as JTCostItem[], timeEntries: [] as JTTimeEntry[], schedule: undefined as JobSchedule | undefined };
         }
       })
     );
@@ -1129,7 +1144,8 @@ export async function buildInvoicingContext(): Promise<InvoicingFullContext> {
     documents: JTDocument[];
     costItems: JTCostItem[];
     timeEntries: JTTimeEntry[];
-  }> = jobContexts.map(({ job, documents, costItems, timeEntries }) => {
+    schedule: JobSchedule | undefined;
+  }> = jobContexts.map(({ job, documents, costItems, timeEntries, schedule }) => {
     // Use the native priceType field from JobTread PAVE API
     // Values: "fixed" = Fixed-Price, "costPlus" = Cost-Plus
     let priceType = 'unknown';
@@ -1148,49 +1164,84 @@ export async function buildInvoicingContext(): Promise<InvoicingFullContext> {
       documents,
       costItems,
       timeEntries,
+      schedule,
     };
   });
 
-  // 4. Process each job by type
+  // 4. Process each job by type — run analyses concurrently in batches.
+  //    Previously this loop was serial, so contract `getJobSchedule` calls
+  //    and cost-plus per-document costItem fetches were strictly sequential
+  //    job-after-job. With ~40 open jobs that pushed the route past Vercel's
+  //    60s gateway timeout on every fresh refresh. Schedule is now pre-fetched
+  //    above, and the per-job analyzers (which each do their own internal
+  //    Promise.all over PAVE) run BATCH_SIZE at a time.
+  type ContractEntry = {
+    kind: 'contract';
+    health: ContractJobHealth;
+    jobName: string;
+    billable: null;
+  };
+  type CostPlusEntry = {
+    kind: 'costPlus';
+    health: CostPlusJobHealth;
+    jobName: string;
+    billable: BillableItemsSummary | null;
+  };
+  type FailedEntry = { kind: 'failed'; jobName: string };
+  type AnalyzeResult = ContractEntry | CostPlusEntry | FailedEntry;
+
+  const analysisResults: AnalyzeResult[] = [];
+  for (let i = 0; i < extendedJobs.length; i += BATCH_SIZE) {
+    const batch = extendedJobs.slice(i, i + BATCH_SIZE);
+    const batchResults = await Promise.all(
+      batch.map(async ({ job, documents, costItems, timeEntries, schedule }): Promise<AnalyzeResult> => {
+        try {
+          if (job.priceType === 'Fixed-Price') {
+            const contractHealth = await analyzeContractJob(
+              job, documents, costItems, timeEntries, todayStr, schedule
+            );
+            return { kind: 'contract', health: contractHealth, jobName: job.name, billable: null };
+          }
+          if (job.priceType === 'Cost-Plus') {
+            const cpHealth = await analyzeCostPlusJob(job, documents, timeEntries, costItems, todayStr);
+            // Billable items rollup (non-contract only)
+            const deniedBillIds = new Set(
+              documents.filter((d) => d.type === 'vendorBill' && d.status === 'denied').map((d) => d.id)
+            );
+            const activeCostItems = costItems.filter(
+              (item) => !(item.document?.type === 'vendorBill' && deniedBillIds.has(item.document?.id ?? ''))
+            );
+            const billable = findBillableItems(job, activeCostItems, timeEntries);
+            return { kind: 'costPlus', health: cpHealth, jobName: job.name, billable };
+          }
+          // Unknown price type — skip silently (legacy behavior treated it as no-op)
+          return { kind: 'failed', jobName: job.name };
+        } catch (err: any) {
+          console.error(`[InvoicingHealth] Analysis FAILED for ${job.name} (${job.priceType}): ${err?.message || err}`);
+          return { kind: 'failed', jobName: job.name };
+        }
+      })
+    );
+    analysisResults.push(...batchResults);
+  }
+
   const contractJobs: ContractJobHealth[] = [];
   const costPlusJobs: CostPlusJobHealth[] = [];
   const billableItems: BillableItemsSummary[] = [];
   const globalAlerts: string[] = [];
 
-  for (const { job, documents, costItems, timeEntries } of extendedJobs) {
-    // Contract (Fixed-Price) analysis
-    if (job.priceType === 'Fixed-Price') {
-      const contractHealth = await analyzeContractJob(job, documents, costItems, timeEntries, todayStr);
-      contractJobs.push(contractHealth);
-      globalAlerts.push(...contractHealth.alerts.map((a) => `[${job.name}] ${a}`));
-    }
-
-    // Cost Plus analysis
-    if (job.priceType === 'Cost-Plus') {
-      try {
-        const cpHealth = await analyzeCostPlusJob(job, documents, timeEntries, costItems, todayStr);
-        costPlusJobs.push(cpHealth);
-        globalAlerts.push(...cpHealth.alerts.map((a) => `[${job.name}] ${a}`));
-      } catch (err: any) {
-        console.error(`[InvoicingHealth] Cost-Plus analysis FAILED for ${job.name}: ${err?.message || err}`);
-      }
-    }
-
-    // Billable items — only for non-contract jobs (contract jobs handle CC23 in analyzeContractJob)
-    if (job.priceType !== 'Fixed-Price') {
-      // Exclude cost items belonging to denied (deleted) vendor bills
-      const deniedBillIdsForBillable = new Set(
-        documents.filter((d) => d.type === 'vendorBill' && d.status === 'denied').map((d) => d.id)
-      );
-      const activeCostItems = costItems.filter(
-        (item) => !(item.document?.type === 'vendorBill' && deniedBillIdsForBillable.has(item.document?.id ?? ''))
-      );
-      const billable = findBillableItems(job, activeCostItems, timeEntries);
-      if (billable) {
-        billableItems.push(billable);
-        if (billable.totalUninvoicedAmount > ALERT_THRESHOLDS.unbilledAmountThreshold) {
+  for (const r of analysisResults) {
+    if (r.kind === 'contract') {
+      contractJobs.push(r.health);
+      globalAlerts.push(...r.health.alerts.map((a) => `[${r.jobName}] ${a}`));
+    } else if (r.kind === 'costPlus') {
+      costPlusJobs.push(r.health);
+      globalAlerts.push(...r.health.alerts.map((a) => `[${r.jobName}] ${a}`));
+      if (r.billable) {
+        billableItems.push(r.billable);
+        if (r.billable.totalUninvoicedAmount > ALERT_THRESHOLDS.unbilledAmountThreshold) {
           globalAlerts.push(
-            `[${job.name}] $${billable.totalUninvoicedAmount.toLocaleString()} in uninvoiced billable items`
+            `[${r.jobName}] $${r.billable.totalUninvoicedAmount.toLocaleString()} in uninvoiced billable items`
           );
         }
       }
