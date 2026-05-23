@@ -163,9 +163,9 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
               onClick={() => setUserMenuOpen(!userMenuOpen)}
               className="w-8 h-8 rounded-full flex items-center justify-center text-xs font-bold cursor-pointer transition-all hover:ring-2"
               style={{ background: '#c88c00', color: '#ffffff', border: 'none', ringColor: '#e8c860' }}
-              title={auth.user?.name || 'User'}
+              title={access?.name || auth.user?.name || 'User'}
             >
-              {auth.user?.initials || 'BK'}
+              {access?.initials || auth.user?.initials || 'BK'}
             </button>
             {userMenuOpen && (
               <div
@@ -173,8 +173,8 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
                 style={{ background: '#ffffff', border: '1px solid #e8e5e0', minWidth: 180 }}
               >
                 <div className="px-4 py-3" style={{ borderBottom: '1px solid #e8e5e0' }}>
-                  <div className="text-sm font-medium" style={{ color: '#1a1a1a' }}>{auth.user?.name || 'User'}</div>
-                  <div className="text-xs mt-0.5" style={{ color: '#8a8078' }}>{auth.role || 'team member'}</div>
+                  <div className="text-sm font-medium" style={{ color: '#1a1a1a' }}>{access?.name || auth.user?.name || 'User'}</div>
+                  <div className="text-xs mt-0.5" style={{ color: '#8a8078' }}>{access?.title || access?.role || auth.role || 'team member'}</div>
                 </div>
                 <button
                   onClick={handleLogout}

@@ -111,6 +111,7 @@ interface ChangeOrderSummary {
 }
 
 interface DashboardData {
+  userName?: string;
   timeContext?: { period: string; tomorrowLabel: string; tomorrowDate: string };
   stats: {
     totalTasks: number;
@@ -1796,7 +1797,10 @@ export default function DashboardOverview() {
   const changeOrders = overview?.data?.changeOrders || [];
   const tc = overview?.data?.timeContext;
   const tomorrowBriefing = analysis?.tomorrowBriefing;
-  const firstName = auth.user?.name?.split(' ')[0] || '';
+  // Prefer the code-defined user name, then the DB-resolved access name, then
+  // the name baked into the overview payload — so DB-managed users (not in the
+  // code TEAM_USERS map) still get a personalized greeting.
+  const firstName = (auth.user?.name || access?.name || overview?.data?.userName || '').split(' ')[0];
 
   // Per-user Overview widget + feature visibility. Fail open (show everything)
   // if access hasn't resolved yet, so existing users never see a blank page.
