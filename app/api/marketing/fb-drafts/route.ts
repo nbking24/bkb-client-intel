@@ -138,6 +138,7 @@ export async function POST(req: NextRequest) {
     .single();
   if (insErr) return NextResponse.json({ error: insErr.message }, { status: 500 });
 
+  try {
   await supabase
     .from('marketing_events')
     .insert({
@@ -153,7 +154,8 @@ export async function POST(req: NextRequest) {
       },
       occurred_at: new Date().toISOString(),
     })
-    .catch(() => {});
+    ;
+  } catch { /* swallow logging failures */ }
 
   return NextResponse.json({
     success: true,

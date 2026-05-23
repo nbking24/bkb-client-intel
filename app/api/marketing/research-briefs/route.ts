@@ -93,6 +93,7 @@ export async function POST(req: NextRequest) {
     briefId = inserted.id;
   }
 
+  try {
   await supabase
     .from('marketing_events')
     .insert({
@@ -104,7 +105,8 @@ export async function POST(req: NextRequest) {
       detail: { brief_date: body.brief_date, title: body.title || null, actor: auth.userId || 'agent' },
       occurred_at: nowIso,
     })
-    .catch(() => {});
+    ;
+  } catch { /* swallow logging failures */ }
 
   return NextResponse.json({
     success: true,

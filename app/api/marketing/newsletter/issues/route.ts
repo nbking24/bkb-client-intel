@@ -141,6 +141,7 @@ export async function POST(req: NextRequest) {
   const { error: sectErr } = await supabase.from('newsletter_sections').insert(sectionRows);
   if (sectErr) return NextResponse.json({ error: sectErr.message }, { status: 500 });
 
+  try {
   await supabase
     .from('marketing_events')
     .insert({
@@ -152,7 +153,8 @@ export async function POST(req: NextRequest) {
       detail: { issue_month, theme, sections_count: sectionRows.length, actor: auth.userId || 'agent' },
       occurred_at: new Date().toISOString(),
     })
-    .catch(() => {});
+    ;
+  } catch { /* swallow logging failures */ }
 
   return NextResponse.json({
     success: true,

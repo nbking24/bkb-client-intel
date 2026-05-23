@@ -86,6 +86,7 @@ export async function PATCH(req: NextRequest, { params }: RouteCtx) {
   if (updErr) return NextResponse.json({ error: updErr.message }, { status: 500 });
 
   if (body.status) {
+    try {
     await supabase
       .from('marketing_events')
       .insert({
@@ -97,7 +98,8 @@ export async function PATCH(req: NextRequest, { params }: RouteCtx) {
         detail: { prev_status: existing.status, new_status: body.status, actor: auth.userId || 'unknown' },
         occurred_at: new Date().toISOString(),
       })
-      .catch(() => {});
+      ;
+    } catch { /* swallow logging failures */ }
   }
 
   return NextResponse.json({ success: true });

@@ -150,6 +150,7 @@ export async function POST(req: NextRequest) {
   const { error: postsErr } = await supabase.from('social_post_drafts').insert(postRows);
   if (postsErr) return NextResponse.json({ error: postsErr.message }, { status: 500 });
 
+  try {
   await supabase
     .from('marketing_events')
     .insert({
@@ -165,7 +166,8 @@ export async function POST(req: NextRequest) {
       },
       occurred_at: nowIso,
     })
-    .catch(() => {});
+    ;
+  } catch { /* swallow logging failures */ }
 
   return NextResponse.json({
     success: true,

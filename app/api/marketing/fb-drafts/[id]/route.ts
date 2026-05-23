@@ -130,6 +130,7 @@ export async function PATCH(req: NextRequest, { params }: RouteCtx) {
 
   // Audit log
   if (nextStatus) {
+    try {
     await supabase
       .from('marketing_events')
       .insert({
@@ -146,7 +147,8 @@ export async function PATCH(req: NextRequest, { params }: RouteCtx) {
         },
         occurred_at: new Date().toISOString(),
       })
-      .catch(() => {});
+      ;
+    } catch { /* swallow logging failures */ }
   }
 
   return NextResponse.json({ success: true, draft: updated });
