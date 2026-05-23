@@ -26,6 +26,7 @@ interface AdminUser {
   features: string[];
   overviewWidgets: string[];
   hasPin?: boolean;
+  pin?: string | null;
 }
 
 type EditState = {
@@ -40,6 +41,8 @@ type EditState = {
   dashboards: Set<string>;
   features: Set<string>;
   overviewWidgets: Set<string>;
+  pin: string;       // current value in the editor
+  origPin: string;   // value when the editor opened (to detect changes)
 };
 
 const GOLD = '#c88c00';
@@ -89,6 +92,7 @@ export default function AdminPage() {
       isNew: true, id: '', name: '', title: '', role: 'custom',
       jtMembershipId: '', email: '', enabled: true,
       dashboards: new Set(), features: new Set(), overviewWidgets: new Set(),
+      pin: '', origPin: '',
     });
   }
 
@@ -98,6 +102,7 @@ export default function AdminPage() {
       isNew: false, id: u.id, name: u.name, title: u.title || '', role: u.role,
       jtMembershipId: u.jtMembershipId || '', email: u.email || '', enabled: u.enabled,
       dashboards: new Set(u.dashboards), features: new Set(u.features), overviewWidgets: new Set(u.overviewWidgets),
+      pin: u.pin || '', origPin: u.pin || '',
     });
   }
 
@@ -121,6 +126,8 @@ export default function AdminPage() {
   async function save() {
     if (!edit) return;
     if (!edit.name.trim()) { setSaveMsg('Name is required'); return; }
+    const pinTrimmed = edit.pin.trim();
+    if (pinTrimmed && pinTrimmed.length < 4) { setSaveMsg('PIN must be at least 4 digits'); return; }
     setSaving(true);
     setSaveMsg('');
     try {
@@ -143,6 +150,22 @@ export default function AdminPage() {
       });
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || 'Save failed');
+
+      // If the PIN was changed (or set for a new user), persist it. Use the id
+      // the server resolved (new users may get an auto-generated id).
+      const savedId = data.user?.id || edit.id;
+      if (savedId && pinTrimmed !== edit.origPin.trim()) {
+        const pinRes = await fetch('/api/admin/users/pin', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${getToken()}` },
+          body: JSON.stringify({ userId: savedId, pin: pinTrimmed }),
+        });
+        if (!pinRes.ok) {
+          const pd = await pinRes.json().catch(() => ({}));
+          throw new Error(pd.error || 'User saved, but PIN update failed');
+        }
+      }
+
       await load();
       setEdit(null);
     } catch (e: any) {
@@ -219,11 +242,23 @@ export default function AdminPage() {
             <Field label="Email (optional)">
               <input value={edit.email} onChange={(e) => setEdit({ ...edit, email: e.target.value })} style={inputStyle} placeholder="jane@brettkingbuilder.com" />
             </Field>
+            <Field label="Login PIN (4+ digits)">
+              <input
+                value={edit.pin}
+                onChange={(e) => setEdit({ ...edit, pin: e.target.value.replace(/\s/g, '') })}
+                style={{ ...inputStyle, fontFamily: 'monospace', letterSpacing: '0.1em' }}
+                placeholder={edit.isNew ? 'leave blank — user sets on first login' : 'not set'}
+                autoComplete="off"
+              />
+            </Field>
           </div>
           <label className="flex items-center gap-2 text-sm cursor-pointer" style={{ color: '#5a5550' }}>
             <input type="checkbox" checked={edit.enabled} onChange={(e) => setEdit({ ...edit, enabled: e.target.checked })} />
             Account enabled (can log in)
           </label>
+          <p className="text-xs" style={{ color: '#8a8078' }}>
+            You can view or change this person's PIN here. Leave blank to clear it (they'll be prompted to create a new one at next login).
+          </p>
         </div>
 
         {/* Preset helper */}
@@ -319,8 +354,13 @@ export default function AdminPage() {
                 {!u.enabled && <span className="text-xs px-1.5 py-0.5 rounded" style={{ background: '#fde8e8', color: '#b91c1c' }}>disabled</span>}
                 {!u.hasPin && u.enabled && <span className="text-xs px-1.5 py-0.5 rounded" style={{ background: '#fef3c7', color: '#92660a' }}>no PIN yet</span>}
               </div>
-              <div className="text-xs mt-0.5" style={{ color: '#8a8078' }}>
-                {u.role === 'owner' ? 'Full access (owner)' : `${u.dashboards.length} dashboards · ${u.overviewWidgets.length} widgets · ${u.features.length} features`}
+              <div className="text-xs mt-0.5 flex items-center gap-2 flex-wrap" style={{ color: '#8a8078' }}>
+                <span>{u.role === 'owner' ? 'Full access (owner)' : `${u.dashboards.length} dashboards · ${u.overviewWidgets.length} widgets · ${u.features.length} features`}</span>
+                {u.pin && (
+                  <span style={{ fontFamily: 'monospace', color: '#6a6058', background: '#f0ede8', padding: '0 5px', borderRadius: 3 }}>
+                    PIN {u.pin}
+                  </span>
+                )}
               </div>
             </div>
             {u.role !== 'owner' && auth.userId !== u.id && (

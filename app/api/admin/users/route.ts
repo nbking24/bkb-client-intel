@@ -42,25 +42,33 @@ async function requireOwner(req: NextRequest): Promise<{ ok: true; userId: strin
   return { ok: true, userId: auth.userId };
 }
 
-/** Which user ids currently have a login PIN set (stored in agent_cache). */
-async function getPinSet(): Promise<Set<string>> {
+/** Map of userId -> decoded login PIN (stored base64 in agent_cache). Owner-only
+ *  exposure: the owner explicitly manages team PINs from the admin console. */
+async function getPinMap(): Promise<Map<string, string>> {
+  const map = new Map<string, string>();
   try {
     const supabase = createServerClient();
-    const { data } = await supabase.from('agent_cache').select('key').like('key', 'user-pin:%');
-    const ids = (data || []).map((r: any) => String(r.key).replace('user-pin:', ''));
-    return new Set(ids);
+    const { data } = await supabase.from('agent_cache').select('key, data').like('key', 'user-pin:%');
+    for (const r of (data || []) as any[]) {
+      const id = String(r.key).replace('user-pin:', '');
+      const hash = r.data?.pinHash;
+      if (hash) {
+        try { map.set(id, Buffer.from(hash, 'base64').toString()); } catch { /* skip */ }
+      }
+    }
   } catch {
-    return new Set();
+    /* ignore */
   }
+  return map;
 }
 
 export async function GET(req: NextRequest) {
   const gate = await requireOwner(req);
   if (!gate.ok) return gate.res;
 
-  const [users, pinSet] = await Promise.all([listAppUsers(), getPinSet()]);
+  const [users, pinMap] = await Promise.all([listAppUsers(), getPinMap()]);
   return NextResponse.json({
-    users: users.map((u) => ({ ...u, hasPin: pinSet.has(u.id) })),
+    users: users.map((u) => ({ ...u, hasPin: pinMap.has(u.id), pin: pinMap.get(u.id) ?? null })),
   });
 }
 
