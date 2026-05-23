@@ -1,7 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { createClient } from '@supabase/supabase-js';
-
-const VALID_USER_IDS = ['nathan', 'terri', 'evan', 'josh'];
+import { getAppUser } from '@/app/lib/access';
 
 function getSupabase() {
   const url = process.env.NEXT_PUBLIC_SUPABASE_URL || '';
@@ -21,7 +20,7 @@ export async function POST(req: NextRequest) {
   try {
     const { userId, masterPin } = await req.json();
 
-    if (!userId || !VALID_USER_IDS.includes(userId)) {
+    if (!userId || !(await getAppUser(userId))) {
       return NextResponse.json({ error: 'Invalid user' }, { status: 400 });
     }
 

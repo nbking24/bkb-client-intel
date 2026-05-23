@@ -1,9 +1,12 @@
 'use client';
 
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
 
-const LOGIN_USERS = [
+interface LoginUser { id: string; name: string; role: string; initials: string }
+
+// Fallback list shown if the live user fetch fails (matches the original users).
+const FALLBACK_USERS: LoginUser[] = [
   { id: 'nathan',      name: 'Nathan King',      role: 'Owner',            initials: 'NK' },
   { id: 'terri',       name: 'Terri King',       role: 'Office Manager',   initials: 'TK' },
   { id: 'evan',        name: 'Evan Harrington',  role: 'Lead Carpenter',   initials: 'EH' },
@@ -15,14 +18,23 @@ type Step = 'select-user' | 'enter-pin' | 'create-pin' | 'confirm-pin' | 'forgot
 export default function DashboardLoginPage() {
   const router = useRouter();
   const [step, setStep] = useState<Step>('select-user');
-  const [selectedUser, setSelectedUser] = useState<typeof LOGIN_USERS[0] | null>(null);
+  const [loginUsers, setLoginUsers] = useState<LoginUser[]>(FALLBACK_USERS);
+
+  // Load the live, DB-managed user list (enabled users only).
+  useEffect(() => {
+    fetch('/api/auth/users')
+      .then((r) => (r.ok ? r.json() : null))
+      .then((d) => { if (d?.users?.length) setLoginUsers(d.users); })
+      .catch(() => {});
+  }, []);
+  const [selectedUser, setSelectedUser] = useState<LoginUser | null>(null);
   const [pin, setPin] = useState('');
   const [confirmPin, setConfirmPin] = useState('');
   const [newPin, setNewPin] = useState('');
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState('');
 
-  const selectUser = async (user: typeof LOGIN_USERS[0]) => {
+  const selectUser = async (user: LoginUser) => {
     setSelectedUser(user);
     setBusy(true);
     setErr('');
@@ -159,7 +171,7 @@ export default function DashboardLoginPage() {
         <h1 className="text-xl mb-1" style={{ color: '#c88c00', fontFamily: 'Georgia, serif' }}>Operations Platform</h1>
         <p className="text-sm mb-8" style={{ color: '#8a8078' }}>Who are you?</p>
         <div className="w-full max-w-sm space-y-3">
-          {LOGIN_USERS.map(user => (
+          {loginUsers.map(user => (
             <button
               key={user.id}
               onClick={() => selectUser(user)}

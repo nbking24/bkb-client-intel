@@ -4,7 +4,10 @@ export interface AuthResult {
   role?: string;
 }
 
-// Role mapping — must match app/lib/constants.ts TEAM_USERS
+// Role mapping for the original code-defined users. DB-managed users (added via
+// the admin dashboard) aren't listed here; their role is resolved from the DB by
+// /api/me and the admin API. This map is only a best-effort hint for legacy
+// server code that reads a role synchronously off the token.
 const USER_ROLES: Record<string, string> = {
   nathan: 'owner',
   terri: 'admin',
@@ -12,7 +15,14 @@ const USER_ROLES: Record<string, string> = {
   josh: 'field_sup',
 };
 
-const VALID_USER_IDS = ['nathan', 'terri', 'evan', 'josh'];
+// User ids now live in the DB (app_users), so we can't keep a static whitelist
+// here without an async DB call on every request. Validate the *format* instead:
+// a lowercase slug that starts with a letter. The PIN was already checked at
+// login; this token only asserts which user is making the request.
+const USER_ID_RE = /^[a-z][a-z0-9_-]{1,30}$/;
+function isValidUserId(id: string): boolean {
+  return USER_ID_RE.test(id);
+}
 
 // Roles that are restricted to the field-staff agent only
 const FIELD_ROLES = new Set(['field_sup', 'field']);
@@ -55,7 +65,7 @@ export function validateAuth(authHeader: string | null): AuthResult {
     const parts = decoded.split(':');
 
     // New format (per-user PIN): pin:userId:timestamp
-    if (parts.length >= 3 && VALID_USER_IDS.includes(parts[1])) {
+    if (parts.length >= 3 && isValidUserId(parts[1])) {
       const userId = parts[1];
       return { valid: true, userId, role: USER_ROLES[userId] || 'field' };
     }

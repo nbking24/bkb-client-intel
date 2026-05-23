@@ -19,7 +19,7 @@ import {
   pave,
   type JTJob,
 } from './jobtread';
-import { TEAM_USERS, ROLE_CONFIG, type TeamRole } from './constants';
+import { getAppUser } from './access';
 import { createServerClient } from './supabase';
 import { fetchGmailInbox, fetchCalendarEvents, type GmailMessage, type CalendarEvent } from './google-api';
 import { getOpenItems, formatOpenItemsForContext, type ProjectEvent } from './project-memory';
@@ -118,7 +118,7 @@ export interface ChangeOrderSummary {
 export interface UserDashboardData {
   userId: string;
   userName: string;
-  role: TeamRole;
+  role: string;
   timeContext: TimeContext;
   tasks: DashboardTask[];
   tomorrowTasks: DashboardTask[];
@@ -474,10 +474,12 @@ async function fetchARandCOData(
 }
 
 export async function buildUserDashboardData(userId: string): Promise<UserDashboardData> {
-  const user = TEAM_USERS[userId];
+  const user = await getAppUser(userId);
   if (!user) throw new Error(`Unknown userId: ${userId}`);
 
-  const { role, membershipId, name: userName } = user;
+  const role = user.role;
+  const membershipId = user.jtMembershipId || '';
+  const userName = user.name;
   const timeContext = getTimeContext();
 
   // Fetch active jobs FIRST — needed for both per-job task scan and comment fetching
@@ -658,7 +660,13 @@ export async function buildUserDashboardData(userId: string): Promise<UserDashbo
   // Fetch outstanding invoices (AR) and change order tracking for admin/owner roles
   let outstandingInvoices: OutstandingInvoice[] = [];
   let changeOrders: ChangeOrderSummary[] = [];
-  if (role === 'admin' || role === 'owner') {
+  // Fetch AR/CO for admin/owner, or for any user whose Overview includes the
+  // KPI cards or AR reminders widget (so DB-managed custom users still get the
+  // numbers their assigned widgets need).
+  const wantsAR = role === 'admin' || role === 'owner'
+    || user.overviewWidgets.includes('kpis')
+    || user.overviewWidgets.includes('ar_reminders');
+  if (wantsAR) {
     try {
       const arcoData = await fetchARandCOData(activeJobs);
       outstandingInvoices = arcoData.invoices;

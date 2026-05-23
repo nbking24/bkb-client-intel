@@ -1,7 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { createClient } from '@supabase/supabase-js';
-
-const VALID_USER_IDS = ['nathan', 'terri', 'evan', 'josh'];
+import { getAppUser } from '@/app/lib/access';
 
 // One-time reset token — delete this route after use
 const RESET_TOKEN = 'bkb-reset-2026-04-06';
@@ -24,7 +23,7 @@ export async function POST(req: NextRequest) {
   try {
     const { userId, token } = await req.json();
 
-    if (!userId || !VALID_USER_IDS.includes(userId)) {
+    if (!userId || !(await getAppUser(userId))) {
       return NextResponse.json({ error: 'Invalid user' }, { status: 400 });
     }
 

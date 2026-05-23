@@ -13,6 +13,7 @@ import {
   Hourglass, ChevronRight, Mail, Receipt
 } from 'lucide-react';
 import { useAuth } from '@/app/hooks/useAuth';
+import { useAccess } from '@/app/hooks/useAccess';
 import {
   formatContent,
   type ChatMessage,
@@ -965,6 +966,7 @@ export default function DashboardOverview() {
   const stripWoPrefix = (name: string) => name.replace(/^⏳\s*/, '').replace(/^\u00e2\u008f\u00b3\s*/, '');
 
   const auth = useAuth();
+  const { access } = useAccess();
   const isMobile = false; // Desktop-only dashboard
   const isTouch = false;
   const [overview, setOverview] = useState<OverviewResponse | null>(null);
@@ -1792,6 +1794,19 @@ export default function DashboardOverview() {
   const tomorrowBriefing = analysis?.tomorrowBriefing;
   const firstName = auth.user?.name?.split(' ')[0] || '';
 
+  // Per-user Overview widget + feature visibility. Fail open (show everything)
+  // if access hasn't resolved yet, so existing users never see a blank page.
+  const showWidget = (id: string) => !access || (access.overviewWidgets || []).includes(id);
+  const canAskAgent = !access || (access.features || []).includes('ask_agent');
+  const wQuickAdd = showWidget('quick_add');
+  const wBillBanner = showWidget('bill_review_banner');
+  const wKpis = showWidget('kpis');
+  const wCalendar = showWidget('calendar');
+  const wTodaysFocus = showWidget('todays_focus');
+  const wWaitingOn = showWidget('waiting_on');
+  const wArReminders = showWidget('ar_reminders');
+  const wAllTasks = showWidget('all_tasks');
+
   // Categorize tasks
   const urgentTasks = tasks.filter(t => t.urgency === 'urgent');
   const highTasks = tasks.filter(t => t.urgency === 'high');
@@ -1873,8 +1888,10 @@ export default function DashboardOverview() {
         </button>
       </div>
 
-      {/* ACTION BUTTONS ROW */}
+      {/* ACTION BUTTONS ROW — each button gated by its widget/feature */}
+      {(wQuickAdd || canAskAgent) && (
       <div style={{ display: 'flex', gap: 6, marginBottom: 6 }}>
+        {wQuickAdd && (
         <button onClick={() => { setShowWaitingOnPanel(!showWaitingOnPanel); setShowAgentPanel(false); }}
           style={{ flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6,
             background: showWaitingOnPanel ? 'rgba(200,140,0,0.08)' : '#f8f6f3', border: '1px solid rgba(200,140,0,0.08)', borderRadius: 8,
@@ -1884,6 +1901,8 @@ export default function DashboardOverview() {
             QUICK ADD
           </span>
         </button>
+        )}
+        {canAskAgent && (
         <button onClick={() => { setShowAgentPanel(!showAgentPanel); setShowWaitingOnPanel(false); }}
           style={{ flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6,
             background: showAgentPanel ? 'rgba(200,140,0,0.08)' : '#f8f6f3', border: '1px solid rgba(200,140,0,0.08)', borderRadius: 8,
@@ -1891,10 +1910,12 @@ export default function DashboardOverview() {
           <Bot size={14} style={{ color: '#c88c00' }} />
           <span style={{ fontSize: 11, fontWeight: 600, color: '#c88c00', letterSpacing: '0.04em' }}>ASK AGENT</span>
         </button>
+        )}
       </div>
-      {showAgentPanel && <InlineAskAgent pmJobs={overview?.data?.activeJobs || []} screen={'desktop'} hideToggle defaultOpen />}
+      )}
+      {showAgentPanel && canAskAgent && <InlineAskAgent pmJobs={overview?.data?.activeJobs || []} screen={'desktop'} hideToggle defaultOpen />}
               {/* QUICK ADD — Inline Panel */}
-      {showWaitingOnPanel && (() => {
+      {showWaitingOnPanel && wQuickAdd && (() => {
         const woTasks = tasks.filter(t => isWaitingOn(t.name));
         function agingColor(d: number | null): string { if (d === null) return '#6a6058'; if (d < -7) return '#ef4444'; if (d < -3) return '#f97316'; if (d < 0) return '#eab308'; return '#6a6058'; }
         function agingBg(d: number | null): string { if (d === null) return 'transparent'; if (d < -7) return 'rgba(239,68,68,0.08)'; if (d < -3) return 'rgba(249,115,22,0.08)'; if (d < 0) return 'rgba(234,179,8,0.06)'; return 'transparent'; }
@@ -2289,7 +2310,7 @@ export default function DashboardOverview() {
       })()}
 
       {/* BILL REVIEW BANNER — flagged vendor-bill lines from the nightly 4am scan */}
-      {billReviewStats && billReviewStats.pendingTotal > 0 && (
+      {wBillBanner && billReviewStats && billReviewStats.pendingTotal > 0 && (
         <a
           href="/dashboard/bill-review"
           style={{
@@ -2333,6 +2354,7 @@ export default function DashboardOverview() {
       )}
 
       {/* KPI GRID — Terri-specific: Active Jobs, Unread Emails, Due Today, Overdue, Pending COs, Outstanding Invoices */}
+      {wKpis && (
       <div style={{ display: 'grid', gridTemplateColumns: isMobile ? 'repeat(3, 1fr)' : 'repeat(6, 1fr)', gap: isTouch ? 6 : 4, marginBottom: isTouch ? 10 : 6 }}>
         {/* KPI 1: Active Jobs — clickable */}
         <button
@@ -2453,6 +2475,7 @@ export default function DashboardOverview() {
           );
         })()}
       </div>
+      )}
 
       {/* ACTIVE JOBS LIST — shows when Active Jobs KPI is clicked */}
       {showSection === 'activejobs' && (() => {
@@ -2632,7 +2655,7 @@ export default function DashboardOverview() {
       })()}
 
       {/* TODAY'S FOCUS — data-driven action card replacing AI Briefing */}
-      {(() => {
+      {wTodaysFocus && (() => {
         const todayDue = tasks.filter(t => t.daysUntilDue !== null && t.daysUntilDue === 0);
         const overdueCount = overdueTasks.length;
         const woCount = tasks.filter(t => isWaitingOn(t.name)).length;
@@ -2689,7 +2712,7 @@ export default function DashboardOverview() {
 
 
       {/* WAITING ON — persistent collapsible strip */}
-      {(() => {
+      {wWaitingOn && (() => {
         const woItems = tasks.filter(t => isWaitingOn(t.name));
         if (woItems.length === 0) return null;
         function agingDays(t: any): number | null {
@@ -2946,7 +2969,7 @@ export default function DashboardOverview() {
       )}
 
       {/* AR AUTOMATED REMINDERS â compact status bar */}
-      {arStats && arStats.totalRemindersSent > 0 && (
+      {wArReminders && arStats && arStats.totalRemindersSent > 0 && (
         <div style={{ background: '#f8f6f3', border: '1px solid rgba(34,197,94,0.12)', borderRadius: 8, padding: '6px 10px', marginBottom: isTouch ? 10 : 6 }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
             <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
@@ -2986,7 +3009,7 @@ export default function DashboardOverview() {
       )}
 
       {/* TWO-WEEK TASK CALENDAR */}
-      {weeks.map((week, wi) => (
+      {wCalendar && weeks.map((week, wi) => (
         <div key={wi} style={{ marginBottom: 6 }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 3 }}>
             <Calendar size={13} style={{ color: '#c88c00' }} />
@@ -3076,7 +3099,7 @@ export default function DashboardOverview() {
 
 
       {/* ALL TASKS â grouped by job, collapsible, filtered to overdue + next 4 weeks */}
-      {tasks.length > 0 && (() => {
+      {wAllTasks && tasks.length > 0 && (() => {
         // Filter tasks: overdue or due within next 4 weeks (28 days)
         const now = new Date();
         const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());

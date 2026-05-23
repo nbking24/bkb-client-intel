@@ -51,7 +51,7 @@ export interface DashboardAnalysis {
   tomorrowBriefing: TomorrowBriefing;
 }
 
-function getRoleContext(role: TeamRole): string {
+function getRoleContext(role: string): string {
   switch (role) {
     case 'owner':
       return `You are providing a dashboard briefing for NATHAN KING, the OWNER of Brett King Builder-Contractor (BKB), a high-end residential renovation company.

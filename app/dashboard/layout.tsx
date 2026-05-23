@@ -7,30 +7,39 @@ import { usePathname, useRouter } from 'next/navigation';
 import {
   LayoutDashboard, FolderKanban, Menu, X, ChevronRight,
   DollarSign, Calculator, MessageSquare, ClipboardList, LogOut, Users, FileText, BarChart3,
-  Megaphone, Bug, Receipt,
+  Megaphone, Bug, Receipt, Shield,
 } from 'lucide-react';
 import { useAuth } from '../hooks/useAuth';
+import { useAccess, clearAccessCache } from '../hooks/useAccess';
+import { DASHBOARDS } from '../lib/access-registry';
 import AskAgentPanel from './components/AskAgentPanel';
 import TicketReporter from './components/TicketReporter';
 
-// Full nav for admin/owner roles
-const ADMIN_NAV = [
-  { href: '/dashboard', label: 'Overview', icon: LayoutDashboard },
-  { href: '/dashboard/leads', label: 'Leads', icon: Users },
-  { href: '/dashboard/precon', label: 'Pre-Construction', icon: FolderKanban },
-  { href: '/dashboard/estimate', label: 'Estimating', icon: Calculator },
-  { href: '/dashboard/invoicing', label: 'Invoicing', icon: DollarSign },
-  { href: '/dashboard/job-costing', label: 'Job Costing', icon: BarChart3 },
-  { href: '/dashboard/bill-review', label: 'Bill Review', icon: Receipt },
-  { href: '/dashboard/spec-writer', label: 'Spec Writer', icon: FileText },
-  { href: '/dashboard/marketing', label: 'Marketing', icon: Megaphone },
-  { href: '/dashboard/tickets', label: 'Tickets', icon: Bug },
-];
+// Map the registry's icon names to the actual lucide components.
+const ICON_MAP: Record<string, any> = {
+  LayoutDashboard, Users, FolderKanban, Calculator, DollarSign, BarChart3,
+  Receipt, FileText, Megaphone, Bug, ClipboardList, Shield,
+};
 
-// Simplified nav for field staff
-const FIELD_NAV = [
-  { href: '/dashboard/field', label: 'My Tasks', icon: ClipboardList },
-];
+// Build the nav from a user's allowed dashboard ids, in registry order.
+function buildNav(dashboardIds: string[]) {
+  return DASHBOARDS
+    .filter((d) => dashboardIds.includes(d.id))
+    .map((d) => ({ href: d.href, label: d.label, icon: ICON_MAP[d.icon] || LayoutDashboard, id: d.id }));
+}
+
+// Longest-prefix match: which dashboard does a given path belong to?
+function dashboardIdForPath(pathname: string): string | null {
+  let best: { id: string; len: number } | null = null;
+  for (const d of DASHBOARDS) {
+    if (pathname === d.href || (d.href !== '/dashboard' && pathname.startsWith(d.href))) {
+      if (!best || d.href.length > best.len) best = { id: d.id, len: d.href.length };
+    }
+  }
+  // Exact /dashboard handled above; if nothing matched and we're at root, it's overview.
+  if (!best && pathname === '/dashboard') return 'overview';
+  return best?.id ?? null;
+}
 
 export default function DashboardLayout({ children }: { children: React.ReactNode }) {
   const pathname = usePathname();
@@ -40,10 +49,12 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
   const [userMenuOpen, setUserMenuOpen] = useState(false);
   const userMenuRef = useRef<HTMLDivElement>(null);
   const auth = useAuth();
+  const { access, loading: accessLoading } = useAccess();
   const isLoginPage = pathname === '/dashboard/login';
 
-  // Determine if user is field staff
-  const isFieldStaff = auth.role === 'field_sup' || auth.role === 'field';
+  // Allowed dashboards for this user (from per-user access config).
+  const allowedDashboards = access?.dashboards || [];
+  const navItems = buildNav(allowedDashboards);
 
   // Redirect to login ONLY after auth has finished loading and user is not authenticated
   useEffect(() => {
@@ -52,12 +63,18 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
     }
   }, [auth.loading, auth.isAuthenticated, isLoginPage, router]);
 
-  // Field staff: redirect to their dashboard if they land on the admin overview
+  // Access enforcement: once access is loaded, if the user is on a dashboard
+  // they're not allowed to see (e.g. typed the URL directly, or a field-only
+  // user landed on the overview), send them to their first allowed dashboard.
   useEffect(() => {
-    if (!auth.loading && auth.isAuthenticated && isFieldStaff && pathname === '/dashboard') {
-      router.replace('/dashboard/field');
+    if (isLoginPage || accessLoading || !access) return;
+    const currentId = dashboardIdForPath(pathname);
+    if (!currentId) return; // unknown sub-route — leave it alone
+    if (!allowedDashboards.includes(currentId)) {
+      const first = buildNav(allowedDashboards)[0];
+      if (first && first.href !== pathname) router.replace(first.href);
     }
-  }, [auth.loading, auth.isAuthenticated, isFieldStaff, pathname, router]);
+  }, [isLoginPage, accessLoading, access, pathname, allowedDashboards, router]);
 
   // Close user menu on click outside
   useEffect(() => {
@@ -72,6 +89,7 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
 
   function handleLogout() {
     localStorage.removeItem('bkb-token');
+    clearAccessCache();
     setUserMenuOpen(false);
     router.push('/dashboard/login');
   }
@@ -81,8 +99,8 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
     return <>{children}</>;
   }
 
-  // Show loading while checking auth (reading localStorage)
-  if (auth.loading || !auth.isAuthenticated) {
+  // Show loading while checking auth (reading localStorage) or resolving access
+  if (auth.loading || !auth.isAuthenticated || accessLoading) {
     return (
       <div className="min-h-screen flex items-center justify-center" style={{ background: '#ffffff' }}>
         <div className="text-sm" style={{ color: '#8a8078' }}>Loading...</div>
@@ -90,7 +108,10 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
     );
   }
 
-  const NAV_ITEMS = isFieldStaff ? FIELD_NAV : ADMIN_NAV;
+  const NAV_ITEMS = navItems;
+  const isFieldOnly = allowedDashboards.length > 0 && allowedDashboards.every((d) => d === 'field');
+  const canAskAgent = !!access?.features?.includes('ask_agent');
+  const canReportIssue = !!access?.features?.includes('report_issue');
 
   return (
     <div className="min-h-screen" style={{ background: '#f8f6f3', color: '#1a1a1a' }}>
@@ -113,12 +134,13 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
             className="h-8 w-auto"
           />
           <span className="hidden sm:inline text-sm font-medium" style={{ color: '#e8c860' }}>
-            {isFieldStaff ? 'Field Hub' : 'Operations Platform'}
+            {isFieldOnly ? 'Field Hub' : 'Operations Platform'}
           </span>
         </div>
 
         <div className="flex items-center gap-2">
           {/* Ask Agent toggle */}
+          {canAskAgent && (
           <button
             onClick={() => setChatOpen(!chatOpen)}
             className={`flex items-center gap-2 px-3 py-1.5 rounded-lg text-sm transition-all ${
@@ -133,6 +155,7 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
             <MessageSquare size={16} />
             <span className="hidden sm:inline font-medium">Ask Agent</span>
           </button>
+          )}
 
           {/* User avatar + logout menu */}
           <div className="relative" ref={userMenuRef}>
@@ -201,6 +224,7 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
           </nav>
 
           {/* Quick chat shortcut at bottom of sidebar */}
+          {canAskAgent && (
           <div className="absolute bottom-4 left-0 right-0 px-3">
             <button
               onClick={() => { setChatOpen(true); setSidebarOpen(false); }}
@@ -211,6 +235,7 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
               Ask Agent
             </button>
           </div>
+          )}
         </aside>
 
         {/* Main content — offset by sidebar width on desktop */}
@@ -230,8 +255,8 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
       {/* Ask Agent slide-out panel — available from any dashboard page */}
       <AskAgentPanel isOpen={chatOpen} onClose={() => setChatOpen(false)} />
 
-      {/* Floating "Report an issue" button + modal (admins + owner only) */}
-      <TicketReporter />
+      {/* Floating "Report an issue" button + modal — gated by the report_issue feature */}
+      {canReportIssue && <TicketReporter />}
     </div>
   );
 }

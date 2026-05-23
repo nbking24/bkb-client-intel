@@ -1,7 +1,14 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { createClient } from '@supabase/supabase-js';
+import { getAppUser } from '@/app/lib/access';
 
-const VALID_USER_IDS = ['nathan', 'terri', 'evan', 'josh'];
+// Users are DB-managed (app_users), with the code-defined users as a fallback.
+// A user is valid for auth if the access layer can resolve them.
+async function isValidUser(userId: string): Promise<boolean> {
+  if (!userId) return false;
+  const u = await getAppUser(userId);
+  return !!u && u.enabled !== false;
+}
 
 function getSupabase() {
   const url = process.env.NEXT_PUBLIC_SUPABASE_URL || '';
@@ -26,7 +33,7 @@ export async function POST(req: NextRequest) {
 
     // --- Flow 3: Check if user has a PIN set ---
     if (check && userId) {
-      if (!VALID_USER_IDS.includes(userId)) {
+      if (!(await isValidUser(userId))) {
         return NextResponse.json({ error: 'Invalid user' }, { status: 400 });
       }
       const sb = getSupabase();
@@ -36,7 +43,7 @@ export async function POST(req: NextRequest) {
 
     // --- Flow 2: Setup/create a new PIN ---
     if (setup && userId && pin) {
-      if (!VALID_USER_IDS.includes(userId)) {
+      if (!(await isValidUser(userId))) {
         return NextResponse.json({ error: 'Invalid user' }, { status: 400 });
       }
       if (!pin || pin.length < 4) {
@@ -70,7 +77,7 @@ export async function POST(req: NextRequest) {
 
     // --- Flow 1: Login with per-user PIN ---
     if (userId && pin) {
-      if (!VALID_USER_IDS.includes(userId)) {
+      if (!(await isValidUser(userId))) {
         return NextResponse.json({ error: 'Invalid user' }, { status: 400 });
       }
 
