@@ -130,6 +130,7 @@ interface DashboardData {
   tasks: Array<{
     id: string; name: string; description?: string; jobId: string; jobName: string; jobNumber: string;
     endDate: string | null; progress: number; urgency: string; daysUntilDue: number | null;
+    assignee?: string; assignedMembershipIds?: string[]; jobClosed?: boolean;
   }>;
   recentEmails: Array<{
     id: string; threadId: string; from: string; subject: string;
@@ -3157,6 +3158,8 @@ export default function DashboardOverview() {
               const isCollapsed = collapsedJobs.has(jobName);
               const c = jobColor(jobTasks[0].jobNumber);
               const urgentCount = jobTasks.filter(t => t.urgency === 'urgent').length;
+              const jobIsClosed = !!jobTasks[0].jobClosed;
+              const hasJob = !!jobTasks[0].jobId;
               const toggleCollapse = () => {
                 setCollapsedJobs(prev => {
                   const next = new Set(prev);
@@ -3179,6 +3182,11 @@ export default function DashboardOverview() {
                       <span style={{ fontSize: 13, fontWeight: 600, color: '#1a1a1a', flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
                         {jobName.replace(/^#\d+\s*/, '')}
                       </span>
+                      {jobIsClosed && (
+                        <span style={{ fontSize: 10, color: '#6a6058', background: 'rgba(0,0,0,0.06)', padding: '1px 4px', borderRadius: 3, flexShrink: 0 }}>
+                          closed
+                        </span>
+                      )}
                       <span style={{ fontSize: 11, color: '#6a6058', flexShrink: 0 }}>{jobTasks.length}</span>
                       {urgentCount > 0 && (
                         <span style={{ fontSize: 10, color: '#ef4444', background: 'rgba(239,68,68,0.1)', padding: '1px 4px', borderRadius: 3, flexShrink: 0 }}>
@@ -3187,22 +3195,24 @@ export default function DashboardOverview() {
                       )}
                       {isCollapsed ? <ChevronDown size={12} style={{ color: '#5a5550', flexShrink: 0 }} /> : <ChevronUp size={12} style={{ color: '#5a5550', flexShrink: 0 }} />}
                     </button>
-                    <button
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        setNewTaskForm({ jobId: jobTasks[0].jobId, jobName });
-                        setNewTaskName('');
-                        setNewTaskPhase('In Production');
-                        setNewTaskDate('');
-                      }}
-                      title="Add task to this project"
-                      style={{
-                        width: 22, height: 22, borderRadius: 4, border: 'none', cursor: 'pointer',
-                        background: 'rgba(200,140,0,0.08)', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0,
-                      }}
-                    >
-                      <Plus size={13} style={{ color: '#c88c00' }} />
-                    </button>
+                    {hasJob && (
+                      <button
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          setNewTaskForm({ jobId: jobTasks[0].jobId, jobName });
+                          setNewTaskName('');
+                          setNewTaskPhase('In Production');
+                          setNewTaskDate('');
+                        }}
+                        title="Add task to this project"
+                        style={{
+                          width: 22, height: 22, borderRadius: 4, border: 'none', cursor: 'pointer',
+                          background: 'rgba(200,140,0,0.08)', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0,
+                        }}
+                      >
+                        <Plus size={13} style={{ color: '#c88c00' }} />
+                      </button>
+                    )}
                   </div>
                   {!isCollapsed && (
                     <div style={{ paddingLeft: 12 }}>

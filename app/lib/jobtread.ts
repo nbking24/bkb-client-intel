@@ -315,7 +315,7 @@ export interface JTTask {
   startDate: string | null;
   endDate: string | null;
   progress: number;
-  job: { id: string; name: string } | null;
+  job: { id: string; name: string; number?: string; closedOn?: string | null } | null;
   assignedMemberships: { nodes: { id: string; user?: { id: string; name: string } }[] };
 }
 
@@ -376,108 +376,88 @@ export async function getOpenTasksForMember(membershipId: string): Promise<JTTas
  * - Response too large if user sub-field included, so Pass 1 uses IDs only
  */
 export async function getOpenTasksForMemberAcrossJobs(
-  membershipId: string,
-  activeJobIds: string[],
-  firstName?: string
+  membershipId: string
 ): Promise<JTTask[]> {
-  // Pass 1: Scan active jobs for task IDs assigned to this member (lightweight per-job query)
+  // Pass 1: org-wide paginated scan for incomplete task IDs assigned to member.
+  // Broader than the old per-active-job scan: also catches tasks on CLOSED jobs
+  // and tasks not attached to a job at all (admin to-dos / standalone), which
+  // previously never appeared on the dashboard.
   const matchedTaskIds: string[] = [];
 
-  // Membership-only match. A previous revision also included tasks whose
-  // name started with "⏳ <FirstName>:" as a backwards-compat fallback for
-  // old Waiting On tasks that didn't have the assignee in
-  // assignedMemberships. The /api/dashboard/waiting-on POST flow now
-  // always adds both creator and assignee to the task's memberships, so
-  // the fallback is no longer needed — and it produced false positives
-  // whenever someone manually created or renamed a JT task to use the
-  // "⏳ <FirstName>:" prefix without also assigning that person.
-  // Any legitimate older task that stops appearing after this change
-  // can be fixed by adding the right person to its assignees in JT.
-  void firstName; // kept in signature for callers; no longer used
+  let nextPage: string | null = null;
+  for (let page = 0; page < 60; page++) {
+    const pageParams: Record<string, unknown> = {
+      size: 100,
+      where: { or: [['progress', '<', 1], ['progress', '=', null]] },
+    };
+    if (nextPage) pageParams.page = nextPage;
 
-  // Batch jobs to reduce total API calls â query 5 jobs at a time in parallel
-  const BATCH_SIZE = 5;
-  for (let i = 0; i < activeJobIds.length; i += BATCH_SIZE) {
-    const batch = activeJobIds.slice(i, i + BATCH_SIZE);
-    const batchPromises = batch.map(async (jobId) => {
-      try {
-        // Paginate this job's tasks. PAVE caps a task page at 100, and several
-        // BKB jobs carry full construction schedules well over that (Edwards
-        // Pool House had 164, Loder Kitchen 138, etc.). Without following
-        // nextPage, any task assigned to the member beyond the first 100 on a
-        // big-schedule job silently never showed on the dashboard. Cap at 5
-        // pages (500 tasks) as a safety bound.
-        let nextPage: string | null = null;
-        for (let page = 0; page < 5; page++) {
-          const pageParams: Record<string, unknown> = { size: 100 };
-          if (nextPage) pageParams.page = nextPage;
-
-          const result = await pave({
-            job: {
-              $: { id: jobId },
-              tasks: {
-                $: pageParams,
-                nextPage: {},
-                nodes: {
-                  id: {},
-                  name: {},
-                  progress: {},
-                  isGroup: {},
-                  assignedMemberships: { nodes: { id: {} } },
-                },
-              },
-            },
-          });
-          const tasksConn = (result as any)?.job?.tasks;
-          const nodes = tasksConn?.nodes || [];
-          for (const t of nodes) {
-            if (t.isGroup) continue;
-            // Include tasks that are incomplete (progress < 1 or null)
-            if (t.progress !== null && t.progress !== undefined && t.progress >= 1) continue;
-            const isAssigned = t.assignedMemberships?.nodes?.some(
-              (m: any) => m.id === membershipId
-            );
-            if (isAssigned) {
-              matchedTaskIds.push(t.id);
-            }
-          }
-          nextPage = tasksConn?.nextPage || null;
-          if (!nextPage || nodes.length < 100) break;
-        }
-      } catch {
-        // Skip jobs that fail (e.g. too large)
-      }
+    const result = await pave({
+      organization: {
+        $: { id: JT_ORG() },
+        tasks: {
+          $: pageParams,
+          nextPage: {},
+          nodes: {
+            id: {},
+            progress: {},
+            isGroup: {},
+            assignedMemberships: { nodes: { id: {} } },
+          },
+        },
+      },
     });
-    await Promise.all(batchPromises);
+    const conn = (result as any)?.organization?.tasks;
+    const nodes = conn?.nodes || [];
+    for (const t of nodes) {
+      if (t.isGroup) continue;
+      if (t.progress !== null && t.progress !== undefined && t.progress >= 1) continue;
+      const isAssigned = t.assignedMemberships?.nodes?.some(
+        (m: any) => m.id === membershipId
+      );
+      if (isAssigned) matchedTaskIds.push(t.id);
+    }
+    nextPage = conn?.nextPage || null;
+    if (!nextPage || nodes.length < 100) break;
   }
 
   if (matchedTaskIds.length === 0) return [];
 
-  // Pass 2: Fetch full details for matched tasks (parallel, small set)
+  // Pass 2: Fetch full details for matched tasks, batched (15 at a time) to
+  // avoid firing dozens of simultaneous PAVE calls. `job` may be null for tasks
+  // not attached to a job; `job.closedOn` lets the dashboard flag closed-job
+  // tasks distinctly.
   const tasks: JTTask[] = [];
-  const detailPromises = matchedTaskIds.map(async (taskId) => {
-    try {
-      const result = await pave({
-        task: {
-          $: { id: taskId },
-          id: {},
-          name: {},
-          description: {},
-          startDate: {},
-          endDate: {},
-          progress: {},
-          isToDo: {},
-          job: { id: {}, name: {}, number: {} },
-          assignedMemberships: { nodes: { id: {}, user: { name: {} } } },
-        },
-      });
-      const t = (result as any)?.task;
+  const DETAIL_BATCH = 15;
+  for (let i = 0; i < matchedTaskIds.length; i += DETAIL_BATCH) {
+    const batch = matchedTaskIds.slice(i, i + DETAIL_BATCH);
+    const detailResults = await Promise.all(
+      batch.map(async (taskId) => {
+        try {
+          const result = await pave({
+            task: {
+              $: { id: taskId },
+              id: {},
+              name: {},
+              description: {},
+              startDate: {},
+              endDate: {},
+              progress: {},
+              isToDo: {},
+              job: { id: {}, name: {}, number: {}, closedOn: {} },
+              assignedMemberships: { nodes: { id: {}, user: { name: {} } } },
+            },
+          });
+          return (result as any)?.task || null;
+        } catch {
+          return null;
+        }
+      })
+    );
+    for (const t of detailResults) {
       if (t) tasks.push(t);
-    } catch {
-      // Skip individual task fetch errors
     }
-  });
-  await Promise.all(detailPromises);
+  }
 
   return tasks;
 }

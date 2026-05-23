@@ -39,6 +39,7 @@ export interface DashboardTask {
   daysUntilDue: number | null;
   assignee?: string;
   assignedMembershipIds?: string[];
+  jobClosed?: boolean; // task lives on a closed job (surfaced but flagged)
 }
 
 export interface DashboardMessage {
@@ -493,16 +494,13 @@ export async function buildUserDashboardData(userId: string): Promise<UserDashbo
     console.error('[DashboardData] Failed to fetch active jobs:', err.message);
   }
 
-  // Fetch tasks assigned to user by scanning each active job.
-  // The org-level query caps at 100 tasks (oldest first) and misses newer jobs,
-  // so we query per-job to get the complete picture.
+  // Fetch ALL incomplete tasks assigned to the user, org-wide. This uses a
+  // fully-paginated org-level scan so it captures tasks on open jobs, closed
+  // jobs, and tasks not attached to any job (admin to-dos / standalone) — the
+  // per-active-job scan we used before missed the latter two entirely.
   let rawTasks: any[] = [];
   try {
-    rawTasks = await getOpenTasksForMemberAcrossJobs(
-      membershipId,
-      activeJobs.map(j => j.id),
-      userName ? userName.split(' ')[0] : undefined
-    );
+    rawTasks = await getOpenTasksForMemberAcrossJobs(membershipId);
   } catch (err: any) {
     console.error('[DashboardData] Failed to fetch tasks:', err.message);
   }
@@ -532,6 +530,7 @@ export async function buildUserDashboardData(userId: string): Promise<UserDashbo
       daysUntilDue,
       assignee: assigneeNames || t.assignee || undefined,
       assignedMembershipIds: assignedMembershipIds.length ? assignedMembershipIds : undefined,
+      jobClosed: !!t.job?.closedOn,
     };
   });
 
