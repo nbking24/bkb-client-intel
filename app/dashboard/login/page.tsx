@@ -1,7 +1,6 @@
 'use client';
 
 import { useState, useEffect } from 'react';
-import { useRouter } from 'next/navigation';
 
 interface LoginUser { id: string; name: string; role: string; initials: string }
 
@@ -16,7 +15,6 @@ const FALLBACK_USERS: LoginUser[] = [
 type Step = 'select-user' | 'enter-pin' | 'create-pin' | 'confirm-pin' | 'forgot-pin';
 
 export default function DashboardLoginPage() {
-  const router = useRouter();
   const [step, setStep] = useState<Step>('select-user');
   const [loginUsers, setLoginUsers] = useState<LoginUser[]>(FALLBACK_USERS);
 
@@ -74,7 +72,9 @@ export default function DashboardLoginPage() {
         return;
       }
       localStorage.setItem('bkb-token', data.token);
-      router.push('/dashboard');
+      // Hard navigation so per-user access (useAccess) is fetched fresh for the
+      // newly logged-in user instead of reusing the prior session's cache.
+      window.location.href = '/dashboard';
     } catch {
       setErr('Connection error. Please try again.');
     } finally {
@@ -112,7 +112,9 @@ export default function DashboardLoginPage() {
         return;
       }
       localStorage.setItem('bkb-token', data.token);
-      router.push('/dashboard');
+      // Hard navigation so per-user access (useAccess) is fetched fresh for the
+      // newly logged-in user instead of reusing the prior session's cache.
+      window.location.href = '/dashboard';
     } catch {
       setErr('Connection error. Please try again.');
     } finally {
