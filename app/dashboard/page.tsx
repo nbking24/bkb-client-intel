@@ -148,7 +148,9 @@ interface DashboardData {
   preconKpis?: {
     stalledDesignProjects: Array<{ jobId: string; jobName: string; daysSinceActivity: number }>;
     designProjectCount: number;
-    avgDaysInDesign: number;
+    awaitingAgreementCount: number;
+    proposalsPendingCount: number;
+    proposalsPendingValue: number;
   };
 }
 
@@ -2324,18 +2326,25 @@ export default function DashboardOverview() {
         const dueThisWeek = tasks.filter(t => t.daysUntilDue !== null && t.daysUntilDue >= 0 && t.daysUntilDue <= 7).length;
         const overdue = tasks.filter(t => t.daysUntilDue !== null && t.daysUntilDue < 0).length;
         const designMeetings = calendarEvents.filter(ev => /design/i.test(ev.summary || '')).length;
-        const stalledList = overview?.data?.preconKpis?.stalledDesignProjects || [];
+        const pk = overview?.data?.preconKpis;
+        const stalledList = pk?.stalledDesignProjects || [];
         const stalled = stalledList.length;
-        const avgInDesign = overview?.data?.preconKpis?.avgDaysInDesign || 0;
+        const inDesign = pk?.designProjectCount || 0;
+        const awaiting = pk?.awaitingAgreementCount || 0;
+        const propCount = pk?.proposalsPendingCount || 0;
+        const propValue = pk?.proposalsPendingValue || 0;
+        const fmtMoney = (n: number) => n >= 1000000 ? `$${(n / 1000000).toFixed(1)}M` : n >= 1000 ? `$${Math.round(n / 1000)}k` : `$${Math.round(n)}`;
         const cards: Array<{ label: string; value: number | string; color: string; Icon: any; sub: string }> = [
+          { label: 'AWAITING AGREEMENT', value: awaiting, color: '#c88c00', Icon: FileWarning, sub: 'to convert to design' },
+          { label: 'IN DESIGN', value: inDesign, color: '#c88c00', Icon: Building2, sub: 'active projects' },
+          { label: 'PROPOSALS PENDING', value: propCount, color: propCount > 0 ? '#c88c00' : '#22c55e', Icon: FileClock, sub: propCount > 0 ? `${fmtMoney(propValue)} out for signature` : 'none out for signature' },
+          { label: 'STALLED DESIGN', value: stalled, color: stalled > 0 ? '#ef4444' : '#22c55e', Icon: AlertTriangle, sub: stalled > 0 ? `${stalledList[0].jobName.replace(/^#\d+\s*/, '').slice(0, 18)}…` : 'no activity 14d+' },
           { label: 'DUE THIS WEEK', value: dueThisWeek, color: dueThisWeek > 0 ? '#c88c00' : '#22c55e', Icon: Clock3, sub: 'your tasks' },
           { label: 'OVERDUE', value: overdue, color: overdue > 0 ? '#ef4444' : '#22c55e', Icon: AlertTriangle, sub: 'your tasks' },
           { label: 'DESIGN MEETINGS', value: designMeetings, color: '#c88c00', Icon: Calendar, sub: 'next 2 weeks' },
-          { label: 'STALLED DESIGN', value: stalled, color: stalled > 0 ? '#ef4444' : '#22c55e', Icon: Building2, sub: stalled > 0 ? `${stalledList[0].jobName.replace(/^#\d+\s*/, '').slice(0, 18)}…` : 'no activity 14d+' },
-          { label: 'TIME IN DESIGN', value: avgInDesign > 0 ? `${avgInDesign}d` : '—', color: '#c88c00', Icon: CalendarDays, sub: 'avg, since job start' },
         ];
         return (
-          <div style={{ display: 'grid', gridTemplateColumns: isMobile ? 'repeat(2, 1fr)' : 'repeat(5, 1fr)', gap: isTouch ? 6 : 4, marginBottom: isTouch ? 10 : 6 }}>
+          <div style={{ display: 'grid', gridTemplateColumns: isMobile ? 'repeat(2, 1fr)' : 'repeat(auto-fit, minmax(150px, 1fr))', gap: isTouch ? 6 : 4, marginBottom: isTouch ? 10 : 6 }}>
             {cards.map((c) => (
               <div key={c.label} style={{ background: '#f8f6f3', borderRadius: 6, padding: '6px 7px', borderLeftWidth: 3, borderLeftStyle: 'solid', borderLeftColor: c.color }}>
                 <div style={{ display: 'flex', alignItems: 'center', gap: 3, marginBottom: 3 }}>

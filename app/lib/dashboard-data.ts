@@ -20,7 +20,7 @@ import {
   type JTJob,
 } from './jobtread';
 import { getAppUser } from './access';
-import { getStatusCategory } from './constants';
+import { getStatusCategory, STATUS_VALUES } from './constants';
 import { createServerClient } from './supabase';
 import { fetchGmailInbox, fetchCalendarEvents, type GmailMessage, type CalendarEvent } from './google-api';
 import { getOpenItems, formatOpenItemsForContext, type ProjectEvent } from './project-memory';
@@ -125,12 +125,10 @@ export interface StalledDesignProject {
 export interface PreconKpis {
   // Design-phase projects with no comment activity in STALLED_DESIGN_DAYS+ days
   stalledDesignProjects: StalledDesignProject[];
-  designProjectCount: number; // total active jobs in the design phase
-  // Average days the current design-phase projects have existed (since job
-  // creation). JobTread exposes no true "entered design" timestamp, so this is
-  // a proxy for time-in-design — accurate for projects that begin design soon
-  // after the job is created.
-  avgDaysInDesign: number;
+  designProjectCount: number;      // active jobs at "5. Design Phase"
+  awaitingAgreementCount: number;  // active jobs at pricing/agreement-pending statuses
+  proposalsPendingCount: number;   // customerOrder docs in "pending" (out for signature)
+  proposalsPendingValue: number;   // total $ of those pending proposals
 }
 
 export interface UserDashboardData {
@@ -493,30 +491,39 @@ async function fetchARandCOData(
 }
 
 const STALLED_DESIGN_DAYS = 14;
+// The "pricing/agreement pending" statuses — the precon manager's incoming
+// pipeline (projects to convert into design). These are the last two LEADS
+// statuses in the constants list.
+const AGREEMENT_PENDING_STATUSES = STATUS_VALUES.LEADS.slice(2);
 
 /**
- * Preconstruction KPIs for design-phase managers. Identifies active jobs in the
- * Design Phase whose most recent comment (client/team activity) is older than
- * STALLED_DESIGN_DAYS — i.e. design work that may be stuck. One lightweight
- * comments query per design-phase job (there are only a handful at a time), run
- * in parallel batches.
+ * Preconstruction KPIs, all from current-state JobTread data (no status-change
+ * history required):
+ *  - stalled design projects: design-phase jobs with no comment activity in
+ *    STALLED_DESIGN_DAYS+ days (one sorted comment query per design job)
+ *  - pipeline counts: jobs in Design vs awaiting agreement (Status field)
+ *  - proposals out for signature: customerOrder docs in "pending" across the
+ *    precon pipeline (one documents query per pipeline job)
  */
 async function computePreconKpis(
   activeJobs: Array<{ id: string; name: string; number: string; status?: string }>
 ): Promise<PreconKpis> {
   const designJobs = activeJobs.filter((j) => getStatusCategory(j.status) === 'IN_DESIGN');
+  const awaitingAgreementCount = activeJobs.filter(
+    (j) => !!j.status && AGREEMENT_PENDING_STATUSES.includes(j.status)
+  ).length;
   const now = Date.now();
   const stalled: StalledDesignProject[] = [];
-  const ageDays: number[] = []; // days since job creation, per design-phase job
 
   const BATCH = 8;
+
+  // --- Stalled design projects (last-comment recency) ---
   for (let i = 0; i < designJobs.length; i += BATCH) {
     const batch = designJobs.slice(i, i + BATCH);
     const results = await Promise.allSettled(
       batch.map(async (job) => {
         // Newest comment = last client/team activity. PAVE returns comments
-        // oldest-first by default, so we must sortBy createdAt desc and take the
-        // first (size 1) — otherwise we'd read a stale "newest" date.
+        // oldest-first by default, so sortBy createdAt desc + size 1.
         const resp = await pave({
           job: {
             $: { id: job.id },
@@ -529,29 +536,61 @@ async function computePreconKpis(
         });
         const j = (resp as any)?.job;
         const newest = j?.comments?.nodes?.[0]?.createdAt;
-        const lastActivity = newest
-          ? new Date(newest).getTime()
-          : new Date(j?.createdAt || 0).getTime();
+        const lastActivity = newest ? new Date(newest).getTime() : new Date(j?.createdAt || 0).getTime();
         const daysSince = Math.floor((now - lastActivity) / (1000 * 60 * 60 * 24));
-        const created = j?.createdAt ? new Date(j.createdAt).getTime() : 0;
-        const ageInDays = created ? Math.floor((now - created) / (1000 * 60 * 60 * 24)) : null;
-        return { jobId: job.id, jobName: job.name, daysSinceActivity: daysSince, ageInDays };
+        return { jobId: job.id, jobName: job.name, daysSinceActivity: daysSince };
+      })
+    );
+    for (const r of results) {
+      if (r.status === 'fulfilled' && r.value.daysSinceActivity >= STALLED_DESIGN_DAYS) {
+        stalled.push(r.value);
+      }
+    }
+  }
+  stalled.sort((a, b) => b.daysSinceActivity - a.daysSinceActivity);
+
+  // --- Proposals out for signature (pending customerOrders across the precon
+  //     pipeline: awaiting-agreement, design, and ready-to-start jobs) ---
+  const pipelineJobs = activeJobs.filter((j) => {
+    const cat = getStatusCategory(j.status);
+    return cat === 'IN_DESIGN' || cat === 'READY' || (!!j.status && AGREEMENT_PENDING_STATUSES.includes(j.status));
+  });
+  let proposalsPendingCount = 0;
+  let proposalsPendingValue = 0;
+  for (let i = 0; i < pipelineJobs.length; i += BATCH) {
+    const batch = pipelineJobs.slice(i, i + BATCH);
+    const results = await Promise.allSettled(
+      batch.map(async (job) => {
+        const resp = await pave({
+          job: {
+            $: { id: job.id },
+            documents: {
+              $: { size: 50 },
+              nodes: { type: {}, status: {}, price: {}, includeInBudget: {} },
+            },
+          },
+        });
+        return ((resp as any)?.job?.documents?.nodes || []) as any[];
       })
     );
     for (const r of results) {
       if (r.status !== 'fulfilled') continue;
-      if (r.value.daysSinceActivity >= STALLED_DESIGN_DAYS) {
-        stalled.push({ jobId: r.value.jobId, jobName: r.value.jobName, daysSinceActivity: r.value.daysSinceActivity });
+      for (const doc of r.value) {
+        if (doc.type === 'customerOrder' && doc.status === 'pending' && doc.includeInBudget !== false) {
+          proposalsPendingCount += 1;
+          proposalsPendingValue += doc.price || 0;
+        }
       }
-      if (r.value.ageInDays !== null) ageDays.push(r.value.ageInDays);
     }
   }
 
-  stalled.sort((a, b) => b.daysSinceActivity - a.daysSinceActivity);
-  const avgDaysInDesign = ageDays.length > 0
-    ? Math.round(ageDays.reduce((s, d) => s + d, 0) / ageDays.length)
-    : 0;
-  return { stalledDesignProjects: stalled, designProjectCount: designJobs.length, avgDaysInDesign };
+  return {
+    stalledDesignProjects: stalled,
+    designProjectCount: designJobs.length,
+    awaitingAgreementCount,
+    proposalsPendingCount,
+    proposalsPendingValue,
+  };
 }
 
 export async function buildUserDashboardData(userId: string): Promise<UserDashboardData> {
