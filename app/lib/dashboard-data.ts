@@ -126,6 +126,11 @@ export interface PreconKpis {
   // Design-phase projects with no comment activity in STALLED_DESIGN_DAYS+ days
   stalledDesignProjects: StalledDesignProject[];
   designProjectCount: number; // total active jobs in the design phase
+  // Average days the current design-phase projects have existed (since job
+  // creation). JobTread exposes no true "entered design" timestamp, so this is
+  // a proxy for time-in-design — accurate for projects that begin design soon
+  // after the job is created.
+  avgDaysInDesign: number;
 }
 
 export interface UserDashboardData {
@@ -502,6 +507,7 @@ async function computePreconKpis(
   const designJobs = activeJobs.filter((j) => getStatusCategory(j.status) === 'IN_DESIGN');
   const now = Date.now();
   const stalled: StalledDesignProject[] = [];
+  const ageDays: number[] = []; // days since job creation, per design-phase job
 
   const BATCH = 8;
   for (let i = 0; i < designJobs.length; i += BATCH) {
@@ -527,18 +533,25 @@ async function computePreconKpis(
           ? new Date(newest).getTime()
           : new Date(j?.createdAt || 0).getTime();
         const daysSince = Math.floor((now - lastActivity) / (1000 * 60 * 60 * 24));
-        return { jobId: job.id, jobName: job.name, daysSinceActivity: daysSince };
+        const created = j?.createdAt ? new Date(j.createdAt).getTime() : 0;
+        const ageInDays = created ? Math.floor((now - created) / (1000 * 60 * 60 * 24)) : null;
+        return { jobId: job.id, jobName: job.name, daysSinceActivity: daysSince, ageInDays };
       })
     );
     for (const r of results) {
-      if (r.status === 'fulfilled' && r.value.daysSinceActivity >= STALLED_DESIGN_DAYS) {
-        stalled.push(r.value);
+      if (r.status !== 'fulfilled') continue;
+      if (r.value.daysSinceActivity >= STALLED_DESIGN_DAYS) {
+        stalled.push({ jobId: r.value.jobId, jobName: r.value.jobName, daysSinceActivity: r.value.daysSinceActivity });
       }
+      if (r.value.ageInDays !== null) ageDays.push(r.value.ageInDays);
     }
   }
 
   stalled.sort((a, b) => b.daysSinceActivity - a.daysSinceActivity);
-  return { stalledDesignProjects: stalled, designProjectCount: designJobs.length };
+  const avgDaysInDesign = ageDays.length > 0
+    ? Math.round(ageDays.reduce((s, d) => s + d, 0) / ageDays.length)
+    : 0;
+  return { stalledDesignProjects: stalled, designProjectCount: designJobs.length, avgDaysInDesign };
 }
 
 export async function buildUserDashboardData(userId: string): Promise<UserDashboardData> {
