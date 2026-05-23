@@ -20,6 +20,7 @@ import {
   type JTJob,
 } from './jobtread';
 import { getAppUser } from './access';
+import { getStatusCategory } from './constants';
 import { createServerClient } from './supabase';
 import { fetchGmailInbox, fetchCalendarEvents, type GmailMessage, type CalendarEvent } from './google-api';
 import { getOpenItems, formatOpenItemsForContext, type ProjectEvent } from './project-memory';
@@ -115,6 +116,18 @@ export interface ChangeOrderSummary {
   status: 'approved' | 'pending';
 }
 
+export interface StalledDesignProject {
+  jobId: string;
+  jobName: string;
+  daysSinceActivity: number;
+}
+
+export interface PreconKpis {
+  // Design-phase projects with no comment activity in STALLED_DESIGN_DAYS+ days
+  stalledDesignProjects: StalledDesignProject[];
+  designProjectCount: number; // total active jobs in the design phase
+}
+
 export interface UserDashboardData {
   userId: string;
   userName: string;
@@ -133,6 +146,7 @@ export interface UserDashboardData {
   openItemsFormatted: string;
   outstandingInvoices: OutstandingInvoice[];
   changeOrders: ChangeOrderSummary[];
+  preconKpis?: PreconKpis;
   stats: {
     totalTasks: number;
     urgentTasks: number;
@@ -473,6 +487,57 @@ async function fetchARandCOData(
   return { invoices, changeOrders };
 }
 
+const STALLED_DESIGN_DAYS = 14;
+
+/**
+ * Preconstruction KPIs for design-phase managers. Identifies active jobs in the
+ * Design Phase whose most recent comment (client/team activity) is older than
+ * STALLED_DESIGN_DAYS — i.e. design work that may be stuck. One lightweight
+ * comments query per design-phase job (there are only a handful at a time), run
+ * in parallel batches.
+ */
+async function computePreconKpis(
+  activeJobs: Array<{ id: string; name: string; number: string; status?: string }>
+): Promise<PreconKpis> {
+  const designJobs = activeJobs.filter((j) => getStatusCategory(j.status) === 'IN_DESIGN');
+  const now = Date.now();
+  const stalled: StalledDesignProject[] = [];
+
+  const BATCH = 8;
+  for (let i = 0; i < designJobs.length; i += BATCH) {
+    const batch = designJobs.slice(i, i + BATCH);
+    const results = await Promise.allSettled(
+      batch.map(async (job) => {
+        // Newest comment date = last activity proxy. Pull a small page and take max.
+        const resp = await pave({
+          job: {
+            $: { id: job.id },
+            createdAt: {},
+            comments: { $: { size: 15 }, nodes: { createdAt: {} } },
+          },
+        });
+        const j = (resp as any)?.job;
+        const commentDates: number[] = ((j?.comments?.nodes || []) as any[])
+          .map((c) => new Date(c.createdAt).getTime())
+          .filter((t) => !isNaN(t));
+        const lastActivity = commentDates.length > 0
+          ? Math.max(...commentDates)
+          : new Date(j?.createdAt || 0).getTime();
+        const daysSince = Math.floor((now - lastActivity) / (1000 * 60 * 60 * 24));
+        return { jobId: job.id, jobName: job.name, daysSinceActivity: daysSince };
+      })
+    );
+    for (const r of results) {
+      if (r.status === 'fulfilled' && r.value.daysSinceActivity >= STALLED_DESIGN_DAYS) {
+        stalled.push(r.value);
+      }
+    }
+  }
+
+  stalled.sort((a, b) => b.daysSinceActivity - a.daysSinceActivity);
+  return { stalledDesignProjects: stalled, designProjectCount: designJobs.length };
+}
+
 export async function buildUserDashboardData(userId: string): Promise<UserDashboardData> {
   const user = await getAppUser(userId);
   if (!user) throw new Error(`Unknown userId: ${userId}`);
@@ -676,6 +741,18 @@ export async function buildUserDashboardData(userId: string): Promise<UserDashbo
     }
   }
 
+  // Preconstruction KPIs — only computed for users whose Overview shows the
+  // precon KPI strip (avoids the extra per-design-job comment queries for
+  // everyone else).
+  let preconKpis: PreconKpis | undefined;
+  if (user.overviewWidgets.includes('precon_kpis')) {
+    try {
+      preconKpis = await computePreconKpis(activeJobs);
+    } catch (err: any) {
+      console.error('[DashboardData] Failed to compute precon KPIs:', err.message);
+    }
+  }
+
   // Filter tomorrow's tasks
   const tomorrowTasks = tasks.filter(t => t.endDate?.startsWith(timeContext.tomorrowDate));
 
@@ -722,6 +799,7 @@ export async function buildUserDashboardData(userId: string): Promise<UserDashbo
     openItemsFormatted,
     outstandingInvoices,
     changeOrders,
+    preconKpis,
     stats,
   };
 }

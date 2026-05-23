@@ -144,6 +144,10 @@ interface DashboardData {
   activeJobs?: Array<{ id: string; name: string; number: string }>;
   outstandingInvoices?: OutstandingInvoice[];
   changeOrders?: ChangeOrderSummary[];
+  preconKpis?: {
+    stalledDesignProjects: Array<{ jobId: string; jobName: string; daysSinceActivity: number }>;
+    designProjectCount: number;
+  };
 }
 
 interface OverviewResponse {
@@ -1806,6 +1810,7 @@ export default function DashboardOverview() {
   const wWaitingOn = showWidget('waiting_on');
   const wArReminders = showWidget('ar_reminders');
   const wAllTasks = showWidget('all_tasks');
+  const wPreconKpis = showWidget('precon_kpis');
 
   // Categorize tasks
   const urgentTasks = tasks.filter(t => t.urgency === 'urgent');
@@ -2306,6 +2311,35 @@ export default function DashboardOverview() {
               </div>
 
               </div>
+        );
+      })()}
+
+      {/* PRECONSTRUCTION KPI STRIP — role-tuned for the precon/design manager */}
+      {wPreconKpis && (() => {
+        const dueThisWeek = tasks.filter(t => t.daysUntilDue !== null && t.daysUntilDue >= 0 && t.daysUntilDue <= 7).length;
+        const overdue = tasks.filter(t => t.daysUntilDue !== null && t.daysUntilDue < 0).length;
+        const designMeetings = calendarEvents.filter(ev => /design/i.test(ev.summary || '')).length;
+        const stalledList = overview?.data?.preconKpis?.stalledDesignProjects || [];
+        const stalled = stalledList.length;
+        const cards = [
+          { label: 'DUE THIS WEEK', value: dueThisWeek, color: dueThisWeek > 0 ? '#c88c00' : '#22c55e', Icon: Clock3, sub: 'your tasks' },
+          { label: 'OVERDUE', value: overdue, color: overdue > 0 ? '#ef4444' : '#22c55e', Icon: AlertTriangle, sub: 'your tasks' },
+          { label: 'DESIGN MEETINGS', value: designMeetings, color: '#c88c00', Icon: Calendar, sub: 'next 2 weeks' },
+          { label: 'STALLED DESIGN', value: stalled, color: stalled > 0 ? '#ef4444' : '#22c55e', Icon: Building2, sub: stalled > 0 ? `${stalledList[0].jobName.replace(/^#\d+\s*/, '').slice(0, 18)}…` : 'no activity 14d+' },
+        ];
+        return (
+          <div style={{ display: 'grid', gridTemplateColumns: isMobile ? 'repeat(2, 1fr)' : 'repeat(4, 1fr)', gap: isTouch ? 6 : 4, marginBottom: isTouch ? 10 : 6 }}>
+            {cards.map((c) => (
+              <div key={c.label} style={{ background: '#f8f6f3', borderRadius: 6, padding: '6px 7px', borderLeftWidth: 3, borderLeftStyle: 'solid', borderLeftColor: c.color }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 3, marginBottom: 3 }}>
+                  <c.Icon size={11} style={{ color: c.color }} />
+                  <span style={{ fontSize: 9, color: '#5a5550', fontWeight: 600, letterSpacing: '0.04em' }}>{c.label}</span>
+                </div>
+                <div style={{ fontSize: 18, fontWeight: 700, color: c.color, lineHeight: 1 }}>{c.value}</div>
+                <div style={{ fontSize: 10, color: '#6a6058', marginTop: 2, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{c.sub}</div>
+              </div>
+            ))}
+          </div>
         );
       })()}
 
