@@ -508,20 +508,23 @@ async function computePreconKpis(
     const batch = designJobs.slice(i, i + BATCH);
     const results = await Promise.allSettled(
       batch.map(async (job) => {
-        // Newest comment date = last activity proxy. Pull a small page and take max.
+        // Newest comment = last client/team activity. PAVE returns comments
+        // oldest-first by default, so we must sortBy createdAt desc and take the
+        // first (size 1) — otherwise we'd read a stale "newest" date.
         const resp = await pave({
           job: {
             $: { id: job.id },
             createdAt: {},
-            comments: { $: { size: 15 }, nodes: { createdAt: {} } },
+            comments: {
+              $: { size: 1, sortBy: [{ field: 'createdAt', order: 'desc' }] },
+              nodes: { createdAt: {} },
+            },
           },
         });
         const j = (resp as any)?.job;
-        const commentDates: number[] = ((j?.comments?.nodes || []) as any[])
-          .map((c) => new Date(c.createdAt).getTime())
-          .filter((t) => !isNaN(t));
-        const lastActivity = commentDates.length > 0
-          ? Math.max(...commentDates)
+        const newest = j?.comments?.nodes?.[0]?.createdAt;
+        const lastActivity = newest
+          ? new Date(newest).getTime()
           : new Date(j?.createdAt || 0).getTime();
         const daysSince = Math.floor((now - lastActivity) / (1000 * 60 * 60 * 24));
         return { jobId: job.id, jobName: job.name, daysSinceActivity: daysSince };
