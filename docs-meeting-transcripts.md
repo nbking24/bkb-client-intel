@@ -10,7 +10,7 @@ Plaud Note recording → Hub review queue → confirm → JobTread/PML.
 - `TranscriptsToConfirm` card on the Overview (widget `transcripts_confirm`) and the Field home. Self-hides when empty.
 - On confirm: full transcript is written to `project_events` (PML), so the Ask agent can query it immediately, scoped to the job (or to a Loop lead when no job exists yet — `job_id` stays null with `ghl_contact_id` in `source_ref`, and `backfillProjectEventsForLead` promotes it to the job on conversion).
 
-## Phase 2 (not in this branch)
+## Phase 2 (now in this branch)
 - Generate the bounded daily-log summary (respect `MAX_DAILY_LOG_CHARS`, run the one-time empirical limit test) and create the JobTread daily log on confirm.
 - Add `createDailyLogFile()` to `app/lib/jobtread.ts` (createUploadRequest → upload → createFile) and attach the raw transcript to that daily log.
 - Optional: backfill a daily log into the JobTread job when a lead later converts.

@@ -12,6 +12,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { validateAuth } from '@/app/api/lib/auth';
 import { getSupabase } from '@/app/api/lib/supabase';
 import { createProjectEvent } from '@/app/lib/project-memory';
+import { processConfirmedTranscript } from '@/app/lib/meeting-processing';
 
 export const dynamic = 'force-dynamic';
 
@@ -67,6 +68,7 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
     return NextResponse.json({ error: 'Failed to save to memory: ' + (err?.message || 'unknown') }, { status: 500 });
   }
 
+  // Persist the assignment first (so it survives even if Phase 2 processing fails).
   const { error: updErr } = await sb
     .from('meeting_transcripts')
     .update({
@@ -82,6 +84,33 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
     })
     .eq('id', params.id);
   if (updErr) return NextResponse.json({ error: updErr.message }, { status: 500 });
+
+  // Phase 2: for a JobTread job, create the daily-log summary + attach the
+  // transcript file. Leads have no job yet, so they stay 'confirmed' (queryable
+  // via PML) until conversion, when backfillLeadTranscriptDailyLogs runs.
+  if (kind === 'job') {
+    try {
+      await sb.from('meeting_transcripts').update({ status: 'processing', updated_at: new Date().toISOString() }).eq('id', params.id);
+      const out = await processConfirmedTranscript({
+        sb,
+        transcriptRowId: row.id,
+        jobId: String(body.jobId),
+        jobName: body.jobName || null,
+        title: row.title,
+        rawTranscript: row.raw_transcript || '',
+        recordedAt: row.recorded_at,
+      });
+      await sb.from('meeting_transcripts').update({
+        summary: out.summary, jt_daily_log_id: out.dailyLogId, jt_file_id: out.fileId,
+        status: 'processed', error_note: null, updated_at: new Date().toISOString(),
+      }).eq('id', params.id);
+      return NextResponse.json({ ok: true, id: params.id, pmlEventId, status: 'processed', dailyLogId: out.dailyLogId, fileId: out.fileId });
+    } catch (err: any) {
+      // Transcript is saved + in PML; only the daily-log step failed. Mark retryable.
+      await sb.from('meeting_transcripts').update({ status: 'failed', error_note: (err?.message || 'processing failed'), updated_at: new Date().toISOString() }).eq('id', params.id);
+      return NextResponse.json({ ok: true, id: params.id, pmlEventId, status: 'failed', error: 'Saved to memory, but daily-log creation failed: ' + (err?.message || 'unknown') });
+    }
+  }
 
   return NextResponse.json({ ok: true, id: params.id, pmlEventId, status: 'confirmed' });
 }
