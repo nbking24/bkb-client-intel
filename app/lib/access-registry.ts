@@ -73,6 +73,7 @@ export const OVERVIEW_WIDGETS: WidgetDef[] = [
   { id: 'ar_reminders',       label: 'AR Reminders',       description: 'Accounts-receivable reminder activity' },
   { id: 'all_tasks',          label: 'All Tasks',          description: 'Full task list grouped by job' },
   { id: 'precon_kpis',        label: 'Preconstruction KPIs', description: 'Design/precon KPI strip: tasks due/overdue, design meetings, stalled design projects' },
+  { id: 'transcripts_confirm', label: 'Transcripts to Confirm', description: 'Meeting transcripts you recorded that need a job/lead assignment' },
 ];
 
 // Convenience id lists

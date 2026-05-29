@@ -33,6 +33,8 @@ import {
   GHL_CALENDARS,
 } from '@/app/lib/ghl';
 import { createProjectEvent, backfillProjectEventsForLead } from '@/app/lib/project-memory';
+import { backfillLeadTranscriptDailyLogs } from '@/app/lib/meeting-processing';
+import { getSupabase as getSupabaseForTranscripts } from '@/app/api/lib/supabase';
 import { updateJob, createComment, setJobStatus } from '@/app/lib/jobtread';
 import { STATUS_VALUES } from '@/app/lib/constants';
 
@@ -63,6 +65,16 @@ export async function POST(req: NextRequest) {
         if (updated > 0) results.eventsBackfilled = updated;
       } catch (err: any) {
         console.warn('[leads-action] backfill failed (non-fatal):', err.message);
+      }
+    }
+
+    // Also create JobTread daily logs from any confirmed lead-stage meeting
+    // transcripts for this contact, now that a job exists (non-fatal).
+    if (jtJobId) {
+      try {
+        await backfillLeadTranscriptDailyLogs({ sb: getSupabaseForTranscripts(), jobId: jtJobId, ghlContactId: contactId });
+      } catch (err: any) {
+        console.warn('[leads-action] transcript daily-log backfill failed (non-fatal):', err.message);
       }
     }
 
