@@ -25,3 +25,21 @@ Plaud Note recording → Hub review queue → confirm → JobTread/PML.
 
 ## Note on the payload
 The webhook extracts fields tolerantly (it checks several likely key names) because the exact Plaud payload shape is finalized at developer-app registration. Adjust the `pick(...)` paths in `app/api/webhook/plaud/route.ts` once we see a real payload.
+
+---
+
+## Production status (tested 2026-05-29)
+
+Phase 1 + Phase 2 merged to `main` and live. End-to-end tested on production with Nathan's account:
+
+- Intake webhook (`/api/webhook/plaud`) with `PLAUD_WEBHOOK_SECRET` (set in Vercel, Production) — working; rejects unauthenticated calls.
+- Recorder mapping: `plaud_user_map` row maps `nathan@brettkingbuilder.com` -> `nathan`. Card enabled for `nathan` via `transcripts_confirm` widget.
+- Matcher: correctly classified a discovery call as a **lead** (no job) and a job-site walk to the real **Gibbons - Renovations** job at high confidence.
+- Confirm (lead): writes full transcript to PML with `job_id` null + lead linkage. Verified.
+- Confirm (job): generates a ~600-900 word summary (voice + no-em-dash + trade-partner rules applied), creates the JobTread daily log (type **Other** — "Meeting" is NOT a valid Daily Log Type option; override via `MEETING_DAILY_LOG_TYPE`), and links the full transcript in the log notes. Verified.
+
+### Known follow-up: native file attachment
+JobTread's `createFile` does NOT accept a `url` param ("no value is ever expected there"), so the raw transcript is currently **linked in the daily-log notes** (public-by-unguessable-UUID `meeting-transcripts` bucket) rather than attached as a JobTread file. True in-JobTread attachment requires the `createUploadRequest` -> upload bytes -> `createFile` flow. Implement when the PAVE upload schema is confirmed.
+
+### Trigger
+Native Plaud OAuth API is waitlist-only (survey submitted). Use **Zapier** to POST transcripts to the webhook in the meantime. Webhook field extraction is tolerant; lock the `pick()` paths to the real payload once a live Plaud/Zapier event is captured.
