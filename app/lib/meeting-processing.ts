@@ -118,7 +118,10 @@ export async function processConfirmedTranscript(params: {
 
   // 2. Daily log (date = recording date, fallback today).
   const date = (recordedAt ? new Date(recordedAt) : new Date()).toISOString().slice(0, 10);
-  const log = await createDailyLog({ jobId, date, notes: summary, dailyLogType: 'Meeting' });
+  // 'Daily Log Type' is a JobTread custom field with a fixed option set; 'Other'
+  // is the safe built-in. Override via MEETING_DAILY_LOG_TYPE if a 'Meeting'
+  // option is added in JobTread.
+  const log = await createDailyLog({ jobId, date, notes: summary, dailyLogType: process.env.MEETING_DAILY_LOG_TYPE || 'Other' });
 
   // 3. Upload raw transcript + attach to the daily log via a signed URL.
   let fileId: string | null = null;
