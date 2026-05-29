@@ -116,38 +116,27 @@ export async function processConfirmedTranscript(params: {
   // 1. Summary.
   const summary = await generateMeetingSummary({ transcript: rawTranscript, title: title || undefined, contextName: jobName || undefined });
 
-  // 2. Daily log (date = recording date, fallback today).
-  const date = (recordedAt ? new Date(recordedAt) : new Date()).toISOString().slice(0, 10);
-  // 'Daily Log Type' is a JobTread custom field with a fixed option set; 'Other'
-  // is the safe built-in. Override via MEETING_DAILY_LOG_TYPE if a 'Meeting'
-  // option is added in JobTread.
-  const log = await createDailyLog({ jobId, date, notes: summary, dailyLogType: process.env.MEETING_DAILY_LOG_TYPE || 'Other' });
-
-  // 3. Upload raw transcript + attach to the daily log. We use a long-lived
-  // signed URL from the private bucket so JobTread can fetch the file once.
-  let fileId: string | null = null;
-  let fileError: string | null = null;
+  // 2. Upload the raw transcript to storage (public-by-unguessable-UUID, same
+  // model as co-photos) so it can be linked from the daily log. JobTread's
+  // createFile does not accept a URL param, so we link the transcript in the
+  // log notes; native in-JobTread file attach (createUploadRequest flow) is a
+  // future enhancement.
+  let transcriptUrl: string | null = null;
   try {
-    const safeTitle = (title || 'Meeting').replace(/[^a-z0-9 _-]/gi, '').slice(0, 80).trim() || 'Meeting';
     const path = `${transcriptRowId}.txt`;
     const up = await sb.storage.from('meeting-transcripts').upload(path, new Blob([rawTranscript], { type: 'text/plain' }), { upsert: true, contentType: 'text/plain' });
-    if (up.error) throw new Error('storage upload: ' + up.error.message);
-    // JobTread's createFile fetches a public URL (it rejects long signed-URL
-    // tokens). The bucket is public-by-unguessable-UUID, matching the existing
-    // co-photos pattern used for JobTread attachments.
-    const { data: pub } = sb.storage.from('meeting-transcripts').getPublicUrl(path);
-    const publicUrl = pub?.publicUrl;
-    if (!publicUrl) throw new Error('no public url');
-    const file = await attachFileToDailyLog({ dailyLogId: log.id, url: publicUrl, name: `Meeting Transcript - ${safeTitle} - ${date}.txt` });
-    fileId = file?.id || null;
-    if (!fileId) fileError = 'createFile returned no id';
-  } catch (e: any) {
-    // Daily log already created; file attach is best-effort. Capture why.
-    fileError = e?.message || 'unknown file-attach error';
-    fileId = null;
-  }
+    if (!up.error) {
+      const { data: pub } = sb.storage.from('meeting-transcripts').getPublicUrl(path);
+      transcriptUrl = pub?.publicUrl || null;
+    }
+  } catch { transcriptUrl = null; }
 
-  return { dailyLogId: log.id, fileId, summary, fileError };
+  // 3. Daily log with the summary, linking the full transcript.
+  const date = (recordedAt ? new Date(recordedAt) : new Date()).toISOString().slice(0, 10);
+  const notes = transcriptUrl ? `${summary}\n\nFull meeting transcript: ${transcriptUrl}` : summary;
+  const log = await createDailyLog({ jobId, date, notes, dailyLogType: process.env.MEETING_DAILY_LOG_TYPE || 'Other' });
+
+  return { dailyLogId: log.id, fileId: null, summary, transcriptUrl, fileError: null };
 }
 
 /**
