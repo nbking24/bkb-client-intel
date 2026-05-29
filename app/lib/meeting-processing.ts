@@ -132,9 +132,13 @@ export async function processConfirmedTranscript(params: {
     const path = `${transcriptRowId}.txt`;
     const up = await sb.storage.from('meeting-transcripts').upload(path, new Blob([rawTranscript], { type: 'text/plain' }), { upsert: true, contentType: 'text/plain' });
     if (up.error) throw new Error('storage upload: ' + up.error.message);
-    const { data: signed, error: signErr } = await sb.storage.from('meeting-transcripts').createSignedUrl(path, 60 * 60 * 24 * 365);
-    if (signErr || !signed?.signedUrl) throw new Error('sign url: ' + (signErr?.message || 'no url'));
-    const file = await attachFileToDailyLog({ dailyLogId: log.id, url: signed.signedUrl, name: `Meeting Transcript - ${safeTitle} - ${date}.txt` });
+    // JobTread's createFile fetches a public URL (it rejects long signed-URL
+    // tokens). The bucket is public-by-unguessable-UUID, matching the existing
+    // co-photos pattern used for JobTread attachments.
+    const { data: pub } = sb.storage.from('meeting-transcripts').getPublicUrl(path);
+    const publicUrl = pub?.publicUrl;
+    if (!publicUrl) throw new Error('no public url');
+    const file = await attachFileToDailyLog({ dailyLogId: log.id, url: publicUrl, name: `Meeting Transcript - ${safeTitle} - ${date}.txt` });
     fileId = file?.id || null;
     if (!fileId) fileError = 'createFile returned no id';
   } catch (e: any) {

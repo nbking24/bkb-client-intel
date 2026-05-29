@@ -97,5 +97,5 @@ create table if not exists public.plaud_user_map (
 -- Storage bucket for raw transcript files (private). Guarded insert so it is
 -- safe to re-run; ignored if the bucket already exists.
 insert into storage.buckets (id, name, public)
-values ('meeting-transcripts', 'meeting-transcripts', false)
+values ('meeting-transcripts', 'meeting-transcripts', true)
 on conflict (id) do nothing;
