@@ -123,23 +123,27 @@ export async function processConfirmedTranscript(params: {
   // option is added in JobTread.
   const log = await createDailyLog({ jobId, date, notes: summary, dailyLogType: process.env.MEETING_DAILY_LOG_TYPE || 'Other' });
 
-  // 3. Upload raw transcript + attach to the daily log via a signed URL.
+  // 3. Upload raw transcript + attach to the daily log. We use a long-lived
+  // signed URL from the private bucket so JobTread can fetch the file once.
   let fileId: string | null = null;
+  let fileError: string | null = null;
   try {
     const safeTitle = (title || 'Meeting').replace(/[^a-z0-9 _-]/gi, '').slice(0, 80).trim() || 'Meeting';
     const path = `${transcriptRowId}.txt`;
-    await sb.storage.from('meeting-transcripts').upload(path, new Blob([rawTranscript], { type: 'text/plain' }), { upsert: true, contentType: 'text/plain' });
-    const { data: signed } = await sb.storage.from('meeting-transcripts').createSignedUrl(path, 3600);
-    if (signed?.signedUrl) {
-      const file = await attachFileToDailyLog({ dailyLogId: log.id, url: signed.signedUrl, name: `Meeting Transcript - ${safeTitle} - ${date}.txt` });
-      fileId = file?.id || null;
-    }
-  } catch {
-    // Daily log already created; file attach is best-effort.
+    const up = await sb.storage.from('meeting-transcripts').upload(path, new Blob([rawTranscript], { type: 'text/plain' }), { upsert: true, contentType: 'text/plain' });
+    if (up.error) throw new Error('storage upload: ' + up.error.message);
+    const { data: signed, error: signErr } = await sb.storage.from('meeting-transcripts').createSignedUrl(path, 60 * 60 * 24 * 365);
+    if (signErr || !signed?.signedUrl) throw new Error('sign url: ' + (signErr?.message || 'no url'));
+    const file = await attachFileToDailyLog({ dailyLogId: log.id, url: signed.signedUrl, name: `Meeting Transcript - ${safeTitle} - ${date}.txt` });
+    fileId = file?.id || null;
+    if (!fileId) fileError = 'createFile returned no id';
+  } catch (e: any) {
+    // Daily log already created; file attach is best-effort. Capture why.
+    fileError = e?.message || 'unknown file-attach error';
     fileId = null;
   }
 
-  return { dailyLogId: log.id, fileId, summary };
+  return { dailyLogId: log.id, fileId, summary, fileError };
 }
 
 /**

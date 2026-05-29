@@ -102,9 +102,9 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
       });
       await sb.from('meeting_transcripts').update({
         summary: out.summary, jt_daily_log_id: out.dailyLogId, jt_file_id: out.fileId,
-        status: 'processed', error_note: null, updated_at: new Date().toISOString(),
+        status: 'processed', error_note: out.fileError || null, updated_at: new Date().toISOString(),
       }).eq('id', params.id);
-      return NextResponse.json({ ok: true, id: params.id, pmlEventId, status: 'processed', dailyLogId: out.dailyLogId, fileId: out.fileId });
+      return NextResponse.json({ ok: true, id: params.id, pmlEventId, status: 'processed', dailyLogId: out.dailyLogId, fileId: out.fileId, fileError: out.fileError || null });
     } catch (err: any) {
       // Transcript is saved + in PML; only the daily-log step failed. Mark retryable.
       await sb.from('meeting_transcripts').update({ status: 'failed', error_note: (err?.message || 'processing failed'), updated_at: new Date().toISOString() }).eq('id', params.id);
