@@ -16,6 +16,8 @@ function getToken() {
 }
 
 const GOLD = '#c88c00';
+// Catch-all job for internal / multi-project meetings (BKB "Admin Project").
+const ADMIN_PROJECT = { id: '22P6NCjBeR8d', name: 'Admin Project' };
 
 export default function TranscriptsToConfirm() {
   const [items, setItems] = useState<any[]>([]);
@@ -44,17 +46,8 @@ export default function TranscriptsToConfirm() {
 
   useEffect(() => { load(); }, [load]);
 
-  async function confirm(t: any) {
-    const choice = sel[t.id];
-    if (!choice) return;
+  async function doConfirm(t: any, payload: any) {
     setBusy((b) => ({ ...b, [t.id]: true }));
-    let payload: any;
-    if (choice === '__lead__') {
-      payload = { kind: 'lead', leadContactId: t.suggested_lead_contact_id || null, leadName: leadName[t.id] || t.suggested_lead_name || '' };
-    } else {
-      const job = jobOptions.find((j) => j.id === choice);
-      payload = { kind: 'job', jobId: choice, jobName: job?.name || t.suggested_job_name || null };
-    }
     try {
       const res = await fetch(`/api/transcripts/${t.id}/confirm`, {
         method: 'POST',
@@ -65,6 +58,23 @@ export default function TranscriptsToConfirm() {
     } finally {
       setBusy((b) => ({ ...b, [t.id]: false }));
     }
+  }
+
+  function confirm(t: any) {
+    const choice = sel[t.id];
+    if (!choice) return;
+    let payload: any;
+    if (choice === '__lead__') {
+      payload = { kind: 'lead', leadContactId: t.suggested_lead_contact_id || null, leadName: leadName[t.id] || t.suggested_lead_name || '' };
+    } else {
+      const job = jobOptions.find((j) => j.id === choice);
+      payload = { kind: 'job', jobId: choice, jobName: job?.name || t.suggested_job_name || null };
+    }
+    return doConfirm(t, payload);
+  }
+
+  function confirmAdmin(t: any) {
+    return doConfirm(t, { kind: 'job', jobId: ADMIN_PROJECT.id, jobName: ADMIN_PROJECT.name });
   }
 
   if (!loaded || items.length === 0) return null;
@@ -118,6 +128,15 @@ export default function TranscriptsToConfirm() {
                     background: sel[t.id] ? GOLD : '#e8e5e0', color: '#fff', fontSize: 12, fontWeight: 600, cursor: sel[t.id] ? 'pointer' : 'default' }}
                 >
                   {busy[t.id] ? <Loader2 size={12} className="animate-spin" /> : <Check size={12} />} Confirm
+                </button>
+                <button
+                  onClick={() => confirmAdmin(t)}
+                  disabled={busy[t.id]}
+                  title="Internal or multi-project meeting — files to the Admin Project job"
+                  style={{ display: 'inline-flex', alignItems: 'center', gap: 4, padding: '6px 10px', borderRadius: 6, border: '1px solid rgba(200,140,0,0.25)',
+                    background: '#fff', color: GOLD, fontSize: 11, fontWeight: 600, cursor: 'pointer' }}
+                >
+                  Internal / Multi-project
                 </button>
               </div>
             </div>

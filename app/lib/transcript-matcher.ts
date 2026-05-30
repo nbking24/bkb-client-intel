@@ -21,6 +21,11 @@ import { fetchCalendarEvents } from '@/app/lib/google-api';
 const anthropic = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY });
 const MATCH_MODEL = 'claude-sonnet-4-20250514';
 
+// Catch-all JobTread job for internal meetings and meetings that span
+// multiple projects (BKB "Admin Project", #130).
+export const ADMIN_PROJECT_JOB_ID = process.env.ADMIN_PROJECT_JOB_ID || '22P6NCjBeR8d';
+export const ADMIN_PROJECT_JOB_NAME = 'Admin Project';
+
 export interface TranscriptMatch {
   kind: 'job' | 'lead' | 'unknown';
   jobId: string | null;
@@ -87,7 +92,11 @@ Meeting transcript excerpt:
 ${excerpt}
 """
 
-Decide which job this meeting is about. If it clearly matches a job above, return that job. If it is an early sales / discovery conversation with a client who does NOT have a job in the list yet, return kind "lead" with the client's name. If you cannot tell, return kind "unknown".
+Decide which job this meeting is about, using these rules in order:
+1. If this is an internal team meeting (no external client) OR it covers MULTIPLE distinct projects, assign it to the catch-all Admin Project job: return kind "job", jobId "${ADMIN_PROJECT_JOB_ID}", jobName "Admin Project".
+2. Else if it clearly maps to a single job above, return that job.
+3. Else if it is an early sales / discovery conversation with a client who does NOT have a job in the list yet, return kind "lead" with the client's name.
+4. Else return kind "unknown".
 
 Respond with ONLY a JSON object, no prose:
 {"kind":"job|lead|unknown","jobId":"<id or null>","jobName":"<name or null>","leadName":"<client name or null>","confidence":<0..1>,"reasoning":"<one sentence>"}`;
