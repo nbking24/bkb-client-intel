@@ -74,6 +74,7 @@ export const OVERVIEW_WIDGETS: WidgetDef[] = [
   { id: 'all_tasks',          label: 'All Tasks',          description: 'Full task list grouped by job' },
   { id: 'precon_kpis',        label: 'Preconstruction KPIs', description: 'Design/precon KPI strip: tasks due/overdue, design meetings, stalled design projects' },
   { id: 'transcripts_confirm', label: 'Transcripts to Confirm', description: 'Meeting transcripts you recorded that need a job/lead assignment' },
+  { id: 'transcripts_history', label: 'Past Transcripts', description: 'Searchable archive of your meeting transcripts and the jobs they belong to' },
 ];
 
 // Convenience id lists
