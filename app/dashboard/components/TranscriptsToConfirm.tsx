@@ -19,7 +19,7 @@ const GOLD = '#c88c00';
 // Catch-all job for internal / multi-project meetings (BKB "Admin Project").
 const ADMIN_PROJECT = { id: '22P6NCjBeR8d', name: 'Admin Project' };
 
-export default function TranscriptsToConfirm() {
+export default function TranscriptsToConfirm({ scopeAll = false }: { scopeAll?: boolean }) {
   const [items, setItems] = useState<any[]>([]);
   const [jobOptions, setJobOptions] = useState<any[]>([]);
   const [loaded, setLoaded] = useState(false);
@@ -29,7 +29,7 @@ export default function TranscriptsToConfirm() {
 
   const load = useCallback(async () => {
     try {
-      const res = await fetch('/api/transcripts', { headers: { authorization: `Bearer ${getToken()}` } });
+      const res = await fetch('/api/transcripts' + (scopeAll ? '?scope=all' : ''), { headers: { authorization: `Bearer ${getToken()}` } });
       if (!res.ok) { setLoaded(true); return; }
       const data = await res.json();
       setItems(data.transcripts || []);
@@ -42,7 +42,7 @@ export default function TranscriptsToConfirm() {
       setSel((s) => ({ ...presets, ...s }));
       setLoaded(true);
     } catch { setLoaded(true); }
-  }, []);
+  }, [scopeAll]);
 
   useEffect(() => { load(); }, [load]);
 

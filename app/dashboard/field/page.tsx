@@ -29,8 +29,7 @@ import {
   Paperclip, ImageIcon, X as XIcon
 } from 'lucide-react';
 import { useAuth } from '@/app/hooks/useAuth';
-import TranscriptsToConfirm from '@/app/dashboard/components/TranscriptsToConfirm';
-import TranscriptHistory from '@/app/dashboard/components/TranscriptHistory';
+import TranscriptsFlag from '@/app/dashboard/components/TranscriptsFlag';
 import {
   formatContent,
   type ChatMessage,
@@ -864,8 +863,7 @@ export default function FieldDashboardPage() {
 
   return (
     <div style={{ maxWidth: 960, margin: '0 auto', padding: isMobile ? '0 12px' : '0 8px', position: 'relative' }}>
-      <TranscriptsToConfirm />
-      <TranscriptHistory />
+      <TranscriptsFlag />
       {/* HEADER */}
       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: isTouch ? 10 : 6 }}>
         <h1 style={{ color: '#1a1a1a', fontSize: isTouch ? 22 : 18, fontWeight: 700, margin: 0 }}>{getGreeting()}, {firstName}</h1>

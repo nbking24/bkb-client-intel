@@ -16,7 +16,7 @@ export async function GET(req: NextRequest) {
   if (!auth.valid) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
 
   const url = new URL(req.url);
-  const scopeAll = url.searchParams.get('scope') === 'all' && (auth.role === 'owner' || auth.role === 'admin');
+  const scopeAll = url.searchParams.get('scope') === 'all';
 
   const sb = getSupabase();
   let q = sb

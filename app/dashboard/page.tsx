@@ -13,8 +13,7 @@ import {
   Hourglass, ChevronRight, Mail, Receipt
 } from 'lucide-react';
 import { useAuth } from '@/app/hooks/useAuth';
-import TranscriptsToConfirm from './components/TranscriptsToConfirm';
-import TranscriptHistory from './components/TranscriptHistory';
+import TranscriptsFlag from './components/TranscriptsFlag';
 import { useAccess } from '@/app/hooks/useAccess';
 import {
   formatContent,
@@ -1900,8 +1899,7 @@ export default function DashboardOverview() {
         </button>
       </div>
 
-      {showWidget('transcripts_confirm') && <TranscriptsToConfirm />}
-      {showWidget('transcripts_history') && <TranscriptHistory />}
+      {showWidget('transcripts_confirm') && <TranscriptsFlag />}
 
       {/* ACTION BUTTONS ROW — each button gated by its widget/feature */}
       {(wQuickAdd || canAskAgent) && (

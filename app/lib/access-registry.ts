@@ -49,6 +49,7 @@ export const DASHBOARDS: DashboardDef[] = [
   { id: 'spec-writer', label: 'Spec Writer',      href: '/dashboard/spec-writer', icon: 'FileText',        description: 'Specification writing' },
   { id: 'marketing',   label: 'Marketing',        href: '/dashboard/marketing',   icon: 'Megaphone',       description: 'Marketing tools' },
   { id: 'tickets',     label: 'Tickets',          href: '/dashboard/tickets',     icon: 'Bug',             description: 'Support / bug queue' },
+  { id: 'transcripts', label: 'Transcripts',      href: '/dashboard/transcripts', icon: 'Mic',             description: 'Meeting transcripts by job, searchable + AI query' },
   { id: 'field',       label: 'My Tasks (Field)', href: '/dashboard/field',       icon: 'ClipboardList',   description: 'Simplified field-staff task view' },
   { id: 'admin',       label: 'Admin',            href: '/dashboard/admin',       icon: 'Shield', ownerOnly: true, description: 'User & access management' },
 ];
@@ -73,8 +74,7 @@ export const OVERVIEW_WIDGETS: WidgetDef[] = [
   { id: 'ar_reminders',       label: 'AR Reminders',       description: 'Accounts-receivable reminder activity' },
   { id: 'all_tasks',          label: 'All Tasks',          description: 'Full task list grouped by job' },
   { id: 'precon_kpis',        label: 'Preconstruction KPIs', description: 'Design/precon KPI strip: tasks due/overdue, design meetings, stalled design projects' },
-  { id: 'transcripts_confirm', label: 'Transcripts to Confirm', description: 'Meeting transcripts you recorded that need a job/lead assignment' },
-  { id: 'transcripts_history', label: 'Past Transcripts', description: 'Searchable archive of your meeting transcripts and the jobs they belong to' },
+  { id: 'transcripts_confirm', label: 'Transcripts flag', description: 'Overview flag showing transcripts that still need categorizing (links to the Transcripts tab)' },
 ];
 
 // Convenience id lists
