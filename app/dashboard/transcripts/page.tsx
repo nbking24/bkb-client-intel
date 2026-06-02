@@ -53,6 +53,8 @@ export default function TranscriptsDashboardPage() {
   const [aiAnswer, setAiAnswer] = useState('');
   const [aiSources, setAiSources] = useState<any[]>([]);
   const [aiLoading, setAiLoading] = useState(false);
+  const [reloadKey, setReloadKey] = useState(0);
+  const refreshAll = useCallback(() => { setReloadKey((k) => k + 1); }, []);
 
   const load = useCallback(async () => {
     try {
@@ -61,6 +63,11 @@ export default function TranscriptsDashboardPage() {
     } finally { setLoaded(true); }
   }, []);
   useEffect(() => { load(); }, [load]);
+  // Auto-check for newly delivered transcripts every 60s while the tab is open.
+  useEffect(() => {
+    const iv = setInterval(() => { load(); setReloadKey((k) => k + 1); }, 60000);
+    return () => clearInterval(iv);
+  }, [load]);
 
   async function openTranscript(id: string) {
     if (openId === id) { setOpenId(null); return; }
@@ -133,12 +140,12 @@ export default function TranscriptsDashboardPage() {
       <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 4 }}>
         <Mic size={20} style={{ color: GOLD }} />
         <h1 style={{ fontSize: 20, fontWeight: 700, color: '#2a2520', margin: 0 }}>Transcripts</h1>
-        <button onClick={() => { load(); }} style={{ marginLeft: 'auto', padding: 6, borderRadius: 6, background: 'rgba(200,140,0,0.08)', border: 'none', cursor: 'pointer', lineHeight: 0 }}><RefreshCw size={14} style={{ color: GOLD }} /></button>
+        <button onClick={() => { load(); refreshAll(); }} title="Check for new transcripts" style={{ marginLeft: 'auto', padding: 6, borderRadius: 6, background: 'rgba(200,140,0,0.08)', border: 'none', cursor: 'pointer', lineHeight: 0 }}><RefreshCw size={14} style={{ color: GOLD }} /></button>
       </div>
-      <p style={{ fontSize: 12, color: '#6a6058', marginTop: 0, marginBottom: 12 }}>Every meeting transcript, organized by job. Filter to find a conversation, then read it or ask the AI about it.</p>
+      <p style={{ fontSize: 12, color: '#6a6058', marginTop: 0, marginBottom: 12 }}>Every meeting transcript, organized by job. New transcripts appear automatically (checked every minute) or hit refresh. Filter to find a conversation, then read it or ask the AI about it.</p>
 
       {/* Needs categorizing */}
-      <TranscriptsToConfirm scopeAll />
+      <TranscriptsToConfirm scopeAll reloadKey={reloadKey} />
 
       {/* AI search */}
       <div style={{ marginBottom: 12, borderRadius: 8, border: '1px solid rgba(200,140,0,0.2)', background: '#fffdf8', padding: '10px 12px' }}>

@@ -19,7 +19,7 @@ const GOLD = '#c88c00';
 // Catch-all job for internal / multi-project meetings (BKB "Admin Project").
 const ADMIN_PROJECT = { id: '22P6NCjBeR8d', name: 'Admin Project' };
 
-export default function TranscriptsToConfirm({ scopeAll = false }: { scopeAll?: boolean }) {
+export default function TranscriptsToConfirm({ scopeAll = false, reloadKey = 0 }: { scopeAll?: boolean; reloadKey?: number }) {
   const [items, setItems] = useState<any[]>([]);
   const [jobOptions, setJobOptions] = useState<any[]>([]);
   const [loaded, setLoaded] = useState(false);
@@ -44,7 +44,7 @@ export default function TranscriptsToConfirm({ scopeAll = false }: { scopeAll?: 
     } catch { setLoaded(true); }
   }, [scopeAll]);
 
-  useEffect(() => { load(); }, [load]);
+  useEffect(() => { load(); }, [load, reloadKey]);
 
   async function doConfirm(t: any, payload: any) {
     setBusy((b) => ({ ...b, [t.id]: true }));
