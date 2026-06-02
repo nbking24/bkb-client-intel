@@ -1,12 +1,12 @@
 // GET /api/dashboard/team-assignees
 //
-// Returns the list of JobTread memberships available as task assignees, sorted
-// alphabetically by name. Replaces the hardcoded TEAM_ASSIGNEES array in the
-// overview so any new JT user (Allison, future hires, etc.) is immediately
-// selectable without a code change.
+// Returns the internal JobTread members available as task assignees, sorted
+// alphabetically. We filter by `membership.role.type === 'internal'` so
+// Customer/Vendor/Client memberships (~160 of them) are excluded — only staff
+// with a JobTread login appear (Nathan, Brett, Evan, Terri, Allison, etc.).
 //
-// Cached in-memory for 30 minutes per Vercel function instance. Memberships
-// change rarely; the trade-off is fine.
+// Cached in-memory for 30 minutes per Vercel function instance; memberships
+// change rarely so the trade-off is fine.
 import { NextResponse } from 'next/server';
 import { pave } from '@/app/lib/jobtread';
 
@@ -23,10 +23,13 @@ interface Assignee {
 
 let cached: { at: number; data: Assignee[] } | null = null;
 
-async function fetchAllMemberships(): Promise<Assignee[]> {
+async function fetchInternalMemberships(): Promise<Assignee[]> {
   const all: Assignee[] = [];
   let nextPage: string | null = null;
   // PAVE org-level connections cap at 100/page; paginate until exhausted.
+  // We can't filter server-side on a nested field (role.type), so we pull all
+  // memberships and filter client-side. The full set is small (<200) so this
+  // is cheap and runs at most twice.
   for (let page = 0; page < 20; page++) {
     const params: Record<string, unknown> = { size: 100 };
     if (nextPage) params.page = nextPage;
@@ -36,16 +39,22 @@ async function fetchAllMemberships(): Promise<Assignee[]> {
         memberships: {
           $: params,
           nextPage: {},
-          // user.email is NOT in PAVE's schema; id + name is all we need here.
-          nodes: { id: {}, user: { id: {}, name: {} } },
+          nodes: {
+            id: {},
+            user: { id: {}, name: {} },
+            // role.type === 'internal' marks staff with a JobTread login;
+            // Customer / Vendor / Client memberships have type 'external'.
+            role: { type: {} },
+          },
         },
       },
     });
     const conn = out?.organization?.memberships;
     const nodes: any[] = conn?.nodes || [];
     for (const m of nodes) {
+      const isInternal = m?.role?.type === 'internal';
       const name = m?.user?.name;
-      if (m?.id && typeof name === 'string' && name.trim()) {
+      if (isInternal && m?.id && typeof name === 'string' && name.trim()) {
         all.push({ id: m.id, name: name.trim() });
       }
     }
@@ -61,7 +70,7 @@ export async function GET() {
     if (cached && Date.now() - cached.at < TTL_MS) {
       return NextResponse.json({ assignees: cached.data, cached: true });
     }
-    const data = await fetchAllMemberships();
+    const data = await fetchInternalMemberships();
     cached = { at: Date.now(), data };
     return NextResponse.json({ assignees: data, cached: false });
   } catch (err: any) {
