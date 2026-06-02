@@ -30,6 +30,9 @@ export interface AppUser {
   dashboards: string[];
   features: string[];
   overviewWidgets: string[];
+  // Google account linkage (populated via /api/auth/google-connect)
+  googleEmail: string | null;
+  googleConnectedAt: string | null;
 }
 
 export interface EffectiveAccess extends AppUser {
@@ -62,6 +65,8 @@ function rowToUser(row: any): AppUser {
     dashboards: asStringArray(row.dashboards),
     features: asStringArray(row.features),
     overviewWidgets: asStringArray(row.overview_widgets),
+    googleEmail: row.google_email ?? null,
+    googleConnectedAt: row.google_connected_at ?? null,
   };
 }
 
@@ -84,6 +89,8 @@ function codeFallbackUser(id: string): AppUser | null {
     dashboards: preset.dashboards,
     features: preset.features,
     overviewWidgets: preset.overviewWidgets,
+    googleEmail: null,
+    googleConnectedAt: null,
   };
 }
 
@@ -201,4 +208,57 @@ export async function isOwner(userId: string | undefined): Promise<boolean> {
   if (!userId) return false;
   const u = await getAppUser(userId);
   return u?.role === 'owner';
+}
+
+// ============================================================
+// Google OAuth — per-user refresh-token storage
+// Helpers below are server-only and never expose the refresh token to clients;
+// the token leaves the DB only via google-api.ts when fetching an access token.
+// ============================================================
+
+/** Refresh token for the given user, or null if Google isn't linked. */
+export async function getUserGoogleRefreshToken(userId: string): Promise<string | null> {
+  if (!userId) return null;
+  try {
+    const supabase = createServerClient();
+    const { data } = await supabase
+      .from('app_users')
+      .select('google_refresh_token')
+      .eq('id', userId)
+      .single();
+    return (data?.google_refresh_token as string | null) ?? null;
+  } catch {
+    return null;
+  }
+}
+
+/** Save a freshly-issued Google refresh token + the linked account's email. */
+export async function setUserGoogleLink(
+  userId: string,
+  refreshToken: string,
+  email: string | null,
+): Promise<void> {
+  const supabase = createServerClient();
+  const { error } = await supabase
+    .from('app_users')
+    .update({
+      google_refresh_token: refreshToken,
+      google_email: email,
+      google_connected_at: new Date().toISOString(),
+    })
+    .eq('id', userId);
+  if (error) throw new Error(`Failed to save Google link: ${error.message}`);
+}
+
+/** Remove the Google connection for a user (admin disconnect). */
+export async function clearUserGoogleLink(userId: string): Promise<void> {
+  const supabase = createServerClient();
+  await supabase
+    .from('app_users')
+    .update({
+      google_refresh_token: null,
+      google_email: null,
+      google_connected_at: null,
+    })
+    .eq('id', userId);
 }

@@ -1,45 +1,66 @@
+// GET /api/auth/google-callback?code=...&state=<signed>
+//
+// Google redirects here after a user grants consent on Google's side. We
+// verify the signed state (it embeds the BKB userId we're linking), exchange
+// the auth code for tokens, fetch the linked Google account's email for
+// display, and persist the refresh token on that user's app_users row.
 import { NextRequest, NextResponse } from 'next/server';
+import { setUserGoogleLink, getAppUser } from '@/app/lib/access';
+import { verifyOauthState } from '@/app/lib/google-oauth-state';
+import { clearGoogleTokenCache } from '@/app/lib/google-api';
 
-/**
- * GET /api/auth/google-callback?code=XXX
- *
- * OAuth callback handler. Exchanges the authorization code for tokens
- * and displays them for the admin to copy to Vercel env vars.
- * This is a one-time setup endpoint.
- */
+export const runtime = 'nodejs';
+export const dynamic = 'force-dynamic';
+
+function htmlPage(title: string, body: string, status = 200) {
+  return new NextResponse(
+    `<!DOCTYPE html><html><head><title>${title}</title>
+<style>
+  body{font-family:system-ui;max-width:560px;margin:60px auto;padding:24px;color:#1a1a1a}
+  h1{font-size:20px;color:#c88c00;margin:0 0 12px}
+  .ok h1{color:#15803d}.bad h1{color:#c45c4c}
+  p{color:#5a5550;line-height:1.5}
+  code{background:#f0ede8;padding:2px 6px;border-radius:4px;font-size:13px}
+  .btn{display:inline-block;margin-top:18px;padding:10px 16px;background:#c88c00;color:#fff;border-radius:8px;text-decoration:none;font-weight:600}
+</style></head><body>${body}</body></html>`,
+    { status, headers: { 'Content-Type': 'text/html' } }
+  );
+}
+
 export async function GET(req: NextRequest) {
   const code = req.nextUrl.searchParams.get('code');
+  const state = req.nextUrl.searchParams.get('state');
   const error = req.nextUrl.searchParams.get('error');
 
   if (error) {
-    return new NextResponse(`<h1>OAuth Error</h1><p>${error}</p>`, {
-      headers: { 'Content-Type': 'text/html' },
-    });
+    return htmlPage('Google connect cancelled',
+      `<div class="bad"><h1>Connection cancelled</h1><p>Google returned: <code>${error}</code></p><a class="btn" href="/dashboard/admin">Back to Admin</a></div>`);
+  }
+  if (!code || !state) {
+    return htmlPage('Google connect — invalid',
+      `<div class="bad"><h1>Missing code or state</h1><p>This URL must be reached via the admin <em>Connect Google</em> flow.</p></div>`, 400);
   }
 
-  if (!code) {
-    // No code — redirect to Google OAuth consent
-    const clientId = process.env.GOOGLE_CLIENT_ID;
-    if (!clientId) {
-      return new NextResponse('GOOGLE_CLIENT_ID env var not set', { status: 500 });
-    }
-    const redirectUri = `${req.nextUrl.origin}/api/auth/google-callback`;
-    const scopes = [
-      'https://www.googleapis.com/auth/gmail.modify',
-      'https://www.googleapis.com/auth/calendar.readonly',
-    ].join(' ');
-    const authUrl = `https://accounts.google.com/o/oauth2/v2/auth?client_id=${clientId}&redirect_uri=${encodeURIComponent(redirectUri)}&response_type=code&scope=${encodeURIComponent(scopes)}&access_type=offline&prompt=consent`;
-    return NextResponse.redirect(authUrl);
+  const verified = verifyOauthState(state);
+  if (!verified) {
+    return htmlPage('Google connect — invalid',
+      `<div class="bad"><h1>Invalid or expired state</h1><p>Please restart the connection from the admin dashboard.</p><a class="btn" href="/dashboard/admin">Back to Admin</a></div>`, 400);
   }
 
-  // Exchange code for tokens
+  const target = await getAppUser(verified.userId);
+  if (!target) {
+    return htmlPage('Google connect — invalid',
+      `<div class="bad"><h1>Unknown user</h1><p>The user referenced in this connection link no longer exists.</p></div>`, 404);
+  }
+
   const clientId = process.env.GOOGLE_CLIENT_ID;
   const clientSecret = process.env.GOOGLE_CLIENT_SECRET;
-  const redirectUri = `${req.nextUrl.origin}/api/auth/google-callback`;
-
   if (!clientId || !clientSecret) {
-    return new NextResponse('GOOGLE_CLIENT_ID or GOOGLE_CLIENT_SECRET not set', { status: 500 });
+    return htmlPage('Google connect — server',
+      `<div class="bad"><h1>Server misconfigured</h1><p>GOOGLE_CLIENT_ID / GOOGLE_CLIENT_SECRET are missing on the server.</p></div>`, 500);
   }
+
+  const redirectUri = `${req.nextUrl.origin}/api/auth/google-callback`;
 
   try {
     const tokenRes = await fetch('https://oauth2.googleapis.com/token', {
@@ -53,40 +74,46 @@ export async function GET(req: NextRequest) {
         grant_type: 'authorization_code',
       }),
     });
-
     const tokens = await tokenRes.json();
 
-    if (tokens.error) {
-      return new NextResponse(
-        `<h1>Token Exchange Error</h1><pre>${JSON.stringify(tokens, null, 2)}</pre>`,
-        { headers: { 'Content-Type': 'text/html' } }
-      );
+    if (tokens.error || !tokens.refresh_token) {
+      // The most common cause is "refresh_token not returned" — this happens
+      // when the user previously authorised the same OAuth client and Google
+      // skips issuing a new one. The connect route already sends
+      // prompt=consent specifically to avoid this, but if it still happens
+      // the user must revoke our app at myaccount.google.com and re-try.
+      return htmlPage('Google connect — failed',
+        `<div class="bad"><h1>Couldn't get a refresh token</h1>
+         <p>${tokens.error_description || tokens.error || 'No refresh_token in Google\'s response.'}</p>
+         <p>If this is a re-link, please revoke the BKB Hub at
+         <a href="https://myaccount.google.com/permissions" target="_blank">myaccount.google.com/permissions</a> and try again.</p>
+         <a class="btn" href="/dashboard/admin">Back to Admin</a></div>`, 400);
     }
 
-    // Display tokens for admin to copy
-    return new NextResponse(
-      `<!DOCTYPE html>
-<html><head><title>OAuth Setup Complete</title>
-<style>body{font-family:sans-serif;max-width:600px;margin:40px auto;padding:20px;background:#1a1a1a;color:#e8e0d8}
-pre{background:#242424;padding:16px;border-radius:8px;overflow-x:auto;font-size:13px;border:1px solid rgba(205,162,116,0.12)}
-h1{color:#CDA274}h2{color:#8a8078}code{color:#22c55e}</style></head>
-<body>
-<h1>OAuth Setup Complete!</h1>
-<p>Add these to your Vercel environment variables:</p>
-<h2>GOOGLE_REFRESH_TOKEN</h2>
-<pre><code>${tokens.refresh_token || 'NOT RETURNED — you may need to revoke access and retry'}</code></pre>
-<h2>GOOGLE_ACCESS_TOKEN (temporary, will auto-refresh)</h2>
-<pre><code>${tokens.access_token}</code></pre>
-<h2>Token Details</h2>
-<pre>${JSON.stringify(tokens, null, 2)}</pre>
-<p style="color:#8a8078;margin-top:20px">You can close this page now. The refresh token never expires unless revoked.</p>
-</body></html>`,
-      { headers: { 'Content-Type': 'text/html' } }
-    );
+    // Fetch the linked account's email (display only — proves which account was linked).
+    let linkedEmail: string | null = null;
+    try {
+      const ui = await fetch('https://www.googleapis.com/oauth2/v3/userinfo', {
+        headers: { Authorization: `Bearer ${tokens.access_token}` },
+      });
+      if (ui.ok) {
+        const info = await ui.json();
+        linkedEmail = info.email || null;
+      }
+    } catch { /* non-fatal */ }
+
+    await setUserGoogleLink(verified.userId, tokens.refresh_token, linkedEmail);
+    // Drop any cached access token for this user so the next Google API call
+    // refreshes off the just-saved token instead of the old one.
+    clearGoogleTokenCache(verified.userId);
+
+    return htmlPage('Google connected', `<div class="ok">
+      <h1>Google account linked</h1>
+      <p>${target.name}${linkedEmail ? ` is now connected to <code>${linkedEmail}</code>` : ' is now connected'}. Their dashboard will pull from this account's Calendar and Gmail.</p>
+      <a class="btn" href="/dashboard/admin">Back to Admin</a>
+    </div>`);
   } catch (err: any) {
-    return new NextResponse(`<h1>Error</h1><pre>${err.message}</pre>`, {
-      headers: { 'Content-Type': 'text/html' },
-      status: 500,
-    });
+    return htmlPage('Google connect — error',
+      `<div class="bad"><h1>Error</h1><p>${err?.message || String(err)}</p></div>`, 500);
   }
 }

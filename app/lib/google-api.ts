@@ -2,28 +2,42 @@
  * Google API Helper — Gmail & Calendar
  *
  * Uses OAuth2 refresh tokens to get access tokens and fetch data from
- * Gmail and Google Calendar APIs server-side. Supports multiple Google
- * accounts keyed by userId (e.g. 'nathan' → nathan@, 'terri' → brett@).
+ * Gmail and Google Calendar APIs server-side. Per-user refresh tokens are
+ * stored on each `app_users` row (set via /api/auth/google-connect, the admin
+ * dashboard's "Connect Google" flow). Env-var refresh tokens remain as a
+ * legacy fallback for the original Nathan/Terri configuration.
  *
  * Required env vars:
  * - GOOGLE_CLIENT_ID
  * - GOOGLE_CLIENT_SECRET
- * - GOOGLE_REFRESH_TOKEN          (default / Nathan's account)
- * - GOOGLE_REFRESH_TOKEN_TERRI    (Terri's account — brett@brettkingbuilder.com)
+ * - GOOGLE_REFRESH_TOKEN          (legacy default / Nathan's account)
+ * - GOOGLE_REFRESH_TOKEN_TERRI    (legacy Terri override)
  */
 
-// Per-account token cache
+import { getUserGoogleRefreshToken } from './access';
+
+// Per-account access-token cache
 const tokenCache: Record<string, { token: string; expiresAt: number }> = {};
 
-// Map userId → env var name for their Google refresh token
+// Legacy: user → env var name for their refresh token. New users link via the
+// admin "Connect Google" flow, which stores tokens in the DB instead.
 const REFRESH_TOKEN_ENV: Record<string, string> = {
   nathan: 'GOOGLE_REFRESH_TOKEN',
   terri:  'GOOGLE_REFRESH_TOKEN_TERRI',
 };
 
+/** Invalidate the cached access token for a user — call after connect/disconnect
+ *  so the next Google API call picks up the new (or absence of) refresh token. */
+export function clearGoogleTokenCache(userId?: string) {
+  delete tokenCache[userId || '_default'];
+}
+
 /**
  * Get a valid access token for the given user, refreshing if needed.
- * Falls back to the default GOOGLE_REFRESH_TOKEN if no user-specific one is set.
+ * Resolution order:
+ *   1. Per-user refresh token from the DB (admin-linked Google account)
+ *   2. Legacy env var mapped to this userId
+ *   3. GOOGLE_REFRESH_TOKEN default (Nathan)
  */
 async function getAccessToken(userId?: string): Promise<string> {
   const cacheKey = userId || '_default';
@@ -35,12 +49,21 @@ async function getAccessToken(userId?: string): Promise<string> {
   const clientId = process.env.GOOGLE_CLIENT_ID;
   const clientSecret = process.env.GOOGLE_CLIENT_SECRET;
 
-  // Pick the right refresh token: user-specific first, then default
-  const envName = (userId && REFRESH_TOKEN_ENV[userId]) || 'GOOGLE_REFRESH_TOKEN';
-  const refreshToken = process.env[envName] || process.env.GOOGLE_REFRESH_TOKEN;
+  // 1) DB-backed per-user token (admin-linked)
+  let refreshToken: string | null | undefined = userId
+    ? await getUserGoogleRefreshToken(userId).catch(() => null)
+    : null;
+
+  // 2/3) Legacy env-var fallback
+  if (!refreshToken) {
+    const envName = (userId && REFRESH_TOKEN_ENV[userId]) || 'GOOGLE_REFRESH_TOKEN';
+    refreshToken = process.env[envName] || process.env.GOOGLE_REFRESH_TOKEN;
+  }
 
   if (!clientId || !clientSecret || !refreshToken) {
-    throw new Error(`Missing Google OAuth env vars (GOOGLE_CLIENT_ID, GOOGLE_CLIENT_SECRET, ${envName})`);
+    throw new Error(
+      `Google account not linked for user "${cacheKey}". Connect from /dashboard/admin or set GOOGLE_REFRESH_TOKEN env var.`
+    );
   }
 
   const res = await fetch('https://oauth2.googleapis.com/token', {

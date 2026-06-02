@@ -28,6 +28,8 @@ interface AdminUser {
   overviewWidgets: string[];
   hasPin?: boolean;
   pin?: string | null;
+  googleEmail?: string | null;
+  googleConnectedAt?: string | null;
 }
 
 type EditState = {
@@ -44,6 +46,8 @@ type EditState = {
   overviewWidgets: Set<string>;
   pin: string;       // current value in the editor
   origPin: string;   // value when the editor opened (to detect changes)
+  googleEmail: string | null;          // linked Google account (display only)
+  googleConnectedAt: string | null;    // when the link was last set
 };
 
 const GOLD = '#c88c00';
@@ -94,6 +98,7 @@ export default function AdminPage() {
       jtMembershipId: '', email: '', enabled: true,
       dashboards: new Set(), features: new Set(), overviewWidgets: new Set(),
       pin: '', origPin: '',
+      googleEmail: null, googleConnectedAt: null,
     });
   }
 
@@ -104,8 +109,62 @@ export default function AdminPage() {
       jtMembershipId: u.jtMembershipId || '', email: u.email || '', enabled: u.enabled,
       dashboards: new Set(u.dashboards), features: new Set(u.features), overviewWidgets: new Set(u.overviewWidgets),
       pin: u.pin || '', origPin: u.pin || '',
+      googleEmail: u.googleEmail || null, googleConnectedAt: u.googleConnectedAt || null,
     });
   }
+
+  function connectGoogle() {
+    if (!edit?.id) return;
+    const url = `/api/auth/google-connect?userId=${encodeURIComponent(edit.id)}&token=${encodeURIComponent(getToken())}`;
+    window.open(url, '_blank', 'noopener,noreferrer');
+  }
+
+  async function disconnectGoogle() {
+    if (!edit?.id) return;
+    if (!confirm(`Unlink Google account from ${edit.name}? Their Calendar and Gmail data will stop loading until you reconnect.`)) return;
+    try {
+      const res = await fetch('/api/admin/users/google-disconnect', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${getToken()}` },
+        body: JSON.stringify({ userId: edit.id }),
+      });
+      if (!res.ok) {
+        const d = await res.json().catch(() => ({}));
+        throw new Error(d.error || 'Disconnect failed');
+      }
+      setEdit({ ...edit, googleEmail: null, googleConnectedAt: null });
+      await load();
+    } catch (e: any) {
+      alert(e.message || 'Disconnect failed');
+    }
+  }
+
+  /** Pull the latest google_email/google_connected_at into the open editor —
+   *  used after the OAuth tab finishes so the admin sees the new link. */
+  async function refreshLinkStatus() {
+    if (!edit?.id) return;
+    try {
+      const res = await fetch('/api/admin/users', { headers: { Authorization: `Bearer ${getToken()}` } });
+      if (!res.ok) return;
+      const data = await res.json();
+      const u = (data.users || []).find((x: AdminUser) => x.id === edit.id);
+      if (u) {
+        setUsers(data.users);
+        setEdit((prev) => prev ? { ...prev, googleEmail: u.googleEmail || null, googleConnectedAt: u.googleConnectedAt || null } : prev);
+      }
+    } catch { /* ignore */ }
+  }
+
+  // While the editor is open, refresh the Google link status whenever the
+  // admin tab regains focus — typically after they finish the OAuth flow in
+  // the new tab and switch back.
+  useEffect(() => {
+    if (!edit?.id || edit.isNew) return;
+    const onFocus = () => { refreshLinkStatus(); };
+    window.addEventListener('focus', onFocus);
+    return () => window.removeEventListener('focus', onFocus);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [edit?.id, edit?.isNew]);
 
   function applyPreset(role: AccessRole) {
     if (!edit) return;
@@ -266,6 +325,52 @@ export default function AdminPage() {
           <p className="text-xs" style={{ color: '#8a8078' }}>
             You can view or change this person's PIN here. Leave blank to clear it (they'll be prompted to create a new one at next login).
           </p>
+        </div>
+
+        {/* Google Account */}
+        <div className="rounded-lg p-4" style={{ background: '#fff', border: BORDER }}>
+          <div className="mb-3">
+            <h3 className="text-sm font-semibold" style={{ color: '#1a1a1a' }}>Google Account</h3>
+            <p className="text-xs" style={{ color: '#8a8078' }}>
+              The Calendar events and Gmail on this user's Overview pull from whichever Google account is linked here.
+            </p>
+          </div>
+          {edit.isNew ? (
+            <p className="text-xs" style={{ color: '#8a8078' }}>
+              Save the user first. After they exist, come back here to link their Google account.
+            </p>
+          ) : edit.googleEmail ? (
+            <div className="flex items-center gap-3 flex-wrap">
+              <div className="flex-1 min-w-0">
+                <div className="text-sm" style={{ color: '#1a1a1a' }}>
+                  Linked to <span style={{ fontFamily: 'monospace', color: '#15803d' }}>{edit.googleEmail}</span>
+                </div>
+                {edit.googleConnectedAt && (
+                  <div className="text-xs mt-0.5" style={{ color: '#8a8078' }}>
+                    connected {new Date(edit.googleConnectedAt).toLocaleString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}
+                  </div>
+                )}
+              </div>
+              <button onClick={connectGoogle} className="px-3 py-1.5 rounded-md text-sm" style={{ border: `1px solid ${GOLD}33`, color: GOLD, background: `${GOLD}0d`, cursor: 'pointer' }}>
+                Reconnect
+              </button>
+              <button onClick={disconnectGoogle} className="px-3 py-1.5 rounded-md text-sm" style={{ border: '1px solid #fecaca', color: '#b91c1c', background: '#fef2f2', cursor: 'pointer' }}>
+                Disconnect
+              </button>
+            </div>
+          ) : (
+            <div className="flex items-center gap-3 flex-wrap">
+              <div className="flex-1 min-w-0">
+                <div className="text-sm" style={{ color: '#5a5550' }}>No Google account linked yet.</div>
+                <div className="text-xs mt-0.5" style={{ color: '#8a8078' }}>
+                  A new tab will open to Google. Sign in (or pick) the account this person owns. When you return, the link will appear here.
+                </div>
+              </div>
+              <button onClick={connectGoogle} className="px-3 py-1.5 rounded-md text-sm font-medium" style={{ background: GOLD, color: '#fff', border: 'none', cursor: 'pointer' }}>
+                Connect Google Account
+              </button>
+            </div>
+          )}
         </div>
 
         {/* Preset helper */}
