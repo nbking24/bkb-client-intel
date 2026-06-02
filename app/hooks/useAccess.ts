@@ -55,14 +55,19 @@ export function useAccess(): UseAccessResult {
 
   useEffect(() => {
     let alive = true;
-    if (cached) {
-      setAccess(cached);
-      setLoading(false);
-      return;
+    // Stale-while-revalidate: render the cached value immediately (no loading
+    // flash on subsequent mounts), but ALWAYS refetch on mount so any access
+    // change made from /dashboard/admin shows up on the user's next page
+    // navigation instead of requiring a full logout/reload. inflight dedup
+    // joins parallel mounts (e.g. layout + page) into a single request.
+    let p = inflight;
+    if (!p) {
+      p = fetchMe();
+      inflight = p;
     }
-    if (!inflight) inflight = fetchMe();
-    inflight.then((a) => {
-      cached = a;
+    p.then((a) => {
+      if (a) cached = a;
+      if (inflight === p) inflight = null;
       if (alive) {
         setAccess(a);
         setLoading(false);

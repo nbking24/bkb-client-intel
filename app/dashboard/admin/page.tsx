@@ -5,6 +5,7 @@ import {
   Shield, Plus, Loader2, Check, X, Trash2, UserPlus, ChevronLeft, AlertTriangle, KeyRound,
 } from 'lucide-react';
 import { useAuth } from '../../hooks/useAuth';
+import { clearAccessCache } from '../../hooks/useAccess';
 import {
   DASHBOARDS, FEATURES, OVERVIEW_WIDGETS, ROLE_PRESETS, ROLE_LABELS, presetFor,
   type AccessRole,
@@ -165,6 +166,12 @@ export default function AdminPage() {
           throw new Error(pd.error || 'User saved, but PIN update failed');
         }
       }
+
+      // If the owner just edited their own access (or any user's), drop the
+      // module-level access cache so the next /api/me fetch picks up the new
+      // dashboards/features/widgets. useAccess refetches on mount, so the
+      // change will show up the next time any page that reads it renders.
+      clearAccessCache();
 
       await load();
       setEdit(null);
