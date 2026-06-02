@@ -7,7 +7,7 @@
  * filtered scope. The unassigned "needs categorizing" queue lives at the top.
  */
 import { useEffect, useState, useCallback, useMemo } from 'react';
-import { Mic, Search, Loader2, ChevronDown, ChevronRight, Sparkles, Briefcase, RefreshCw } from 'lucide-react';
+import { Mic, Search, Loader2, ChevronDown, ChevronRight, Sparkles, Briefcase, RefreshCw, Filter } from 'lucide-react';
 import TranscriptsToConfirm from '@/app/dashboard/components/TranscriptsToConfirm';
 
 function getToken() { return typeof window !== 'undefined' ? localStorage.getItem('bkb-token') || '' : ''; }
@@ -42,6 +42,8 @@ export default function TranscriptsDashboardPage() {
   const [listQuery, setListQuery] = useState('');
   const [jobFilter, setJobFilter] = useState('all');
   const [recorderFilter, setRecorderFilter] = useState('all');
+  const [dateFrom, setDateFrom] = useState('');
+  const [dateTo, setDateTo] = useState('');
   const [openId, setOpenId] = useState<string | null>(null);
   const [detail, setDetail] = useState<Record<string, any>>({});
   const [loadingDetail, setLoadingDetail] = useState<string | null>(null);
@@ -88,10 +90,19 @@ export default function TranscriptsDashboardPage() {
         if (key !== jobFilter) return false;
       }
       if (recorderFilter !== 'all' && t.recorded_by_user !== recorderFilter) return false;
+      if (dateFrom || dateTo) {
+        if (!t.recorded_at) return false;
+        const d = new Date(t.recorded_at).getTime();
+        if (dateFrom && d < new Date(dateFrom + 'T00:00:00').getTime()) return false;
+        if (dateTo && d > new Date(dateTo + 'T23:59:59').getTime()) return false;
+      }
       if (q && !`${t.title || ''} ${assignedLabel(t)} ${fmtDate(t.recorded_at)} ${t.recorded_by_user || ''}`.toLowerCase().includes(q)) return false;
       return true;
     });
-  }, [items, listQuery, jobFilter, recorderFilter]);
+  }, [items, listQuery, jobFilter, recorderFilter, dateFrom, dateTo]);
+
+  const activeFilters = jobFilter !== 'all' || recorderFilter !== 'all' || !!dateFrom || !!dateTo || !!listQuery.trim();
+  function clearFilters() { setListQuery(''); setJobFilter('all'); setRecorderFilter('all'); setDateFrom(''); setDateTo(''); }
 
   // Group filtered transcripts by job label.
   const groups = useMemo(() => {
@@ -158,21 +169,44 @@ export default function TranscriptsDashboardPage() {
       </div>
 
       {/* Filters */}
-      <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', marginBottom: 10 }}>
-        <div style={{ display: 'flex', alignItems: 'center', gap: 6, flex: 1, minWidth: 200, border: '1px solid rgba(200,140,0,0.2)', borderRadius: 6, padding: '5px 8px' }}>
-          <Search size={13} style={{ color: '#8a8078' }} />
-          <input type="text" placeholder="Search title, job, date, recorder..." value={listQuery} onChange={(e) => setListQuery(e.target.value)} style={{ flex: 1, border: 'none', outline: 'none', fontSize: 13, background: 'transparent', color: '#2a2520' }} />
+      <div style={{ marginBottom: 10, borderRadius: 8, border: '1px solid rgba(200,140,0,0.12)', background: '#fff', padding: '10px 12px' }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 8 }}>
+          <Filter size={13} style={{ color: GOLD }} />
+          <span style={{ fontSize: 11, fontWeight: 700, color: GOLD, letterSpacing: '0.04em' }}>FILTERS</span>
+          <span style={{ fontSize: 10, color: '#8a8078' }}>showing {filtered.length} of {items.length}</span>
+          {activeFilters && <button onClick={clearFilters} style={{ marginLeft: 'auto', fontSize: 11, color: GOLD, background: 'none', border: 'none', cursor: 'pointer', fontWeight: 600 }}>Clear all</button>}
         </div>
-        <select value={jobFilter} onChange={(e) => setJobFilter(e.target.value)} style={inputStyle}>
-          <option value="all">All jobs</option>
-          {jobOptions.map(([key, label]) => <option key={key} value={key}>{label}</option>)}
-        </select>
-        {recorderOptions.length > 1 && (
-          <select value={recorderFilter} onChange={(e) => setRecorderFilter(e.target.value)} style={inputStyle}>
-            <option value="all">All recorders</option>
-            {recorderOptions.map((r) => <option key={r} value={r}>{r}</option>)}
-          </select>
-        )}
+        <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap', alignItems: 'flex-end' }}>
+          <label style={{ display: 'flex', flexDirection: 'column', gap: 3, flex: 1, minWidth: 200 }}>
+            <span style={{ fontSize: 10, fontWeight: 600, color: '#6a6058' }}>SEARCH</span>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 6, border: '1px solid rgba(200,140,0,0.2)', borderRadius: 6, padding: '6px 8px' }}>
+              <Search size={13} style={{ color: '#8a8078' }} />
+              <input type="text" placeholder="Title, keyword..." value={listQuery} onChange={(e) => setListQuery(e.target.value)} style={{ flex: 1, border: 'none', outline: 'none', fontSize: 13, background: 'transparent', color: '#2a2520' }} />
+            </div>
+          </label>
+          <label style={{ display: 'flex', flexDirection: 'column', gap: 3, minWidth: 150 }}>
+            <span style={{ fontSize: 10, fontWeight: 600, color: '#6a6058' }}>JOB</span>
+            <select value={jobFilter} onChange={(e) => setJobFilter(e.target.value)} style={inputStyle}>
+              <option value="all">All jobs</option>
+              {jobOptions.map(([key, label]) => <option key={key} value={key}>{label}</option>)}
+            </select>
+          </label>
+          <label style={{ display: 'flex', flexDirection: 'column', gap: 3, minWidth: 130 }}>
+            <span style={{ fontSize: 10, fontWeight: 600, color: '#6a6058' }}>RECORDED BY</span>
+            <select value={recorderFilter} onChange={(e) => setRecorderFilter(e.target.value)} style={inputStyle}>
+              <option value="all">Everyone</option>
+              {recorderOptions.map((r) => <option key={r} value={r}>{r}</option>)}
+            </select>
+          </label>
+          <label style={{ display: 'flex', flexDirection: 'column', gap: 3 }}>
+            <span style={{ fontSize: 10, fontWeight: 600, color: '#6a6058' }}>FROM</span>
+            <input type="date" value={dateFrom} onChange={(e) => setDateFrom(e.target.value)} style={inputStyle} />
+          </label>
+          <label style={{ display: 'flex', flexDirection: 'column', gap: 3 }}>
+            <span style={{ fontSize: 10, fontWeight: 600, color: '#6a6058' }}>TO</span>
+            <input type="date" value={dateTo} onChange={(e) => setDateTo(e.target.value)} style={inputStyle} />
+          </label>
+        </div>
       </div>
 
       {/* Grouped archive */}
