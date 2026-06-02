@@ -16,6 +16,10 @@ export const dynamic = 'force-dynamic';
 const JT_ORG = () => process.env.JOBTREAD_ORG_ID || '22P5SRwhLaYe';
 const TTL_MS = 30 * 60 * 1000;
 
+// Internal-role memberships that aren't actual people (integration / bot
+// service accounts). Excluded from the assignee picker.
+const SERVICE_ACCOUNT_NAMES = new Set<string>(['Loop CRM']);
+
 interface Assignee {
   id: string;     // JobTread membership id (what we pass to createTask)
   name: string;   // full display name from the linked user
@@ -54,9 +58,12 @@ async function fetchInternalMemberships(): Promise<Assignee[]> {
     for (const m of nodes) {
       const isInternal = m?.role?.type === 'internal';
       const name = m?.user?.name;
-      if (isInternal && m?.id && typeof name === 'string' && name.trim()) {
-        all.push({ id: m.id, name: name.trim() });
-      }
+      if (!isInternal || !m?.id || typeof name !== 'string' || !name.trim()) continue;
+      // Skip the Loop CRM service account (it's an internal-role membership
+      // used by the GHL/Loop integration, not a person you'd ever assign a
+      // task to).
+      if (SERVICE_ACCOUNT_NAMES.has(name.trim())) continue;
+      all.push({ id: m.id, name: name.trim() });
     }
     nextPage = conn?.nextPage || null;
     if (!nextPage || nodes.length < 100) break;
