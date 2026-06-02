@@ -29,3 +29,31 @@ export async function GET(req: NextRequest, { params }: { params: { id: string }
   }
   return NextResponse.json({ transcript: row });
 }
+
+export async function DELETE(req: NextRequest, { params }: { params: { id: string } }) {
+  const auth = validateAuth(req.headers.get('authorization'));
+  if (!auth.valid) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+
+  const sb = getSupabase();
+  const { data: row } = await sb
+    .from('meeting_transcripts')
+    .select('id, recorded_by_user')
+    .eq('id', params.id)
+    .maybeSingle();
+  if (!row) return NextResponse.json({ ok: true, alreadyGone: true });
+
+  const privileged = auth.role === 'owner' || auth.role === 'admin';
+  if (!privileged && row.recorded_by_user && row.recorded_by_user !== auth.userId) {
+    return NextResponse.json({ error: 'Not your transcript' }, { status: 403 });
+  }
+
+  // Remove the project-memory event(s) for this transcript so it doesn't linger
+  // in the Ask agent, and the stored transcript file. (JobTread daily logs, if
+  // any, are left for the user to remove in JobTread.)
+  try { await sb.from('project_events').delete().eq('source_ref->>meeting_transcript_id', params.id); } catch {}
+  try { await sb.storage.from('meeting-transcripts').remove([`${params.id}.txt`]); } catch {}
+
+  const { error } = await sb.from('meeting_transcripts').delete().eq('id', params.id);
+  if (error) return NextResponse.json({ error: error.message }, { status: 500 });
+  return NextResponse.json({ ok: true, deleted: params.id });
+}

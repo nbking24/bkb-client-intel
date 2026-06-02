@@ -9,7 +9,7 @@
  * when the user has no pending transcripts, so it is safe to drop on any home page.
  */
 import { useEffect, useState, useCallback, useMemo } from 'react';
-import { FileText, Check, Loader2, Calendar, ChevronRight } from 'lucide-react';
+import { FileText, Check, Loader2, Calendar, ChevronRight, Trash2 } from 'lucide-react';
 
 function getToken() {
   return typeof window !== 'undefined' ? localStorage.getItem('bkb-token') || '' : '';
@@ -28,6 +28,7 @@ export default function TranscriptsToConfirm({ scopeAll = false, reloadKey = 0 }
   const [sel, setSel] = useState<Record<string, string>>({});   // id -> jobId | '__lead__'
   const [leadName, setLeadName] = useState<Record<string, string>>({});
   const [busy, setBusy] = useState<Record<string, boolean>>({});
+  const [confirmDeleteId, setConfirmDeleteId] = useState<string | null>(null);
 
   const load = useCallback(async () => {
     try {
@@ -77,6 +78,16 @@ export default function TranscriptsToConfirm({ scopeAll = false, reloadKey = 0 }
 
   function confirmAdmin(t: any) {
     return doConfirm(t, { kind: 'job', jobId: ADMIN_PROJECT.id, jobName: ADMIN_PROJECT.name });
+  }
+
+  async function deleteTranscript(t: any) {
+    setBusy((b) => ({ ...b, [t.id]: true }));
+    try {
+      const res = await fetch(`/api/transcripts/${t.id}`, { method: 'DELETE', headers: { authorization: `Bearer ${getToken()}` } });
+      if (res.ok) { setItems((prev) => prev.filter((x) => x.id !== t.id)); setConfirmDeleteId(null); }
+    } finally {
+      setBusy((b) => ({ ...b, [t.id]: false }));
+    }
   }
 
   if (!loaded || items.length === 0) return null;
@@ -144,6 +155,20 @@ export default function TranscriptsToConfirm({ scopeAll = false, reloadKey = 0 }
                 >
                   Internal / Multi-project
                 </button>
+                {confirmDeleteId === t.id ? (
+                  <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4 }}>
+                    <button onClick={() => deleteTranscript(t)} disabled={busy[t.id]}
+                      style={{ display: 'inline-flex', alignItems: 'center', gap: 4, padding: '6px 10px', borderRadius: 6, border: 'none', background: '#ef4444', color: '#fff', fontSize: 11, fontWeight: 600, cursor: 'pointer' }}>
+                      {busy[t.id] ? <Loader2 size={12} className="animate-spin" /> : <Trash2 size={12} />} Delete
+                    </button>
+                    <button onClick={() => setConfirmDeleteId(null)} style={{ padding: '6px 8px', borderRadius: 6, border: '1px solid rgba(0,0,0,0.1)', background: '#fff', color: '#6a6058', fontSize: 11, cursor: 'pointer' }}>Cancel</button>
+                  </span>
+                ) : (
+                  <button onClick={() => setConfirmDeleteId(t.id)} title="Delete this transcript"
+                    style={{ display: 'inline-flex', alignItems: 'center', padding: '6px 8px', borderRadius: 6, border: '1px solid rgba(0,0,0,0.08)', background: '#fff', color: '#b0a89e', cursor: 'pointer' }}>
+                    <Trash2 size={13} />
+                  </button>
+                )}
               </div>
             </div>
           );

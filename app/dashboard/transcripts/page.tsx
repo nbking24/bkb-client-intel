@@ -45,6 +45,7 @@ export default function TranscriptsDashboardPage() {
   const [dateFrom, setDateFrom] = useState('');
   const [dateTo, setDateTo] = useState('');
   const [openId, setOpenId] = useState<string | null>(null);
+  const [openGroups, setOpenGroups] = useState<Record<string, boolean>>({});
   const [detail, setDetail] = useState<Record<string, any>>({});
   const [loadingDetail, setLoadingDetail] = useState<string | null>(null);
   const [findQuery, setFindQuery] = useState('');
@@ -110,6 +111,8 @@ export default function TranscriptsDashboardPage() {
 
   const activeFilters = jobFilter !== 'all' || recorderFilter !== 'all' || !!dateFrom || !!dateTo || !!listQuery.trim();
   function clearFilters() { setListQuery(''); setJobFilter('all'); setRecorderFilter('all'); setDateFrom(''); setDateTo(''); }
+  // Groups are collapsed by default; an active text search auto-expands them.
+  const groupOpen = (label: string) => !!openGroups[label] || !!listQuery.trim();
 
   // Group filtered transcripts by job label.
   const groups = useMemo(() => {
@@ -222,11 +225,13 @@ export default function TranscriptsDashboardPage() {
 
       {groups.map(([jobLabel, rows]) => (
         <div key={jobLabel} style={{ marginBottom: 10, borderRadius: 8, border: '1px solid rgba(200,140,0,0.12)', overflow: 'hidden', background: '#fff' }}>
-          <div style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '8px 12px', background: 'rgba(200,140,0,0.05)', borderBottom: '1px solid rgba(200,140,0,0.08)' }}>
+          <div onClick={() => setOpenGroups((g) => ({ ...g, [jobLabel]: !groupOpen(jobLabel) }))} style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '8px 12px', background: 'rgba(200,140,0,0.05)', borderBottom: groupOpen(jobLabel) ? '1px solid rgba(200,140,0,0.08)' : 'none', cursor: 'pointer' }}>
+            {groupOpen(jobLabel) ? <ChevronDown size={14} style={{ color: GOLD }} /> : <ChevronRight size={14} style={{ color: '#8a8078' }} />}
             <Briefcase size={13} style={{ color: GOLD }} />
             <span style={{ fontSize: 13, fontWeight: 700, color: '#2a2520' }}>{jobLabel}</span>
             <span style={{ fontSize: 11, color: '#8a8078' }}>({rows.length})</span>
           </div>
+          {groupOpen(jobLabel) && (
           <div style={{ padding: '4px 10px' }}>
             {rows.map((t) => {
               const isOpen = openId === t.id; const d = detail[t.id];
@@ -263,6 +268,7 @@ export default function TranscriptsDashboardPage() {
               );
             })}
           </div>
+          )}
         </div>
       ))}
     </div>
