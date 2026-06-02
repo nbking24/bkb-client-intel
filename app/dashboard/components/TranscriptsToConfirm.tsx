@@ -8,7 +8,7 @@
  * different job (or marks it an early lead with no job yet). Renders nothing
  * when the user has no pending transcripts, so it is safe to drop on any home page.
  */
-import { useEffect, useState, useCallback } from 'react';
+import { useEffect, useState, useCallback, useMemo } from 'react';
 import { FileText, Check, Loader2, Calendar, ChevronRight } from 'lucide-react';
 
 function getToken() {
@@ -22,6 +22,8 @@ const ADMIN_PROJECT = { id: '22P6NCjBeR8d', name: 'Admin Project' };
 export default function TranscriptsToConfirm({ scopeAll = false, reloadKey = 0 }: { scopeAll?: boolean; reloadKey?: number }) {
   const [items, setItems] = useState<any[]>([]);
   const [jobOptions, setJobOptions] = useState<any[]>([]);
+  // Active jobs sorted alphabetically for an organized dropdown.
+  const sortedJobs = useMemo(() => [...jobOptions].sort((a, b) => String(a.name || '').localeCompare(String(b.name || ''))), [jobOptions]);
   const [loaded, setLoaded] = useState(false);
   const [sel, setSel] = useState<Record<string, string>>({});   // id -> jobId | '__lead__'
   const [leadName, setLeadName] = useState<Record<string, string>>({});
@@ -107,10 +109,14 @@ export default function TranscriptsToConfirm({ scopeAll = false, reloadKey = 0 }
                   style={{ flex: 1, minWidth: 180, fontSize: 12, padding: '6px 8px', borderRadius: 6, border: '1px solid rgba(200,140,0,0.2)', background: '#fff', color: '#2a2520' }}
                 >
                   <option value="">Select job or lead...</option>
-                  <option value="__lead__">Lead / no job yet (early sales call)</option>
-                  {jobOptions.map((j) => (
-                    <option key={j.id} value={j.id}>{j.name}{j.clientName ? ` — ${j.clientName}` : ''}</option>
-                  ))}
+                  <optgroup label="Sales">
+                    <option value="__lead__">Lead / no job yet (early sales call)</option>
+                  </optgroup>
+                  <optgroup label="Active jobs">
+                    {sortedJobs.map((j) => (
+                      <option key={j.id} value={j.id}>{j.name}{j.clientName && !String(j.name || '').toLowerCase().includes(String(j.clientName).toLowerCase()) ? ` (${j.clientName})` : ''}</option>
+                    ))}
+                  </optgroup>
                 </select>
                 {sel[t.id] === '__lead__' && (
                   <input
