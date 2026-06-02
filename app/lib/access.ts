@@ -1,19 +1,17 @@
 // ============================================================
 // Access layer (server)
 //
-// Resolves the canonical user directory and each user's effective access by
-// merging the DB-backed `app_users` table with the code-defined TEAM_USERS
-// fallback. The DB is authoritative; code users that don't yet exist in the DB
-// still resolve (so logins keep working even if the seed migration hasn't run).
+// `app_users` is the canonical user directory. The original four users were
+// inserted by migration 018; everything since is managed through
+// /dashboard/admin (create / edit / delete). There is intentionally no
+// code-side fallback — a deleted row means the user no longer exists.
 //
 // Server-only: imports the service-role Supabase client. Do not import from
 // client components — use /api/me instead.
 // ============================================================
 
 import { createServerClient } from './supabase';
-import { TEAM_USERS } from './constants';
 import {
-  presetFor,
   DASHBOARDS,
   type AccessRole,
 } from './access-registry';
@@ -70,30 +68,6 @@ function rowToUser(row: any): AppUser {
   };
 }
 
-/** Build an AppUser from the code-defined TEAM_USERS fallback (pre-migration
- *  or for any user not yet in the DB). Access defaults to the role preset. */
-function codeFallbackUser(id: string): AppUser | null {
-  const t = TEAM_USERS[id];
-  if (!t) return null;
-  const role = coerceRole(t.role);
-  const preset = presetFor(role);
-  return {
-    id,
-    name: t.name,
-    initials: t.initials,
-    title: null,
-    role,
-    jtMembershipId: t.membershipId || null,
-    email: t.email || null,
-    enabled: true,
-    dashboards: preset.dashboards,
-    features: preset.features,
-    overviewWidgets: preset.overviewWidgets,
-    googleEmail: null,
-    googleConnectedAt: null,
-  };
-}
-
 function withEffective(user: AppUser): EffectiveAccess {
   const ownerOnlyIds = DASHBOARDS.filter((d) => d.ownerOnly).map((d) => d.id);
   let effectiveDashboards = [...user.dashboards];
@@ -109,27 +83,18 @@ function withEffective(user: AppUser): EffectiveAccess {
   return { ...user, effectiveDashboards };
 }
 
-/** All users, DB first, with any code-only users merged in. */
+/** All users from the DB (app_users is the canonical source of truth — the
+ *  seed migration 018 inserted the original four). No code-side fallback so
+ *  that deleting a user from the admin console actually removes them. */
 export async function listAppUsers(): Promise<AppUser[]> {
-  const byId = new Map<string, AppUser>();
   try {
     const supabase = createServerClient();
     const { data, error } = await supabase.from('app_users').select('*').order('name');
-    if (!error && Array.isArray(data)) {
-      for (const row of data) byId.set(row.id, rowToUser(row));
-    }
+    if (!error && Array.isArray(data)) return data.map(rowToUser);
   } catch (err) {
     console.error('[access] listAppUsers DB error:', err);
   }
-  // Merge in any code users not present in the DB (keeps logins working
-  // before/if the seed migration hasn't been applied).
-  for (const id of Object.keys(TEAM_USERS)) {
-    if (!byId.has(id)) {
-      const u = codeFallbackUser(id);
-      if (u) byId.set(id, u);
-    }
-  }
-  return Array.from(byId.values()).sort((a, b) => a.name.localeCompare(b.name));
+  return [];
 }
 
 export async function getAppUser(id: string): Promise<AppUser | null> {
@@ -138,9 +103,9 @@ export async function getAppUser(id: string): Promise<AppUser | null> {
     const { data } = await supabase.from('app_users').select('*').eq('id', id).single();
     if (data) return rowToUser(data);
   } catch {
-    // fall through to code fallback
+    // Row not found or DB error — caller treats as "user doesn't exist".
   }
-  return codeFallbackUser(id);
+  return null;
 }
 
 export async function getEffectiveAccess(id: string): Promise<EffectiveAccess | null> {
