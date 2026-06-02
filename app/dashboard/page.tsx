@@ -1090,14 +1090,47 @@ export default function DashboardOverview() {
     { id: 'Agkb9zIkHOFVvsCgoX8o', label: 'Meeting with Evan', duration: 90, group: 'Evan' },
   ];
 
-  const TEAM_ASSIGNEES = [
-    { id: '22P5SRwhLaYf', name: 'Nathan King', label: 'Nathan', ghlUserId: 'cFyoFwK0LIr0npmY7W34' },
-    { id: '22P6GTaPEbkh', name: 'Brett King', label: 'Brett', ghlUserId: 'ffCrLZvtipVnvKgSActX' },
-    { id: '22P5nJ7ncFj4', name: 'Evan Harrington', label: 'Evan', ghlUserId: 'YyjcH150scEotXz21lWA' },
-    { id: '22P6GTEnhCre', name: 'Josh King', label: 'Josh', ghlUserId: '' },
-    { id: '22P5SpJkype2', name: 'Terri King', label: 'Terri', ghlUserId: '' },
-    { id: '22P732t6SgNk', name: 'Kim King', label: 'Kim', ghlUserId: '' },
+  // Fallback list used while the live JT membership fetch is in flight, or if
+  // it fails. The full list of assignees comes from /api/dashboard/team-
+  // assignees so adding a person in JobTread immediately makes them
+  // selectable here (no code change required).
+  const FALLBACK_ASSIGNEES = [
+    { id: '22P5SRwhLaYf', name: 'Nathan King',     label: 'Nathan', ghlUserId: 'cFyoFwK0LIr0npmY7W34' },
+    { id: '22P6GTaPEbkh', name: 'Brett King',      label: 'Brett',  ghlUserId: 'ffCrLZvtipVnvKgSActX' },
+    { id: '22P5nJ7ncFj4', name: 'Evan Harrington', label: 'Evan',   ghlUserId: 'YyjcH150scEotXz21lWA' },
+    { id: '22P5SpJkype2', name: 'Terri Dalavai',   label: 'Terri',  ghlUserId: '' },
+    { id: '22PXqKfAqWWb', name: 'Allison Burrington', label: 'Allison', ghlUserId: '' },
   ];
+  // GHL user IDs are only needed for Loop meeting-routing, so we keep the
+  // (small) mapping separate and merge it onto the JT membership list.
+  const GHL_USER_IDS: Record<string, string> = {
+    '22P5SRwhLaYf': 'cFyoFwK0LIr0npmY7W34', // Nathan
+    '22P6GTaPEbkh': 'ffCrLZvtipVnvKgSActX', // Brett
+    '22P5nJ7ncFj4': 'YyjcH150scEotXz21lWA', // Evan
+  };
+  const [jtAssignees, setJtAssignees] = useState<Array<{ id: string; name: string; label: string; ghlUserId: string }>>([]);
+  useEffect(() => {
+    fetch('/api/dashboard/team-assignees')
+      .then((r) => (r.ok ? r.json() : null))
+      .then((d) => {
+        if (d?.assignees?.length) {
+          setJtAssignees(
+            (d.assignees as Array<{ id: string; name: string }>).map((a) => ({
+              id: a.id,
+              name: a.name,
+              label: a.name, // show full name now that the list isn't curated
+              ghlUserId: GHL_USER_IDS[a.id] || '',
+            }))
+          );
+        }
+      })
+      .catch(() => {});
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+  const TEAM_ASSIGNEES = jtAssignees.length > 0 ? jtAssignees : FALLBACK_ASSIGNEES;
+  // Search filter used by the Quick Add task assignee picker (the list is now
+  // ~150+ JT members; without a search the checkbox grid is hard to navigate).
+  const [stTaskAssigneeSearch, setStTaskAssigneeSearch] = useState('');
   // The dashboard creator — auto-assigned on Waiting On tasks alongside the person being waited on
   const CREATOR_MEMBERSHIP_ID = '22P5SRwhLaYf'; // Nathan King
   const BKB_PHASES = ['Admin Tasks', 'Conceptual Design', 'Design Development', 'Contract', 'Preconstruction', 'In Production', 'Inspections', 'Punch List', 'Project Completion'];
@@ -1982,18 +2015,49 @@ export default function DashboardOverview() {
                     </div>
                     <div style={{ marginTop: 8 }}>
                       <label style={{ fontSize: 11, color: '#6a6058', fontWeight: 600, display: 'block', marginBottom: 3 }}>ASSIGN TO</label>
-                      <div style={{ background: '#ffffff', border: '1px solid rgba(200,140,0,0.15)', borderRadius: 5, padding: '4px 8px', maxHeight: 120, overflowY: 'auto', boxSizing: 'border-box' as const }}>
-                        {TEAM_ASSIGNEES.map((a: any) => (
-                          <label key={a.id} style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '3px 0', cursor: 'pointer', fontSize: 13, color: stNewTaskAssignees.includes(a.id) ? '#c88c00' : '#5a5550' }}>
-                            <input type="checkbox" checked={stNewTaskAssignees.includes(a.id)}
-                              onChange={e => {
-                                if (e.target.checked) setStNewTaskAssignees(prev => [...prev, a.id]);
-                                else setStNewTaskAssignees(prev => prev.filter(id => id !== a.id));
-                              }}
-                              style={{ accentColor: '#c88c00' }} />
-                            {a.label}
-                          </label>
-                        ))}
+                      <div style={{ background: '#ffffff', border: '1px solid rgba(200,140,0,0.15)', borderRadius: 5, boxSizing: 'border-box' as const }}>
+                        {/* Search box — the list pulls every JT membership now (~150+), so a search is essential to find someone quickly. */}
+                        <input
+                          type="text"
+                          value={stTaskAssigneeSearch}
+                          onChange={e => setStTaskAssigneeSearch(e.target.value)}
+                          placeholder="Search people…"
+                          style={{
+                            width: '100%', padding: '6px 8px', fontSize: 12, borderRadius: 5,
+                            border: 'none', borderBottom: '1px solid rgba(200,140,0,0.10)',
+                            background: '#fafafa', color: '#1a1a1a', outline: 'none',
+                            boxSizing: 'border-box' as const,
+                          }}
+                        />
+                        <div style={{ padding: '4px 8px', maxHeight: 160, overflowY: 'auto' }}>
+                          {(() => {
+                            const q = stTaskAssigneeSearch.trim().toLowerCase();
+                            // Always show anyone already checked, plus search matches; if no
+                            // search, show selected first then the rest.
+                            const selected = TEAM_ASSIGNEES.filter((a: any) => stNewTaskAssignees.includes(a.id));
+                            const others = TEAM_ASSIGNEES
+                              .filter((a: any) => !stNewTaskAssignees.includes(a.id))
+                              .filter((a: any) => !q || a.name.toLowerCase().includes(q));
+                            const ordered = [...selected, ...others];
+                            if (ordered.length === 0) {
+                              return <div style={{ fontSize: 12, color: '#8a8078', padding: '6px 0' }}>No matches.</div>;
+                            }
+                            return ordered.map((a: any) => (
+                              <label key={a.id} style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '3px 0', cursor: 'pointer', fontSize: 13, color: stNewTaskAssignees.includes(a.id) ? '#c88c00' : '#5a5550' }}>
+                                <input
+                                  type="checkbox"
+                                  checked={stNewTaskAssignees.includes(a.id)}
+                                  onChange={e => {
+                                    if (e.target.checked) setStNewTaskAssignees(prev => [...prev, a.id]);
+                                    else setStNewTaskAssignees(prev => prev.filter(id => id !== a.id));
+                                  }}
+                                  style={{ accentColor: '#c88c00' }}
+                                />
+                                {a.name}
+                              </label>
+                            ));
+                          })()}
+                        </div>
                       </div>
                     </div>
                     <div style={{ marginTop: 8 }}>
