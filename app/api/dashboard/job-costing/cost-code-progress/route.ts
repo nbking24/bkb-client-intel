@@ -84,6 +84,8 @@ export async function PUT(req: NextRequest) {
   if (error) {
     return NextResponse.json({ error: error.message }, { status: 500 });
   }
+  // Bust the detail cache so the next load picks up the new override.
+  await supabase.from('job_costing_cache').delete().eq('job_id', jobId);
   return NextResponse.json({ ok: true, ...shapeRow(payload) });
 }
 
@@ -102,5 +104,7 @@ export async function DELETE(req: NextRequest) {
   if (error) {
     return NextResponse.json({ error: error.message }, { status: 500 });
   }
+  // Bust the detail cache so the cleared override is reflected immediately.
+  await supabase.from('job_costing_cache').delete().eq('job_id', jobId);
   return NextResponse.json({ ok: true });
 }

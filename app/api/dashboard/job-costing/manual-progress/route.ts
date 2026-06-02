@@ -76,6 +76,11 @@ export async function PUT(req: NextRequest) {
   if (error) {
     return NextResponse.json({ error: error.message }, { status: 500 });
   }
+  // Bust the 5-min job_costing_cache so the next detail load (and the AI
+  // analysis fed from it) sees the new percent immediately. Without this,
+  // the saved value lands in the DB but the cached detail payload keeps
+  // the old number until the TTL expires.
+  await supabase.from('job_costing_cache').delete().eq('job_id', jobId);
   return NextResponse.json({
     ok: true,
     percentComplete: payload.percent_complete,
@@ -98,5 +103,7 @@ export async function DELETE(req: NextRequest) {
   if (error) {
     return NextResponse.json({ error: error.message }, { status: 500 });
   }
+  // Bust the detail cache so the cleared override is reflected immediately.
+  await supabase.from('job_costing_cache').delete().eq('job_id', jobId);
   return NextResponse.json({ ok: true });
 }
