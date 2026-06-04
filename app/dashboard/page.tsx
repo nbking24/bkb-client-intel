@@ -1954,10 +1954,25 @@ export default function DashboardOverview() {
     }));
   })();
 
+  // Defensive client-side filter: only show calendar tasks that are explicitly
+  // assigned to the currently-logged-in user. The overview API already filters
+  // server-side by membership, but if a cache layer ever leaked another user's
+  // task into the array (or a task is co-assigned and we want only the current
+  // user's), this belt-and-suspenders check guarantees the calendar grid never
+  // shows someone else's work. Falls open (shows the task) only if we have no
+  // membershipId for the current user (e.g. Nathan with no JT mapping).
+  const myMembershipId = access?.membershipId || null;
+  const isMyTask = (t: any) => {
+    if (!myMembershipId) return true;
+    const ids = t.assignedMembershipIds;
+    if (!Array.isArray(ids) || ids.length === 0) return true; // unassigned -> show
+    return ids.includes(myMembershipId);
+  };
   const tasksByDate: Record<string, typeof tasks> = {};
   for (const t of tasks) {
     const d = t.endDate;
     if (!d) continue;
+    if (!isMyTask(t)) continue;
     if (!tasksByDate[d]) tasksByDate[d] = [];
     tasksByDate[d].push(t);
   }
@@ -3220,6 +3235,95 @@ export default function DashboardOverview() {
         </div>
       )}
 
+      {/* TWO-WEEK TASK CALENDAR */}
+      {wCalendar && weeks.map((week, wi) => (
+        <div key={wi} style={{ marginBottom: 6 }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 3 }}>
+            <Calendar size={13} style={{ color: '#c88c00' }} />
+            <span style={{ fontSize: 12, fontWeight: 700, letterSpacing: '0.08em', color: '#5a5550' }}>{week.label.toUpperCase()}</span>
+            <span style={{ fontSize: 12, color: '#3f3f3f' }}>{week.days[0].month} {week.days[0].dayNum} â {week.days[6].month} {week.days[6].dayNum}</span>
+          </div>
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(7, 1fr)', gap: 1, borderRadius: 8, overflow: 'hidden' }}>
+            {week.days.map(day => {
+              const isToday = day.date === todayStr;
+              const dayTasks = tasksByDate[day.date] || [];
+              const incomplete = dayTasks.filter(t => t.progress < 1);
+              const complete = dayTasks.filter(t => t.progress >= 1);
+              const dayCalEvents = calEventsByDate[day.date] || [];
+
+              return (
+                <div key={day.date} style={{
+                  background: isToday ? 'rgba(200,140,0,0.1)' : '#ffffff',
+                  minHeight: 80, display: 'flex', flexDirection: 'column',
+                }}>
+                  <div style={{ display: 'flex', alignItems: 'baseline', justifyContent: 'space-between', padding: '3px 5px 2px' }}>
+                    <span style={{ fontSize: 11, fontWeight: 500, color: day.isWeekend ? '#e8e5e0' : '#6a6058' }}>{day.dayName}</span>
+                    <span style={{
+                      fontSize: 15, fontWeight: 700,
+                      color: isToday ? '#c88c00' : day.isWeekend ? '#e8e5e0' : '#7a7068',
+                      ...(isToday ? { background: 'rgba(200,140,0,0.25)', borderRadius: 4, padding: '0 4px' } : {}),
+                    }}>{day.dayNum}</span>
+                  </div>
+                  <div style={{ flex: 1, padding: '1px 2px 3px', display: 'flex', flexDirection: 'column', gap: 1, overflow: 'hidden' }}>
+                    {/* Google Calendar events */}
+                    {dayCalEvents.map((ev: any) => {
+                      const timeStr = ev.allDay ? '' : ev.start?.includes('T')
+                        ? new Date(ev.start).toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit', hour12: true })
+                        : '';
+                      return (
+                        <div
+                          key={ev.id}
+                          style={{
+                            padding: '2px 3px', borderRadius: 3,
+                            borderLeft: '3px solid #4A90D9',
+                            background: '#4A90D918',
+                            fontSize: 11, lineHeight: '12px', color: '#a8c4e0',
+                            overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
+                          }}
+                          title={`${timeStr ? timeStr + ' \u2014 ' : ''}${ev.summary}${ev.location ? ' @ ' + ev.location : ''}`}
+                        >
+                          {timeStr ? <span style={{ color: '#6aa3d9', marginRight: 3 }}>{timeStr}</span> : null}
+                          {ev.summary}
+                        </div>
+                      );
+                    })}
+                    {/* JobTread tasks */}
+                    {incomplete.map(task => {
+                      const c = jobColor(task.jobNumber);
+                      const isSelected = selectedCalTask?.id === task.id;
+                      return (
+                        <div
+                          key={task.id}
+                          onClick={() => {
+                            setSelectedCalTask(task);
+                            setCalEditingDate(task.endDate || '');
+                          }}
+                          style={{
+                            padding: '2px 3px', borderRadius: 3, cursor: 'pointer',
+                            borderLeft: `3px solid ${c}`,
+                            background: isSelected ? `${c}50` : `${c}18`,
+                            fontSize: 11, lineHeight: '12px', color: '#1a1a1a',
+                            overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
+                          }}
+                          title={`${task.name} â ${task.jobName}`}
+                        >
+                          {task.name}
+                        </div>
+                      );
+                    })}
+                    {complete.length > 0 && (
+                      <div style={{ fontSize: 10, color: '#e8e5e0', display: 'flex', alignItems: 'center', gap: 2 }}>
+                        <CheckCircle2 size={9} style={{ color: '#22c55e' }} /> {complete.length} done
+                      </div>
+                    )}
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        </div>
+      ))}
+
       {/* ALL TASKS â grouped by job, collapsible, filtered to overdue + next 4 weeks */}
       {wAllTasks && tasks.length > 0 && (() => {
         // Filter tasks: overdue or due within next 4 weeks (28 days)
@@ -3449,95 +3553,6 @@ export default function DashboardOverview() {
           </div>
         );
       })()}
-
-      {/* TWO-WEEK TASK CALENDAR */}
-      {wCalendar && weeks.map((week, wi) => (
-        <div key={wi} style={{ marginBottom: 6 }}>
-          <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 3 }}>
-            <Calendar size={13} style={{ color: '#c88c00' }} />
-            <span style={{ fontSize: 12, fontWeight: 700, letterSpacing: '0.08em', color: '#5a5550' }}>{week.label.toUpperCase()}</span>
-            <span style={{ fontSize: 12, color: '#3f3f3f' }}>{week.days[0].month} {week.days[0].dayNum} â {week.days[6].month} {week.days[6].dayNum}</span>
-          </div>
-          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(7, 1fr)', gap: 1, borderRadius: 8, overflow: 'hidden' }}>
-            {week.days.map(day => {
-              const isToday = day.date === todayStr;
-              const dayTasks = tasksByDate[day.date] || [];
-              const incomplete = dayTasks.filter(t => t.progress < 1);
-              const complete = dayTasks.filter(t => t.progress >= 1);
-              const dayCalEvents = calEventsByDate[day.date] || [];
-
-              return (
-                <div key={day.date} style={{
-                  background: isToday ? 'rgba(200,140,0,0.1)' : '#ffffff',
-                  minHeight: 80, display: 'flex', flexDirection: 'column',
-                }}>
-                  <div style={{ display: 'flex', alignItems: 'baseline', justifyContent: 'space-between', padding: '3px 5px 2px' }}>
-                    <span style={{ fontSize: 11, fontWeight: 500, color: day.isWeekend ? '#e8e5e0' : '#6a6058' }}>{day.dayName}</span>
-                    <span style={{
-                      fontSize: 15, fontWeight: 700,
-                      color: isToday ? '#c88c00' : day.isWeekend ? '#e8e5e0' : '#7a7068',
-                      ...(isToday ? { background: 'rgba(200,140,0,0.25)', borderRadius: 4, padding: '0 4px' } : {}),
-                    }}>{day.dayNum}</span>
-                  </div>
-                  <div style={{ flex: 1, padding: '1px 2px 3px', display: 'flex', flexDirection: 'column', gap: 1, overflow: 'hidden' }}>
-                    {/* Google Calendar events */}
-                    {dayCalEvents.map((ev: any) => {
-                      const timeStr = ev.allDay ? '' : ev.start?.includes('T')
-                        ? new Date(ev.start).toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit', hour12: true })
-                        : '';
-                      return (
-                        <div
-                          key={ev.id}
-                          style={{
-                            padding: '2px 3px', borderRadius: 3,
-                            borderLeft: '3px solid #4A90D9',
-                            background: '#4A90D918',
-                            fontSize: 11, lineHeight: '12px', color: '#a8c4e0',
-                            overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
-                          }}
-                          title={`${timeStr ? timeStr + ' \u2014 ' : ''}${ev.summary}${ev.location ? ' @ ' + ev.location : ''}`}
-                        >
-                          {timeStr ? <span style={{ color: '#6aa3d9', marginRight: 3 }}>{timeStr}</span> : null}
-                          {ev.summary}
-                        </div>
-                      );
-                    })}
-                    {/* JobTread tasks */}
-                    {incomplete.map(task => {
-                      const c = jobColor(task.jobNumber);
-                      const isSelected = selectedCalTask?.id === task.id;
-                      return (
-                        <div
-                          key={task.id}
-                          onClick={() => {
-                            setSelectedCalTask(task);
-                            setCalEditingDate(task.endDate || '');
-                          }}
-                          style={{
-                            padding: '2px 3px', borderRadius: 3, cursor: 'pointer',
-                            borderLeft: `3px solid ${c}`,
-                            background: isSelected ? `${c}50` : `${c}18`,
-                            fontSize: 11, lineHeight: '12px', color: '#1a1a1a',
-                            overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
-                          }}
-                          title={`${task.name} â ${task.jobName}`}
-                        >
-                          {task.name}
-                        </div>
-                      );
-                    })}
-                    {complete.length > 0 && (
-                      <div style={{ fontSize: 10, color: '#e8e5e0', display: 'flex', alignItems: 'center', gap: 2 }}>
-                        <CheckCircle2 size={9} style={{ color: '#22c55e' }} /> {complete.length} done
-                      </div>
-                    )}
-                  </div>
-                </div>
-              );
-            })}
-          </div>
-        </div>
-      ))}
 
 
 
