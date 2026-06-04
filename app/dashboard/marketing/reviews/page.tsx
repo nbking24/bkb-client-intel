@@ -1,10 +1,10 @@
 // @ts-nocheck
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import {
   Loader2, Star, AlertTriangle, Check, X, Edit3, ExternalLink, RefreshCw,
-  ChevronDown, ChevronRight, Send,
+  ChevronDown, ChevronRight, Send, MessageSquare, Search,
 } from 'lucide-react';
 
 function getToken() {
@@ -43,10 +43,41 @@ interface DraftedReply {
   drafted_at: string;
 }
 
+interface GatewaySubmission {
+  id: string;
+  clientContactId: string;
+  clientName: string | null;
+  clientEmail: string | null;
+  clientPhone: string | null;
+  jobtreadJobId: string | null;
+  jobtreadCustomerId: string | null;
+  projectNames: string | null;
+  starRating: number;
+  reviewText: string | null;
+  routedTo: 'google' | 'internal_followup';
+  googleVerified: boolean;
+  verifiedAt: string | null;
+  verifiedBy: string | null;
+  internalNote: string | null;
+  submittedAt: string;
+  sourceReviewRequestId: string | null;
+}
+
+interface GatewayCounts {
+  total: number;
+  routedToGoogle: number;
+  internalFollowup: number;
+  googleVerified: number;
+}
+
 export default function ReviewsPage() {
   const [requests, setRequests] = useState<ReviewRequest[]>([]);
   const [drafts, setDrafts] = useState<DraftedReply[]>([]);
+  const [submissions, setSubmissions] = useState<GatewaySubmission[]>([]);
+  const [counts, setCounts] = useState<GatewayCounts>({ total: 0, routedToGoogle: 0, internalFollowup: 0, googleVerified: 0 });
   const [filter, setFilter] = useState<string>('all');
+  const [subFilter, setSubFilter] = useState<'all' | 'google' | 'low_star' | 'unverified'>('all');
+  const [subSearch, setSubSearch] = useState('');
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
@@ -56,22 +87,60 @@ export default function ReviewsPage() {
     setLoading(true);
     setError(null);
     try {
-      const [rrRes, drRes] = await Promise.all([
+      const [rrRes, drRes, gsRes] = await Promise.all([
         fetch('/api/marketing/review-requests', {
           headers: { Authorization: `Bearer ${token}` },
         }).then((r) => r.json()),
         fetch('/api/marketing/review-responses?status=pending', {
           headers: { Authorization: `Bearer ${token}` },
         }).then((r) => r.json()),
+        fetch('/api/marketing/gateway-submissions', {
+          headers: { Authorization: `Bearer ${token}` },
+        }).then((r) => r.json()),
       ]);
       if (rrRes.error) throw new Error(rrRes.error);
       if (drRes.error) throw new Error(drRes.error);
+      if (gsRes.error) throw new Error(gsRes.error);
       setRequests(rrRes.requests || []);
       setDrafts(drRes.responses || []);
+      setSubmissions(gsRes.submissions || []);
+      setCounts(gsRes.counts || { total: 0, routedToGoogle: 0, internalFollowup: 0, googleVerified: 0 });
     } catch (err: any) {
       setError(err.message);
     } finally {
       setLoading(false);
+    }
+  };
+
+  const patchSubmission = async (id: string, patch: { googleVerified?: boolean; internalNote?: string }) => {
+    const token = getToken();
+    // Optimistic update so the checkbox flips immediately.
+    setSubmissions((prev) =>
+      prev.map((s) =>
+        s.id === id
+          ? {
+              ...s,
+              ...(typeof patch.googleVerified === 'boolean' ? { googleVerified: patch.googleVerified } : {}),
+              ...(typeof patch.internalNote === 'string' ? { internalNote: patch.internalNote } : {}),
+            }
+          : s,
+      ),
+    );
+    if (typeof patch.googleVerified === 'boolean') {
+      // Keep the counts header in sync without a full reload.
+      setCounts((c) => ({
+        ...c,
+        googleVerified: c.googleVerified + (patch.googleVerified ? 1 : -1),
+      }));
+    }
+    const res = await fetch('/api/marketing/gateway-submissions', {
+      method: 'PATCH',
+      headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
+      body: JSON.stringify({ id, ...patch }),
+    });
+    if (!res.ok) {
+      // Roll back on failure.
+      await load();
     }
   };
 
@@ -89,6 +158,20 @@ export default function ReviewsPage() {
     if (filter === 'skipped') return r.status === 'skipped';
     return true;
   });
+
+  const filteredSubmissions = useMemo(() => {
+    const q = subSearch.trim().toLowerCase();
+    return submissions.filter((s) => {
+      if (subFilter === 'google' && s.routedTo !== 'google') return false;
+      if (subFilter === 'low_star' && s.routedTo !== 'internal_followup') return false;
+      if (subFilter === 'unverified' && (s.googleVerified || s.routedTo !== 'google')) return false;
+      if (q) {
+        const hay = [s.clientName, s.projectNames, s.reviewText, s.clientEmail].filter(Boolean).join(' ').toLowerCase();
+        if (!hay.includes(q)) return false;
+      }
+      return true;
+    });
+  }, [submissions, subFilter, subSearch]);
 
   const handleAction = async (id: string, action: 'approve' | 'edit' | 'skip', editedText?: string) => {
     const token = getToken();
@@ -124,6 +207,73 @@ export default function ReviewsPage() {
 
   return (
     <div className="space-y-6">
+      {/* Gateway submissions — every review the past-client text campaign collected */}
+      <section>
+        <div className="flex items-center justify-between mb-3">
+          <div>
+            <h2 className="text-lg font-semibold text-gray-900">
+              Reviews from your review link
+              <span className="ml-2 text-sm font-normal text-gray-500">({counts.total})</span>
+            </h2>
+            <div className="text-xs text-gray-500 mt-0.5">
+              Every submission from r.brettkingbuilder.com/r/&hellip; (the link sent in your past-client texts).
+              {' '}<span className="text-emerald-700 font-medium">{counts.routedToGoogle}</span> were 5-star and sent on to Google.
+              {' '}<span className="text-amber-700 font-medium">{counts.internalFollowup}</span> were lower-star (kept private).
+              {' '}<span className="text-blue-700 font-medium">{counts.googleVerified}</span> confirmed on Google so far.
+            </div>
+          </div>
+          <button
+            onClick={load}
+            className="text-sm text-gray-500 hover:text-gray-800 flex items-center gap-1"
+          >
+            <RefreshCw className="w-3.5 h-3.5" /> Refresh
+          </button>
+        </div>
+        <div className="flex flex-wrap items-center gap-2 mb-3">
+          {[
+            { val: 'all', lbl: `All (${counts.total})` },
+            { val: 'google', lbl: `Sent to Google (${counts.routedToGoogle})` },
+            { val: 'unverified', lbl: `Not yet verified on Google (${Math.max(0, counts.routedToGoogle - counts.googleVerified)})` },
+            { val: 'low_star', lbl: `Low star, kept private (${counts.internalFollowup})` },
+          ].map((f) => (
+            <button
+              key={f.val}
+              onClick={() => setSubFilter(f.val as any)}
+              className={
+                'px-3 py-1.5 text-sm rounded border ' +
+                (subFilter === f.val
+                  ? 'bg-blue-700 text-white border-blue-700'
+                  : 'bg-white text-gray-600 border-gray-300 hover:border-gray-400')
+              }
+            >
+              {f.lbl}
+            </button>
+          ))}
+          <div className="relative ml-auto">
+            <Search className="w-3.5 h-3.5 text-gray-400 absolute left-2.5 top-1/2 -translate-y-1/2" />
+            <input
+              value={subSearch}
+              onChange={(e) => setSubSearch(e.target.value)}
+              placeholder="Search name, project, text..."
+              className="pl-8 pr-3 py-1.5 text-sm border border-gray-300 rounded w-64 focus:outline-none focus:border-blue-500"
+            />
+          </div>
+        </div>
+        {filteredSubmissions.length === 0 ? (
+          <EmptyState
+            text={counts.total === 0
+              ? 'No reviews have been submitted via the link yet.'
+              : 'No reviews match this filter.'}
+          />
+        ) : (
+          <div className="space-y-3">
+            {filteredSubmissions.map((s) => (
+              <GatewaySubmissionCard key={s.id} sub={s} onPatch={patchSubmission} />
+            ))}
+          </div>
+        )}
+      </section>
+
       {/* Awaiting Response approval */}
       <section>
         <div className="flex items-center justify-between mb-3">
@@ -439,4 +589,134 @@ function prettyTrigger(t: string) {
     default:
       return t;
   }
+}
+
+// ----------------------------------------------------------------
+
+function GatewaySubmissionCard({
+  sub,
+  onPatch,
+}: {
+  sub: GatewaySubmission;
+  onPatch: (id: string, patch: { googleVerified?: boolean; internalNote?: string }) => void;
+}) {
+  const [showFullText, setShowFullText] = useState(false);
+  const [editingNote, setEditingNote] = useState(false);
+  const [noteDraft, setNoteDraft] = useState(sub.internalNote || '');
+
+  const stars = sub.starRating || 0;
+  const isLowStar = sub.routedTo === 'internal_followup';
+  const text = sub.reviewText || '';
+  const isLong = text.length > 280;
+  const shown = !showFullText && isLong ? text.slice(0, 280) + '...' : text;
+
+  return (
+    <div
+      className={
+        'border rounded-lg p-4 ' +
+        (isLowStar ? 'bg-amber-50 border-amber-200' : 'bg-white border-gray-200')
+      }
+    >
+      <div className="flex items-start justify-between gap-3 mb-2">
+        <div className="min-w-0">
+          <div className="flex items-center gap-2 flex-wrap">
+            <span className="font-semibold text-gray-900">{sub.clientName || 'Unknown client'}</span>
+            <span className="text-amber-600 text-sm">
+              {'★'.repeat(stars)}
+              {'☆'.repeat(5 - stars)}
+            </span>
+            {sub.routedTo === 'google' ? (
+              <span className="inline-flex items-center gap-1 text-xs px-2 py-0.5 rounded bg-emerald-100 text-emerald-800 font-medium">
+                Sent to Google
+              </span>
+            ) : (
+              <span className="inline-flex items-center gap-1 text-xs px-2 py-0.5 rounded bg-amber-200 text-amber-900 font-medium">
+                <AlertTriangle className="w-3 h-3" /> Internal follow-up
+              </span>
+            )}
+            {sub.googleVerified && (
+              <span className="inline-flex items-center gap-1 text-xs px-2 py-0.5 rounded bg-blue-100 text-blue-800 font-medium">
+                <Check className="w-3 h-3" /> Verified on Google
+              </span>
+            )}
+          </div>
+          <div className="text-xs text-gray-500 mt-0.5">
+            {sub.projectNames || 'No project recorded'}
+            {sub.clientEmail ? ` · ${sub.clientEmail}` : ''}
+            {' · '}Submitted {new Date(sub.submittedAt).toLocaleDateString()}
+          </div>
+        </div>
+        {sub.routedTo === 'google' && (
+          <label className="flex items-center gap-1.5 text-xs text-gray-600 whitespace-nowrap cursor-pointer shrink-0">
+            <input
+              type="checkbox"
+              checked={sub.googleVerified}
+              onChange={(e) => onPatch(sub.id, { googleVerified: e.target.checked })}
+              className="w-4 h-4"
+            />
+            Posted on Google
+          </label>
+        )}
+      </div>
+
+      {text ? (
+        <div className="bg-gray-50 border-l-4 border-gray-300 p-3 text-sm text-gray-800 whitespace-pre-wrap">
+          {shown}
+          {isLong && (
+            <button
+              onClick={() => setShowFullText((v) => !v)}
+              className="ml-2 text-blue-700 hover:underline text-xs font-medium"
+            >
+              {showFullText ? 'Show less' : 'Show more'}
+            </button>
+          )}
+        </div>
+      ) : (
+        <div className="text-sm text-gray-400 italic">No written review (stars only).</div>
+      )}
+
+      {(isLowStar || sub.internalNote || editingNote) && (
+        <div className="mt-3">
+          {editingNote ? (
+            <div className="flex flex-col gap-2">
+              <textarea
+                value={noteDraft}
+                onChange={(e) => setNoteDraft(e.target.value)}
+                placeholder="Internal note (visible to your team only)"
+                className="w-full border border-gray-300 rounded-md p-2 text-sm min-h-[60px]"
+              />
+              <div className="flex gap-2">
+                <button
+                  onClick={() => {
+                    onPatch(sub.id, { internalNote: noteDraft });
+                    setEditingNote(false);
+                  }}
+                  className="px-3 py-1 bg-blue-600 hover:bg-blue-700 text-white text-xs rounded"
+                >
+                  Save note
+                </button>
+                <button
+                  onClick={() => {
+                    setNoteDraft(sub.internalNote || '');
+                    setEditingNote(false);
+                  }}
+                  className="px-3 py-1 bg-gray-100 hover:bg-gray-200 text-gray-700 text-xs rounded"
+                >
+                  Cancel
+                </button>
+              </div>
+            </div>
+          ) : (
+            <button
+              onClick={() => setEditingNote(true)}
+              className="text-xs text-gray-500 hover:text-gray-800 flex items-center gap-1"
+            >
+              <MessageSquare className="w-3 h-3" />
+              {sub.internalNote ? `Note: ${sub.internalNote}` : 'Add internal note'}
+            </button>
+          )}
+        </div>
+      )}
+    </div>
+  );
 }
