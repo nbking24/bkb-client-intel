@@ -143,6 +143,11 @@ export default function BillReviewPage() {
   const [jobFilter, setJobFilter] = useState<string | null>(null);
   const [search, setSearch] = useState('');
   const [actingId, setActingId] = useState<string | null>(null);
+  // Per-row inline error message. Sticks visibly under the row when Apply or
+  // Dismiss returns an error or the JT-side verification fails. Previously
+  // these were one-shot `alert()` popups that some users dismissed without
+  // reading, so the failure looked like "Apply did nothing."
+  const [rowError, setRowError] = useState<Record<string, string>>({});
   const [pickedCandidate, setPickedCandidate] = useState<Record<string, string>>({});
   const [lastError, setLastError] = useState<string | null>(null);
   const [running, setRunning] = useState(false);
@@ -283,24 +288,32 @@ export default function BillReviewPage() {
   async function approveRow(row: ReviewRow) {
     const picked = pickedCandidate[row.id] || row.suggested_job_cost_item_id;
     if (!picked) {
-      alert('Pick a budget item first.');
+      setRowError((m) => ({ ...m, [row.id]: 'Pick a budget item first.' }));
       return;
     }
     setActingId(row.id);
+    // Clear any prior error on this row before retrying.
+    setRowError((m) => { const next = { ...m }; delete next[row.id]; return next; });
     try {
       const res = await fetch(`/api/dashboard/bill-review/${row.id}/approve`, {
         method: 'POST',
         headers: { ...headers, 'Content-Type': 'application/json' },
         body: JSON.stringify({ jobCostItemId: picked, approvedBy: auth.userId || 'nathan' }),
       });
-      const json = await res.json();
+      const json = await res.json().catch(() => ({} as any));
       if (!res.ok) {
-        alert(`Apply failed: ${json.error || res.status}`);
+        setRowError((m) => ({
+          ...m,
+          [row.id]: json?.error || `Apply failed (HTTP ${res.status})`,
+        }));
       } else {
         setRows(prev => prev.filter(r => r.id !== row.id));
       }
     } catch (err: any) {
-      alert(`Apply failed: ${err.message}`);
+      setRowError((m) => ({
+        ...m,
+        [row.id]: `Network error: ${err?.message || 'unknown'}. Check your connection and try again.`,
+      }));
     } finally {
       setActingId(null);
     }
@@ -422,6 +435,7 @@ export default function BillReviewPage() {
 
   async function dismissRow(row: ReviewRow) {
     setActingId(row.id);
+    setRowError((m) => { const next = { ...m }; delete next[row.id]; return next; });
     try {
       const res = await fetch(`/api/dashboard/bill-review/${row.id}/dismiss`, {
         method: 'POST',
@@ -429,11 +443,13 @@ export default function BillReviewPage() {
         body: JSON.stringify({ reason: 'Nathan marked OK', dismissedBy: auth.userId || 'nathan' }),
       });
       if (!res.ok) {
-        const json = await res.json();
-        alert(`Dismiss failed: ${json.error || res.status}`);
+        const json = await res.json().catch(() => ({} as any));
+        setRowError((m) => ({ ...m, [row.id]: json?.error || `Dismiss failed (HTTP ${res.status})` }));
       } else {
         setRows(prev => prev.filter(r => r.id !== row.id));
       }
+    } catch (err: any) {
+      setRowError((m) => ({ ...m, [row.id]: `Network error: ${err?.message || 'unknown'}` }));
     } finally {
       setActingId(null);
     }
@@ -1099,6 +1115,33 @@ export default function BillReviewPage() {
                         {isActing ? <Loader2 size={12} className="animate-spin" /> : <Check size={12} />}
                         Apply
                       </button>
+                      {rowError[row.id] && (
+                        <div
+                          className="basis-full mt-2 p-2 rounded text-xs"
+                          style={{
+                            background: 'rgba(239,68,68,0.08)',
+                            border: '1px solid rgba(239,68,68,0.25)',
+                            color: '#b91c1c',
+                          }}
+                          role="alert"
+                        >
+                          <div className="flex items-start gap-2">
+                            <AlertTriangle size={12} style={{ marginTop: 2, flexShrink: 0 }} />
+                            <div className="flex-1">
+                              <div className="font-semibold mb-0.5">Apply did not stick</div>
+                              <div>{rowError[row.id]}</div>
+                            </div>
+                            <button
+                              onClick={() => setRowError((m) => { const n = { ...m }; delete n[row.id]; return n; })}
+                              aria-label="Dismiss"
+                              className="shrink-0 text-xs"
+                              style={{ color: '#b91c1c', background: 'none', border: 'none', cursor: 'pointer' }}
+                            >
+                              ×
+                            </button>
+                          </div>
+                        </div>
+                      )}
                       <button
                         onClick={() => dismissRow(row)}
                         disabled={isActing}

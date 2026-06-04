@@ -18,7 +18,7 @@
  */
 import { NextRequest, NextResponse } from 'next/server';
 import { getSupabase } from '../../../../lib/supabase';
-import { updateDocumentCostItem, getJobBudgetItems } from '@/app/lib/jobtread';
+import { updateDocumentCostItem, getJobBudgetItems, pave } from '@/app/lib/jobtread';
 import { recordApproval } from '@/app/lib/bill-categorization';
 
 export const runtime = 'nodejs';
@@ -116,6 +116,41 @@ export async function POST(
       { error: 'JT update failed: ' + (err.message || String(err)) },
       { status: 502 }
     );
+  }
+
+  // Verify the change actually took on JT's side. JT's updateCostItem mutation
+  // doesn't return an updated payload, so a "successful" PAVE call doesn't
+  // guarantee the link changed. Read the cost item back and confirm the
+  // jobCostItem id matches what we just sent. If it doesn't, mark the row as
+  // failed with the observed mismatch so the operator knows the click didn't
+  // actually stick (vs the row silently disappearing into the applied count).
+  try {
+    const verify: any = await pave({
+      costItem: {
+        $: { id: row.cost_item_id },
+        id: {},
+        jobCostItem: { id: {}, name: {} },
+        costCode: { id: {}, number: {} },
+      },
+    });
+    const observedItemId = verify?.costItem?.jobCostItem?.id || null;
+    if (observedItemId !== jobCostItemId) {
+      const msg = observedItemId
+        ? `JT did not accept the change. Cost item is still linked to "${verify?.costItem?.jobCostItem?.name || observedItemId}". The bill may already be locked (paid / synced to QB) or the budget item may not be valid for this job.`
+        : 'JT did not accept the change. The cost item came back with no budget item linked. The bill may be locked or the budget item invalid.';
+      await supabase
+        .from('bill_review_queue')
+        .update({
+          status: 'failed',
+          last_error: msg,
+        })
+        .eq('id', id);
+      return NextResponse.json({ error: msg }, { status: 502 });
+    }
+  } catch (verifyErr: any) {
+    // Verification call itself failed — don't block the flow, just log.
+    // The update mutation succeeded, so this is best-effort confirmation.
+    console.error('[bill-review/approve] post-write verify failed:', verifyErr?.message || verifyErr);
   }
 
   // Record the pattern for learning
