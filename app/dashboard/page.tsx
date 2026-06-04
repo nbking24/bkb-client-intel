@@ -1037,6 +1037,10 @@ export default function DashboardOverview() {
   const [stNewTaskNote, setStNewTaskNote] = useState('');
   const [stNewTaskFiles, setStNewTaskFiles] = useState<Array<{ file: File; uploading: boolean; url?: string; name: string; error?: string }>>([]);
   const [creatingSt, setCreatingSt] = useState(false);
+  // Inline confirmation banner for the New Task tab. Shows "Task created"
+  // (or an error) right where the form lives so the user actually sees that
+  // the click worked instead of guessing.
+  const [stCreateMsg, setStCreateMsg] = useState<{ kind: 'success' | 'error'; text: string } | null>(null);
   const [showWaitingOnForm, setShowWaitingOnForm] = useState(false);
   const [woTaskName, setWoTaskName] = useState('');
   const [woJobId, setWoJobId] = useState('');
@@ -1485,27 +1489,94 @@ export default function DashboardOverview() {
   async function createStandaloneTask() {
     if (!stNewTaskName.trim() || !stNewTaskJob || !stNewTaskPhase) return;
     setCreatingSt(true);
+    setStCreateMsg(null);
+    // Snapshot the values we need for the confirmation message before we
+    // reset the form (otherwise the banner would render with the cleared
+    // state on the next render).
+    const savedName = stNewTaskName.trim();
+    const mj = overview?.data.activeJobs?.find((j: any) => j.id === stNewTaskJob);
+    const savedJobName = mj?.name || '';
+    const savedAssigneeNames = stNewTaskAssignees
+      .map((id) => TEAM_ASSIGNEES.find((a: any) => a.id === id)?.name || '')
+      .filter(Boolean)
+      .join(', ');
     try {
-      // Collect successfully uploaded file URLs
-      const fileUrls = stNewTaskFiles.filter(f => f.url).map(f => ({ url: f.url!, name: f.name }));
+      const fileUrls = stNewTaskFiles.filter((f) => f.url).map((f) => ({ url: f.url!, name: f.name }));
       const res = await fetch('/api/dashboard/create-task', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ jobId: stNewTaskJob, taskName: stNewTaskName.trim(), phaseName: stNewTaskPhase, endDate: stNewTaskDate || undefined, description: stNewTaskNote.trim() || undefined, fileUrls: fileUrls.length > 0 ? fileUrls : undefined, assigneeIds: stNewTaskAssignees.length > 0 ? stNewTaskAssignees : undefined }),
+        body: JSON.stringify({
+          jobId: stNewTaskJob,
+          taskName: savedName,
+          phaseName: stNewTaskPhase,
+          endDate: stNewTaskDate || undefined,
+          description: stNewTaskNote.trim() || undefined,
+          fileUrls: fileUrls.length > 0 ? fileUrls : undefined,
+          assigneeIds: stNewTaskAssignees.length > 0 ? stNewTaskAssignees : undefined,
+        }),
       });
-      if (!res.ok) throw new Error(await res.text());
-      const data = await res.json();
-      if (overview && data.task) {
-        const mj = overview.data.activeJobs?.find((j: any) => j.id === stNewTaskJob);
-        const assigneeNames = stNewTaskAssignees.map(id => TEAM_ASSIGNEES.find(a => a.id === id)?.name || '').filter(Boolean).join(', ');
-        setOverview({ ...overview, data: { ...overview.data, tasks: [...(overview.data.tasks || []), { id: data.task.id, name: stNewTaskName.trim(), jobName: mj ? mj.name : '', jobId: stNewTaskJob, jobNumber: mj ? String(mj.number) : '', endDate: stNewTaskDate || null, startDate: stNewTaskDate || null, progress: 0, urgency: 'normal', assignee: assigneeNames, daysUntilDue: stNewTaskDate ? Math.ceil((new Date(stNewTaskDate).getTime() - Date.now()) / 86400000) : null } as any] } });
+      // Read the response body once. The API returns JSON on both success and
+      // error paths, so we don't want to fall through to res.text() (which
+      // swallows the structured error message the API actually sends).
+      const data: any = await res.json().catch(() => ({}));
+      if (!res.ok || !data?.task?.id) {
+        const msg = data?.error || `Server returned ${res.status}`;
+        throw new Error(msg);
       }
-      setStNewTaskName(''); setStNewTaskJob(''); setStNewTaskPhase(''); setStNewTaskDate(''); setStNewTaskAssignees([]); setStNewTaskNote(''); setStNewTaskFiles([]);
-      setPanelTab('waitingOn');
+
+      // Optimistically reflect the new task in the dashboard so the All Tasks
+      // list and counts update without a full refresh.
+      if (overview) {
+        setOverview({
+          ...overview,
+          data: {
+            ...overview.data,
+            tasks: [
+              ...(overview.data.tasks || []),
+              {
+                id: data.task.id,
+                name: savedName,
+                jobName: savedJobName,
+                jobId: stNewTaskJob,
+                jobNumber: mj ? String(mj.number) : '',
+                endDate: stNewTaskDate || null,
+                startDate: stNewTaskDate || null,
+                progress: 0,
+                urgency: 'normal',
+                assignee: savedAssigneeNames,
+                daysUntilDue: stNewTaskDate
+                  ? Math.ceil((new Date(stNewTaskDate).getTime() - Date.now()) / 86400000)
+                  : null,
+              } as any,
+            ],
+          },
+        });
+      }
+      // Clear the form so the next task is a clean slate, BUT stay on the
+      // New Task tab and show an inline success banner. Auto-switching to
+      // Waiting On after a successful "New Task" creation looked exactly
+      // like a failure ("nothing happened, just the tab moved").
+      setStNewTaskName('');
+      setStNewTaskJob('');
+      setStNewTaskPhase('');
+      setStNewTaskDate('');
+      setStNewTaskAssignees([]);
+      setStNewTaskNote('');
+      setStNewTaskFiles([]);
+      const where = savedJobName ? ` on ${savedJobName.replace(/^#\d+\s*/, '')}` : '';
+      const who = savedAssigneeNames ? `, assigned to ${savedAssigneeNames}` : ' (unassigned)';
+      setStCreateMsg({ kind: 'success', text: `Task created in JobTread: "${savedName}"${where}${who}.` });
+      // Auto-dismiss after 8s so it doesn't linger forever.
+      setTimeout(() => setStCreateMsg(null), 8000);
     } catch (err: any) {
       console.error('Create task failed:', err);
-      alert('Failed: ' + err.message);
-    } finally { setCreatingSt(false); }
+      setStCreateMsg({
+        kind: 'error',
+        text: `Couldn't create the task: ${err?.message || 'unknown error'}. Try again, or check JobTread to see if it landed.`,
+      });
+    } finally {
+      setCreatingSt(false);
+    }
   }
 
   // Schedule Meeting functions
@@ -1990,6 +2061,37 @@ export default function DashboardOverview() {
               <div style={{ maxHeight: '60vh', overflowY: 'auto', padding: '8px 12px' }}>
                 {panelTab === 'newTask' && (
                   <div style={{ padding: '4px 0' }}>
+                    {stCreateMsg && (
+                      <div
+                        role={stCreateMsg.kind === 'error' ? 'alert' : 'status'}
+                        style={{
+                          marginBottom: 10,
+                          padding: '10px 12px',
+                          borderRadius: 6,
+                          fontSize: 13,
+                          lineHeight: 1.4,
+                          border: '1px solid',
+                          borderColor: stCreateMsg.kind === 'success' ? 'rgba(34,139,57,0.35)' : 'rgba(176,42,42,0.4)',
+                          background: stCreateMsg.kind === 'success' ? 'rgba(34,139,57,0.10)' : 'rgba(176,42,42,0.10)',
+                          color: stCreateMsg.kind === 'success' ? '#1e6b35' : '#8a1f1f',
+                          display: 'flex',
+                          alignItems: 'flex-start',
+                          gap: 8,
+                        }}
+                      >
+                        <span style={{ fontSize: 15, lineHeight: '18px' }}>
+                          {stCreateMsg.kind === 'success' ? '✓' : '⚠'}
+                        </span>
+                        <span style={{ flex: 1 }}>{stCreateMsg.text}</span>
+                        <button
+                          onClick={() => setStCreateMsg(null)}
+                          aria-label="Dismiss"
+                          style={{ background: 'none', border: 'none', color: 'inherit', cursor: 'pointer', fontSize: 16, lineHeight: '16px', padding: 0, marginLeft: 4 }}
+                        >
+                          ×
+                        </button>
+                      </div>
+                    )}
                     <div>
                       <label style={{ fontSize: 11, color: '#6a6058', fontWeight: 600, display: 'block', marginBottom: 3 }}>TASK NAME</label>
                       <input type="text" autoFocus placeholder="e.g. Order appliances" value={stNewTaskName} onChange={e => setStNewTaskName(e.target.value)}
