@@ -155,7 +155,16 @@ export default function TranscriptsDashboardPage() {
         <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 6 }}>
           <Sparkles size={14} style={{ color: GOLD }} />
           <span style={{ fontSize: 11, fontWeight: 700, color: GOLD, letterSpacing: '0.04em' }}>AI SEARCH</span>
-          <span style={{ fontSize: 10, color: '#8a8078' }}>{jobFilter === 'all' ? `across ${filtered.length} filtered transcript(s)` : `within ${jobOptions.find(([k]) => k === jobFilter)?.[1] || 'selection'}`}</span>
+          {(() => {
+            // Show how many transcripts the AI will actually look at, not just
+            // how many are visible. A transcript is only searchable if it has
+            // raw_transcript text (the server enforces this too).
+            const searchable = filtered.filter((t) => t.status !== 'pending' && t.status !== 'unassigned');
+            const where = jobFilter === 'all'
+              ? `${searchable.length} of ${filtered.length} filtered`
+              : `within ${jobOptions.find(([k]) => k === jobFilter)?.[1] || 'selection'} (${searchable.length} ready)`;
+            return <span style={{ fontSize: 10, color: '#8a8078' }}>{where}</span>;
+          })()}
         </div>
         <div style={{ display: 'flex', gap: 6 }}>
           <input type="text" value={aiQuestion} onChange={(e) => setAiQuestion(e.target.value)} onKeyDown={(e) => { if (e.key === 'Enter') runAiSearch(); }}

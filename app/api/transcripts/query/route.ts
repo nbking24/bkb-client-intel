@@ -29,20 +29,67 @@ export async function POST(req: NextRequest) {
   if (!question) return NextResponse.json({ error: 'question required' }, { status: 400 });
 
   const sb = getSupabase();
+  // Searchable statuses: anything where the raw text is likely present.
+  // - confirmed/processed → ready to search
+  // - processing → post-processing not done yet, but raw_transcript is usually already saved
+  // - failed → AI summary/categorization failed but the raw transcript is still there;
+  //   Nathan should still be able to ask questions of the underlying text
+  const SEARCHABLE_STATUSES = ['confirmed', 'processing', 'processed', 'failed'];
+
+  // If the client sent an explicit (possibly empty) transcriptIds array, that's
+  // the authoritative scope - don't fall through to "search everything" when
+  // the filter narrowed the list to zero matches. Same intent for jobId.
+  const hasTranscriptIds = Array.isArray(body.transcriptIds);
+  if (hasTranscriptIds && body.transcriptIds.length === 0) {
+    return NextResponse.json({
+      answer: "There are no transcripts in your current filter, so there's nothing to search. Clear a filter and try again.",
+      sources: [],
+    });
+  }
+
   let q = sb
     .from('meeting_transcripts')
-    .select('id, title, recorded_at, assigned_kind, assigned_job_name, assigned_lead_name, recorded_by_user, raw_transcript')
-    .in('status', ['confirmed', 'processing', 'processed'])
+    .select('id, title, status, recorded_at, assigned_kind, assigned_job_name, assigned_lead_name, recorded_by_user, raw_transcript')
+    .in('status', SEARCHABLE_STATUSES)
+    // Only rows with raw text are useful; status='processing' can briefly mean
+    // the row exists but the audio hasn't been transcribed yet.
+    .not('raw_transcript', 'is', null)
     .order('recorded_at', { ascending: false, nullsFirst: false })
     .limit(MAX_DOCS);
 
-  if (Array.isArray(body.transcriptIds) && body.transcriptIds.length) q = q.in('id', body.transcriptIds.slice(0, MAX_DOCS));
+  if (hasTranscriptIds) q = q.in('id', body.transcriptIds.slice(0, MAX_DOCS));
   else if (body.jobId) q = q.eq('assigned_job_id', String(body.jobId));
   if (!(auth.role === 'owner' || auth.role === 'admin')) q = q.eq('recorded_by_user', auth.userId);
 
   const { data: rows, error } = await q;
   if (error) return NextResponse.json({ error: error.message }, { status: 500 });
-  if (!rows || rows.length === 0) return NextResponse.json({ answer: 'No transcripts found in the selected scope.', sources: [] });
+  if (!rows || rows.length === 0) {
+    // Better empty state: try a permissive count to tell the operator WHY
+    // their search returned nothing. If transcripts exist in the scope but
+    // we excluded them, name the reason.
+    let why = 'No transcripts found in the selected scope.';
+    if (body.jobId) {
+      const { count: anyForJob } = await sb
+        .from('meeting_transcripts')
+        .select('id', { count: 'exact', head: true })
+        .eq('assigned_job_id', String(body.jobId));
+      if (anyForJob && anyForJob > 0) {
+        const { count: noText } = await sb
+          .from('meeting_transcripts')
+          .select('id', { count: 'exact', head: true })
+          .eq('assigned_job_id', String(body.jobId))
+          .is('raw_transcript', null);
+        if (noText && noText > 0) {
+          why = `There ${anyForJob === 1 ? 'is 1 transcript' : `are ${anyForJob} transcripts`} for this project, but ${noText === anyForJob ? 'none have' : `${noText} have not yet`} finished transcribing. Try again in a few minutes.`;
+        } else {
+          why = `This project has ${anyForJob} transcript(s), but none are in a searchable state right now.`;
+        }
+      } else {
+        why = 'No transcripts have been linked to this project yet. Confirm a transcript to this job from the categorizing queue first.';
+      }
+    }
+    return NextResponse.json({ answer: why, sources: [] });
+  }
 
   const sources: any[] = [];
   let used = '';
