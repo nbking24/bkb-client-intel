@@ -62,6 +62,8 @@ interface GatewaySubmission {
   verifiedAt: string | null;
   verifiedBy: string | null;
   internalNote: string | null;
+  followupRequestedAt: string | null;
+  followupRequestedBy: string | null;
   submittedAt: string;
   sourceReviewRequestId: string | null;
 }
@@ -78,9 +80,11 @@ export default function ReviewsPage() {
   const [drafts, setDrafts] = useState<DraftedReply[]>([]);
   const [submissions, setSubmissions] = useState<GatewaySubmission[]>([]);
   const [counts, setCounts] = useState<GatewayCounts>({ total: 0, routedToGoogle: 0, internalFollowup: 0, googleVerified: 0 });
+  const [googleReviewUrl, setGoogleReviewUrl] = useState<string>('https://search.google.com/local/writereview?placeid=PLACE_ID');
   const [filter, setFilter] = useState<string>('all');
   const [subFilter, setSubFilter] = useState<'all' | 'google' | 'low_star' | 'unverified'>('all');
   const [subSearch, setSubSearch] = useState('');
+  const [templateModal, setTemplateModal] = useState<GatewaySubmission | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
@@ -108,6 +112,7 @@ export default function ReviewsPage() {
       setDrafts(drRes.responses || []);
       setSubmissions(gsRes.submissions || []);
       setCounts(gsRes.counts || { total: 0, routedToGoogle: 0, internalFollowup: 0, googleVerified: 0 });
+      if (gsRes.config?.googleReviewUrl) setGoogleReviewUrl(gsRes.config.googleReviewUrl);
     } catch (err: any) {
       setError(err.message);
     } finally {
@@ -115,9 +120,12 @@ export default function ReviewsPage() {
     }
   };
 
-  const patchSubmission = async (id: string, patch: { googleVerified?: boolean; internalNote?: string }) => {
+  const patchSubmission = async (
+    id: string,
+    patch: { googleVerified?: boolean; internalNote?: string; markRequested?: boolean; clearRequested?: boolean },
+  ) => {
     const token = getToken();
-    // Optimistic update so the checkbox flips immediately.
+    // Optimistic update so the UI reflects the change immediately.
     setSubmissions((prev) =>
       prev.map((s) =>
         s.id === id
@@ -125,6 +133,8 @@ export default function ReviewsPage() {
               ...s,
               ...(typeof patch.googleVerified === 'boolean' ? { googleVerified: patch.googleVerified } : {}),
               ...(typeof patch.internalNote === 'string' ? { internalNote: patch.internalNote } : {}),
+              ...(patch.markRequested ? { followupRequestedAt: new Date().toISOString() } : {}),
+              ...(patch.clearRequested ? { followupRequestedAt: null, followupRequestedBy: null } : {}),
             }
           : s,
       ),
@@ -282,11 +292,25 @@ export default function ReviewsPage() {
         ) : (
           <div className="space-y-3">
             {filteredSubmissions.map((s) => (
-              <GatewaySubmissionCard key={s.id} sub={s} onPatch={patchSubmission} />
+              <GatewaySubmissionCard
+                key={s.id}
+                sub={s}
+                onPatch={patchSubmission}
+                onOpenTemplate={() => setTemplateModal(s)}
+              />
             ))}
           </div>
         )}
       </section>
+
+      {templateModal && (
+        <GoogleRequestTemplateModal
+          sub={templateModal}
+          googleReviewUrl={googleReviewUrl}
+          onClose={() => setTemplateModal(null)}
+          onMarkRequested={(id) => patchSubmission(id, { markRequested: true })}
+        />
+      )}
 
       {/* Awaiting Response approval */}
       <section>
@@ -590,6 +614,219 @@ function EmptyState({ text }: { text: string }) {
   );
 }
 
+function GoogleRequestTemplateModal({
+  sub,
+  googleReviewUrl,
+  onClose,
+  onMarkRequested,
+}: {
+  sub: GatewaySubmission;
+  googleReviewUrl: string;
+  onClose: () => void;
+  onMarkRequested: (id: string) => void;
+}) {
+  const [copied, setCopied] = useState<string | null>(null);
+
+  // First name is more personal than full name in SMS/email. Falls back to
+  // the full name if it's a single-word or doesn't split cleanly.
+  const firstName = (sub.clientName || '').trim().split(/\s+/)[0] || sub.clientName || 'there';
+
+  // SMS template: short, casual, gift card mention, link last.
+  // No em dashes (Nathan's rule), no "sub"/"subcontractor" vocabulary.
+  const smsTemplate =
+    `Hi ${firstName}, this is Nate at Brett King Builder. Thank you so much ` +
+    `for the kind review you left us recently. Would you mind reposting it ` +
+    `on Google? As a thank you we'll send a $25 gift card once your Google ` +
+    `review is live. Here's the link: ${googleReviewUrl}`;
+
+  const emailSubject = `Quick favor + $25 gift card, ${firstName}`;
+
+  const emailBody =
+    `Hi ${firstName},\n\n` +
+    `Thank you again for the wonderful review you shared with our team. ` +
+    `It really means a lot.\n\n` +
+    `If you have a minute, would you mind reposting your review on Google? ` +
+    `Public reviews on Google make a real difference for our business, ` +
+    `especially when families like yours are deciding who to work with.\n\n` +
+    `To say thanks, we'd love to send you a $25 gift card once your Google ` +
+    `review is posted.\n\n` +
+    `Here's the link to leave the review:\n${googleReviewUrl}\n\n` +
+    `Thanks again, ${firstName}. We appreciate you.\n\n` +
+    `Best,\nNate\nBrett King Builder`;
+
+  const copy = async (key: string, value: string) => {
+    try {
+      await navigator.clipboard.writeText(value);
+      setCopied(key);
+      setTimeout(() => setCopied((c) => (c === key ? null : c)), 1800);
+    } catch {
+      // Fallback for environments without clipboard API.
+      const ta = document.createElement('textarea');
+      ta.value = value;
+      document.body.appendChild(ta);
+      ta.select();
+      try { document.execCommand('copy'); } catch {}
+      document.body.removeChild(ta);
+      setCopied(key);
+      setTimeout(() => setCopied((c) => (c === key ? null : c)), 1800);
+    }
+  };
+
+  // When Nathan first opens this modal, stamp followup_requested_at so the
+  // card shows "Asked on..." and we don't accidentally chase the same client
+  // twice. He can clear the flag from the card if he wants to re-send.
+  useEffect(() => {
+    if (!sub.followupRequestedAt) {
+      onMarkRequested(sub.id);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [sub.id]);
+
+  return (
+    <div
+      className="fixed inset-0 z-50 bg-black/40 flex items-center justify-center p-4"
+      onClick={onClose}
+    >
+      <div
+        className="bg-white rounded-lg shadow-xl max-w-2xl w-full max-h-[90vh] overflow-y-auto"
+        onClick={(e) => e.stopPropagation()}
+      >
+        <div className="flex items-center justify-between p-5 border-b border-gray-200">
+          <div>
+            <h3 className="text-lg font-semibold text-gray-900">
+              Ask {firstName} to post on Google
+            </h3>
+            <div className="text-xs text-gray-500 mt-0.5">
+              Copy + paste these into your text or email app. The $25 gift card
+              is mentioned as the incentive. The Google link is included.
+            </div>
+          </div>
+          <button
+            onClick={onClose}
+            className="text-gray-400 hover:text-gray-700"
+            aria-label="Close"
+          >
+            <X className="w-5 h-5" />
+          </button>
+        </div>
+
+        <div className="p-5 space-y-5">
+          {/* Contact info for the operator's reference */}
+          <div className="text-xs text-gray-600 bg-gray-50 border border-gray-200 rounded p-3 space-y-0.5">
+            <div><span className="text-gray-500">Send to:</span> <span className="font-medium text-gray-900">{sub.clientName || sub.clientLabel}</span></div>
+            {sub.clientPhoneFormatted && (
+              <div><span className="text-gray-500">Phone:</span> <span className="font-medium text-gray-900">{sub.clientPhoneFormatted}</span></div>
+            )}
+            {sub.clientEmail && (
+              <div><span className="text-gray-500">Email:</span> <span className="font-medium text-gray-900">{sub.clientEmail}</span></div>
+            )}
+            {sub.projectNames && (
+              <div><span className="text-gray-500">Project:</span> <span className="text-gray-900">{sub.projectNames}</span></div>
+            )}
+          </div>
+
+          {/* SMS template */}
+          <section>
+            <div className="flex items-center justify-between mb-1.5">
+              <div className="text-sm font-semibold text-gray-900">Text message</div>
+              <button
+                onClick={() => copy('sms', smsTemplate)}
+                className={
+                  'text-xs px-2.5 py-1 rounded flex items-center gap-1 ' +
+                  (copied === 'sms'
+                    ? 'bg-emerald-600 text-white'
+                    : 'bg-blue-600 hover:bg-blue-700 text-white')
+                }
+              >
+                <Check className="w-3 h-3" /> {copied === 'sms' ? 'Copied!' : 'Copy text'}
+              </button>
+            </div>
+            <textarea
+              readOnly
+              value={smsTemplate}
+              rows={5}
+              className="w-full font-mono text-xs border border-gray-300 rounded p-2.5 bg-gray-50 text-gray-800"
+            />
+          </section>
+
+          {/* Email template */}
+          <section>
+            <div className="flex items-center justify-between mb-1.5">
+              <div className="text-sm font-semibold text-gray-900">Email</div>
+              <div className="flex gap-2">
+                <button
+                  onClick={() => copy('subject', emailSubject)}
+                  className={
+                    'text-xs px-2.5 py-1 rounded flex items-center gap-1 ' +
+                    (copied === 'subject'
+                      ? 'bg-emerald-600 text-white'
+                      : 'bg-gray-200 hover:bg-gray-300 text-gray-700')
+                  }
+                >
+                  <Check className="w-3 h-3" /> {copied === 'subject' ? 'Copied!' : 'Copy subject'}
+                </button>
+                <button
+                  onClick={() => copy('body', emailBody)}
+                  className={
+                    'text-xs px-2.5 py-1 rounded flex items-center gap-1 ' +
+                    (copied === 'body'
+                      ? 'bg-emerald-600 text-white'
+                      : 'bg-blue-600 hover:bg-blue-700 text-white')
+                  }
+                >
+                  <Check className="w-3 h-3" /> {copied === 'body' ? 'Copied!' : 'Copy email body'}
+                </button>
+              </div>
+            </div>
+            <input
+              readOnly
+              value={emailSubject}
+              className="w-full text-sm font-medium border border-gray-300 rounded p-2 mb-2 bg-gray-50 text-gray-800"
+            />
+            <textarea
+              readOnly
+              value={emailBody}
+              rows={14}
+              className="w-full font-mono text-xs border border-gray-300 rounded p-2.5 bg-gray-50 text-gray-800"
+            />
+          </section>
+
+          {/* Direct link helper */}
+          <section className="bg-blue-50 border border-blue-200 rounded p-3 flex items-center justify-between gap-3">
+            <div className="text-xs text-blue-900">
+              <div className="font-semibold">Google review link</div>
+              <div className="font-mono break-all">{googleReviewUrl}</div>
+            </div>
+            <button
+              onClick={() => copy('link', googleReviewUrl)}
+              className={
+                'text-xs px-2.5 py-1 rounded flex items-center gap-1 whitespace-nowrap ' +
+                (copied === 'link'
+                  ? 'bg-emerald-600 text-white'
+                  : 'bg-blue-600 hover:bg-blue-700 text-white')
+              }
+            >
+              <Check className="w-3 h-3" /> {copied === 'link' ? 'Copied!' : 'Copy link'}
+            </button>
+          </section>
+        </div>
+
+        <div className="px-5 py-4 border-t border-gray-200 flex items-center justify-between text-xs text-gray-500">
+          <div>
+            Logged as a follow-up for {firstName} so you don&rsquo;t double-text.
+          </div>
+          <button
+            onClick={onClose}
+            className="px-3 py-1.5 bg-gray-100 hover:bg-gray-200 text-gray-700 text-sm rounded"
+          >
+            Done
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 function prettyTrigger(t: string) {
   switch (t) {
     case 'completion':
@@ -610,9 +847,11 @@ function prettyTrigger(t: string) {
 function GatewaySubmissionCard({
   sub,
   onPatch,
+  onOpenTemplate,
 }: {
   sub: GatewaySubmission;
-  onPatch: (id: string, patch: { googleVerified?: boolean; internalNote?: string }) => void;
+  onPatch: (id: string, patch: { googleVerified?: boolean; internalNote?: string; markRequested?: boolean; clearRequested?: boolean }) => void;
+  onOpenTemplate: () => void;
 }) {
   const [showFullText, setShowFullText] = useState(false);
   const [editingNote, setEditingNote] = useState(false);
@@ -664,11 +903,19 @@ function GatewaySubmissionCard({
             ) : sub.routedTo === 'google' ? (
               <span
                 className="inline-flex items-center gap-1 text-xs px-2 py-0.5 rounded bg-gray-100 text-gray-600 font-medium"
-                title="They saw the Google review prompt after submitting, but we haven't confirmed they actually posted it."
+                title="They submitted a 5-star review through our link, but their review has not yet been confirmed on Google."
               >
-                Google prompt shown
+                Not yet confirmed on Google
               </span>
             ) : null}
+            {sub.followupRequestedAt && !sub.googleVerified && (
+              <span
+                className="inline-flex items-center gap-1 text-xs px-2 py-0.5 rounded bg-purple-100 text-purple-800 font-medium"
+                title={`You opened the request templates on ${new Date(sub.followupRequestedAt).toLocaleDateString()}.`}
+              >
+                <Send className="w-3 h-3" /> Asked {new Date(sub.followupRequestedAt).toLocaleDateString()}
+              </span>
+            )}
           </div>
           <div className="text-xs text-gray-500 mt-0.5">
             {sub.projectNames || 'No project recorded'}
@@ -678,7 +925,7 @@ function GatewaySubmissionCard({
           </div>
         </div>
         {sub.routedTo === 'google' && (
-          <div className="flex flex-col items-end gap-1 shrink-0">
+          <div className="flex flex-col items-end gap-1.5 shrink-0">
             <label className="flex items-center gap-1.5 text-xs text-gray-700 whitespace-nowrap cursor-pointer">
               <input
                 type="checkbox"
@@ -688,6 +935,15 @@ function GatewaySubmissionCard({
               />
               <span className="font-medium">Confirmed posted on Google</span>
             </label>
+            {!sub.googleVerified && (
+              <button
+                onClick={onOpenTemplate}
+                className="text-xs px-2.5 py-1 bg-emerald-600 hover:bg-emerald-700 text-white rounded flex items-center gap-1 whitespace-nowrap"
+                title="Open a copy-paste text + email template to ask this client to post their review on Google."
+              >
+                <Send className="w-3 h-3" /> Request Google review
+              </button>
+            )}
             <a
               href={googleSearchUrl}
               target="_blank"
@@ -717,6 +973,18 @@ function GatewaySubmissionCard({
         <div className="text-sm text-gray-400 italic">No written review (stars only).</div>
       )}
 
+      {/* internal note row (and a small "clear request" toggle if we logged one) */}
+      {sub.followupRequestedAt && !sub.googleVerified && (
+        <div className="mt-2 text-xs text-gray-500">
+          <button
+            onClick={() => onPatch(sub.id, { clearRequested: true })}
+            className="text-gray-500 hover:text-gray-700 underline"
+            title="Clear the 'Asked' stamp so you can re-open the request templates."
+          >
+            Clear &ldquo;Asked&rdquo; flag
+          </button>
+        </div>
+      )}
       {(isLowStar || sub.internalNote || editingNote) && (
         <div className="mt-3">
           {editingNote ? (

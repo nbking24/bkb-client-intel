@@ -48,6 +48,8 @@ export async function GET(req: NextRequest) {
       verified_at,
       verified_by,
       internal_note,
+      followup_requested_at,
+      followup_requested_by,
       created_at
       `,
     )
@@ -128,6 +130,8 @@ export async function GET(req: NextRequest) {
       verifiedAt: s.verified_at,
       verifiedBy: s.verified_by,
       internalNote: s.internal_note,
+      followupRequestedAt: s.followup_requested_at,
+      followupRequestedBy: s.followup_requested_by,
       submittedAt: s.created_at,
       sourceReviewRequestId: s.source_review_request_id,
     };
@@ -150,6 +154,13 @@ export async function GET(req: NextRequest) {
     .select('id', { count: 'exact', head: true })
     .eq('google_verified', true);
 
+  // Resolve the Google review URL once, server-side, and pass it down so the
+  // dashboard's template modal can include it without leaking env vars to the
+  // client bundle. Falls back to the same default the gateway uses.
+  const googleReviewUrl =
+    process.env.GOOGLE_REVIEW_URL ||
+    'https://search.google.com/local/writereview?placeid=PLACE_ID';
+
   return NextResponse.json({
     submissions,
     counts: {
@@ -157,6 +168,9 @@ export async function GET(req: NextRequest) {
       routedToGoogle: googleRoutedCount || 0,
       internalFollowup: lowStarCount || 0,
       googleVerified: verifiedCount || 0,
+    },
+    config: {
+      googleReviewUrl,
     },
   });
 }
@@ -166,7 +180,7 @@ export async function PATCH(req: NextRequest) {
   if (!auth.valid) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
 
   const body = await req.json().catch(() => ({}));
-  const { id, googleVerified, internalNote } = body || {};
+  const { id, googleVerified, internalNote, markRequested, clearRequested } = body || {};
   if (!id || typeof id !== 'string') {
     return NextResponse.json({ error: 'id required' }, { status: 400 });
   }
@@ -179,6 +193,18 @@ export async function PATCH(req: NextRequest) {
   }
   if (typeof internalNote === 'string') {
     patch.internal_note = internalNote.trim() || null;
+  }
+  // markRequested logs that the operator has opened the Google-review request
+  // templates for this client. It does NOT send anything — Nathan still does
+  // the SMS/email out of his own apps. Stamps a timestamp so the card shows
+  // "Asked on..." and we don't double-pester the client.
+  if (markRequested === true) {
+    patch.followup_requested_at = new Date().toISOString();
+    patch.followup_requested_by = auth.userId || 'unknown';
+  }
+  if (clearRequested === true) {
+    patch.followup_requested_at = null;
+    patch.followup_requested_by = null;
   }
 
   const supabase = getSupabase();
