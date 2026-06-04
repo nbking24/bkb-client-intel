@@ -47,10 +47,13 @@ interface GatewaySubmission {
   id: string;
   clientContactId: string;
   clientName: string | null;
+  clientLabel: string;
+  clientPhoneFormatted: string | null;
   clientEmail: string | null;
   clientPhone: string | null;
   jobtreadJobId: string | null;
-  jobtreadCustomerId: string | null;
+  jobtreadAccountId: string | null;
+  ghlContactId: string | null;
   projectNames: string | null;
   starRating: number;
   reviewText: string | null;
@@ -217,17 +220,28 @@ export default function ReviewsPage() {
             </h2>
             <div className="text-xs text-gray-500 mt-0.5">
               Every submission from r.brettkingbuilder.com/r/&hellip; (the link sent in your past-client texts).
-              {' '}<span className="text-emerald-700 font-medium">{counts.routedToGoogle}</span> were 5-star and sent on to Google.
+              {' '}<span className="text-emerald-700 font-medium">{counts.routedToGoogle}</span> were 5-star and saw the Google review prompt.
               {' '}<span className="text-amber-700 font-medium">{counts.internalFollowup}</span> were lower-star (kept private).
-              {' '}<span className="text-blue-700 font-medium">{counts.googleVerified}</span> confirmed on Google so far.
+              {' '}<span className="text-blue-700 font-medium">{counts.googleVerified}</span> confirmed posted on Google so far.
             </div>
           </div>
-          <button
-            onClick={load}
-            className="text-sm text-gray-500 hover:text-gray-800 flex items-center gap-1"
-          >
-            <RefreshCw className="w-3.5 h-3.5" /> Refresh
-          </button>
+          <div className="flex items-center gap-2">
+            <a
+              href="https://business.google.com/n/reviews"
+              target="_blank"
+              rel="noreferrer"
+              className="text-sm px-3 py-1.5 bg-blue-50 hover:bg-blue-100 text-blue-700 border border-blue-200 rounded flex items-center gap-1"
+              title="Opens your Google Business Profile reviews page in a new tab so you can confirm which ones actually posted."
+            >
+              <ExternalLink className="w-3.5 h-3.5" /> Open Google reviews
+            </a>
+            <button
+              onClick={load}
+              className="text-sm text-gray-500 hover:text-gray-800 flex items-center gap-1"
+            >
+              <RefreshCw className="w-3.5 h-3.5" /> Refresh
+            </button>
+          </div>
         </div>
         <div className="flex flex-wrap items-center gap-2 mb-3">
           {[
@@ -610,52 +624,80 @@ function GatewaySubmissionCard({
   const isLong = text.length > 280;
   const shown = !showFullText && isLong ? text.slice(0, 280) + '...' : text;
 
+  // A Google search like:
+  //   "Jane Doe" "Brett King Builder" site:google.com/maps
+  // is the quickest way to spot whether this client's review actually posted
+  // publicly. It works even without API access to Google Business Profile.
+  const searchQuery = sub.clientName
+    ? `"${sub.clientName}" "Brett King Builder" site:google.com/maps`
+    : `"Brett King Builder" reviews`;
+  const googleSearchUrl = `https://www.google.com/search?q=${encodeURIComponent(searchQuery)}`;
+
+  // Visual tier: verified > unverified 5-star > low star.
+  const cardClass = isLowStar
+    ? 'bg-amber-50 border-amber-200'
+    : sub.googleVerified
+      ? 'bg-blue-50 border-blue-200'
+      : 'bg-white border-gray-200';
+
   return (
-    <div
-      className={
-        'border rounded-lg p-4 ' +
-        (isLowStar ? 'bg-amber-50 border-amber-200' : 'bg-white border-gray-200')
-      }
-    >
+    <div className={'border rounded-lg p-4 ' + cardClass}>
       <div className="flex items-start justify-between gap-3 mb-2">
         <div className="min-w-0">
           <div className="flex items-center gap-2 flex-wrap">
-            <span className="font-semibold text-gray-900">{sub.clientName || 'Unknown client'}</span>
+            <span className={'font-semibold ' + (sub.clientName ? 'text-gray-900' : 'text-gray-500 italic')}>
+              {sub.clientLabel}
+            </span>
             <span className="text-amber-600 text-sm">
               {'★'.repeat(stars)}
               {'☆'.repeat(5 - stars)}
             </span>
-            {sub.routedTo === 'google' ? (
-              <span className="inline-flex items-center gap-1 text-xs px-2 py-0.5 rounded bg-emerald-100 text-emerald-800 font-medium">
-                Sent to Google
-              </span>
-            ) : (
+            {isLowStar && (
               <span className="inline-flex items-center gap-1 text-xs px-2 py-0.5 rounded bg-amber-200 text-amber-900 font-medium">
-                <AlertTriangle className="w-3 h-3" /> Internal follow-up
+                <AlertTriangle className="w-3 h-3" /> Internal follow-up only
               </span>
             )}
-            {sub.googleVerified && (
+            {sub.googleVerified ? (
               <span className="inline-flex items-center gap-1 text-xs px-2 py-0.5 rounded bg-blue-100 text-blue-800 font-medium">
-                <Check className="w-3 h-3" /> Verified on Google
+                <Check className="w-3 h-3" /> Confirmed on Google
               </span>
-            )}
+            ) : sub.routedTo === 'google' ? (
+              <span
+                className="inline-flex items-center gap-1 text-xs px-2 py-0.5 rounded bg-gray-100 text-gray-600 font-medium"
+                title="They saw the Google review prompt after submitting, but we haven't confirmed they actually posted it."
+              >
+                Google prompt shown
+              </span>
+            ) : null}
           </div>
           <div className="text-xs text-gray-500 mt-0.5">
             {sub.projectNames || 'No project recorded'}
+            {sub.clientPhoneFormatted ? ` · ${sub.clientPhoneFormatted}` : ''}
             {sub.clientEmail ? ` · ${sub.clientEmail}` : ''}
             {' · '}Submitted {new Date(sub.submittedAt).toLocaleDateString()}
           </div>
         </div>
         {sub.routedTo === 'google' && (
-          <label className="flex items-center gap-1.5 text-xs text-gray-600 whitespace-nowrap cursor-pointer shrink-0">
-            <input
-              type="checkbox"
-              checked={sub.googleVerified}
-              onChange={(e) => onPatch(sub.id, { googleVerified: e.target.checked })}
-              className="w-4 h-4"
-            />
-            Posted on Google
-          </label>
+          <div className="flex flex-col items-end gap-1 shrink-0">
+            <label className="flex items-center gap-1.5 text-xs text-gray-700 whitespace-nowrap cursor-pointer">
+              <input
+                type="checkbox"
+                checked={sub.googleVerified}
+                onChange={(e) => onPatch(sub.id, { googleVerified: e.target.checked })}
+                className="w-4 h-4"
+              />
+              <span className="font-medium">Confirmed posted on Google</span>
+            </label>
+            <a
+              href={googleSearchUrl}
+              target="_blank"
+              rel="noreferrer"
+              className="text-xs text-blue-700 hover:underline flex items-center gap-1"
+              title="Opens a Google search filtered to this client's name + Brett King Builder on Google Maps."
+            >
+              <Search className="w-3 h-3" /> Search Google for this review
+            </a>
+          </div>
         )}
       </div>
 

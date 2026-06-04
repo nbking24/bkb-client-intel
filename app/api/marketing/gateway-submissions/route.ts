@@ -65,34 +65,61 @@ export async function GET(req: NextRequest) {
 
   // Pull the matching past_client_outreach rows in one shot so we can attach
   // a friendly full_name + project_names + email + phone to each submission.
-  // The contact_key on PCO === client_contact_id on the gateway submission.
+  // The contact_key on PCO === client_contact_id on the gateway submission
+  // (both are the 10-digit phone number from the campaign).
+  //
+  // NOTE: the column is `jobtread_account_id`, not `jobtread_customer_id`.
+  // The previous version selected a non-existent column, which caused the
+  // entire row to come back null from supabase and silently broke every
+  // name resolution, every project name, every email. That's why Nathan saw
+  // "no names" on the dashboard even though every real PCO row has a name.
   const contactKeys = Array.from(new Set((data || []).map((s) => s.client_contact_id).filter(Boolean)));
   let pcoByKey: Record<string, any> = {};
   if (contactKeys.length > 0) {
-    const { data: pco } = await supabase
+    const { data: pco, error: pcoErr } = await supabase
       .from('past_client_outreach')
-      .select('contact_key, full_name, first_name, last_name, project_names, email, phone, jobtread_customer_id')
+      .select('contact_key, full_name, first_name, last_name, project_names, email, phone, jobtread_account_id, ghl_contact_id')
       .in('contact_key', contactKeys);
+    if (pcoErr) {
+      console.error('[gateway-submissions] PCO lookup failed:', pcoErr);
+    }
     for (const row of pco || []) {
       pcoByKey[row.contact_key] = row;
     }
   }
+
+  // Helper: pretty-print a phone number for display, since contactKey is just
+  // ten digits. "2128449369" -> "(212) 844-9369".
+  const formatPhone = (digits: string | null | undefined) => {
+    if (!digits) return null;
+    const m = String(digits).match(/^(\d{3})(\d{3})(\d{4})$/);
+    return m ? `(${m[1]}) ${m[2]}-${m[3]}` : digits;
+  };
 
   const submissions = (data || []).map((s) => {
     const pco = pcoByKey[s.client_contact_id] || null;
     const displayName =
       s.client_name ||
       pco?.full_name ||
-      [pco?.first_name, pco?.last_name].filter(Boolean).join(' ') ||
+      [pco?.first_name, pco?.last_name].filter(Boolean).join(' ').trim() ||
       null;
+    // If we still can't resolve a name, the 10-digit phone is at least
+    // identifying — show it formatted so Nathan can recognize the number
+    // and add a name manually (or we can backfill later via JT).
+    const fallbackLabel = !displayName && /^\d{10}$/.test(s.client_contact_id)
+      ? `Phone ${formatPhone(s.client_contact_id)}`
+      : null;
     return {
       id: s.id,
       clientContactId: s.client_contact_id,
       clientName: displayName,
+      clientLabel: displayName || fallbackLabel || 'Unknown client',
+      clientPhoneFormatted: formatPhone(pco?.phone || s.client_contact_id),
       clientEmail: s.client_email || pco?.email || null,
       clientPhone: s.client_phone || pco?.phone || null,
       jobtreadJobId: s.jobtread_job_id,
-      jobtreadCustomerId: pco?.jobtread_customer_id || null,
+      jobtreadAccountId: pco?.jobtread_account_id || null,
+      ghlContactId: pco?.ghl_contact_id || null,
       projectNames: pco?.project_names || null,
       starRating: s.star_rating,
       reviewText: s.review_text,
