@@ -7,7 +7,7 @@
  * filtered scope. The unassigned "needs categorizing" queue lives at the top.
  */
 import { useEffect, useState, useCallback, useMemo } from 'react';
-import { Mic, Search, Loader2, ChevronDown, ChevronRight, Sparkles, Briefcase, RefreshCw, Filter } from 'lucide-react';
+import { Mic, Search, Loader2, ChevronDown, ChevronRight, Sparkles, Briefcase, RefreshCw, Filter, AlertTriangle, Repeat } from 'lucide-react';
 import TranscriptsToConfirm from '@/app/dashboard/components/TranscriptsToConfirm';
 
 function getToken() { return typeof window !== 'undefined' ? localStorage.getItem('bkb-token') || '' : ''; }
@@ -56,6 +56,10 @@ export default function TranscriptsDashboardPage() {
   const [aiLoading, setAiLoading] = useState(false);
   const [reloadKey, setReloadKey] = useState(0);
   const refreshAll = useCallback(() => { setReloadKey((k) => k + 1); }, []);
+  // Per-row retry state. Tracks the in-flight transcript id and any error
+  // returned by the retry endpoint so we can show it inline on the row.
+  const [retryingId, setRetryingId] = useState<string | null>(null);
+  const [retryError, setRetryError] = useState<Record<string, string>>({});
 
   const load = useCallback(async () => {
     try {
@@ -69,6 +73,29 @@ export default function TranscriptsDashboardPage() {
     const iv = setInterval(() => { load(); setReloadKey((k) => k + 1); }, 60000);
     return () => clearInterval(iv);
   }, [load]);
+
+  async function retryTranscript(id: string) {
+    setRetryingId(id);
+    setRetryError((m) => { const next = { ...m }; delete next[id]; return next; });
+    try {
+      const res = await fetch(`/api/transcripts/${id}/retry`, {
+        method: 'POST',
+        headers: { authorization: `Bearer ${getToken()}` },
+      });
+      const json = await res.json().catch(() => ({} as any));
+      if (!res.ok) {
+        setRetryError((m) => ({ ...m, [id]: json?.error || `Retry failed (HTTP ${res.status})` }));
+      } else {
+        // Refresh the list so the row's status flips to processed (or the new
+        // error_note if it failed again).
+        await load();
+      }
+    } catch (err: any) {
+      setRetryError((m) => ({ ...m, [id]: `Network error: ${err?.message || 'unknown'}` }));
+    } finally {
+      setRetryingId(null);
+    }
+  }
 
   async function openTranscript(id: string) {
     if (openId === id) { setOpenId(null); return; }
@@ -246,17 +273,60 @@ export default function TranscriptsDashboardPage() {
               const isOpen = openId === t.id; const d = detail[t.id];
               return (
                 <div key={t.id} style={{ borderBottom: '1px solid rgba(200,140,0,0.06)' }}>
-                  <div onClick={() => openTranscript(t.id)} style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '8px 4px', cursor: 'pointer' }}>
-                    {isOpen ? <ChevronDown size={14} style={{ color: GOLD, flexShrink: 0 }} /> : <ChevronRight size={14} style={{ color: '#8a8078', flexShrink: 0 }} />}
-                    <div style={{ flex: 1, minWidth: 0 }}>
-                      <div style={{ fontSize: 13, fontWeight: 600, color: '#2a2520', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{t.title || 'Untitled meeting'}</div>
-                      <div style={{ fontSize: 10, color: '#6a6058', display: 'flex', gap: 10, marginTop: 1 }}>
-                        <span>{fmtDate(t.recorded_at)}</span>
-                        {t.recorded_by_user && <span>by {t.recorded_by_user}</span>}
-                        {t.status === 'failed' && <span style={{ color: '#ef4444' }}>needs retry</span>}
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '8px 4px' }}>
+                    <div onClick={() => openTranscript(t.id)} style={{ display: 'flex', alignItems: 'center', gap: 8, flex: 1, minWidth: 0, cursor: 'pointer' }}>
+                      {isOpen ? <ChevronDown size={14} style={{ color: GOLD, flexShrink: 0 }} /> : <ChevronRight size={14} style={{ color: '#8a8078', flexShrink: 0 }} />}
+                      <div style={{ flex: 1, minWidth: 0 }}>
+                        <div style={{ fontSize: 13, fontWeight: 600, color: '#2a2520', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{t.title || 'Untitled meeting'}</div>
+                        <div style={{ fontSize: 10, color: '#6a6058', display: 'flex', gap: 10, marginTop: 1 }}>
+                          <span>{fmtDate(t.recorded_at)}</span>
+                          {t.recorded_by_user && <span>by {t.recorded_by_user}</span>}
+                          {t.status === 'failed' && <span style={{ color: '#ef4444' }}>needs retry</span>}
+                          {t.status === 'processing' && <span style={{ color: '#c88c00' }}>processing</span>}
+                          {t.assigned_kind === 'job' && t.jt_daily_log_id && (
+                            <span style={{ color: '#1e6b35' }}>daily log created</span>
+                          )}
+                        </div>
                       </div>
                     </div>
+                    {/* Retry button: only on job-assigned failed rows. */}
+                    {t.status === 'failed' && t.assigned_kind === 'job' && t.assigned_job_id && (
+                      <button
+                        onClick={(e) => { e.stopPropagation(); retryTranscript(t.id); }}
+                        disabled={retryingId === t.id}
+                        style={{
+                          display: 'inline-flex', alignItems: 'center', gap: 4,
+                          padding: '4px 8px', borderRadius: 5,
+                          border: '1px solid rgba(200,140,0,0.4)',
+                          background: '#fffdf8', color: '#8a4f00',
+                          fontSize: 11, fontWeight: 600, cursor: retryingId === t.id ? 'default' : 'pointer',
+                          opacity: retryingId === t.id ? 0.5 : 1, flexShrink: 0,
+                        }}
+                        title="Re-run the daily-log creation step for this meeting."
+                      >
+                        {retryingId === t.id ? <Loader2 size={11} className="animate-spin" /> : <Repeat size={11} />}
+                        {retryingId === t.id ? 'Retrying...' : 'Retry'}
+                      </button>
+                    )}
                   </div>
+                  {retryError[t.id] && (
+                    <div
+                      role="alert"
+                      style={{
+                        margin: '0 4px 8px 26px', padding: '6px 8px', borderRadius: 5,
+                        background: 'rgba(239,68,68,0.08)', border: '1px solid rgba(239,68,68,0.25)',
+                        color: '#b91c1c', fontSize: 11, display: 'flex', alignItems: 'flex-start', gap: 6,
+                      }}
+                    >
+                      <AlertTriangle size={11} style={{ marginTop: 1, flexShrink: 0 }} />
+                      <span style={{ flex: 1 }}>{retryError[t.id]}</span>
+                      <button
+                        onClick={() => setRetryError((m) => { const n = { ...m }; delete n[t.id]; return n; })}
+                        aria-label="Dismiss"
+                        style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#b91c1c', fontSize: 12, padding: 0 }}
+                      >×</button>
+                    </div>
+                  )}
                   {isOpen && (
                     <div style={{ padding: '4px 4px 12px 26px' }}>
                       {loadingDetail === t.id && <div style={{ fontSize: 12, color: '#6a6058', display: 'flex', alignItems: 'center', gap: 6 }}><Loader2 size={12} className="animate-spin" /> Loading transcript...</div>}

@@ -1801,9 +1801,14 @@ export async function createDailyLog(params: {
         notes,
         ...(assignees?.length ? { assignees } : {}),
         ...(notify !== undefined ? { notify } : {}),
-        customFieldValues: {
-          [DAILY_LOG_TYPE_FIELD_ID]: dailyLogType || 'Other',
-        },
+        // NOTE: the legacy DAILY_LOG_TYPE_FIELD_ID (22P5xZ5QiRLq) is no longer
+        // present in BKB's JobTread org. Sending it caused every transcript to
+        // 400 with "Could not find custom field with ID or name". The 2026
+        // dailyLog target uses different fields (Work Completed Today, Crews &
+        // Manpower, Upcoming Work, Owner Notes). The summary already lands in
+        // `notes` which renders fine on the JT daily log, so we just skip the
+        // custom field write. `dailyLogType` is still accepted by the caller
+        // signature so we don't have to chase call sites.
       },
       createdDailyLog: { id: {}, date: {}, notes: {} },
     },
