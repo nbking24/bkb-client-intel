@@ -33,6 +33,9 @@
     },
     "app/api/cron/categorize-bills/route.ts": {
       "maxDuration": 300
+    },
+    "app/api/cron/inbound-message-alerts/route.ts": {
+      "maxDuration": 60
     }
   },
   "crons": [
@@ -67,6 +70,10 @@
     {
       "path": "/api/cron/categorize-bills",
       "schedule": "0 9 * * *"
+    },
+    {
+      "path": "/api/cron/inbound-message-alerts",
+      "schedule": "*/10 * * * *"
     }
   ]
 }

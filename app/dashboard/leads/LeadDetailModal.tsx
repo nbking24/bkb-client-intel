@@ -6,7 +6,7 @@ import {
   X, Loader2, Phone, Mail, MapPin, Tag, Calendar, Clock,
   FileText, User, Building2, Globe, ExternalLink, ChevronDown, ChevronRight,
   Star, Clipboard, MessageSquare, MessageCircle, PhoneCall, Mail as MailIcon,
-  ArrowDownLeft, ArrowUpRight, Pencil, Trash2, CheckCircle2,
+  ArrowDownLeft, ArrowUpRight, Pencil, Trash2, CheckCircle2, Send,
 } from 'lucide-react';
 
 /* ── Types ── */
@@ -151,6 +151,16 @@ export default function LeadDetailModal({ contactId, opportunityId, jobId, conta
   const [moscowExpanded, setMoscowExpanded] = useState(true);
   const [customExpanded, setCustomExpanded] = useState(false);
   const [activityExpanded, setActivityExpanded] = useState(true);
+
+  // ── Text conversation (SMS via Loop) state ──
+  const [smsExpanded, setSmsExpanded] = useState(false);
+  const [smsMessages, setSmsMessages] = useState<any[]>([]);
+  const [smsLoading, setSmsLoading] = useState(false);
+  const [smsLoaded, setSmsLoaded] = useState(false);
+  const [smsError, setSmsError] = useState<string | null>(null);
+  const [smsDraft, setSmsDraft] = useState('');
+  const [smsSending, setSmsSending] = useState(false);
+  const smsThreadRef = useRef<HTMLDivElement>(null);
   const modalRef = useRef<HTMLDivElement>(null);
 
   // Per-appointment edit/cancel state. Keyed on the GHL event id (which
@@ -165,6 +175,71 @@ export default function LeadDetailModal({ contactId, opportunityId, jobId, conta
   const [apptError, setApptError] = useState<string | null>(null);
   const [apptSuccess, setApptSuccess] = useState<string | null>(null);
   const [cancelConfirm, setCancelConfirm] = useState<string | null>(null);
+
+  // Load the SMS thread from Loop the first time the section is expanded.
+  async function loadConversation() {
+    setSmsLoading(true);
+    setSmsError(null);
+    try {
+      const res = await fetch(`/api/dashboard/lead-conversation?contactId=${contactId}`, {
+        headers: { Authorization: `Bearer ${getToken()}` },
+      });
+      if (!res.ok) throw new Error((await res.text()) || 'Failed to load conversation');
+      const d = await res.json();
+      setSmsMessages(d.messages || []);
+      setSmsLoaded(true);
+      // Scroll thread to the newest message after render
+      setTimeout(() => {
+        if (smsThreadRef.current) smsThreadRef.current.scrollTop = smsThreadRef.current.scrollHeight;
+      }, 50);
+    } catch (err: any) {
+      setSmsError(err.message || 'Failed to load conversation');
+    } finally {
+      setSmsLoading(false);
+    }
+  }
+
+  function toggleSmsSection() {
+    const next = !smsExpanded;
+    setSmsExpanded(next);
+    if (next && !smsLoaded && !smsLoading) loadConversation();
+  }
+
+  // Send an SMS through Loop. Optimistically appends the message, then
+  // refreshes the thread shortly after so delivery status comes through.
+  async function sendSms() {
+    const text = smsDraft.trim();
+    if (!text || smsSending) return;
+    setSmsSending(true);
+    setSmsError(null);
+    try {
+      const res = await fetch('/api/dashboard/lead-conversation', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${getToken()}` },
+        body: JSON.stringify({ contactId, message: text }),
+      });
+      const d = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(d?.error || 'Failed to send text');
+      setSmsDraft('');
+      setSmsMessages((prev) => [...prev, {
+        id: d.messageId || `tmp-${Date.now()}`,
+        direction: 'outbound',
+        body: text,
+        dateAdded: new Date().toISOString(),
+        status: 'sending',
+        type: 'SMS',
+      }]);
+      setTimeout(() => {
+        if (smsThreadRef.current) smsThreadRef.current.scrollTop = smsThreadRef.current.scrollHeight;
+      }, 50);
+      // Refresh from Loop after a beat to pick up real status
+      setTimeout(() => { loadConversation(); }, 4000);
+    } catch (err: any) {
+      setSmsError(err.message || 'Failed to send text');
+    } finally {
+      setSmsSending(false);
+    }
+  }
 
   function getToken(): string {
     return typeof window !== 'undefined' ? localStorage.getItem('bkb-token') || '' : '';
@@ -521,6 +596,113 @@ export default function LeadDetailModal({ contactId, opportunityId, jobId, conta
                       ${data.opportunity.monetaryValue.toLocaleString()}
                     </span>
                     <span className="text-xs" style={{ color: '#6a6058' }}>estimated value</span>
+                  </div>
+                )}
+              </div>
+
+              {/* ── Text Conversation (SMS via Loop) ── */}
+              <div style={{ borderBottom: '1px solid rgba(200,140,0,0.06)' }}>
+                <button
+                  onClick={toggleSmsSection}
+                  className="w-full flex items-center gap-2 px-5 py-3 text-left"
+                  style={{ background: smsExpanded ? 'rgba(200,140,0,0.03)' : 'transparent' }}
+                >
+                  <MessageCircle size={13} style={{ color: '#c88c00' }} />
+                  <span className="text-xs font-semibold uppercase tracking-wider flex-1" style={{ color: '#8a8078' }}>
+                    Text Conversation
+                  </span>
+                  {smsLoaded && smsMessages.length > 0 && (
+                    <span className="text-[10px] px-1.5 py-0.5 rounded-full" style={{ background: 'rgba(200,140,0,0.1)', color: '#c88c00' }}>
+                      {smsMessages.length}
+                    </span>
+                  )}
+                  {smsExpanded ? <ChevronDown size={12} style={{ color: '#8a8078' }} /> : <ChevronRight size={12} style={{ color: '#8a8078' }} />}
+                </button>
+                {smsExpanded && (
+                  <div className="px-5 pb-4">
+                    {!data.contact?.phone ? (
+                      <div className="text-xs px-3 py-2 rounded-lg" style={{ background: '#f8f6f3', color: '#8a8078' }}>
+                        No phone number on file for this lead.
+                      </div>
+                    ) : (
+                      <>
+                        {/* Thread */}
+                        <div
+                          ref={smsThreadRef}
+                          className="space-y-2 mb-3 overflow-y-auto rounded-lg px-3 py-3"
+                          style={{ maxHeight: 280, background: '#f8f6f3', border: '1px solid rgba(200,140,0,0.06)' }}
+                        >
+                          {smsLoading && smsMessages.length === 0 && (
+                            <div className="flex items-center gap-2 text-xs py-2" style={{ color: '#8a8078' }}>
+                              <Loader2 size={12} className="animate-spin" /> Loading conversation…
+                            </div>
+                          )}
+                          {!smsLoading && smsLoaded && smsMessages.length === 0 && (
+                            <div className="text-xs py-2" style={{ color: '#8a8078' }}>
+                              No text messages yet. Send the first one below.
+                            </div>
+                          )}
+                          {smsMessages.map((m) => (
+                            <div key={m.id} className={`flex ${m.direction === 'inbound' ? 'justify-start' : 'justify-end'}`}>
+                              <div
+                                className="max-w-[80%] rounded-lg px-3 py-2"
+                                style={m.direction === 'inbound'
+                                  ? { background: '#ffffff', border: '1px solid rgba(200,140,0,0.12)' }
+                                  : { background: 'rgba(79,70,229,0.08)', border: '1px solid rgba(79,70,229,0.15)' }}
+                              >
+                                <div className="text-sm leading-relaxed whitespace-pre-wrap" style={{ color: '#1a1a1a' }}>
+                                  {m.body}
+                                </div>
+                                <div className="text-[9px] mt-1 flex items-center gap-1" style={{ color: '#8a8078' }}>
+                                  {m.direction === 'inbound' ? <ArrowDownLeft size={8} /> : <ArrowUpRight size={8} />}
+                                  {formatDateTime(m.dateAdded)}
+                                  {m.direction !== 'inbound' && m.status && m.status !== 'delivered' ? ` · ${m.status}` : ''}
+                                </div>
+                              </div>
+                            </div>
+                          ))}
+                        </div>
+
+                        {/* Error */}
+                        {smsError && (
+                          <div className="text-xs px-3 py-2 rounded-lg mb-2" style={{ background: 'rgba(239,68,68,0.06)', color: '#ef4444' }}>
+                            {smsError}
+                          </div>
+                        )}
+
+                        {/* Compose */}
+                        <div className="flex items-end gap-2">
+                          <textarea
+                            value={smsDraft}
+                            onChange={(e) => setSmsDraft(e.target.value)}
+                            onKeyDown={(e) => {
+                              if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); sendSms(); }
+                            }}
+                            placeholder={`Text ${data.contact?.firstName || 'this lead'} (sends from the BKB Loop number)`}
+                            rows={2}
+                            className="flex-1 text-sm rounded-lg px-3 py-2 resize-none focus:outline-none"
+                            style={{ background: '#ffffff', border: '1px solid rgba(200,140,0,0.2)', color: '#1a1a1a' }}
+                            disabled={smsSending}
+                          />
+                          <button
+                            onClick={sendSms}
+                            disabled={smsSending || !smsDraft.trim()}
+                            className="flex items-center gap-1.5 px-3 py-2 rounded-lg text-xs font-semibold"
+                            style={{
+                              background: smsDraft.trim() && !smsSending ? '#c88c00' : 'rgba(200,140,0,0.25)',
+                              color: '#ffffff',
+                              cursor: smsDraft.trim() && !smsSending ? 'pointer' : 'default',
+                            }}
+                          >
+                            {smsSending ? <Loader2 size={12} className="animate-spin" /> : <Send size={12} />}
+                            Send
+                          </button>
+                        </div>
+                        <div className="text-[10px] mt-1.5" style={{ color: '#8a8078' }}>
+                          Sends as a real text through Loop. Replies appear here and in the Loop inbox.
+                        </div>
+                      </>
+                    )}
                   </div>
                 )}
               </div>

@@ -178,6 +178,37 @@ export async function getConversationMessages(conversationId: string, limit = 40
 }
 
 /**
+ * Send an outbound SMS to a contact through Loop/GHL.
+ * Routes through the location's configured SMS number, lands in the
+ * Loop conversation thread, and counts as a real outbound message
+ * (delivery status, opt-out handling, etc. all apply).
+ */
+export async function sendSMS(contactId: string, message: string) {
+  return ghlFetch('/conversations/messages', {
+    method: 'POST',
+    body: JSON.stringify({
+      type: 'SMS',
+      contactId,
+      message,
+    }),
+  });
+}
+
+/**
+ * Location-wide conversation search, newest activity first.
+ * Used by the inbound-message-alerts cron to spot new lead replies
+ * without iterating every contact. Returns conversation summaries
+ * including lastMessageBody, lastMessageDate, lastMessageType,
+ * lastMessageDirection (when present) and unreadCount.
+ */
+export async function searchRecentConversations(limit = 50) {
+  const data = await ghlFetch(
+    `/conversations/search?locationId=${GHL_LOC()}&limit=${limit}&sortBy=last_message_date&sort=desc`
+  );
+  return data.conversations || [];
+}
+
+/**
  * Fetch ALL messages for a conversation with pagination.
  * Used by the sync engine to get the complete message history.
  */
