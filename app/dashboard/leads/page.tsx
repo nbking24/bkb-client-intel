@@ -11,7 +11,7 @@ import {
 } from 'lucide-react';
 import LeadActionPanel from './LeadActionPanel';
 import LeadDetailModal from './LeadDetailModal';
-import NeedsAttentionZone from './NeedsAttentionZone';
+import NeedsAttentionZone, { NextStepBadge } from './NeedsAttentionZone';
 
 /* ── Types ── */
 interface FormData {
@@ -464,6 +464,16 @@ export default function LeadsPage() {
   // Lead detail modal state
   const [detailModal, setDetailModal] = useState<{ contactId: string; opportunityId?: string; jobId?: string; contactName?: string } | null>(null);
 
+  // Per-contact "Next Step" badge data. Populated when NeedsAttentionZone
+  // loads and shared down to every pipeline row so each lead surfaces its
+  // status (booked call, awaiting reply, needs first touch, stale) without
+  // a separate fetch or a click into the detail modal.
+  const [nextStepByContact, setNextStepByContact] = useState<Record<string, { label: string; tone: 'good' | 'warn' | 'bad' }>>({});
+
+  // Stats accordion (KPI cards + charts). Collapsed by default so the page
+  // leads with prep-relevant content, not analytics.
+  const [statsExpanded, setStatsExpanded] = useState(false);
+
   // Inline cancel state for the per-row "Next event" indicator. Tracks
   // which event id is in confirm mode and which is currently in-flight.
   // Successful cancel clears the row's nextCalendarEvent locally so the
@@ -906,6 +916,7 @@ export default function LeadsPage() {
         onOpenLead={(contactId, opportunityId) =>
           setDetailModal({ contactId, opportunityId: opportunityId || undefined })
         }
+        onData={(d) => setNextStepByContact(d.nextStepByContact || {})}
       />
 
       {/* ═══ Action Buttons Row ═══ */}
@@ -1268,6 +1279,7 @@ export default function LeadsPage() {
                       {lead.name}
                     </div>
                     <div className="text-xs" style={{ color: STAGE_COLORS[lead.stage] || '#6a6058' }}>{lead.stage}</div>
+                    <div className="mt-0.5"><NextStepBadge step={nextStepByContact[lead.contactId]} /></div>
                   </div>
                   <div className="text-right flex-shrink-0">
                     <div className="text-xs" style={{ color: '#6a6058' }}>{timeAgo(lead.createdAt)}</div>
@@ -1288,6 +1300,37 @@ export default function LeadsPage() {
       </div>
       )}
 
+      {/* ═══ Stats accordion (KPI Cards + charts) ═══
+          Collapsed by default. The page now leads with prep-relevant content
+          (Needs Your Attention, pipeline lists). Analytics are still here for
+          when Nathan wants the bigger picture. */}
+      <div
+        style={{
+          marginBottom: 16,
+          borderRadius: 10,
+          border: '1px solid rgba(200,140,0,0.15)',
+          background: '#ffffff',
+          overflow: 'hidden',
+        }}
+      >
+        <button
+          type="button"
+          onClick={() => setStatsExpanded((v) => !v)}
+          style={{
+            width: '100%', display: 'flex', alignItems: 'center', gap: 8,
+            padding: '10px 14px', background: '#f8f6f3', border: 'none',
+            cursor: 'pointer', textAlign: 'left',
+          }}
+        >
+          <BarChart3 size={14} style={{ color: '#c88c00' }} />
+          <span style={{ fontSize: 13, fontWeight: 700, color: '#2a2520' }}>Stats &amp; Pipeline Analytics</span>
+          <span style={{ fontSize: 11, color: '#8a8078', marginLeft: 'auto' }}>
+            {statsExpanded ? 'Click to collapse' : 'KPIs, conversion, source breakdown, monthly trend'}
+          </span>
+          {statsExpanded ? <ChevronDown size={14} style={{ color: '#8a8078' }} /> : <ChevronRight size={14} style={{ color: '#8a8078' }} />}
+        </button>
+        {statsExpanded && (
+        <div style={{ padding: '12px 14px 4px' }}>
       {/* KPI Cards Row */}
       {kpiLoading && !kpiData ? (
         <div className="flex items-center justify-center gap-2 py-8" style={{ color: '#8a8078' }}>
@@ -1387,6 +1430,10 @@ export default function LeadsPage() {
           </div>
         </>
       ) : null}
+        </div>
+        )}
+      </div>
+      {/* end of Stats accordion */}
 
       {/* ═══ Pending Discovery + Pending Approval — Side by Side ═══ */}
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 mb-6 items-start">
@@ -1446,6 +1493,7 @@ export default function LeadsPage() {
                         {lead.source}
                       </span>
                     )}
+                    <NextStepBadge step={nextStepByContact[lead.contactId]} />
                   </div>
                   <div className="flex items-center gap-4 text-xs" style={{ color: '#8a8078' }}>
                     {lead.phone && (
@@ -1934,6 +1982,7 @@ export default function LeadsPage() {
                             <AlertTriangle size={8} /> No upcoming tasks
                           </span>
                         )}
+                        {job.ghlContactId && <NextStepBadge step={nextStepByContact[job.ghlContactId]} />}
                         {/* Right-aligned actions: Move to Design + Move to Nurture + JT link */}
                         <div className="ml-auto flex items-center gap-2 flex-shrink-0">
                           {/* Move to Design — only when we have GHL IDs */}

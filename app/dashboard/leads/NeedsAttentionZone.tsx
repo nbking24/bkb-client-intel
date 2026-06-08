@@ -89,9 +89,14 @@ function getToken() {
 export default function NeedsAttentionZone({
   onOpenLead,
   reloadKey,
+  onData,
 }: {
   onOpenLead: (contactId: string, opportunityId: string | null) => void;
   reloadKey?: number;
+  // Lets the parent page reuse the nextStepByContact map to render the
+  // per-row "Next Step" badge across the existing pipeline lists without
+  // refetching.
+  onData?: (data: NeedsAttentionPayload) => void;
 }) {
   const [data, setData] = useState<NeedsAttentionPayload | null>(null);
   const [loading, setLoading] = useState(true);
@@ -116,6 +121,7 @@ export default function NeedsAttentionZone({
       if (!res.ok) throw new Error(`Failed (${res.status})`);
       const json = await res.json();
       setData(json);
+      if (onData) onData(json);
     } catch (err: any) {
       setError(err?.message || 'Failed to load');
     } finally {
