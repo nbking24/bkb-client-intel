@@ -50,6 +50,7 @@ export const DASHBOARDS: DashboardDef[] = [
   { id: 'marketing',   label: 'Marketing',        href: '/dashboard/marketing',   icon: 'Megaphone',       description: 'Marketing tools' },
   { id: 'tickets',     label: 'Tickets',          href: '/dashboard/tickets',     icon: 'Bug',             description: 'Support / bug queue' },
   { id: 'transcripts', label: 'Transcripts',      href: '/dashboard/transcripts', icon: 'Mic',             description: 'Meeting transcripts by job, searchable + AI query' },
+  { id: 'message-formatter', label: 'Message Formatter', href: '/dashboard/message-formatter', icon: 'Type', description: 'Word-like editor that outputs JobTread-ready markdown' },
   { id: 'field',       label: 'My Tasks (Field)', href: '/dashboard/field',       icon: 'ClipboardList',   description: 'Simplified field-staff task view' },
   { id: 'admin',       label: 'Admin',            href: '/dashboard/admin',       icon: 'Shield', ownerOnly: true, description: 'User & access management' },
 ];
