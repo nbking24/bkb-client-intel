@@ -151,6 +151,27 @@ export default function LeadDetailModal({ contactId, opportunityId, jobId, conta
   const [moscowExpanded, setMoscowExpanded] = useState(true);
   const [customExpanded, setCustomExpanded] = useState(false);
   const [activityExpanded, setActivityExpanded] = useState(true);
+  // AI pre-call brief: loaded on demand, cached server-side for 30 min so
+  // re-opening the modal doesn't burn an Anthropic call each time.
+  const [brief, setBrief] = useState<string | null>(null);
+  const [briefLoading, setBriefLoading] = useState(false);
+  const [briefError, setBriefError] = useState<string | null>(null);
+
+  async function loadBrief(force = false) {
+    setBriefLoading(true);
+    setBriefError(null);
+    try {
+      const url = `/api/dashboard/leads/${contactId}/pre-call-brief${force ? '?refresh=1' : ''}`;
+      const res = await fetch(url, { headers: { Authorization: `Bearer ${getToken()}` } });
+      const d = await res.json().catch(() => ({} as any));
+      if (!res.ok) throw new Error(d?.error || `Failed (${res.status})`);
+      setBrief(d.brief || '(no brief returned)');
+    } catch (err: any) {
+      setBriefError(err?.message || 'Brief failed');
+    } finally {
+      setBriefLoading(false);
+    }
+  }
 
   // ── Text conversation (SMS via Loop) state ──
   const [smsExpanded, setSmsExpanded] = useState(false);
@@ -439,6 +460,57 @@ export default function LeadDetailModal({ contactId, opportunityId, jobId, conta
           {/* Content */}
           {data && !loading && (
             <div className="max-h-[65vh] overflow-y-auto">
+
+              {/* ── AI Pre-Call Brief ──
+                  One-paragraph summary Claude writes from everything we have
+                  on this lead (notes, full Loop SMS thread, JT comments, PML
+                  transcripts, contact metadata). Loaded on demand so the
+                  modal stays fast for users who only want messages or notes. */}
+              <div className="px-5 py-4" style={{ background: '#fffdf8', borderBottom: '1px solid rgba(200,140,0,0.12)' }}>
+                <div className="flex items-center justify-between mb-2">
+                  <div className="flex items-center gap-1.5">
+                    <span style={{ fontSize: 10, fontWeight: 700, letterSpacing: '0.06em', color: '#c88c00' }}>
+                      ✨ PRE-CALL BRIEF
+                    </span>
+                    <span style={{ fontSize: 10, color: '#8a8078' }}>Claude summary of everything we know on this lead</span>
+                  </div>
+                  {brief && (
+                    <button
+                      onClick={() => loadBrief(true)}
+                      disabled={briefLoading}
+                      style={{ fontSize: 11, color: '#c88c00', background: 'none', border: 'none', cursor: 'pointer', fontWeight: 600 }}
+                      title="Re-run the briefing against the latest data"
+                    >
+                      Regenerate
+                    </button>
+                  )}
+                </div>
+                {!brief && !briefLoading && !briefError && (
+                  <button
+                    onClick={() => loadBrief(false)}
+                    className="text-xs"
+                    style={{
+                      display: 'inline-flex', alignItems: 'center', gap: 5,
+                      padding: '6px 12px', borderRadius: 6,
+                      background: '#c88c00', color: '#fff', border: 'none',
+                      fontWeight: 600, cursor: 'pointer',
+                    }}
+                  >
+                    Generate brief
+                  </button>
+                )}
+                {briefLoading && (
+                  <div style={{ fontSize: 12, color: '#6a6058', display: 'flex', alignItems: 'center', gap: 6 }}>
+                    <Loader2 size={12} className="animate-spin" /> Reading notes, messages, and prior meetings…
+                  </div>
+                )}
+                {briefError && (
+                  <div style={{ fontSize: 12, color: '#9a1c1c' }}>{briefError}</div>
+                )}
+                {brief && !briefLoading && (
+                  <div style={{ fontSize: 13, color: '#2a2520', lineHeight: 1.55, whiteSpace: 'pre-wrap' }}>{brief}</div>
+                )}
+              </div>
 
               {/* ── Contact Info ── */}
               <div className="px-5 py-4" style={{ borderBottom: '1px solid rgba(200,140,0,0.06)' }}>

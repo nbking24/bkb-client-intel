@@ -36,6 +36,15 @@
     },
     "app/api/cron/inbound-message-alerts/route.ts": {
       "maxDuration": 60
+    },
+    "app/api/cron/uncontacted-lead-alerts/route.ts": {
+      "maxDuration": 120
+    },
+    "app/api/dashboard/leads/needs-attention/route.ts": {
+      "maxDuration": 60
+    },
+    "app/api/dashboard/leads/[contactId]/pre-call-brief/route.ts": {
+      "maxDuration": 60
     }
   },
   "crons": [
@@ -74,6 +83,10 @@
     {
       "path": "/api/cron/inbound-message-alerts",
       "schedule": "*/10 * * * *"
+    },
+    {
+      "path": "/api/cron/uncontacted-lead-alerts",
+      "schedule": "*/15 * * * *"
     }
   ]
 }
