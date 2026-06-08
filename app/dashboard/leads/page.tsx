@@ -11,6 +11,7 @@ import {
 } from 'lucide-react';
 import LeadActionPanel from './LeadActionPanel';
 import LeadDetailModal from './LeadDetailModal';
+import NeedsAttentionZone from './NeedsAttentionZone';
 
 /* ── Types ── */
 interface FormData {
@@ -895,6 +896,17 @@ export default function LeadsPage() {
           Refresh
         </button>
       </div>
+
+      {/* ═══ Needs Your Attention zone ═══
+          New & uncontacted leads, upcoming calls, and stale leads. Backed
+          by /api/dashboard/leads/needs-attention. Clicking any row opens
+          the existing LeadDetailModal with everything we have on the
+          contact (notes, messages, transcripts, project address salvage). */}
+      <NeedsAttentionZone
+        onOpenLead={(contactId, opportunityId) =>
+          setDetailModal({ contactId, opportunityId: opportunityId || undefined })
+        }
+      />
 
       {/* ═══ Action Buttons Row ═══ */}
       {!formExpanded && !actionPanelExpanded && (
