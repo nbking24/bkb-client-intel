@@ -19,10 +19,17 @@ import { NATHAN_BRAND_VOICE } from './nathan-voice';
 const anthropic = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY });
 const SUMMARY_MODEL = 'claude-sonnet-4-6';
 
-// Configurable hard ceiling for the daily-log notes. JobTread does not publish a
-// documented cap; 8000 is a safe, readable bound. Confirm the true ceiling with a
-// one-time empirical write before relying on anything larger.
-export const MAX_DAILY_LOG_CHARS = Number(process.env.MAX_DAILY_LOG_CHARS || 8000);
+// JobTread's hard cap on the dailyLog.notes field is exactly 10,000 characters
+// (confirmed empirically via createDailyLog with progressively larger payloads;
+// 10,000 succeeds, 15,000 fails with "Notes cannot be more than 10000 characters").
+//
+// We reserve ~500 chars of headroom for the appended "Full meeting transcript:
+// <url>" footer (typically 150-200 chars) plus the truncation sentinel, so the
+// summary itself is capped at 9500. That keeps the JT write safely under the
+// hard limit without ever clipping mid-sentence the way the old 8000 cap did
+// (e.g. the 06-09 Gibbons meeting summary clipped mid-paren at "Antique brass
+// direction for door hardware (").
+export const MAX_DAILY_LOG_CHARS = Number(process.env.MAX_DAILY_LOG_CHARS || 9500);
 
 /** BKB written-content rules: no em/en dashes, no "sub"/"subcontractor". */
 function sanitize(text: string): string {
@@ -55,15 +62,17 @@ export async function generateMeetingSummary(params: {
   const { transcript, title, contextName } = params;
   const prompt = `${NATHAN_BRAND_VOICE}
 
-You are writing a daily-log summary of a recorded meeting for ${contextName || 'a construction project'} at Brett King Builder.
+You are writing a daily-log summary of a recorded meeting for ${contextName || 'a construction project'} at Brett King Builder. This summary will be posted directly into the JobTread daily log notes field.
 
-Write a clear, detailed summary of 600 to 900 words covering, where present:
+Write a clear, detailed summary covering, where present:
 - Who was on the meeting
 - Purpose of the meeting
 - Decisions made
 - Client selections and preferences captured
 - Action items with owners
 - Open questions / follow-ups
+
+LENGTH: Aim for 800 to 1500 words. The JobTread daily log has a HARD limit of 9000 characters for your summary - DO NOT exceed that. If the meeting is dense, prefer terse bullets and skip the chit-chat to fit. Finish your last sentence cleanly; never end mid-thought.
 
 Rules: plain professional prose. No em dashes or en dashes. Never use the words "sub" or "subcontractor"; say "trade partner(s)". Do not invent details that are not supported by the transcript.
 
@@ -78,7 +87,11 @@ Write only the summary.`;
 
   const res = await anthropic.messages.create({
     model: SUMMARY_MODEL,
-    max_tokens: 1600,
+    // 4000 tokens ≈ 16,000 characters. Plenty of room for the AI to write
+    // a full 9000-char summary without bumping the model's output ceiling.
+    // The capLength() defense-in-depth trim catches the rare case the model
+    // ignores the prompt and overshoots.
+    max_tokens: 4000,
     messages: [{ role: 'user', content: prompt }],
   });
   const text = (res.content || []).map((b: any) => (b.type === 'text' ? b.text : '')).join('').trim();
