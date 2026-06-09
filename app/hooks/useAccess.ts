@@ -14,6 +14,7 @@ export interface MeAccess {
   role: string;
   membershipId: string | null;
   email: string | null;
+  signature: string | null;
   dashboards: string[];
   features: string[];
   overviewWidgets: string[];

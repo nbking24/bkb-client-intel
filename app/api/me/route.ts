@@ -32,6 +32,7 @@ export async function GET(req: NextRequest) {
     role: access.role,
     membershipId: access.jtMembershipId,
     email: access.email,
+    signature: access.signature,
     dashboards: access.effectiveDashboards,
     features: access.features,
     overviewWidgets: access.overviewWidgets,

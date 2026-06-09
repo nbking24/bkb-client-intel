@@ -25,6 +25,7 @@ export interface AppUser {
   jtMembershipId: string | null;
   email: string | null;
   enabled: boolean;
+  signature: string | null;
   dashboards: string[];
   features: string[];
   overviewWidgets: string[];
@@ -60,6 +61,7 @@ function rowToUser(row: any): AppUser {
     jtMembershipId: row.jt_membership_id ?? null,
     email: row.email ?? null,
     enabled: row.enabled ?? true,
+    signature: row.signature ?? null,
     dashboards: asStringArray(row.dashboards),
     features: asStringArray(row.features),
     overviewWidgets: asStringArray(row.overview_widgets),

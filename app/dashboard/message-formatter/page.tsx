@@ -2,6 +2,7 @@
 'use client';
 
 import { useRef, useState, useEffect, useCallback } from 'react';
+import { useAccess } from '../../hooks/useAccess';
 import {
   Bold, Italic, Strikethrough, Heading1, Heading2, Heading3,
   List, ListOrdered, Link2, Eraser, Copy, Check, RotateCcw, Pilcrow,
@@ -25,7 +26,7 @@ function htmlToMarkdown(root: HTMLElement): string {
     if (node.nodeType === 3) return escapeInline(node.nodeValue.replace(/\s+/g, ' '));
     if (node.nodeType !== 1) return '';
     const tag = node.tagName.toLowerCase();
-    if (tag === 'br') return '\n';
+    if (tag === 'br') return '  \n';
     const inner = inlineChildren(node);
     const bare = inner.trim();
     const style = node.getAttribute('style') || '';
@@ -84,7 +85,7 @@ function htmlToMarkdown(root: HTMLElement): string {
     return blocks.join('\n\n');
   }
   let md = serializeChildren(root);
-  md = md.replace(/\n{3,}/g, '\n\n').replace(/[ \t]+\n/g, '\n').trim();
+  md = md.replace(/\n{3,}/g, '\n\n').trim();
   return md;
 }
 
@@ -115,13 +116,27 @@ function Divider() {
   return <div style={{ width: 1, height: 22, background: '#e8e5e0', margin: '0 4px' }} />;
 }
 
-const SAMPLE = `<h2>Project Update</h2><div>Hi Jane, here is where things stand this week:</div><ul><li>Framing is <b>complete</b></li><li>Electrical rough-in scheduled for <i>Friday</i></li></ul><div>Let me know if you have any questions.</div>`;
+// Escape text for safe injection into the contenteditable.
+function escapeHtml(s: string): string {
+  return s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+}
+
+// Starting editor HTML: blank lines to type into, then the user's signature as a
+// tight block at the bottom. The caret is moved to the very top after seeding.
+function buildInitialHtml(signature?: string | null): string {
+  const top = '<div><br></div><div><br></div>';
+  if (!signature || !signature.trim()) return top;
+  const sigHtml = signature.split('\n').map((line) => escapeHtml(line) || '<br>').join('<br>');
+  return `${top}<div class="jt-sig">${sigHtml}</div>`;
+}
 
 export default function MessageFormatterPage() {
   const editorRef = useRef<HTMLDivElement>(null);
   const [markdown, setMarkdown] = useState('');
   const [copied, setCopied] = useState(false);
   const [active, setActive] = useState<Record<string, boolean>>({});
+  const { access, loading: accessLoading } = useAccess();
+  const seededRef = useRef(false);
 
   // Recompute markdown from the live editor DOM.
   const regen = useCallback(() => {
@@ -142,15 +157,33 @@ export default function MessageFormatterPage() {
     } catch { /* noop */ }
   }, []);
 
+  // Move the caret to the very start of the editor (above the signature).
+  const caretToStart = useCallback(() => {
+    const el = editorRef.current;
+    if (!el) return;
+    el.focus();
+    const range = document.createRange();
+    range.selectNodeContents(el);
+    range.collapse(true);
+    const sel = window.getSelection();
+    sel?.removeAllRanges();
+    sel?.addRange(range);
+  }, []);
+
+  // Seed once, after access (and thus the signature) has loaded, so a new
+  // message already contains the user's signature with the cursor on top.
   useEffect(() => {
-    // Seed with a sample so first-time users see how it works.
-    if (editorRef.current && !editorRef.current.innerHTML) {
-      editorRef.current.innerHTML = SAMPLE;
-      regen();
-    }
+    if (seededRef.current || accessLoading || !editorRef.current) return;
+    editorRef.current.innerHTML = buildInitialHtml(access?.signature);
+    seededRef.current = true;
+    regen();
+    caretToStart();
+  }, [accessLoading, access?.signature, regen, caretToStart]);
+
+  useEffect(() => {
     document.addEventListener('selectionchange', refreshActive);
     return () => document.removeEventListener('selectionchange', refreshActive);
-  }, [regen, refreshActive]);
+  }, [refreshActive]);
 
   function exec(cmd: string, value?: string) {
     editorRef.current?.focus();
@@ -189,9 +222,11 @@ export default function MessageFormatterPage() {
   }
 
   function clearAll() {
-    if (editorRef.current) editorRef.current.innerHTML = '';
-    setMarkdown('');
-    editorRef.current?.focus();
+    if (editorRef.current) {
+      editorRef.current.innerHTML = buildInitialHtml(access?.signature);
+      caretToStart();
+    }
+    regen();
   }
 
   async function copyMarkdown() {
@@ -263,7 +298,7 @@ export default function MessageFormatterPage() {
                 className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-md text-xs transition-colors"
                 style={{ color: '#8a8078', border: '1px solid #e8e5e0', background: '#ffffff' }}
               >
-                <RotateCcw size={13} /> Clear
+                <RotateCcw size={13} /> New message
               </button>
               <button
                 type="button"
@@ -298,6 +333,7 @@ export default function MessageFormatterPage() {
         .jt-editor ol { list-style: decimal; padding-left: 1.5em; margin: 0.4em 0; }
         .jt-editor li { margin: 0.15em 0; }
         .jt-editor a { color: #68050a; text-decoration: underline; }
+        .jt-editor .jt-sig { color: #6b6660; }
         .jt-editor:empty:before { content: 'Start typing your message…'; color: #b8b2aa; }
       `}</style>
     </div>
