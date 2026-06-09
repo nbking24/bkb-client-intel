@@ -90,7 +90,7 @@ export async function POST(request: NextRequest) {
     userMessage += `\n\nGenerate 2-5 targeted follow-up questions (NEVER more than 5) for writing a construction specification for ONLY the "${categoryName}" category. Each question must define a specific MATERIAL SELECTION, BUILDING TECHNIQUE, or SCOPE DETAIL that is not already clear from the cost items, project scope, or BKB standards above. Do NOT ask about permits, timeline, cleanup, protection, or administrative items. Return ONLY the JSON array.`;
 
     const response = await anthropic.messages.create({
-      model: 'claude-sonnet-4-20250514',
+      model: 'claude-sonnet-4-6',
       max_tokens: 4096,
       system: BKB_CONTRACT_QUESTIONS_SYSTEM_PROMPT,
       messages: [{ role: 'user', content: userMessage }],

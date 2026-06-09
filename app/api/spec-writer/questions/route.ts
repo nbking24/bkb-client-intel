@@ -96,7 +96,7 @@ export async function POST(request: NextRequest) {
     userMessage += '\n\nGenerate follow-up questions for writing a detailed construction specification for this project. Return ONLY the JSON array.';
 
     const response = await anthropic.messages.create({
-      model: 'claude-sonnet-4-20250514',
+      model: 'claude-sonnet-4-6',
       max_tokens: 4096,
       system: SYSTEM_PROMPT,
       messages: [{ role: 'user', content: userMessage }],

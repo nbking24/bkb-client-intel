@@ -28,7 +28,7 @@ export const runtime = 'nodejs';
 export const maxDuration = 60;
 
 const anthropic = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY });
-const BRIEF_MODEL = 'claude-sonnet-4-20250514';
+const BRIEF_MODEL = 'claude-sonnet-4-6';
 const TTL_MS = 30 * 60 * 1000;
 const cache = new Map<string, { at: number; brief: string }>();
 

@@ -42,7 +42,7 @@ export async function POST(req: NextRequest) {
       '\n\n=== MESSAGES ===\n' + messagesText.slice(0, 15000) +
       '\n\n=== TASKS ===\n' + JSON.stringify(taskData, null, 2).slice(0, 5000);
     const message = await anthropic.messages.create({
-      model: 'claude-sonnet-4-20250514',
+      model: 'claude-sonnet-4-6',
       max_tokens: 4096,
       system: 'You are an AI assistant for Brett King Builder, a high-end residential renovation company. Answer questions about clients based on their CRM data. Be specific and reference actual data from the notes and messages.',
       messages: [{

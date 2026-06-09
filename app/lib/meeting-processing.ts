@@ -17,7 +17,7 @@ import { pave, createDailyLog } from './jobtread';
 import { NATHAN_BRAND_VOICE } from './nathan-voice';
 
 const anthropic = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY });
-const SUMMARY_MODEL = 'claude-sonnet-4-20250514';
+const SUMMARY_MODEL = 'claude-sonnet-4-6';
 
 // Configurable hard ceiling for the daily-log notes. JobTread does not publish a
 // documented cap; 8000 is a safe, readable bound. Confirm the true ceiling with a

@@ -16,7 +16,7 @@ export const dynamic = 'force-dynamic';
 export const runtime = 'nodejs';
 export const maxDuration = 120;
 const anthropic = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY });
-const QUERY_MODEL = 'claude-sonnet-4-20250514';
+const QUERY_MODEL = 'claude-sonnet-4-6';
 // Tune for the realistic transcript shapes Plaud is producing for BKB:
 // short meetings 4-8k chars, long ones 40-60k chars. We want every full
 // transcript in scope at small filter sizes (1-3 meetings = single job)

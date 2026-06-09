@@ -601,7 +601,7 @@ export async function routeMessage(
 
   // Call Claude (with tools if agent has them)
   const createParams: any = {
-    model: 'claude-sonnet-4-20250514',
+    model: 'claude-sonnet-4-6',
     max_tokens: maxTokens,
     system: systemPrompt,
     messages: claudeMessages,
@@ -741,7 +741,7 @@ export async function routeMessage(
 
     try {
       response = await callClaudeWithRetry({
-        model: 'claude-sonnet-4-20250514',
+        model: 'claude-sonnet-4-6',
         max_tokens: maxTokens,
         system: systemPrompt,
         tools: agent.tools.length > 0 ? agent.tools : undefined,

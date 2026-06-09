@@ -94,7 +94,7 @@ export async function POST(req: NextRequest) {
 
     // Call Claude with enough tokens for large budget proposals
     let response = await callClaudeWithRetry({
-      model: 'claude-sonnet-4-20250514',
+      model: 'claude-sonnet-4-6',
       max_tokens: 16384,
       system: fullSystemPrompt,
       messages: enrichedMessages.map((m: any) => ({
@@ -126,7 +126,7 @@ export async function POST(req: NextRequest) {
         ];
 
         const continuation = await callClaudeWithRetry({
-          model: 'claude-sonnet-4-20250514',
+          model: 'claude-sonnet-4-6',
           max_tokens: 16384,
           system: fullSystemPrompt,
           messages: continuationMessages,

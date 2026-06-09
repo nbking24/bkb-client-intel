@@ -19,7 +19,7 @@ import { getActiveJobs } from '@/app/lib/jobtread';
 import { fetchCalendarEvents } from '@/app/lib/google-api';
 
 const anthropic = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY });
-const MATCH_MODEL = 'claude-sonnet-4-20250514';
+const MATCH_MODEL = 'claude-sonnet-4-6';
 
 // Catch-all JobTread job for internal meetings and meetings that span
 // multiple projects (BKB "Admin Project", #130).
