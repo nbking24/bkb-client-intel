@@ -193,12 +193,36 @@ export default function TranscriptsDashboardPage() {
             return <span style={{ fontSize: 10, color: '#8a8078' }}>{where}</span>;
           })()}
         </div>
-        <div style={{ display: 'flex', gap: 6 }}>
-          <input type="text" value={aiQuestion} onChange={(e) => setAiQuestion(e.target.value)} onKeyDown={(e) => { if (e.key === 'Enter') runAiSearch(); }}
-            placeholder="Ask a question, e.g. what did the client decide about the kitchen island?"
-            style={{ ...inputStyle, flex: 1 }} />
-          <button onClick={runAiSearch} disabled={aiLoading || !aiQuestion.trim()}
-            style={{ display: 'inline-flex', alignItems: 'center', gap: 5, padding: '7px 14px', borderRadius: 6, border: 'none', background: aiQuestion.trim() ? GOLD : '#e8e5e0', color: '#fff', fontSize: 13, fontWeight: 600, cursor: aiQuestion.trim() ? 'pointer' : 'default' }}>
+        {/* Multi-line input so long prompts stay visible while the user types.
+            Enter inserts a newline (natural for a textarea); Cmd/Ctrl+Enter
+            submits the question. The Ask button is always available too. */}
+        <div style={{ display: 'flex', gap: 6, alignItems: 'flex-end' }}>
+          <textarea
+            value={aiQuestion}
+            onChange={(e) => setAiQuestion(e.target.value)}
+            onKeyDown={(e) => {
+              if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) {
+                e.preventDefault();
+                runAiSearch();
+              }
+            }}
+            rows={3}
+            placeholder="Ask a question, e.g. what did the client decide about the kitchen island? (Cmd/Ctrl + Enter to submit, Enter for newline)"
+            style={{
+              ...inputStyle,
+              flex: 1,
+              minHeight: 64,
+              resize: 'vertical',
+              fontFamily: 'inherit',
+              lineHeight: 1.45,
+              whiteSpace: 'pre-wrap',
+            }}
+          />
+          <button
+            onClick={runAiSearch}
+            disabled={aiLoading || !aiQuestion.trim()}
+            style={{ display: 'inline-flex', alignItems: 'center', gap: 5, padding: '7px 14px', borderRadius: 6, border: 'none', background: aiQuestion.trim() ? GOLD : '#e8e5e0', color: '#fff', fontSize: 13, fontWeight: 600, cursor: aiQuestion.trim() ? 'pointer' : 'default' }}
+          >
             {aiLoading ? <Loader2 size={13} className="animate-spin" /> : <Sparkles size={13} />} Ask
           </button>
         </div>
