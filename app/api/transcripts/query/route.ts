@@ -13,11 +13,24 @@ import { validateAuth } from '@/app/api/lib/auth';
 import { getSupabase } from '@/app/api/lib/supabase';
 
 export const dynamic = 'force-dynamic';
+export const runtime = 'nodejs';
+export const maxDuration = 120;
 const anthropic = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY });
 const QUERY_MODEL = 'claude-sonnet-4-20250514';
-const MAX_DOCS = 25;
-const PER_DOC_CHARS = 6000;
-const TOTAL_BUDGET = 110000;
+// Tune for the realistic transcript shapes Plaud is producing for BKB:
+// short meetings 4-8k chars, long ones 40-60k chars. We want every full
+// transcript in scope at small filter sizes (1-3 meetings = single job)
+// while still being able to range over a year of meetings when unfiltered.
+const MAX_DOCS = 40;
+// Total character budget for the transcripts section of the prompt. Sonnet
+// has a 200K-token context; ~50K chars (~12K tokens) of transcript leaves
+// plenty of room for the prompt, system overhead, and the answer.
+const TOTAL_BUDGET = 180_000;
+// Per-doc cap when many transcripts share the budget. We compute the actual
+// per-doc allowance dynamically below so 1 transcript can use the whole
+// budget (full text) but 40 each get a fair share.
+const PER_DOC_MIN = 4_000;
+const PER_DOC_MAX = 150_000;
 
 export async function POST(req: NextRequest) {
   const auth = validateAuth(req.headers.get('authorization'));
@@ -91,27 +104,61 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ answer: why, sources: [] });
   }
 
+  // Dynamic per-doc budgeting. The old hard cap of 6000 chars per transcript
+  // truncated long meetings (40-60k chars are common) at the OPENING, dropping
+  // the entire back half where decisions and next-steps usually live. Now we
+  // size the per-doc allowance against the total budget so one transcript can
+  // use the full budget (read in entirety) and many transcripts each get a
+  // fair slice. Floor at PER_DOC_MIN so even 40 docs get useful context.
+  const perDocBudget = Math.min(
+    PER_DOC_MAX,
+    Math.max(PER_DOC_MIN, Math.floor(TOTAL_BUDGET / Math.max(1, rows.length))),
+  );
+
   const sources: any[] = [];
   let used = '';
-  for (const r of rows) {
+  // Rows came back ordered newest first. Tag the first one explicitly so the
+  // AI can answer "last meeting" / "most recent meeting" questions correctly
+  // without us trying to parse the question.
+  for (let i = 0; i < rows.length; i++) {
+    const r = rows[i];
     if (used.length > TOTAL_BUDGET) break;
     const who = r.assigned_kind === 'job' ? r.assigned_job_name : r.assigned_kind === 'lead' ? `${r.assigned_lead_name} (lead)` : 'Unassigned';
     const date = r.recorded_at ? new Date(r.recorded_at).toLocaleDateString('en-US') : '';
-    const text = (r.raw_transcript || '').slice(0, PER_DOC_CHARS);
-    used += `\n\n=== MEETING: ${r.title || 'Untitled'} | Job: ${who} | Date: ${date} | id:${r.id} ===\n${text}`;
-    sources.push({ id: r.id, title: r.title, job: who, date });
+    const raw = r.raw_transcript || '';
+    const text = raw.length > perDocBudget ? raw.slice(0, perDocBudget) + '\n[transcript truncated above this point for length]' : raw;
+    const tag = i === 0 ? ' [MOST RECENT MEETING IN SCOPE]' : '';
+    used += `\n\n=== MEETING ${i + 1} of ${rows.length}${tag}: ${r.title || 'Untitled'} | Job: ${who} | Date: ${date} | id:${r.id} ===\n${text}`;
+    sources.push({ id: r.id, title: r.title, job: who, date, charsIncluded: text.length });
   }
 
-  const prompt = `You are searching Brett King Builder's meeting transcripts to answer a question. Use ONLY the transcripts below. When you state a fact, cite the meeting it came from by title and date. If the answer is not in these transcripts, say so plainly. Do not use em dashes.
+  const prompt = `You are Brett King Builder's meeting-transcript researcher. Below are ${rows.length} meeting transcript(s) in the operator's current filter, ordered newest first. The first one is tagged [MOST RECENT MEETING IN SCOPE].
+
+Read all of the supplied transcripts carefully BEFORE answering. Long transcripts cover early-meeting catch-up, the middle decisions, and end-of-meeting next-steps; the answer often lives near the end of the meeting, not the beginning.
+
+When the question is about "the last meeting", "the latest meeting", "what we discussed recently", or "next steps", answer primarily from the meeting tagged [MOST RECENT MEETING IN SCOPE] unless the question explicitly asks across meetings.
+
+When you state a fact, cite the meeting it came from by title and date (e.g. "in the 6-3 Sunroom meeting"). If a transcript was truncated, you'll see "[transcript truncated above this point for length]" - you can still answer from what you have but acknowledge if the answer might be in the truncated portion.
+
+If the answer truly is not present in the transcripts (after a careful read of the relevant meeting), say so plainly and suggest what the operator could do next (e.g. check a different meeting, ask the team).
+
+Do not use em dashes. Use "trade partner(s)" instead of "sub" or "subcontractor".
 
 QUESTION: ${question}
 
 TRANSCRIPTS:${used}`;
 
   try {
-    const res = await anthropic.messages.create({ model: QUERY_MODEL, max_tokens: 1200, messages: [{ role: 'user', content: prompt }] });
+    const res = await anthropic.messages.create({ model: QUERY_MODEL, max_tokens: 2400, messages: [{ role: 'user', content: prompt }] });
     const answer = (res.content || []).map((b: any) => (b.type === 'text' ? b.text : '')).join('').trim();
-    return NextResponse.json({ answer, sources });
+    return NextResponse.json({
+      answer,
+      sources,
+      // Surfaced for diagnostics: how much of each transcript actually made
+      // it into the prompt. If a user gets a "not in the transcripts" reply
+      // but the relevant transcript was truncated, this tells us.
+      meta: { docsInScope: rows.length, perDocBudget, totalChars: used.length },
+    });
   } catch (err: any) {
     return NextResponse.json({ error: 'AI query failed: ' + (err?.message || 'unknown') }, { status: 500 });
   }
