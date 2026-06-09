@@ -9,6 +9,70 @@
 import { useEffect, useState, useCallback, useMemo } from 'react';
 import { Mic, Search, Loader2, ChevronDown, ChevronRight, Sparkles, Briefcase, RefreshCw, Filter, AlertTriangle, Repeat } from 'lucide-react';
 import TranscriptsToConfirm from '@/app/dashboard/components/TranscriptsToConfirm';
+import { formatContent } from '@/app/hooks/useAskAgent';
+
+/**
+ * Render an AI-generated answer as proper HTML elements instead of leaking
+ * raw markdown (`**bold**`, `## headings`, `- bullets`). Reuses the
+ * formatContent helper that the Ask Agent uses so styling stays consistent.
+ *
+ * Falls back to plain text for anything we don't recognize.
+ */
+function RenderAnswer({ content }: { content: string }) {
+  const elements = formatContent(content);
+  return (
+    <div style={{ fontSize: 13, color: '#2a2520', lineHeight: 1.55 }}>
+      {elements.map((el: any) => {
+        if (el.type === 'code') {
+          return (
+            <pre
+              key={el.key}
+              style={{
+                margin: '6px 0', padding: '8px 10px', borderRadius: 6,
+                background: '#faf8f5', border: '1px solid rgba(200,140,0,0.15)',
+                fontSize: 12, lineHeight: 1.5, overflowX: 'auto', whiteSpace: 'pre-wrap',
+                fontFamily: 'ui-monospace, SFMono-Regular, monospace', color: '#3a352f',
+              }}
+            >{el.content}</pre>
+          );
+        }
+        if (el.type === 'h2') {
+          return (
+            <div key={el.key} style={{ fontSize: 14, fontWeight: 700, color: '#c88c00', marginTop: 10, marginBottom: 4 }}
+              dangerouslySetInnerHTML={{ __html: el.html }} />
+          );
+        }
+        if (el.type === 'h3') {
+          return (
+            <div key={el.key} style={{ fontSize: 13, fontWeight: 600, color: '#2a2520', marginTop: 8, marginBottom: 2 }}
+              dangerouslySetInnerHTML={{ __html: el.html }} />
+          );
+        }
+        if (el.type === 'bullet') {
+          return (
+            <div key={el.key} style={{ marginLeft: 14, marginBottom: 2 }}
+              dangerouslySetInnerHTML={{ __html: '&bull;&nbsp;' + el.html }} />
+          );
+        }
+        if (el.type === 'numbered') {
+          return (
+            <div key={el.key} style={{ marginLeft: 14, marginBottom: 2 }}
+              dangerouslySetInnerHTML={{ __html: el.html }} />
+          );
+        }
+        if (el.type === 'hr') {
+          return <hr key={el.key} style={{ margin: '8px 0', borderColor: 'rgba(200,140,0,0.15)' }} />;
+        }
+        if (el.type === 'spacer') {
+          return <div key={el.key} style={{ height: 4 }} />;
+        }
+        return (
+          <div key={el.key} style={{ marginBottom: 2 }} dangerouslySetInnerHTML={{ __html: el.html }} />
+        );
+      })}
+    </div>
+  );
+}
 
 function getToken() { return typeof window !== 'undefined' ? localStorage.getItem('bkb-token') || '' : ''; }
 const GOLD = '#c88c00';
@@ -227,11 +291,17 @@ export default function TranscriptsDashboardPage() {
           </button>
         </div>
         {(aiAnswer || aiLoading) && (
-          <div style={{ marginTop: 8, fontSize: 13, color: '#2a2520', whiteSpace: 'pre-wrap', lineHeight: 1.5 }}>
-            {aiLoading ? <span style={{ color: '#6a6058' }}>Searching transcripts...</span> : aiAnswer}
-            {aiSources.length > 0 && (
-              <div style={{ marginTop: 8, fontSize: 11, color: '#6a6058' }}>
-                Sources: {aiSources.map((s) => `${s.title} (${s.date})`).join('; ')}
+          <div style={{ marginTop: 8 }}>
+            {aiLoading ? (
+              <div style={{ fontSize: 13, color: '#6a6058', display: 'flex', alignItems: 'center', gap: 6 }}>
+                <Loader2 size={13} className="animate-spin" /> Searching transcripts...
+              </div>
+            ) : (
+              <RenderAnswer content={aiAnswer} />
+            )}
+            {!aiLoading && aiSources.length > 0 && (
+              <div style={{ marginTop: 10, paddingTop: 8, borderTop: '1px solid rgba(200,140,0,0.12)', fontSize: 11, color: '#6a6058' }}>
+                <span style={{ fontWeight: 600, color: '#8a8078' }}>Sources:</span> {aiSources.map((s) => `${s.title} (${s.date})`).join('; ')}
               </div>
             )}
           </div>

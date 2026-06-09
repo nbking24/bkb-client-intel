@@ -142,6 +142,8 @@ When you state a fact, cite the meeting it came from by title and date (e.g. "in
 
 If the answer truly is not present in the transcripts (after a careful read of the relevant meeting), say so plainly and suggest what the operator could do next (e.g. check a different meeting, ask the team).
 
+Format your answer in markdown for easy scanning: use **bold** for key terms or decisions, "- " bullets for lists of items / next steps / action items, "## " for section headings if the answer has multiple distinct parts, and blank lines between paragraphs. Keep the markdown light - this is a quick answer, not a report.
+
 Do not use em dashes. Use "trade partner(s)" instead of "sub" or "subcontractor".
 
 QUESTION: ${question}
