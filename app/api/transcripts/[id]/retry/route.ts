@@ -14,6 +14,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { validateAuth } from '@/app/api/lib/auth';
 import { getSupabase } from '@/app/api/lib/supabase';
 import { processConfirmedTranscript } from '@/app/lib/meeting-processing';
+import { deleteDailyLog } from '@/app/lib/jobtread';
 
 export const dynamic = 'force-dynamic';
 export const maxDuration = 60;
@@ -44,17 +45,46 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
       { status: 400 },
     );
   }
-  if (row.jt_daily_log_id) {
-    return NextResponse.json(
-      { error: `Transcript already has a daily log (${row.jt_daily_log_id}).`, dailyLogId: row.jt_daily_log_id },
-      { status: 409 },
-    );
-  }
   if (!row.raw_transcript) {
     return NextResponse.json(
       { error: 'No raw transcript text on this row. Wait for transcription to finish, then retry.' },
       { status: 400 },
     );
+  }
+
+  // Force regenerate: when ?force=1 is passed, delete the existing JT daily
+  // log and clear the row's link so processConfirmedTranscript writes a fresh
+  // one. Used by the "Regenerate daily log" button when a previously-uploaded
+  // log needs to be redone (e.g. it got truncated under the old 8000-char cap
+  // and we want to re-run with the new 9500 cap).
+  const force = req.nextUrl.searchParams.get('force') === '1';
+  if (row.jt_daily_log_id) {
+    if (!force) {
+      return NextResponse.json(
+        {
+          error: `Transcript already has a daily log (${row.jt_daily_log_id}). Pass ?force=1 to delete it and regenerate.`,
+          dailyLogId: row.jt_daily_log_id,
+        },
+        { status: 409 },
+      );
+    }
+    // Best-effort delete of the prior JT daily log. We don't fail the
+    // regenerate if the delete fails (e.g. JT permission, or the log was
+    // already manually removed); we just log it and proceed.
+    try {
+      await deleteDailyLog(row.jt_daily_log_id);
+    } catch (delErr: any) {
+      console.warn('[retry] deleteDailyLog failed (continuing):', delErr?.message || delErr);
+    }
+    await sb
+      .from('meeting_transcripts')
+      .update({
+        jt_daily_log_id: null,
+        jt_file_id: null,
+        summary: null,
+        updated_at: new Date().toISOString(),
+      })
+      .eq('id', params.id);
   }
 
   // Mark processing so the dashboard reflects the in-flight retry.

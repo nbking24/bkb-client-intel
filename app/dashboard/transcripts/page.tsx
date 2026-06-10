@@ -138,20 +138,33 @@ export default function TranscriptsDashboardPage() {
     return () => clearInterval(iv);
   }, [load]);
 
-  async function retryTranscript(id: string) {
+  /**
+   * Trigger the daily-log generation for a transcript.
+   * - mode='retry'  retries a failed transcript (current behavior)
+   * - mode='regenerate'  deletes the existing JT daily log and creates a fresh
+   *   one from scratch with the latest summary cap + prompt. Used when a prior
+   *   summary was truncated (the 8000-char cap was below JT's real 10K limit).
+   *   Asks for confirmation since it does mutate JT (deletes the old log).
+   */
+  async function retryTranscript(id: string, mode: 'retry' | 'regenerate' = 'retry') {
+    if (mode === 'regenerate') {
+      const ok = window.confirm(
+        'Regenerate this daily log? This will delete the existing JT daily log and create a new one with the latest summary. Continue?',
+      );
+      if (!ok) return;
+    }
     setRetryingId(id);
     setRetryError((m) => { const next = { ...m }; delete next[id]; return next; });
     try {
-      const res = await fetch(`/api/transcripts/${id}/retry`, {
+      const qs = mode === 'regenerate' ? '?force=1' : '';
+      const res = await fetch(`/api/transcripts/${id}/retry${qs}`, {
         method: 'POST',
         headers: { authorization: `Bearer ${getToken()}` },
       });
       const json = await res.json().catch(() => ({} as any));
       if (!res.ok) {
-        setRetryError((m) => ({ ...m, [id]: json?.error || `Retry failed (HTTP ${res.status})` }));
+        setRetryError((m) => ({ ...m, [id]: json?.error || `Failed (HTTP ${res.status})` }));
       } else {
-        // Refresh the list so the row's status flips to processed (or the new
-        // error_note if it failed again).
         await load();
       }
     } catch (err: any) {
@@ -400,6 +413,27 @@ export default function TranscriptsDashboardPage() {
                       >
                         {retryingId === t.id ? <Loader2 size={11} className="animate-spin" /> : <Repeat size={11} />}
                         {retryingId === t.id ? 'Retrying...' : 'Retry'}
+                      </button>
+                    )}
+                    {/* Regenerate button: for processed rows that already have
+                        a JT daily log. Deletes the old log and creates a new
+                        one with the latest summary cap + prompt. */}
+                    {t.status === 'processed' && t.assigned_kind === 'job' && t.assigned_job_id && t.jt_daily_log_id && (
+                      <button
+                        onClick={(e) => { e.stopPropagation(); retryTranscript(t.id, 'regenerate'); }}
+                        disabled={retryingId === t.id}
+                        style={{
+                          display: 'inline-flex', alignItems: 'center', gap: 4,
+                          padding: '4px 8px', borderRadius: 5,
+                          border: '1px solid rgba(80,80,80,0.25)',
+                          background: '#ffffff', color: '#5a5550',
+                          fontSize: 11, fontWeight: 600, cursor: retryingId === t.id ? 'default' : 'pointer',
+                          opacity: retryingId === t.id ? 0.5 : 1, flexShrink: 0,
+                        }}
+                        title="Delete the existing JT daily log and regenerate with the latest summary settings."
+                      >
+                        {retryingId === t.id ? <Loader2 size={11} className="animate-spin" /> : <Repeat size={11} />}
+                        {retryingId === t.id ? 'Working...' : 'Regenerate'}
                       </button>
                     )}
                   </div>
