@@ -3701,8 +3701,20 @@ export async function createDraftCostPlusInvoice(jobId: string): Promise<{
   const marginPercent = parseFloat(marginField.value);
   const hourlyRate = parseFloat(hourlyRateField.value);
 
-  if (isNaN(marginPercent) || marginPercent <= 0 || marginPercent >= 100) {
-    throw new Error('MISSING_CUSTOM_FIELD: The "Margin" custom field has an invalid value. It must be a number between 1 and 99 (e.g. 25 for 25%).');
+  // Margin is always entered in JobTread as a WHOLE NUMBER PERCENTAGE — BKB
+  // convention is 25 means 25%, 27 means 27%, 30 means 30%, etc. The previous
+  // validation allowed anything > 0 and < 100, so an accidental decimal entry
+  // like "0.25" would slip through and produce a 0.25% markup on line items
+  // (1 / (1 - 0.0025) ≈ 1.0025). We now require the value be at least 1.
+  // A separate safety net below catches any computed multiplier under 1.05 —
+  // i.e. an effective margin below ~5% — and throws a clear error rather than
+  // sending nonsense pricing to JT.
+  if (isNaN(marginPercent) || marginPercent < 1 || marginPercent >= 100) {
+    throw new Error(
+      'MISSING_CUSTOM_FIELD: The "Margin" custom field on this job must be a whole-number percentage between 1 and 99 ' +
+      '(e.g. 25 for 25%, 27 for 27%, 30 for 30%). It was read as ' + JSON.stringify(marginField.value) + '. ' +
+      'If you entered a decimal like 0.25, change it to 25.',
+    );
   }
   if (isNaN(hourlyRate) || hourlyRate <= 0) {
     throw new Error('MISSING_CUSTOM_FIELD: The "Hourly Rate" custom field has an invalid value. It must be a positive number (e.g. 115).');
@@ -3711,6 +3723,19 @@ export async function createDraftCostPlusInvoice(jobId: string): Promise<{
   // Margin = profit as % of selling price (not markup on cost)
   // e.g. 25% margin -> price = cost / (1 - 0.25) = cost x 1.3333
   const marginMultiplier = 1 / (1 - marginPercent / 100);
+
+  // Defense in depth: if the multiplier somehow resolves below 1.05 — i.e. less
+  // than ~5% effective margin — that's almost certainly a unit error, not an
+  // intentional rate. Halt before we write a 0.25% line item.
+  if (marginMultiplier < 1.05) {
+    throw new Error(
+      `MISSING_CUSTOM_FIELD: The "Margin" custom field resolved to an unexpectedly small multiplier (${marginMultiplier.toFixed(4)}x). ` +
+      `The value read was ${marginPercent}. Margin must be a whole-number percentage (e.g. 25 for 25%).`,
+    );
+  }
+  // Audit log so any future "the math looks wrong" reports have a Vercel-log
+  // trail back to the exact field value we read.
+  console.log(`[createDraftCostPlusInvoice] job=${jobId} Margin=${marginPercent}% multiplier=${marginMultiplier.toFixed(4)} HourlyRate=$${hourlyRate}`);
 
   const customerName = job.location?.account?.name || 'Client';
   const locationName = job.location?.name || '';
@@ -4181,8 +4206,16 @@ export async function createDraftBillableInvoice(jobId: string): Promise<{
   const marginPercent = parseFloat(marginField.value);
   const hourlyRate = parseFloat(hourlyRateField.value);
 
-  if (isNaN(marginPercent) || marginPercent <= 0 || marginPercent >= 100) {
-    throw new Error('MISSING_CUSTOM_FIELD: The "Margin" custom field has an invalid value. It must be a number between 1 and 99 (e.g. 25 for 25%).');
+  // Margin must be entered in JobTread as a whole-number percentage (e.g. 25 for
+  // 25%). The old `marginPercent <= 0` check let decimals like `0.25` slip
+  // through and produce 0.25% markup line items. We now require >= 1, plus a
+  // multiplier sanity check below.
+  if (isNaN(marginPercent) || marginPercent < 1 || marginPercent >= 100) {
+    throw new Error(
+      'MISSING_CUSTOM_FIELD: The "Margin" custom field on this job must be a whole-number percentage between 1 and 99 ' +
+      '(e.g. 25 for 25%, 27 for 27%, 30 for 30%). It was read as ' + JSON.stringify(marginField.value) + '. ' +
+      'If you entered a decimal like 0.25, change it to 25.',
+    );
   }
   if (isNaN(hourlyRate) || hourlyRate <= 0) {
     throw new Error('MISSING_CUSTOM_FIELD: The "Hourly Rate" custom field has an invalid value. It must be a positive number (e.g. 115).');
@@ -4191,6 +4224,16 @@ export async function createDraftBillableInvoice(jobId: string): Promise<{
   // Margin = profit as % of selling price (not markup on cost)
   // e.g. 25% margin -> price = cost / (1 - 0.25) = cost x 1.3333
   const marginMultiplier = 1 / (1 - marginPercent / 100);
+
+  // Sanity net: if the computed multiplier is below 1.05, treat as a unit error
+  // and halt rather than write nonsense pricing to JobTread.
+  if (marginMultiplier < 1.05) {
+    throw new Error(
+      `MISSING_CUSTOM_FIELD: The "Margin" custom field resolved to an unexpectedly small multiplier (${marginMultiplier.toFixed(4)}x). ` +
+      `The value read was ${marginPercent}. Margin must be a whole-number percentage (e.g. 25 for 25%).`,
+    );
+  }
+  console.log(`[createDraftBillableInvoice] job=${jobId} Margin=${marginPercent}% multiplier=${marginMultiplier.toFixed(4)} HourlyRate=$${hourlyRate}`);
 
   // Get customer contact info for toPhone/toEmail
   const contacts = job.location?.account?.contacts?.nodes || [];
