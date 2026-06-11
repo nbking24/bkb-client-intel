@@ -9,7 +9,25 @@
  * when the user has no pending transcripts, so it is safe to drop on any home page.
  */
 import { useEffect, useState, useCallback, useMemo } from 'react';
-import { FileText, Check, Loader2, Calendar, ChevronRight, Trash2 } from 'lucide-react';
+import { FileText, Check, Loader2, Calendar, ChevronRight, Trash2, Clock } from 'lucide-react';
+
+/**
+ * Format a duration in seconds as a readable label.
+ *   2700  -> "45 min"
+ *   3720  -> "1h 02m"
+ *   45    -> "<1 min"
+ * Returns null when the duration is missing/zero so the caller can hide the
+ * label entirely instead of rendering "0 min".
+ */
+function fmtDuration(seconds: number | null | undefined): string | null {
+  if (!seconds || !Number.isFinite(seconds) || seconds <= 0) return null;
+  if (seconds < 60) return '<1 min';
+  const m = Math.round(seconds / 60);
+  if (m < 60) return `${m} min`;
+  const h = Math.floor(m / 60);
+  const rem = m % 60;
+  return `${h}h ${String(rem).padStart(2, '0')}m`;
+}
 
 function getToken() {
   return typeof window !== 'undefined' ? localStorage.getItem('bkb-token') || '' : '';
@@ -109,6 +127,18 @@ export default function TranscriptsToConfirm({ scopeAll = false, reloadKey = 0 }
               <div style={{ fontSize: 13, fontWeight: 600, color: '#2a2520', marginBottom: 2 }}>{t.title}</div>
               <div style={{ fontSize: 10, color: '#6a6058', marginBottom: 6, display: 'flex', gap: 10, flexWrap: 'wrap' }}>
                 {t.recorded_at && <span>{new Date(t.recorded_at).toLocaleString()}</span>}
+                {/* Duration helps distinguish similar-titled meetings during
+                    categorization (a 5-min site check vs a 45-min design review
+                    look identical otherwise). Hidden when duration_seconds is
+                    missing or zero. */}
+                {(() => {
+                  const dur = fmtDuration(t.duration_seconds);
+                  return dur ? (
+                    <span style={{ display: 'inline-flex', alignItems: 'center', gap: 3 }}>
+                      <Clock size={10} /> {dur}
+                    </span>
+                  ) : null;
+                })()}
                 {cal?.summary && <span style={{ display: 'inline-flex', alignItems: 'center', gap: 3 }}><Calendar size={10} /> {cal.summary}</span>}
                 {conf !== null && <span>guess: {conf}%</span>}
               </div>
