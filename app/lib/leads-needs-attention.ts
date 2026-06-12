@@ -78,10 +78,30 @@ export async function listActiveLeads(): Promise<Array<{
   stage: string;
 }>> {
   const opps = await fetchAllActiveOpportunities();
+  console.log(`[listActiveLeads] fetched ${opps.length} opportunities`);
+  // Log the distinct stage names we saw so we can debug a stage-rename
+  // surprise (Loop has been known to flip a stage from e.g. "New Inquiry"
+  // to "New Inquiry " with trailing whitespace, or rename one entirely).
+  // Cheap one-line warn so this shows up in Vercel logs when leadOptions
+  // unexpectedly comes back empty.
+  if (opps.length > 0) {
+    const seen = new Set<string>();
+    for (const o of opps) {
+      const s = (o.pipelineStageName || o.stageName || '').trim();
+      if (s) seen.add(s);
+    }
+    const seenList = Array.from(seen).sort();
+    const allowed = Array.from(ACTIVE_STAGE_NAMES);
+    const missing = allowed.filter((s) => !seen.has(s));
+    if (missing.length > 0) {
+      console.warn(`[listActiveLeads] stage names with no opportunities: ${JSON.stringify(missing)}; stages seen: ${JSON.stringify(seenList)}`);
+    }
+  }
   const active = opps.filter((o: any) => {
     const stage = (o.pipelineStageName || o.stageName || '').trim();
     return ACTIVE_STAGE_NAMES.has(stage) && (o.contactId || o.contact?.id);
   });
+  console.log(`[listActiveLeads] ${active.length} match active stages out of ${opps.length}`);
   // Dedupe to most-recent opportunity per contact (matches the bucketing
   // logic in computeLeadsNeedsAttention).
   const byContact = new Map<string, any>();

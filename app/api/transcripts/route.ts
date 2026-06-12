@@ -40,9 +40,12 @@ export async function GET(req: NextRequest) {
   // transcript belongs to an early-stage call ("Lead / no job yet"), the
   // confirm UI shows a dropdown of active Loop leads instead of a free-text
   // client name field — see TranscriptsToConfirm. Fetch in parallel so the
-  // confirm card doesn't wait twice.
+  // confirm card doesn't wait twice. Surface any failure reason in the
+  // response so the dashboard can show a clear empty state instead of a
+  // silent "no leads found" mystery.
+  let leadOptionsError: string | null = null;
   const [jobOptions, leadOptions] = await Promise.all([
-    getActiveJobs(200)
+    getActiveJobs()
       .then((jobs) =>
         jobs.map((j: any) => ({
           id: j.id,
@@ -52,14 +55,17 @@ export async function GET(req: NextRequest) {
         })),
       )
       .catch(() => [] as any[]),
-    listActiveLeads()
-      // listActiveLeads dedupes + sorts already; nothing to do here.
-      .catch(() => [] as any[]),
+    listActiveLeads().catch((err: any) => {
+      leadOptionsError = err?.message || 'failed';
+      console.warn('[api/transcripts] listActiveLeads failed:', leadOptionsError);
+      return [] as any[];
+    }),
   ]);
 
   return NextResponse.json({
     transcripts: transcripts || [],
     jobOptions,
     leadOptions,
+    ...(leadOptionsError ? { leadOptionsError } : {}),
   });
 }

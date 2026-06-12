@@ -198,10 +198,12 @@ export default function TranscriptsToConfirm({ scopeAll = false, reloadKey = 0 }
                       onChange={(e) => setLeadContactId((l) => ({ ...l, [t.id]: e.target.value }))}
                       style={{ flex: 1, minWidth: 160, fontSize: 12, padding: '6px 8px', borderRadius: 6, border: '1px solid rgba(200,140,0,0.2)', background: '#fff', color: '#2a2520' }}
                     >
-                      <option value="">Pick a lead...</option>
+                      <option value="">
+                        {leadOptions.length === 0 ? '(no active leads loaded - pick Other)' : 'Pick a lead...'}
+                      </option>
                       {leadOptions.map((l: any) => (
                         <option key={l.contactId} value={l.contactId}>
-                          {l.contactName}{l.stage ? ` — ${l.stage}` : ''}
+                          {l.contactName}{l.stage ? ` - ${l.stage}` : ''}
                         </option>
                       ))}
                       <option value="__other__">Other / type a name</option>
