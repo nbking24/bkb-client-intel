@@ -121,15 +121,32 @@ export async function POST(request: NextRequest) {
       };
     });
 
+    // Prune the group tree to groups that contain budget items (directly or
+    // via descendants) so the UI dropdown only shows meaningful choices.
+    const groupsWithItems = new Set(items.map((it) => it.costGroupId).filter(Boolean));
+    const parentOf = new Map(groupOrder.map((g) => [g.id, g.parentId]));
+    const keep = new Set<string>();
+    for (const gid of Array.from(groupsWithItems)) {
+      let cur: string | null | undefined = gid as string;
+      let hops = 0;
+      while (cur && !keep.has(cur) && hops < 20) {
+        keep.add(cur);
+        cur = parentOf.get(cur);
+        hops++;
+      }
+    }
+
     return NextResponse.json({
       jobId,
       jobName: (job as any).name || '',
-      groups: groupOrder.map((g) => ({
-        id: g.id,
-        name: g.name,
-        parentId: g.parentId,
-        sortOrder: g.sortOrder,
-      })),
+      groups: groupOrder
+        .filter((g) => keep.has(g.id))
+        .map((g) => ({
+          id: g.id,
+          name: g.name,
+          parentId: g.parentId,
+          sortOrder: g.sortOrder,
+        })),
       items,
     });
   } catch (err: any) {
