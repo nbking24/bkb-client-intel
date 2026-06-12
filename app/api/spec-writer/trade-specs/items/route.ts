@@ -95,6 +95,18 @@ export async function POST(request: NextRequest) {
     // proposals/invoices are billing artifacts, not budget lines.
     const budgetItems = allItems.filter((it) => !it.document);
 
+    // Build a lookup so each item can carry forward its immediate group's
+    // client-facing description. That description is the "original verbiage"
+    // Nathan wrote when the estimate was generated — line item descriptions
+    // themselves are often blank, so showing the group context in the
+    // preview is what makes the rewrite reviewable.
+    const groupDescById = new Map<string, string>(
+      groupOrder.map((g) => [g.id, g.description || '']),
+    );
+    const groupNameById = new Map<string, string>(
+      groupOrder.map((g) => [g.id, g.name || '']),
+    );
+
     const items = budgetItems.map((it) => {
       const cfvs = it.customFieldValues?.nodes || [];
       const verbiage = cfvs.find(
@@ -105,6 +117,8 @@ export async function POST(request: NextRequest) {
         .filter((d: any) => d.document?.type === 'customerOrder' && d.document?.status === 'approved')
         .reduce((sum: number, d: any) => sum + (Number(d.price) || 0), 0);
 
+      const groupId = it.costGroup?.id || null;
+
       return {
         id: it.id,
         name: it.name || '',
@@ -114,7 +128,9 @@ export async function POST(request: NextRequest) {
         unitPrice: it.unitPrice ?? null,
         costCodeName: it.costCode?.name || '',
         costTypeName: it.costType?.name || '',
-        costGroupId: it.costGroup?.id || null,
+        costGroupId: groupId,
+        costGroupName: groupId ? (groupNameById.get(groupId) || '') : '',
+        costGroupDescription: groupId ? (groupDescById.get(groupId) || '') : '',
         isSpecification: !!it.isSpecification,
         approvedPrice,
         documentVerbiage: (verbiage?.value as string) || '',

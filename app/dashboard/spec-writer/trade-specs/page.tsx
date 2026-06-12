@@ -45,6 +45,12 @@ interface BudgetItem {
   costCodeName: string;
   costTypeName: string;
   costGroupId: string | null;
+  // Group context for the preview pane — the immediate parent group's
+  // name and client-facing scope description, joined server-side so the
+  // UI can show the "original verbiage" Nathan wrote when the estimate
+  // was created (line item descriptions themselves are usually blank).
+  costGroupName?: string;
+  costGroupDescription?: string;
   isSpecification: boolean;
   approvedPrice: number;
   documentVerbiage: string;
@@ -366,7 +372,7 @@ export default function TradeSpecsPage() {
   // Render
   // ------------------------------------------------------------
   return (
-    <div className="max-w-5xl mx-auto px-4 py-6 space-y-5">
+    <div className="max-w-7xl mx-auto px-4 py-6 space-y-5">
       {/* Header */}
       <div className="flex items-center gap-3">
         <Link href="/dashboard" className="p-2 rounded-lg hover:bg-[#f0eeeb]" style={{ color: GRAY }}>
@@ -676,16 +682,41 @@ export default function TradeSpecsPage() {
                 <div className="text-xs text-red-600">Generation failed: {it.generationError}</div>
               )}
 
+              {/* Original group verbiage banner — full width, always shown.
+                  This is the client-facing scope text Nathan wrote when the
+                  estimate was generated. Most line items have an empty
+                  description field of their own, so the group description
+                  is the actual "original verbiage" worth reading before
+                  approving the trade rewrite. */}
+              {(it.costGroupDescription || it.costGroupName) && (
+                <div>
+                  <div className="text-[11px] font-medium mb-1 uppercase tracking-wide flex items-center gap-2" style={{ color: GRAY }}>
+                    <span>Original group verbiage</span>
+                    {it.costGroupName && (
+                      <span className="text-[10px] normal-case font-normal" style={{ color: GRAY }}>
+                        ({it.costGroupName})
+                      </span>
+                    )}
+                  </div>
+                  <div
+                    className="text-xs rounded-lg border p-2.5 whitespace-pre-wrap max-h-56 overflow-y-auto"
+                    style={{ borderColor: BORDER, background: '#f7f5f0', color: '#3d3a36' }}
+                  >
+                    {it.costGroupDescription || '(no group description set)'}
+                  </div>
+                </div>
+              )}
+
               <div className="grid md:grid-cols-2 gap-3">
                 <div>
                   <div className="text-[11px] font-medium mb-1 uppercase tracking-wide" style={{ color: GRAY }}>
-                    Original (moves to Document Verbiage)
+                    Line item description (moves to Document Verbiage)
                   </div>
                   <div
                     className="text-xs rounded-lg border p-2.5 whitespace-pre-wrap max-h-48 overflow-y-auto"
                     style={{ borderColor: BORDER, background: '#faf9f7', color: '#6b655f' }}
                   >
-                    {it.description || '(empty)'}
+                    {it.description || '(empty — nothing to back up)'}
                   </div>
                 </div>
                 <div>

@@ -2900,6 +2900,7 @@ export async function getCostGroupsForJob(jobId: string): Promise<JTCostGroup[]>
 export async function getCostGroupOrder(jobId: string): Promise<Array<{
   id: string;
   name: string;
+  description: string;
   sortOrder: number | null;
   parentId: string | null;
   parentName: string | null;
@@ -2921,6 +2922,11 @@ export async function getCostGroupOrder(jobId: string): Promise<Array<{
           nodes: {
             id: {},
             name: {},
+            // Pull the client-facing scope description per group. The Trade
+            // Specs preview shows this as context so Nathan can see what
+            // verbiage was originally written when generating the estimate
+            // — line item descriptions are often empty.
+            description: {},
             parentCostGroup: { id: {}, name: {} },
           },
         },
@@ -2939,6 +2945,7 @@ export async function getCostGroupOrder(jobId: string): Promise<Array<{
   return allGroups.map((g: any, index: number) => ({
     id: g.id,
     name: g.name,
+    description: g.description || '',
     sortOrder: index,
     parentId: g.parentCostGroup?.id || null,
     parentName: g.parentCostGroup?.name || null,
