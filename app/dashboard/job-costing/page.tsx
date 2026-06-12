@@ -57,6 +57,11 @@ interface JobSummary {
   hoursVariance: number;
   health: 'on-track' | 'watch' | 'over-budget';
   alerts: string[];
+  // Manual % complete override (managed from the list row or the detail page).
+  // Hydrated by the API by joining job_manual_progress on read; nullable when
+  // no override has ever been set for the job.
+  manualPercentComplete?: number | null;
+  manualPercentSetAt?: string | null;
 }
 
 interface Totals {
@@ -234,11 +239,20 @@ function statusColor(status: string) {
 // ============================================================
 export default function JobCostingDashboard() {
   const [loading, setLoading] = useState(true);
+  const [refreshing, setRefreshing] = useState(false);
+  const [cachedAt, setCachedAt] = useState<string | null>(null);
   const [summaries, setSummaries] = useState<JobSummary[]>([]);
   const [totals, setTotals] = useState<Totals | null>(null);
   const [search, setSearch] = useState('');
   const [filterHealth, setFilterHealth] = useState<string>('all');
   const [sortBy, setSortBy] = useState<string>('health');
+  // Per-row inline % complete editor state. Keyed by jobId so each
+  // card edits independently. `pctDraft` holds the in-progress value,
+  // `pctSaving` is true while the PUT is in flight, `pctError` shows
+  // an inline error under that one row only.
+  const [pctDraft, setPctDraft] = useState<Record<string, string>>({});
+  const [pctSaving, setPctSaving] = useState<Record<string, boolean>>({});
+  const [pctError, setPctError] = useState<Record<string, string | null>>({});
 
   // Past-jobs search: ad-hoc lookup across every job in JT (closed,
   // active, on hold, any status). The active-jobs index above only
@@ -425,21 +439,76 @@ export default function JobCostingDashboard() {
   }
 
   // ---- Load summary data ----
-  async function loadSummary() {
-    setLoading(true);
+  // Cache-first by default — never auto-refreshes against JobTread. Pass
+  // force=true (wired to the Refresh button) to hit /api/dashboard/job-costing
+  // with ?refresh=1, which recomputes from PAVE and rewrites the cache row.
+  // Nathan asked the page to behave this way: opening the dashboard should
+  // always show the last reviewed snapshot, not block on a 30s recompute.
+  async function loadSummary(force = false) {
+    if (force) setRefreshing(true); else setLoading(true);
     try {
-      const res = await fetch('/api/dashboard/job-costing', { method: 'POST' });
+      // GET reads cache. POST?refresh=1 forces a fresh compute.
+      const url = force ? '/api/dashboard/job-costing?refresh=1' : '/api/dashboard/job-costing';
+      const res = await fetch(url, { method: force ? 'POST' : 'GET' });
       const data = await res.json();
       if (data.error) throw new Error(data.error);
       setSummaries(data.summaries || []);
       setTotals(data.totals || null);
+      setCachedAt(data.cachedAt || null);
     } catch (err: any) {
       console.error('Failed to load job costing:', err);
     }
-    setLoading(false);
+    if (force) setRefreshing(false); else setLoading(false);
   }
 
   useEffect(() => { loadSummary(); }, []);
+
+  // ---- Inline % complete save (list view) ----
+  // Persists the new value to job_manual_progress, then optimistically
+  // patches local state so the row reflects the change without a full
+  // reload. The detail page will read the same row when Nathan clicks
+  // into the job — no separate save needed. Cache invalidation for the
+  // per-job detail cache happens inside the manual-progress PUT handler.
+  async function saveJobPercent(jobId: string, raw: string) {
+    const pct = Math.round(Number(raw));
+    if (!Number.isFinite(pct) || pct < 0 || pct > 100) {
+      setPctError((e) => ({ ...e, [jobId]: 'Enter 0-100' }));
+      return;
+    }
+    setPctSaving((s) => ({ ...s, [jobId]: true }));
+    setPctError((e) => ({ ...e, [jobId]: null }));
+    try {
+      const res = await fetch('/api/dashboard/job-costing/manual-progress', {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          jobId,
+          percentComplete: pct,
+          setBy: 'nathan',
+          notes: 'set from job costing list',
+        }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok || data?.error) throw new Error(data?.error || `Save failed (${res.status})`);
+      // Patch local row + clear draft.
+      setSummaries((prev) =>
+        prev.map((s) =>
+          s.jobId === jobId
+            ? { ...s, manualPercentComplete: pct, manualPercentSetAt: new Date().toISOString() }
+            : s,
+        ),
+      );
+      setPctDraft((d) => {
+        const next = { ...d };
+        delete next[jobId];
+        return next;
+      });
+    } catch (err: any) {
+      setPctError((e) => ({ ...e, [jobId]: err?.message || 'Save failed' }));
+    } finally {
+      setPctSaving((s) => ({ ...s, [jobId]: false }));
+    }
+  }
 
   // ---- Load detail for a job ----
   // forceRefresh=true appends ?refresh=1 so the API bypasses its
@@ -2094,15 +2163,36 @@ export default function JobCostingDashboard() {
             Budget vs. actual cost analysis across all active projects
           </p>
         </div>
-        <button
-          onClick={loadSummary}
-          disabled={loading}
-          className="flex items-center gap-2 px-3 py-1.5 rounded-lg text-sm disabled:opacity-50"
-          style={{ border: '1px solid rgba(200,140,0,0.15)', color: '#8a8078' }}
-        >
-          <RefreshCw size={14} className={loading ? 'animate-spin' : ''} />
-          Refresh
-        </button>
+        <div className="flex items-center gap-3">
+          {cachedAt && (() => {
+            const ageMs = Date.now() - new Date(cachedAt).getTime();
+            const ageMin = Math.floor(ageMs / 60000);
+            const ageHr = Math.floor(ageMs / 3600000);
+            const ageDay = Math.floor(ageMs / 86400000);
+            const ageLabel = ageDay >= 1
+              ? `${ageDay}d ago`
+              : ageHr >= 1
+                ? `${ageHr}h ago`
+                : ageMin >= 1
+                  ? `${ageMin}m ago`
+                  : 'just now';
+            return (
+              <span className="text-xs hidden sm:inline" style={{ color: '#8a8078' }}>
+                Data as of {ageLabel}
+              </span>
+            );
+          })()}
+          <button
+            onClick={() => loadSummary(true)}
+            disabled={loading || refreshing}
+            className="flex items-center gap-2 px-3 py-1.5 rounded-lg text-sm disabled:opacity-50"
+            style={{ border: '1px solid rgba(200,140,0,0.15)', color: '#8a8078' }}
+            title="Pull fresh data from JobTread (this page does not auto-refresh)"
+          >
+            <RefreshCw size={14} className={refreshing ? 'animate-spin' : ''} />
+            {refreshing ? 'Refreshing…' : 'Refresh'}
+          </button>
+        </div>
       </div>
 
       {loading ? (
@@ -2362,11 +2452,31 @@ export default function JobCostingDashboard() {
                             : (job.estimatedCost > 0
                                 ? Math.min((jobTotalCosts / job.estimatedCost) * 100, 120)
                                 : 0);
+                          // Inline % complete editor state (per-row). Falls back to
+                          // 0 when nothing has been saved yet so Nathan can edit
+                          // directly without a separate "set" step.
+                          const draftKey = job.jobId;
+                          const draftVal =
+                            draftKey in pctDraft
+                              ? pctDraft[draftKey]
+                              : job.manualPercentComplete != null
+                                ? String(job.manualPercentComplete)
+                                : '';
+                          const saving = !!pctSaving[draftKey];
+                          const rowErr = pctError[draftKey] || null;
                           return (
-                            <button
+                            <div
                               key={job.jobId}
+                              role="button"
+                              tabIndex={0}
                               onClick={() => loadDetail(job.jobId)}
-                              className="w-full rounded-md p-2 text-left hover:bg-white/[0.04] transition-all"
+                              onKeyDown={(e) => {
+                                if (e.key === 'Enter' || e.key === ' ') {
+                                  e.preventDefault();
+                                  loadDetail(job.jobId);
+                                }
+                              }}
+                              className="w-full rounded-md p-2 text-left hover:bg-white/[0.04] transition-all cursor-pointer"
                               style={{
                                 background: hc.bg,
                                 border: `1px solid ${hc.border}`,
@@ -2448,6 +2558,71 @@ export default function JobCostingDashboard() {
                                 )}
                               </div>
 
+                              {/* Inline % complete editor.
+                                  Saves to job_manual_progress on blur (or
+                                  Enter); the detail page reads the same row
+                                  so the override carries over when Nathan
+                                  clicks in. stopPropagation everywhere so
+                                  typing/clicking the field doesn't trigger
+                                  the card's "open detail" handler. */}
+                              <div
+                                className="mt-1.5 flex items-center gap-1.5 text-[11px]"
+                                onClick={(e) => e.stopPropagation()}
+                              >
+                                <span style={{ color: '#5a5550' }}>% Complete</span>
+                                <input
+                                  type="number"
+                                  min={0}
+                                  max={100}
+                                  step={1}
+                                  value={draftVal}
+                                  placeholder="0"
+                                  disabled={saving}
+                                  onClick={(e) => e.stopPropagation()}
+                                  onChange={(e) => {
+                                    const v = e.target.value;
+                                    setPctDraft((d) => ({ ...d, [draftKey]: v }));
+                                    if (rowErr) setPctError((er) => ({ ...er, [draftKey]: null }));
+                                  }}
+                                  onKeyDown={(e) => {
+                                    e.stopPropagation();
+                                    if (e.key === 'Enter') {
+                                      e.preventDefault();
+                                      (e.currentTarget as HTMLInputElement).blur();
+                                    }
+                                  }}
+                                  onBlur={(e) => {
+                                    const v = e.target.value.trim();
+                                    // Nothing to save if blank, or unchanged from saved value.
+                                    if (v === '' || Number(v) === (job.manualPercentComplete ?? null)) {
+                                      setPctDraft((d) => {
+                                        const next = { ...d };
+                                        delete next[draftKey];
+                                        return next;
+                                      });
+                                      return;
+                                    }
+                                    saveJobPercent(job.jobId, v);
+                                  }}
+                                  className="w-12 px-1 py-0.5 rounded text-[11px] text-right"
+                                  style={{
+                                    background: '#ffffff',
+                                    border: '1px solid rgba(200,140,0,0.30)',
+                                    color: '#1a1a1a',
+                                  }}
+                                />
+                                <span style={{ color: '#8a8078' }}>%</span>
+                                {saving && <Loader2 size={10} className="animate-spin" style={{ color: '#c88c00' }} />}
+                                {!saving && job.manualPercentSetAt && !(draftKey in pctDraft) && (
+                                  <CheckCircle size={10} style={{ color: '#22c55e' }} aria-label="saved" />
+                                )}
+                                {rowErr && (
+                                  <span className="text-[10px] truncate" style={{ color: '#ef4444' }} title={rowErr}>
+                                    {rowErr}
+                                  </span>
+                                )}
+                              </div>
+
                               {/* Alerts (compact, max 2 visible) */}
                               {job.alerts.length > 0 && (
                                 <div className="mt-1.5 flex flex-wrap gap-1">
@@ -2469,7 +2644,7 @@ export default function JobCostingDashboard() {
                                   )}
                                 </div>
                               )}
-                            </button>
+                            </div>
                           );
                         })}
                       </div>

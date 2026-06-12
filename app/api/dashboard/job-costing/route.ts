@@ -1,11 +1,14 @@
 // @ts-nocheck
-import { NextResponse } from 'next/server';
+import { NextResponse, NextRequest } from 'next/server';
 import {
   getActiveJobs,
   getCostItemsForJobLite,
   getDocumentsForJob,
   getTimeEntriesForJob,
 } from '../../../lib/jobtread';
+import { getSupabase } from '../../lib/supabase';
+
+export const maxDuration = 300;
 
 // ============================================================
 // Job Costing Summary API
@@ -52,7 +55,124 @@ function computeHours(startedAt: string, endedAt: string): number {
   return Math.max(0, ms / (1000 * 60 * 60));
 }
 
-export async function POST(req: Request) {
+/**
+ * GET /api/dashboard/job-costing
+ *
+ * Returns the cached summary payload. Never recomputes on its own —
+ * Nathan asked the list page not to auto-refresh, so this just reads
+ * the snapshot row written by the last POST. If no cache exists yet
+ * (first-ever load on a fresh deploy), it falls back to a fresh
+ * compute so the page isn't empty on day one.
+ */
+export async function GET() {
+  try {
+    const sb = getSupabase();
+    const { data: cached } = await sb
+      .from('job_costing_summary_cache')
+      .select('payload, computed_at')
+      .eq('key', 'summary')
+      .maybeSingle();
+    if (cached?.payload) {
+      // Patch in the latest manual progress so a freshly-saved % shows
+      // up immediately on the row without forcing a full refresh.
+      const withProgress = await mergeManualProgress(cached.payload);
+      return NextResponse.json({ ...withProgress, cachedAt: cached.computed_at });
+    }
+    // Cold start: compute once so the user has something to look at.
+    const fresh = await computeSummaries();
+    await writeCache(fresh);
+    return NextResponse.json({ ...fresh, cachedAt: new Date().toISOString() });
+  } catch (err: any) {
+    console.error('Job costing GET error:', err);
+    return NextResponse.json({ error: err.message }, { status: 500 });
+  }
+}
+
+/**
+ * POST /api/dashboard/job-costing[?refresh=1]
+ *
+ * Backwards-compat for the legacy frontend that POSTed to get data;
+ * keeps working but the response is now cache-first by default. Pass
+ * ?refresh=1 (or body: { force: true }) to actually recompute and
+ * persist a new cache snapshot.
+ */
+export async function POST(req: NextRequest) {
+  try {
+    const url = new URL(req.url);
+    const force = url.searchParams.get('refresh') === '1';
+    if (!force) {
+      // No-force POST behaves like GET — read from cache.
+      const sb = getSupabase();
+      const { data: cached } = await sb
+        .from('job_costing_summary_cache')
+        .select('payload, computed_at')
+        .eq('key', 'summary')
+        .maybeSingle();
+      if (cached?.payload) {
+        const withProgress = await mergeManualProgress(cached.payload);
+        return NextResponse.json({ ...withProgress, cachedAt: cached.computed_at });
+      }
+    }
+    const startedAt = Date.now();
+    const fresh = await computeSummaries();
+    await writeCache(fresh, Date.now() - startedAt);
+    return NextResponse.json({ ...fresh, cachedAt: new Date().toISOString() });
+  } catch (err: any) {
+    console.error('Job costing summary error:', err);
+    return NextResponse.json({ error: err.message }, { status: 500 });
+  }
+}
+
+async function writeCache(payload: any, computeMs?: number) {
+  try {
+    const sb = getSupabase();
+    await sb
+      .from('job_costing_summary_cache')
+      .upsert({
+        key: 'summary',
+        payload,
+        computed_at: new Date().toISOString(),
+        compute_ms: computeMs ?? null,
+      }, { onConflict: 'key' });
+  } catch (err: any) {
+    console.warn('[job-costing summary] cache write failed:', err.message);
+  }
+}
+
+/**
+ * Hydrate each summary row with its latest job_manual_progress value, so
+ * editing % complete on the list updates the row without a full recompute.
+ */
+async function mergeManualProgress(payload: any): Promise<any> {
+  if (!payload?.summaries || !Array.isArray(payload.summaries)) return payload;
+  const jobIds = payload.summaries.map((s: any) => s.jobId).filter(Boolean);
+  if (jobIds.length === 0) return payload;
+  try {
+    const sb = getSupabase();
+    const { data } = await sb
+      .from('job_manual_progress')
+      .select('job_id, percent_complete, set_at')
+      .in('job_id', jobIds);
+    const map = new Map<string, { percentComplete: number; setAt: string }>();
+    for (const row of data || []) {
+      map.set(row.job_id, { percentComplete: row.percent_complete, setAt: row.set_at });
+    }
+    const summaries = payload.summaries.map((s: any) => {
+      const m = map.get(s.jobId);
+      return {
+        ...s,
+        manualPercentComplete: m?.percentComplete ?? null,
+        manualPercentSetAt: m?.setAt ?? null,
+      };
+    });
+    return { ...payload, summaries };
+  } catch (err: any) {
+    console.warn('[job-costing summary] mergeManualProgress failed:', err.message);
+    return payload;
+  }
+}
+
+async function computeSummaries() {
   try {
     // Get all active jobs
     const jobs = await getActiveJobs();
@@ -280,9 +400,9 @@ export async function POST(req: Request) {
       jobCount: summaries.length,
     };
 
-    return NextResponse.json({ summaries, totals });
+    return { summaries, totals };
   } catch (err: any) {
     console.error('Job costing summary error:', err);
-    return NextResponse.json({ error: err.message }, { status: 500 });
+    throw err;
   }
 }

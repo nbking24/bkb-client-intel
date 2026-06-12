@@ -16,10 +16,11 @@ import { getSupabase } from '@/app/api/lib/supabase';
 // Deep-dive analysis for a single job
 // ============================================================
 
-// Cache lifetime for the computed payload. After 5 minutes the route
-// re-computes on the next request. The Refresh button on the dashboard
-// hits `?refresh=1` to bypass the cache regardless of age.
-const CACHE_TTL_MS = 5 * 60 * 1000;
+// Cache lifetime for the computed payload. Nathan asked the detail page
+// to NEVER auto-refresh — it should always show the last computed snapshot
+// until he explicitly clicks Refresh. So the TTL is effectively infinite;
+// only `?refresh=1` will bypass the cache and recompute.
+const CACHE_TTL_MS = Number.POSITIVE_INFINITY;
 
 function computeHours(startedAt: string, endedAt: string): number {
   if (!startedAt || !endedAt) return 0;
