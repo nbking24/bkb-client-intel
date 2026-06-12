@@ -31,6 +31,11 @@ interface JobOption {
 interface BudgetGroup {
   id: string;
   name: string;
+  // Client-facing scope text written when the estimate was generated.
+  // Used by the trade-spec rewrite as context — the actual specs (tile,
+  // trim, grout, etc.) often live in a parent group's description rather
+  // than the leaf line item's own description.
+  description?: string;
   parentId: string | null;
   sortOrder: number | null;
 }
@@ -293,6 +298,33 @@ export default function TradeSpecsPage() {
     setApplyError('');
     try {
       const groupLabel = flatGroups.find((g) => g.id === selectedGroupId)?.label || '';
+      // Walk each item's group ancestry from immediate parent UP to (and
+      // including) the selected scope group, collecting every non-empty
+      // description along the way. This is critical: BKB estimates write
+      // the actual specs (tile selection, trim, grout, etc.) on the
+      // parent group's description, not on each leaf line item. Without
+      // this context the AI fills tile/trim/grout with TBD instead of
+      // using the values that are already there.
+      const groupById = new Map(groups.map((g) => [g.id, g]));
+      const collectAncestorContext = (itemGroupId: string | null): Array<{ name: string; description: string }> => {
+        const chain: Array<{ name: string; description: string }> = [];
+        let cur: string | null = itemGroupId;
+        let hops = 0;
+        const seen = new Set<string>();
+        while (cur && !seen.has(cur) && hops < 20) {
+          seen.add(cur);
+          const g = groupById.get(cur);
+          if (!g) break;
+          if ((g.description || '').trim()) {
+            chain.push({ name: g.name, description: g.description || '' });
+          }
+          if (cur === selectedGroupId) break;
+          cur = g.parentId;
+          hops++;
+        }
+        return chain;
+      };
+
       const res = await fetch('/api/spec-writer/trade-specs/generate', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -307,6 +339,7 @@ export default function TradeSpecsPage() {
             costCodeName: it.costCodeName,
             costTypeName: it.costTypeName,
             groupPath: groupLabel,
+            groupContext: collectAncestorContext(it.costGroupId),
           })),
         }),
       });

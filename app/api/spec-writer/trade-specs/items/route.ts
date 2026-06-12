@@ -160,6 +160,7 @@ export async function POST(request: NextRequest) {
         .map((g) => ({
           id: g.id,
           name: g.name,
+          description: g.description || '',
           parentId: g.parentId,
           sortOrder: g.sortOrder,
         })),

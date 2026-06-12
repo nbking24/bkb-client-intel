@@ -15,6 +15,12 @@ interface GenItem {
   costCodeName?: string;
   costTypeName?: string;
   groupPath?: string;
+  // Ancestor group descriptions (immediate parent first, ascending to the
+  // selected scope group). The leaf line item's own description is often
+  // empty in BKB jobs — the actual scope text (tile, trim, grout, etc.)
+  // lives on parent group descriptions, so we have to feed those into
+  // the prompt or the AI fills detail fields with TBD.
+  groupContext?: Array<{ name: string; description: string }>;
 }
 
 interface RequestBody {
@@ -65,16 +71,29 @@ function buildUserPrompt(jobName: string, items: GenItem[]): string {
     if (it.costCodeName) meta.push(`Cost code: ${it.costCodeName}`);
     if (it.costTypeName) meta.push(`Type: ${it.costTypeName}`);
     if (it.quantity != null && it.quantity !== 1) meta.push(`Qty: ${it.quantity} ${it.unitName || ''}`.trim());
+
+    // Render ancestor group descriptions as additional context. These
+    // descriptions are the source of truth for spec details (tile model,
+    // grout color, etc.) on most BKB items — the line item's own
+    // description is usually blank. Order them from immediate parent
+    // outward so the closest context appears first.
+    const groupBlocks: string[] = [];
+    for (const ctx of it.groupContext || []) {
+      if (!ctx.description || !ctx.description.trim()) continue;
+      groupBlocks.push(`Group "${ctx.name}" description:\n${ctx.description.trim()}`);
+    }
+
     return [
       `ITEM id=${it.id}`,
       `Name: ${it.name}`,
       meta.join(' | '),
-      `Current client-facing description:`,
-      it.description || '(no description; write a minimal scope from the item name)',
+      ...(groupBlocks.length > 0 ? groupBlocks : []),
+      `Line item description:`,
+      it.description || '(empty — use the group description(s) above for all spec details)',
       '---',
-    ].join('\n');
+    ].filter(Boolean).join('\n');
   });
-  return `Job: ${jobName}\n\nRewrite the description for each of the following ${items.length} budget line items.\n\n${lines.join('\n')}`;
+  return `Job: ${jobName}\n\nRewrite the description for each of the following ${items.length} budget line items.\n\nIMPORTANT: When extracting spec details (materials, models, sizes, colors, finishes, grout, trim, etc.), READ THE GROUP DESCRIPTIONS as well as the line item description. Many line items have no description of their own — the actual scope text lives on the parent group. Never write "*tbd*" for a spec field if the answer is present in the group description(s).\n\n${lines.join('\n')}`;
 }
 
 function parseResponse(text: string): Array<{ id: string; description: string }> {
