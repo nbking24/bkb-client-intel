@@ -8,11 +8,14 @@ export async function GET() {
   try {
     const jobs = await getActiveJobs(500);
     return NextResponse.json({
+      // getActiveJobs flattens location.account.name to clientName on the
+      // returned object — reading j.location.account.name here gave undefined
+      // for every job, which made the picker show "No client" everywhere.
       jobs: jobs.map((j: any) => ({
         id: j.id,
         name: j.name,
         number: j.number || '',
-        account: j.location?.account?.name || '',
+        account: j.clientName || '',
       })),
     });
   } catch (err: any) {
