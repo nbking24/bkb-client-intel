@@ -5969,3 +5969,74 @@ export async function updateDocumentCostItem(
   });
   return { id: costItemId, name: null };
 }
+
+// ============================================================
+// Trade Specs (Spec Writer > Trade Specs)
+// ============================================================
+
+/** Cost-item-level custom field IDs */
+export const JT_COST_ITEM_FIELD_IDS = {
+  /** "Document Verbiage" text field — stores original client-facing description */
+  DOCUMENT_VERBIAGE: '22PYzdMiWf4w',
+} as const;
+
+/**
+ * Update a budget cost item's description and/or specification flag.
+ * Used by the Trade Specs tool to replace client-facing verbiage with
+ * trade-focused descriptions (original is preserved in the Document
+ * Verbiage custom field via setCustomFieldValue).
+ */
+export async function updateCostItemFields(costItemId: string, fields: {
+  description?: string;
+  isSpecification?: boolean;
+}) {
+  const params: Record<string, unknown> = { id: costItemId };
+  if (fields.description !== undefined) params.description = fields.description;
+  if (fields.isSpecification !== undefined) params.isSpecification = fields.isSpecification;
+  await pave({ updateCostItem: { $: params } });
+  return { success: true as const, costItemId };
+}
+
+/**
+ * Fetch a single cost item with the data needed to safely apply a
+ * trade-spec rewrite: current description, Document Verbiage value,
+ * and approved price (sum of prices on approved customerOrder documents).
+ */
+export async function getCostItemForTradeSpec(costItemId: string): Promise<{
+  id: string;
+  description: string;
+  documentVerbiage: string;
+  approvedPrice: number;
+} | null> {
+  const data = await pave({
+    costItem: {
+      $: { id: costItemId },
+      id: {},
+      description: {},
+      customFieldValues: {
+        $: { size: 25 },
+        nodes: { id: {}, value: {}, customField: { id: {} } },
+      },
+      documentCostItems: {
+        $: { size: 50 },
+        nodes: { price: {}, document: { type: {}, status: {} } },
+      },
+    },
+  });
+  const ci = (data as any)?.costItem;
+  if (!ci?.id) return null;
+  const cfvs = ci.customFieldValues?.nodes || [];
+  const verbiageCfv = cfvs.find(
+    (n: any) => n.customField?.id === JT_COST_ITEM_FIELD_IDS.DOCUMENT_VERBIAGE
+  );
+  const dcis = ci.documentCostItems?.nodes || [];
+  const approvedPrice = dcis
+    .filter((d: any) => d.document?.type === 'customerOrder' && d.document?.status === 'approved')
+    .reduce((sum: number, d: any) => sum + (Number(d.price) || 0), 0);
+  return {
+    id: ci.id,
+    description: ci.description || '',
+    documentVerbiage: (verbiageCfv?.value as string) || '',
+    approvedPrice,
+  };
+}

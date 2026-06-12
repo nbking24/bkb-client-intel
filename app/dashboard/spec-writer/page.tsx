@@ -989,6 +989,13 @@ function SpecWriterContent() {
         >
           Contract
         </Link>
+        <Link
+          href="/dashboard/spec-writer/trade-specs"
+          className="flex-1 text-center py-2 px-4 rounded-md text-sm font-medium transition-colors hover:bg-[#ffffff]"
+          style={{ color: '#8a8078' }}
+        >
+          Trade Specs
+        </Link>
       </div>
 
       {/* ============================================ */}

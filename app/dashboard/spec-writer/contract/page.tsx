@@ -508,6 +508,13 @@ export default function ContractSpecWriter() {
         >
           Contract
         </button>
+        <Link
+          href="/dashboard/spec-writer/trade-specs"
+          className="px-4 py-2 text-sm font-medium rounded-t-lg transition-colors"
+          style={{ color: '#8a8078', background: 'transparent' }}
+        >
+          Trade Specs
+        </Link>
       </div>
 
       {/* Error Display */}
