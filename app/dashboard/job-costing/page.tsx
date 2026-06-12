@@ -448,8 +448,11 @@ export default function JobCostingDashboard() {
     if (force) setRefreshing(true); else setLoading(true);
     try {
       // GET reads cache. POST?refresh=1 forces a fresh compute.
+      // cache:'no-store' prevents the browser from serving a stale snapshot
+      // after a Refresh — the route is intentionally cache-controlled at
+      // the Supabase layer, not at HTTP.
       const url = force ? '/api/dashboard/job-costing?refresh=1' : '/api/dashboard/job-costing';
-      const res = await fetch(url, { method: force ? 'POST' : 'GET' });
+      const res = await fetch(url, { method: force ? 'POST' : 'GET', cache: 'no-store' });
       const data = await res.json();
       if (data.error) throw new Error(data.error);
       setSummaries(data.summaries || []);

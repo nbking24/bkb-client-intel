@@ -9,6 +9,11 @@ import {
 import { getSupabase } from '../../lib/supabase';
 
 export const maxDuration = 300;
+// Belt-and-suspenders: GET handlers without a Request param can be
+// statically optimized by Next.js (cached at build). Force dynamic so
+// every GET reads the live Supabase row, not a snapshot from build time.
+export const dynamic = 'force-dynamic';
+export const revalidate = 0;
 
 // ============================================================
 // Job Costing Summary API
