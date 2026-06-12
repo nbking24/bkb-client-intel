@@ -50,7 +50,7 @@ export const ACTIVE_STAGE_NAMES = new Set([
   'In Design',
 ]);
 
-async function fetchAllActiveOpportunities(): Promise<any[]> {
+export async function fetchAllActiveOpportunities(): Promise<any[]> {
   const all: any[] = [];
   let startAfterId = '';
   for (let page = 0; page < 8; page++) {
@@ -63,6 +63,52 @@ async function fetchAllActiveOpportunities(): Promise<any[]> {
     startAfterId = opps[opps.length - 1].id;
   }
   return all;
+}
+
+/**
+ * Compact list of every active-stage Loop opportunity, dedupe'd to one row
+ * per contact, sorted alphabetically by display name. Returned shape is the
+ * minimum needed to populate a "pick a lead" dropdown.
+ */
+export async function listActiveLeads(): Promise<Array<{
+  contactId: string;
+  contactName: string;
+  opportunityId: string;
+  opportunityName: string;
+  stage: string;
+}>> {
+  const opps = await fetchAllActiveOpportunities();
+  const active = opps.filter((o: any) => {
+    const stage = (o.pipelineStageName || o.stageName || '').trim();
+    return ACTIVE_STAGE_NAMES.has(stage) && (o.contactId || o.contact?.id);
+  });
+  // Dedupe to most-recent opportunity per contact (matches the bucketing
+  // logic in computeLeadsNeedsAttention).
+  const byContact = new Map<string, any>();
+  for (const o of active) {
+    const cid = o.contactId || o.contact?.id;
+    const existing = byContact.get(cid);
+    if (!existing || new Date(o.createdAt || 0).getTime() > new Date(existing.createdAt || 0).getTime()) {
+      byContact.set(cid, o);
+    }
+  }
+  const rows = Array.from(byContact.entries()).map(([cid, o]) => {
+    const c = o.contact || {};
+    const name =
+      c.name ||
+      [c.firstName, c.lastName].filter(Boolean).join(' ').trim() ||
+      o.name ||
+      'Unknown contact';
+    return {
+      contactId: cid,
+      contactName: name,
+      opportunityId: o.id,
+      opportunityName: o.name || '',
+      stage: (o.pipelineStageName || o.stageName || '').trim(),
+    };
+  });
+  rows.sort((a, b) => a.contactName.localeCompare(b.contactName));
+  return rows;
 }
 
 async function fetchContactAppointments(contactId: string): Promise<any[]> {

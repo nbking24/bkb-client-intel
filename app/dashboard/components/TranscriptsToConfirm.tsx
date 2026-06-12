@@ -40,10 +40,18 @@ const ADMIN_PROJECT = { id: '22P6NCjBeR8d', name: 'Admin Project' };
 export default function TranscriptsToConfirm({ scopeAll = false, reloadKey = 0 }: { scopeAll?: boolean; reloadKey?: number }) {
   const [items, setItems] = useState<any[]>([]);
   const [jobOptions, setJobOptions] = useState<any[]>([]);
+  // Active Loop leads (alphabetized by listActiveLeads on the server). Used
+  // to populate the "pick a lead" dropdown when "Lead / no job yet" is the
+  // assignment kind, so users don't have to free-type a client name and
+  // accidentally lose the contact_id linkage.
+  const [leadOptions, setLeadOptions] = useState<any[]>([]);
   // Active jobs sorted alphabetically for an organized dropdown.
   const sortedJobs = useMemo(() => [...jobOptions].sort((a, b) => String(a.name || '').localeCompare(String(b.name || ''))), [jobOptions]);
   const [loaded, setLoaded] = useState(false);
   const [sel, setSel] = useState<Record<string, string>>({});   // id -> jobId | '__lead__'
+  // Per-transcript lead selection. Holds the Loop contactId of the chosen
+  // lead. Empty string means "Other / type a name" (falls back to free text).
+  const [leadContactId, setLeadContactId] = useState<Record<string, string>>({});
   const [leadName, setLeadName] = useState<Record<string, string>>({});
   const [busy, setBusy] = useState<Record<string, boolean>>({});
   const [confirmDeleteId, setConfirmDeleteId] = useState<string | null>(null);
@@ -55,12 +63,18 @@ export default function TranscriptsToConfirm({ scopeAll = false, reloadKey = 0 }
       const data = await res.json();
       setItems(data.transcripts || []);
       setJobOptions(data.jobOptions || []);
+      setLeadOptions(data.leadOptions || []);
       const presets: Record<string, string> = {};
+      const leadPresets: Record<string, string> = {};
       for (const t of data.transcripts || []) {
         if (t.suggested_kind === 'job' && t.suggested_job_id) presets[t.id] = t.suggested_job_id;
         else if (t.suggested_kind === 'lead') presets[t.id] = '__lead__';
+        // If the auto-matcher already guessed a specific Loop contact,
+        // pre-select it in the lead dropdown so the user can one-click confirm.
+        if (t.suggested_lead_contact_id) leadPresets[t.id] = t.suggested_lead_contact_id;
       }
       setSel((s) => ({ ...presets, ...s }));
+      setLeadContactId((l) => ({ ...leadPresets, ...l }));
       setLoaded(true);
     } catch { setLoaded(true); }
   }, [scopeAll]);
@@ -86,7 +100,18 @@ export default function TranscriptsToConfirm({ scopeAll = false, reloadKey = 0 }
     if (!choice) return;
     let payload: any;
     if (choice === '__lead__') {
-      payload = { kind: 'lead', leadContactId: t.suggested_lead_contact_id || null, leadName: leadName[t.id] || t.suggested_lead_name || '' };
+      // Prefer the dropdown selection: a Loop contactId means we can link the
+      // PML event and any later daily-log backfill to a real Loop contact.
+      // Falls back to the free-text name only when the user explicitly picked
+      // "Other / type a name" (sentinel value: '__other__').
+      const pickedContactId = leadContactId[t.id];
+      const isOther = pickedContactId === '__other__';
+      const matched = leadOptions.find((l: any) => l.contactId === pickedContactId);
+      payload = {
+        kind: 'lead',
+        leadContactId: !isOther ? (pickedContactId || t.suggested_lead_contact_id || null) : null,
+        leadName: matched?.contactName || leadName[t.id] || t.suggested_lead_name || '',
+      };
     } else {
       const job = jobOptions.find((j) => j.id === choice);
       payload = { kind: 'job', jobId: choice, jobName: job?.name || t.suggested_job_name || null };
@@ -160,13 +185,37 @@ export default function TranscriptsToConfirm({ scopeAll = false, reloadKey = 0 }
                   </optgroup>
                 </select>
                 {sel[t.id] === '__lead__' && (
-                  <input
-                    type="text"
-                    placeholder="Client name"
-                    value={leadName[t.id] ?? (t.suggested_lead_name || '')}
-                    onChange={(e) => setLeadName((l) => ({ ...l, [t.id]: e.target.value }))}
-                    style={{ flex: 1, minWidth: 140, fontSize: 12, padding: '6px 8px', borderRadius: 6, border: '1px solid rgba(200,140,0,0.2)', background: '#fff', color: '#2a2520' }}
-                  />
+                  <>
+                    {/* Lead picker: choose an existing Loop lead so the
+                        transcript stays linked to the Loop contact. When the
+                        lead later converts to a JT job, backfillLeadTranscript-
+                        DailyLogs in leads-action automatically files the daily
+                        log onto the new job. Picking "Other / type a name"
+                        falls back to a free-text input for cases where the
+                        contact isn't in Loop yet. */}
+                    <select
+                      value={leadContactId[t.id] || ''}
+                      onChange={(e) => setLeadContactId((l) => ({ ...l, [t.id]: e.target.value }))}
+                      style={{ flex: 1, minWidth: 160, fontSize: 12, padding: '6px 8px', borderRadius: 6, border: '1px solid rgba(200,140,0,0.2)', background: '#fff', color: '#2a2520' }}
+                    >
+                      <option value="">Pick a lead...</option>
+                      {leadOptions.map((l: any) => (
+                        <option key={l.contactId} value={l.contactId}>
+                          {l.contactName}{l.stage ? ` — ${l.stage}` : ''}
+                        </option>
+                      ))}
+                      <option value="__other__">Other / type a name</option>
+                    </select>
+                    {leadContactId[t.id] === '__other__' && (
+                      <input
+                        type="text"
+                        placeholder="Client name"
+                        value={leadName[t.id] ?? (t.suggested_lead_name || '')}
+                        onChange={(e) => setLeadName((l) => ({ ...l, [t.id]: e.target.value }))}
+                        style={{ flex: 1, minWidth: 140, fontSize: 12, padding: '6px 8px', borderRadius: 6, border: '1px solid rgba(200,140,0,0.2)', background: '#fff', color: '#2a2520' }}
+                      />
+                    )}
+                  </>
                 )}
                 <button
                   onClick={() => confirm(t)}

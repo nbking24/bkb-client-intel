@@ -9,8 +9,11 @@ import { NextRequest, NextResponse } from 'next/server';
 import { validateAuth } from '@/app/api/lib/auth';
 import { getSupabase } from '@/app/api/lib/supabase';
 import { getActiveJobs } from '@/app/lib/jobtread';
+import { listActiveLeads } from '@/app/lib/leads-needs-attention';
 
 export const dynamic = 'force-dynamic';
+export const runtime = 'nodejs';
+export const maxDuration = 60;
 
 export async function GET(req: NextRequest) {
   const auth = validateAuth(req.headers.get('authorization'));
@@ -33,12 +36,30 @@ export async function GET(req: NextRequest) {
   const { data: transcripts, error } = await q;
   if (error) return NextResponse.json({ error: error.message }, { status: 500 });
 
-  // Job options for the dropdown (best-effort).
-  let jobOptions: any[] = [];
-  try {
-    const jobs = await getActiveJobs(200);
-    jobOptions = jobs.map((j: any) => ({ id: j.id, name: j.name, clientName: j.clientName || null, number: j.number || null }));
-  } catch { jobOptions = []; }
+  // Job + lead options for the confirm dropdowns (best-effort). When a
+  // transcript belongs to an early-stage call ("Lead / no job yet"), the
+  // confirm UI shows a dropdown of active Loop leads instead of a free-text
+  // client name field — see TranscriptsToConfirm. Fetch in parallel so the
+  // confirm card doesn't wait twice.
+  const [jobOptions, leadOptions] = await Promise.all([
+    getActiveJobs(200)
+      .then((jobs) =>
+        jobs.map((j: any) => ({
+          id: j.id,
+          name: j.name,
+          clientName: j.clientName || null,
+          number: j.number || null,
+        })),
+      )
+      .catch(() => [] as any[]),
+    listActiveLeads()
+      // listActiveLeads dedupes + sorts already; nothing to do here.
+      .catch(() => [] as any[]),
+  ]);
 
-  return NextResponse.json({ transcripts: transcripts || [], jobOptions });
+  return NextResponse.json({
+    transcripts: transcripts || [],
+    jobOptions,
+    leadOptions,
+  });
 }
