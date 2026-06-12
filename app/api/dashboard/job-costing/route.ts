@@ -147,17 +147,26 @@ async function writeCache(payload: any, computeMs?: number) {
 /**
  * Hydrate each summary row with its latest job_manual_progress value, so
  * editing % complete on the list updates the row without a full recompute.
+ *
+ * The original version filtered with .in('job_id', jobIds). That returned
+ * an empty result set in production even though the rows exist — most
+ * likely a URL encoding quirk in the Supabase JS client when the IN list
+ * is built into a long querystring. The table is tiny (a handful of
+ * rows), so we just fetch them all and map by id locally. Errors are now
+ * logged (not swallowed) so future regressions are visible in Vercel
+ * logs.
  */
 async function mergeManualProgress(payload: any): Promise<any> {
   if (!payload?.summaries || !Array.isArray(payload.summaries)) return payload;
-  const jobIds = payload.summaries.map((s: any) => s.jobId).filter(Boolean);
-  if (jobIds.length === 0) return payload;
   try {
     const sb = getSupabase();
-    const { data } = await sb
+    const { data, error } = await sb
       .from('job_manual_progress')
-      .select('job_id, percent_complete, set_at')
-      .in('job_id', jobIds);
+      .select('job_id, percent_complete, set_at');
+    if (error) {
+      console.error('[job-costing summary] mergeManualProgress query error:', error.message);
+      return payload;
+    }
     const map = new Map<string, { percentComplete: number; setAt: string }>();
     for (const row of data || []) {
       map.set(row.job_id, { percentComplete: row.percent_complete, setAt: row.set_at });
@@ -172,7 +181,7 @@ async function mergeManualProgress(payload: any): Promise<any> {
     });
     return { ...payload, summaries };
   } catch (err: any) {
-    console.warn('[job-costing summary] mergeManualProgress failed:', err.message);
+    console.error('[job-costing summary] mergeManualProgress threw:', err?.message || err);
     return payload;
   }
 }
