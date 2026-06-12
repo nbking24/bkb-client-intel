@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import Link from 'next/link';
 import {
   ArrowLeft,
@@ -11,8 +11,10 @@ import {
   Loader2,
   PenTool,
   RefreshCw,
+  Search,
   ShieldCheck,
   SkipForward,
+  X,
   XCircle,
 } from 'lucide-react';
 
@@ -76,6 +78,16 @@ export default function TradeSpecsPage() {
   const [jobsLoading, setJobsLoading] = useState(true);
   const [jobId, setJobId] = useState('');
   const [jobName, setJobName] = useState('');
+  // Searchable picker state. Nathan asked for an A-Z sorted list plus
+  // type-ahead filtering by client name. We render an input that filters
+  // a dropdown below instead of a native <select>, so partial matches
+  // against the client account, job name, or number all surface the
+  // right row.
+  const [jobQuery, setJobQuery] = useState('');
+  const [jobPickerOpen, setJobPickerOpen] = useState(false);
+  const [jobHighlight, setJobHighlight] = useState(0);
+  const jobPickerRef = useRef<HTMLDivElement | null>(null);
+  const jobInputRef = useRef<HTMLInputElement | null>(null);
 
   // Budget data
   const [groups, setGroups] = useState<BudgetGroup[]>([]);
@@ -108,6 +120,73 @@ export default function TradeSpecsPage() {
       .catch(() => setJobs([]))
       .finally(() => setJobsLoading(false));
   }, []);
+
+  // Sort the job list A-Z by client account (the field Nathan types into
+  // when looking for a job), tiebreak by job name. Falls back to job name
+  // when account is blank so jobs without a client still land in order.
+  const sortedJobs = useMemo(() => {
+    const arr = [...jobs];
+    arr.sort((a, b) => {
+      const aKey = (a.account || a.name || '').toLowerCase().trim();
+      const bKey = (b.account || b.name || '').toLowerCase().trim();
+      if (aKey !== bKey) return aKey.localeCompare(bKey);
+      return (a.name || '').toLowerCase().localeCompare((b.name || '').toLowerCase());
+    });
+    return arr;
+  }, [jobs]);
+
+  // Apply the type-ahead filter. We match across client account, job
+  // name, and job number so Nathan can type either a client surname
+  // ("berntsen") or a job number ("193") and zoom to the right row.
+  const filteredJobs = useMemo(() => {
+    const q = jobQuery.trim().toLowerCase();
+    if (!q) return sortedJobs;
+    return sortedJobs.filter((j) => {
+      const hay = `${j.account || ''} ${j.name || ''} ${j.number || ''}`.toLowerCase();
+      return hay.includes(q);
+    });
+  }, [sortedJobs, jobQuery]);
+
+  // Reset the highlight any time the filtered list changes so arrow-key
+  // navigation always starts from the first visible match.
+  useEffect(() => {
+    setJobHighlight(0);
+  }, [jobQuery, jobPickerOpen]);
+
+  // Close the dropdown when the user clicks anywhere outside the picker.
+  useEffect(() => {
+    if (!jobPickerOpen) return;
+    function handleClick(e: MouseEvent) {
+      if (!jobPickerRef.current) return;
+      if (!jobPickerRef.current.contains(e.target as Node)) {
+        setJobPickerOpen(false);
+      }
+    }
+    document.addEventListener('mousedown', handleClick);
+    return () => document.removeEventListener('mousedown', handleClick);
+  }, [jobPickerOpen]);
+
+  // Pick a job — fires loadBudget, syncs the display text, closes the dropdown.
+  function chooseJob(j: JobOption) {
+    setJobId(j.id);
+    // Display "Client Name — #123 — Job Name" so the input mirrors what's
+    // selected once the dropdown closes. The display string is replaced
+    // by raw search text the moment the user starts editing it again.
+    const label = j.account
+      ? `${j.account} — #${j.number} — ${j.name}`
+      : `#${j.number} — ${j.name}`;
+    setJobQuery(label);
+    setJobPickerOpen(false);
+    loadBudget(j.id);
+  }
+
+  function clearJobPicker() {
+    setJobId('');
+    setJobName('');
+    setJobQuery('');
+    setJobPickerOpen(false);
+    jobInputRef.current?.focus();
+  }
 
   // ------------------------------------------------------------
   // Group tree helpers
@@ -337,25 +416,105 @@ export default function TradeSpecsPage() {
             <label className="text-sm font-medium" style={{ color: '#3d3a36' }}>
               1. Select project
             </label>
-            <div className="relative">
-              <select
-                value={jobId}
-                onChange={(e) => {
-                  setJobId(e.target.value);
-                  if (e.target.value) loadBudget(e.target.value);
-                }}
-                disabled={jobsLoading}
-                className="w-full appearance-none rounded-lg border px-3 py-2.5 text-sm pr-9"
-                style={{ borderColor: BORDER, color: '#3d3a36', background: '#fdfcfa' }}
-              >
-                <option value="">{jobsLoading ? 'Loading jobs…' : 'Choose a job…'}</option>
-                {jobs.map((j) => (
-                  <option key={j.id} value={j.id}>
-                    #{j.number} — {j.name}
-                  </option>
-                ))}
-              </select>
-              <ChevronDown size={16} className="absolute right-3 top-3 pointer-events-none" style={{ color: GRAY }} />
+            {/* Searchable job picker. Click or focus the input to open the
+                dropdown of all active jobs (A-Z by client). Type to filter;
+                Arrow keys + Enter pick a row; Escape closes. */}
+            <div className="relative" ref={jobPickerRef}>
+              <div className="relative">
+                <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 pointer-events-none" style={{ color: GRAY }} />
+                <input
+                  ref={jobInputRef}
+                  type="text"
+                  value={jobQuery}
+                  placeholder={jobsLoading ? 'Loading jobs…' : 'Type a client name or job number…'}
+                  disabled={jobsLoading}
+                  onFocus={() => setJobPickerOpen(true)}
+                  onClick={() => setJobPickerOpen(true)}
+                  onChange={(e) => {
+                    setJobQuery(e.target.value);
+                    setJobPickerOpen(true);
+                    // Clear any prior selection the moment the text diverges
+                    // from the display label, so a stale jobId doesn't
+                    // linger if Nathan starts typing a new search.
+                    if (jobId) setJobId('');
+                  }}
+                  onKeyDown={(e) => {
+                    if (e.key === 'ArrowDown') {
+                      e.preventDefault();
+                      setJobPickerOpen(true);
+                      setJobHighlight((i) => Math.min(i + 1, filteredJobs.length - 1));
+                    } else if (e.key === 'ArrowUp') {
+                      e.preventDefault();
+                      setJobHighlight((i) => Math.max(i - 1, 0));
+                    } else if (e.key === 'Enter') {
+                      if (filteredJobs[jobHighlight]) {
+                        e.preventDefault();
+                        chooseJob(filteredJobs[jobHighlight]);
+                      }
+                    } else if (e.key === 'Escape') {
+                      setJobPickerOpen(false);
+                    }
+                  }}
+                  className="w-full rounded-lg border pl-9 pr-9 py-2.5 text-sm"
+                  style={{ borderColor: BORDER, color: '#3d3a36', background: '#fdfcfa' }}
+                />
+                {jobQuery ? (
+                  <button
+                    type="button"
+                    onClick={clearJobPicker}
+                    className="absolute right-2 top-1/2 -translate-y-1/2 p-1 rounded hover:bg-stone-100"
+                    title="Clear"
+                  >
+                    <X size={14} style={{ color: GRAY }} />
+                  </button>
+                ) : (
+                  <ChevronDown size={16} className="absolute right-3 top-1/2 -translate-y-1/2 pointer-events-none" style={{ color: GRAY }} />
+                )}
+              </div>
+
+              {jobPickerOpen && !jobsLoading && (
+                <div
+                  className="absolute z-20 mt-1 w-full max-h-80 overflow-y-auto rounded-lg border shadow-lg"
+                  style={{ borderColor: BORDER, background: '#ffffff' }}
+                >
+                  {filteredJobs.length === 0 ? (
+                    <div className="px-3 py-2.5 text-sm italic" style={{ color: GRAY }}>
+                      No jobs match "{jobQuery}".
+                    </div>
+                  ) : (
+                    filteredJobs.map((j, idx) => {
+                      const active = idx === jobHighlight;
+                      return (
+                        <button
+                          key={j.id}
+                          type="button"
+                          onMouseEnter={() => setJobHighlight(idx)}
+                          onClick={() => chooseJob(j)}
+                          className="w-full flex items-center gap-2 px-3 py-2 text-left text-sm"
+                          style={{
+                            background: active ? 'rgba(200,140,0,0.08)' : 'transparent',
+                            borderBottom: '1px solid rgba(200,140,0,0.06)',
+                            color: '#3d3a36',
+                          }}
+                        >
+                          <span
+                            className="text-[10px] font-mono px-1.5 py-0.5 rounded shrink-0"
+                            style={{ background: '#222', color: '#f0c060', fontWeight: 600 }}
+                          >
+                            #{j.number || '—'}
+                          </span>
+                          <span className="font-medium truncate flex-1 min-w-0">
+                            {j.account || 'No client'}
+                          </span>
+                          <span className="text-xs truncate max-w-[55%]" style={{ color: GRAY }}>
+                            {j.name}
+                          </span>
+                        </button>
+                      );
+                    })
+                  )}
+                </div>
+              )}
             </div>
             {budgetLoading && (
               <div className="flex items-center gap-2 text-sm" style={{ color: GRAY }}>
