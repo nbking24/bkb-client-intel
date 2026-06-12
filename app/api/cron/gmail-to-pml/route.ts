@@ -46,7 +46,7 @@ export async function GET(req: NextRequest) {
     }
 
     // Fetch active jobs for email-to-project matching
-    const jobs = await getActiveJobs(50);
+    const jobs = await getActiveJobs();
     const activeJobs = (jobs || []).map((j: any) => ({
       id: j.id,
       name: j.name || '',

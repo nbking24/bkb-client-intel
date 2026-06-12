@@ -142,7 +142,7 @@ function daysBetweenDates(todayStr: string, targetDateStr: string): number {
 // ============================================================
 
 export async function getDesignPhaseProjects(): Promise<JTJob[]> {
-  const allJobs = await getActiveJobs(50);
+  const allJobs = await getActiveJobs();
   return allJobs.filter(
     (job) => job.customStatus && DESIGN_AGENT_STATUSES.includes(job.customStatus as any)
   );

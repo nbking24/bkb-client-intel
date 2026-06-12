@@ -45,7 +45,7 @@ export async function GET(req: NextRequest) {
     }).catch(() => []);
 
     const [activeJobs, memberTasks] = await Promise.all([
-      getActiveJobs(50).catch(() => []),
+      getActiveJobs().catch(() => []),
       getOpenTasksForMember(membershipId).catch(() => []),
     ]);
 

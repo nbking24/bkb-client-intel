@@ -700,7 +700,7 @@ const jtEntry: AgentModule = {
     try {
       // ========== SEARCH ==========
       if (name === 'search_jobs') {
-        const jobs = await getActiveJobs(50);
+        const jobs = await getActiveJobs();
         const query = (input.query || '').toLowerCase().trim();
 
         if (!query) {

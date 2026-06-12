@@ -473,7 +473,7 @@ const projectDetails: AgentModule = {
   ): Promise<string> => {
     try {
       if (name === 'search_jobs') {
-        const allJobs = await getActiveJobs(50);
+        const allJobs = await getActiveJobs();
         const query = (input.query || '').toLowerCase().trim();
         let filtered = allJobs;
         if (query) {

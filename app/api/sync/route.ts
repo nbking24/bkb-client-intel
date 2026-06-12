@@ -195,7 +195,7 @@ export async function POST(req: NextRequest) {
 
     // 6. SYNC JOBTREAD JOBS
     try {
-      const jobs = await getActiveJobs(50);
+      const jobs = await getActiveJobs();
       if (Array.isArray(jobs)) {
         for (const job of jobs) {
           try {

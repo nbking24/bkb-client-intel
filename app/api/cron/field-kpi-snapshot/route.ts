@@ -43,7 +43,7 @@ export async function GET(req: NextRequest) {
     const sb = createServerClient();
 
     // Get all active jobs
-    const activeJobs = await getActiveJobs(50).catch(() => []);
+    const activeJobs = await getActiveJobs().catch(() => []);
 
     // Find field staff users (field_sup and field roles)
     const fieldUsers = Object.entries(TEAM_USERS).filter(

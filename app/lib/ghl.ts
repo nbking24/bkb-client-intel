@@ -485,7 +485,7 @@ export async function syncGHLMeetingsToJT(params?: {
     details.push(`Found ${events.length} GHL appointment(s) in next ${daysAhead} days.`);
 
     // 2. Fetch active JT jobs and build client name → job mapping
-    const activeJobs = await getActiveJobs(50);
+    const activeJobs = await getActiveJobs();
     const clientJobMap = new Map<string, { id: string; name: string; number: string }>();
     for (const job of activeJobs) {
       if (job.clientName) {

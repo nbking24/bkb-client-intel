@@ -185,17 +185,27 @@ export async function searchJobsByText(query: string, limit = 25): Promise<JTJob
   return results.slice(0, limit);
 }
 
-export async function getActiveJobs(limit = 200): Promise<JTJob[]> {
+export async function getActiveJobs(limit = 500): Promise<JTJob[]> {
   // Paginate with direct pave() calls (orgQuery doesn't expose nextPage).
   // PAVE org-level queries cap at 50 per page, so we fetch multiple pages.
+  //
+  // Default limit was 200; raised to 500 because BKB's open-job count has
+  // grown past 50, and several callers were passing limit=50 — which silently
+  // cut off any job past the 50th in JT's default (oldest-first) order. That
+  // dropped the NEWEST jobs (e.g. Bruno Studio on 2026-06-10), since they sort
+  // to the end. We now also explicitly sort by createdAt DESC so even if a
+  // future limit ever gets hit, the cut happens on the oldest jobs not the
+  // newest ones the team is actively working.
   const PAGE_SIZE = 50;
+  const MAX_PAGES = 20; // 20 × 50 = 1,000 max — far above any realistic open-job count
   let allNodes: any[] = [];
   let nextPage: string | null = null;
 
-  for (let page = 0; page < 5 && allNodes.length < limit; page++) {
+  for (let page = 0; page < MAX_PAGES && allNodes.length < limit; page++) {
     const pageParams: Record<string, unknown> = {
       size: PAGE_SIZE,
       where: ['closedOn', '=', null],
+      sortBy: [{ field: 'createdAt', order: 'desc' }],
     };
     if (nextPage) pageParams.page = nextPage;
 
@@ -673,7 +683,7 @@ export async function getJobSchedule(jobId: string): Promise<JTJobSchedule | nul
 // instead of N parallel per-job queries (which triggers 413 Request Entity Too Large)
 export async function getActiveJobSchedules(): Promise<JTJobSchedule[]> {
   // 1. Get active jobs (now includes customStatus)
-  const jobs = await getActiveJobs(50);
+  const jobs = await getActiveJobs();
 
   // 2. Get all task groups across org (lightweight â no childTasks to avoid 413)
   const groupResult = await orgQuery('tasks', {
@@ -1039,7 +1049,7 @@ export async function getScheduleAudit(): Promise<{
   };
 }> {
   // 1. Get active jobs
-  const jobs = await getActiveJobs(50);
+  const jobs = await getActiveJobs();
   const jobMap = new Map(jobs.map((j) => [j.id, j]));
 
   // 2. Get ALL task groups (phases) across org
@@ -3137,7 +3147,7 @@ export async function updateTaskFull(taskId: string, fields: {
 // ============================================================
 
 export async function getGridScheduleData(): Promise<GridJobData[]> {
-  const jobs = await getActiveJobs(50);
+  const jobs = await getActiveJobs();
 
   // Fetch tasks PER JOB in batches (avoids 100-task org-wide limit)
   // Old approach fetched only 100 tasks across ALL jobs â most projects got zero

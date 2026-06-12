@@ -57,7 +57,7 @@ export async function GET() {
     // Get active jobs to compare
     let activeJobCount = 0;
     try {
-      const activeJobs = await getActiveJobs(50);
+      const activeJobs = await getActiveJobs();
       activeJobCount = activeJobs.length;
     } catch { /* ignore */ }
 
@@ -122,7 +122,7 @@ async function backfillJT(batchSize: number, startTime: number) {
   const supabase = createServerClient();
 
   // Get all active jobs
-  const activeJobs = await getActiveJobs(50);
+  const activeJobs = await getActiveJobs();
 
   // Find which jobs already have comments synced
   // Use high limit to ensure we capture all distinct job_ids

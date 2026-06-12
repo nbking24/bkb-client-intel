@@ -55,7 +55,7 @@ function computeHours(startedAt: string, endedAt: string): number {
 export async function POST(req: Request) {
   try {
     // Get all active jobs
-    const jobs = await getActiveJobs(50);
+    const jobs = await getActiveJobs();
 
     // Filter to jobs with meaningful statuses (skip leads/prospects)
     const activeJobs = jobs.filter(

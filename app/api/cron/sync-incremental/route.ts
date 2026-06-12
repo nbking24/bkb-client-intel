@@ -46,7 +46,7 @@ export async function GET(request: NextRequest) {
 
   try {
     // ─── PHASE 1: JT Messages (comments + daily logs) ───
-    const activeJobs = await getActiveJobs(50);
+    const activeJobs = await getActiveJobs();
 
     for (const job of activeJobs) {
       if (Date.now() - startTime > MAX_SYNC_TIME_MS) break;

@@ -1082,7 +1082,7 @@ export async function buildInvoicingContext(): Promise<InvoicingFullContext> {
   const todayStr = getTodayDateString();
 
   // 1. Get all active jobs (now includes native priceType field from PAVE API)
-  const allJobs = await getActiveJobs(50);
+  const allJobs = await getActiveJobs();
 
   // 1b. Filter to only jobs with allowed custom Status values
   const rawJobs = allJobs.filter((job) => {

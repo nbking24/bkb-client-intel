@@ -1453,7 +1453,7 @@ const knowItAll: AgentModule = {
       }
 
       if (name === 'search_jobs') {
-        const jobs = await getActiveJobs(50);
+        const jobs = await getActiveJobs();
         if (!jobs || jobs.length === 0) return JSON.stringify({ success: true, count: 0, message: 'No active jobs found.' });
         const lines = (jobs as any[]).map((j: any) => `- #${j.number || '?'} "${j.name}" | ID: ${j.id} | Status: ${j.status || 'N/A'}`);
         return JSON.stringify({ success: true, count: jobs.length, jobs: lines.join('\n') });
@@ -2271,7 +2271,7 @@ const knowItAll: AgentModule = {
       // ── Project Intelligence Tools ──────────────────────────────
       if (name === 'get_project_intelligence') {
         // Fetch active jobs for the intelligence report
-        const jobs = await getActiveJobs(50);
+        const jobs = await getActiveJobs();
         const activeJobs = (jobs || []).map((j: any) => ({
           id: j.id,
           name: j.name || '',

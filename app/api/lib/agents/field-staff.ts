@@ -452,7 +452,7 @@ const fieldStaff: AgentModule = {
     try {
       // ── SPEC TOOLS ──
       if (name === 'search_jobs') {
-        const allJobs = await getActiveJobs(50);
+        const allJobs = await getActiveJobs();
         const query = (input.query || '').toLowerCase().trim();
         let filtered = allJobs;
         if (query) {

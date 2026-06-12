@@ -349,7 +349,7 @@ export async function GET(request: NextRequest) {
   const startTime = new Date();
 
   try {
-    const jobs = await getActiveJobs(50);
+    const jobs = await getActiveJobs();
     if (!jobs || jobs.length === 0) {
       return NextResponse.json({
         scannedAt: startTime.toISOString(),
@@ -438,7 +438,7 @@ export async function POST(request: NextRequest) {
       if (Array.isArray(jobIds) && jobIds.length > 0) {
         targetJobIds = jobIds;
       } else {
-        const jobs = await getActiveJobs(50);
+        const jobs = await getActiveJobs();
         targetJobIds = jobs.map((j) => j.id);
       }
 

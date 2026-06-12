@@ -4,7 +4,7 @@ import { getActiveJobs } from '@/app/lib/jobtread';
 // GET /api/dashboard/projects - Returns active jobs with pre-con phase data
 export async function GET(req: NextRequest) {
   try {
-    const jobs = await getActiveJobs(50);
+    const jobs = await getActiveJobs();
 
     // For now, return JT jobs directly. Once Supabase is connected,
     // this will join with precon_phases to get phase status per project.
