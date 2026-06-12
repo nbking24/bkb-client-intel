@@ -7,7 +7,7 @@ import { BKB_CATEGORIES, BKB_CATEGORY_DETAILS } from './bkb-spec-guide';
 import { getCachedCatalog, formatCatalogForAgent, type CostCatalog } from './cost-catalog';
 import { formatScopeNotesForPrompt } from './scope-notes';
 import { formatEstimatingRulesForPrompt } from './estimating-knowledge';
-import { getActiveJobs } from './jobtread';
+import { getActiveJobs, sanitizeAiDescription } from './jobtread';
 
 // -- Types --
 
@@ -160,77 +160,100 @@ Code 01 Planning/Admin — Avg margin 32.5% on $211K revenue
   Typical: Architectural plans, engineering, permits, project management hours
   PM labor: $85/hr cost, $125/hr price (Hours)
 
-Code 02 Demolition/Sitework — Avg margin 30.5% on $113K revenue
-  Typical: Interior demo ($2,500-$8,000 LS sub), dumpster ($600-$1,200/pull EA)
+Code 02 Demolition/Sitework, Avg margin 30.5% on $113K revenue
+  Typical: Interior demo ($2,500-$8,000 LS trade partner), dumpster ($600-$1,200/pull EA)
   Site protection, porta-potty ($200-$350/mo)
 
-Code 03 Concrete/Stone — Avg margin 32.8% on $544K revenue (STRONG)
+Code 03 Concrete/Stone, Avg margin 32.8% on $544K revenue (STRONG)
   Typical: Foundation work, stone veneer, concrete flatwork
-  Often subcontracted as lump sum
+  Often handled by a trade partner as a lump sum
 
-Code 04 Framing — Avg margin 28.0% on $304K revenue
-  Typical: Structural framing $41-$55/SF (sub), BKB labor for misc framing
+Code 04 Framing, Avg margin 28.0% on $304K revenue
+  Typical: Structural framing $41-$55/SF (trade partner), BKB labor for misc framing
   Wall framing, headers, blocking, structural modifications
 
-Code 05 Windows/Doors — Avg margin 21.8% on $280K revenue (BELOW TARGET — price up!)
+Code 05 Windows/Doors, Avg margin 21.8% on $280K revenue (BELOW TARGET, price up!)
   Typical: Window replacements $500-$2,500/ea material, installation $150-$400/ea labor
   Exterior doors $1,200-$3,500/ea installed. Interior doors $400-$800/ea installed
   ⚠️ IMPORTANT: Historical margin was only 21.8%. Price materials at FULL 30% margin.
 
-Code 06 Exterior Finish/Decks — Avg margin 30.8% on $422K revenue
+Code 06 Exterior Finish/Decks, Avg margin 30.8% on $422K revenue
   Typical: Siding (James Hardie $8-$14/SF installed), decking ($35-$65/SF composite)
   Exterior trim, soffit, fascia
 
-Code 08 Roofing — Avg margin 25.2% on $81K revenue
+Code 08 Roofing, Avg margin 25.2% on $81K revenue
   Typical: Asphalt shingle $350-$500/square installed, standing seam metal $800-$1,200/square
-  Usually subcontracted as lump sum
+  Usually handled by a trade partner as a lump sum
 
-Code 09 Insulation — Avg margin 23.8% on $42K revenue
+Code 09 Insulation, Avg margin 23.8% on $42K revenue
   Typical: Spray foam $1.50-$3.50/SF, batt $0.80-$1.50/SF, blown-in $1.00-$2.00/SF
-  ⚠️ Price at 30% — historical was below target.
+  ⚠️ Price at 30%, historical was below target.
 
-Code 10 Plumbing — Avg margin 22.3% on $215K revenue (BELOW TARGET — price up!)
-  Typical: Rough-in $3,500-$8,000/bathroom (sub LS), fixtures $500-$3,000/ea
+Code 10 Plumbing, Avg margin 22.3% on $215K revenue (BELOW TARGET, price up!)
+  Typical: Rough-in $3,500-$8,000/bathroom (trade partner LS), fixtures $500-$3,000/ea
   Kitchen rough-in $2,000-$5,000 LS
   ⚠️ IMPORTANT: Historical margin was only 22.3%. Price at FULL 30% margin.
 
-Code 11 HVAC — Avg margin 24.1% on $51K revenue
+Code 11 HVAC, Avg margin 24.1% on $51K revenue
   Typical: Ductwork modifications $1,500-$4,000 LS, mini-split $3,500-$6,000/unit installed
-  ⚠️ Price at 30% — historical was below target.
+  ⚠️ Price at 30%, historical was below target.
 
-Code 12 Electrical — Avg margin 28.3% on $126K revenue
-  Typical: Rough-in $3,000-$8,000/room (sub LS), panel upgrade $2,500-$4,500
+Code 12 Electrical, Avg margin 28.3% on $126K revenue
+  Typical: Rough-in $3,000-$8,000/room (trade partner LS), panel upgrade $2,500-$4,500
   Recessed lights $150-$250/ea installed, outlets/switches $100-$200/ea
 
-Code 13 Drywall — Avg margin 26.6% on $65K revenue
-  Typical: Hang & finish $2.50-$4.50/SF (sub), patches $300-$800/room LS
+Code 13 Drywall, Avg margin 26.6% on $65K revenue
+  Typical: Hang & finish $2.50-$4.50/SF (trade partner), patches $300-$800/room LS
 
-Code 14 Interior Finish — Avg margin 30.5% on $158K revenue
+Code 14 Interior Finish, Avg margin 30.5% on $158K revenue
   Typical: Trim/molding installation, built-ins, hardware, interior carpentry
   Crown molding $8-$15/LF installed, base trim $5-$10/LF installed
 
-Code 15 Painting — Avg margin 21.5% on $72K revenue (BELOW TARGET — price up!)
-  Typical: Interior $2.50-$4.50/SF (sub), exterior $3.00-$6.00/SF
-  Cabinet painting $80-$150/door (sub)
+Code 15 Painting, Avg margin 21.5% on $72K revenue (BELOW TARGET, price up!)
+  Typical: Interior $2.50-$4.50/SF (trade partner), exterior $3.00-$6.00/SF
+  Cabinet painting $80-$150/door (trade partner)
   ⚠️ IMPORTANT: Historical margin was only 21.5%. Price at FULL 30% margin.
 
-Code 16 Cabinets/Countertops — Avg margin 25.5% on $932K revenue (LARGEST category)
+Code 16 Cabinets/Countertops, Avg margin 25.5% on $932K revenue (LARGEST category)
   Typical: Custom cabinets $400-$800/LF, semi-custom $250-$500/LF
   Quartz countertops $75-$125/SF installed, granite $60-$100/SF
-  ⚠️ Watch margins closely — largest spend category.
+  ⚠️ Watch margins closely, largest spend category.
 
-Code 17 Tile — Avg margin 24.3% on $119K revenue
-  Typical: Floor tile $12-$25/SF installed (sub), wall tile $15-$30/SF
+Code 17 Tile, Avg margin 24.3% on $119K revenue
+  Typical: Floor tile $12-$25/SF installed (trade partner), wall tile $15-$30/SF
   Shower tile $20-$40/SF, backsplash $15-$30/SF
-  ⚠️ Price at 30% — historical was below target.
+  ⚠️ Price at 30%, historical was below target.
 
-Code 19 Flooring — Avg margin 22.8% on $181K revenue (BELOW TARGET — price up!)
+Code 19 Flooring, Avg margin 22.8% on $181K revenue (BELOW TARGET, price up!)
   Typical: Hardwood $10-$18/SF installed, LVP $6-$12/SF installed
   Carpet $4-$8/SF installed
   ⚠️ IMPORTANT: Historical margin was only 22.8%. Price at FULL 30% margin.
 
-Code 20 Shower Glass/Specialty — Avg margin 24.7% on $4K revenue
+Code 20 Shower Glass/Specialty, Avg margin 24.7% on $4K revenue
   Typical: Frameless shower glass $1,500-$4,000/opening installed
+
+VOCABULARY RULES (NON-NEGOTIABLE):
+These apply to EVERYTHING you write that the homeowner could read: group descriptions, item
+descriptions, change-order names, area names, scope summaries, and your conversational replies.
+
+1. NEVER use em-dashes (—) or en-dashes (–) as sentence connectors. Use a comma, a period, or
+   parentheses instead. Hyphens (-) are fine in compound words and numeric ranges.
+   Wrong:  "Provide and install new cabinetry — soft-close throughout — painted shaker style."
+   Right:  "Provide and install new cabinetry, soft-close throughout, painted shaker style."
+
+2. NEVER use the words "sub", "subs", "subcontractor", "subcontractors", "subcontracted", or
+   "subcontracting" in any client-facing text. Use "trade partner" / "trade partners" instead.
+   The JobTread cost type is technically named "Subcontractor" and you may still use that exact
+   word in the costTypeName JSON field, but the moment you describe the work to the homeowner,
+   it is performed by a trade partner.
+   Wrong:  "Plumbing rough-in by sub", "Subcontractor handles framing", "Sub LS for demo"
+   Right:  "Plumbing rough-in by trade partner", "Trade partner handles framing", "Trade partner LS for demo"
+
+3. Never name a specific outside trade firm or vendor inside a description. Material brand names
+   (e.g., James Hardie, Kohler) are fine. Trade partner firm names are not.
+
+A sanitizer scrubs these words after parsing, but you should write them correctly the first time
+so the descriptions read naturally.
 
 DESCRIPTION GUIDELINES:
 
@@ -277,7 +300,8 @@ ITEM DESCRIPTIONS are for INSTALLERS/TRADE PARTNERS: technical details, specs, m
 SPEC WRITING CONVENTIONS:
 - Standard openers: "Provide and install...", "Furnish and install...", "Remove and replace...", "Remove and dispose of..."
 - Material format: Manufacturer, Product/Series, Style/Model, Color, Finish, Type/Size
-- Never mention subcontractor or vendor names in descriptions
+- Never name a specific trade partner firm or vendor inside a description (material brand names are fine)
+- Follow the VOCABULARY RULES above: no em-dashes, no "sub" / "subcontractor"
 
 ${formatScopeNotesForPrompt()}
 
@@ -547,6 +571,30 @@ export function stripQuestionMarkers(reply: string): string {
 
 // -- Parse budget proposal from agent response --
 
+/**
+ * Scrub all client-facing text fields on a budget through sanitizeAiDescription.
+ * The shared sanitizer enforces BKB vocabulary rules (no em-dashes, no "sub" /
+ * "subcontractor") on every description and free-text field that flows into
+ * JobTread. We deliberately do NOT sanitize costTypeName because the JT cost
+ * type is technically still named "Subcontractor" in the catalog; that field
+ * is structured data, not client copy.
+ */
+function sanitizeBudget(budget: ProposedBudget): ProposedBudget {
+  return {
+    ...budget,
+    changeOrderName: budget.changeOrderName ? sanitizeAiDescription(budget.changeOrderName) : budget.changeOrderName,
+    areaName: budget.areaName ? sanitizeAiDescription(budget.areaName) : budget.areaName,
+    optionLabel: budget.optionLabel ? sanitizeAiDescription(budget.optionLabel) : budget.optionLabel,
+    lineItems: budget.lineItems.map((item) => ({
+      ...item,
+      name: sanitizeAiDescription(item.name || ''),
+      description: sanitizeAiDescription(item.description || ''),
+      groupName: sanitizeAiDescription(item.groupName || ''),
+      groupDescription: sanitizeAiDescription(item.groupDescription || ''),
+    })),
+  };
+}
+
 export function parseProposedBudget(reply: string): ProposedBudget | null {
   const match = reply.match(/@@BUDGET_PROPOSAL@@\s*([\s\S]*?)\s*@@END_PROPOSAL@@/);
   if (!match) return null;
@@ -573,7 +621,7 @@ export function parseProposedBudget(reply: string): ProposedBudget | null {
     const totalCost = lineItems.reduce((sum, i) => sum + (i.quantity * i.unitCost), 0);
     const totalPrice = lineItems.reduce((sum, i) => sum + (i.quantity * i.unitPrice), 0);
 
-    return {
+    const budget: ProposedBudget = {
       estimateType: raw.estimateType || 'initial',
       changeOrderName: raw.changeOrderName,
       areaName: raw.areaName || '',
@@ -581,6 +629,10 @@ export function parseProposedBudget(reply: string): ProposedBudget | null {
       totalCost,
       totalPrice,
     };
+    // Belt-and-suspenders: prompt forbids em-dashes + "sub" but the model
+    // regresses. Sanitize every description field before the proposal goes
+    // back to the dashboard or into JobTread.
+    return sanitizeBudget(budget);
   } catch (err) {
     console.error('Failed to parse budget proposal:', err);
     return null;
@@ -618,7 +670,7 @@ export function parseMultipleBudgets(reply: string): ProposedBudget[] {
       const totalCost = lineItems.reduce((sum, i) => sum + (i.quantity * i.unitCost), 0);
       const totalPrice = lineItems.reduce((sum, i) => sum + (i.quantity * i.unitPrice), 0);
 
-      budgets.push({
+      budgets.push(sanitizeBudget({
         estimateType: raw.estimateType || 'initial',
         changeOrderName: raw.changeOrderName,
         areaName: raw.areaName || '',
@@ -627,7 +679,7 @@ export function parseMultipleBudgets(reply: string): ProposedBudget[] {
         totalPrice,
         optionNumber: raw.optionNumber || fallbackOptionNum,
         optionLabel: raw.optionLabel || `Option ${fallbackOptionNum}`,
-      });
+      }));
 
       fallbackOptionNum++;
     } catch (err) {

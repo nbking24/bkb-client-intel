@@ -3616,25 +3616,45 @@ function isValidAiDescription(text: string): boolean {
   return !badPatterns.some(p => lower.startsWith(p) || lower.includes(p));
 }
 
-// Helper: clean markdown formatting artifacts from AI descriptions
+// Helper: clean markdown formatting artifacts from AI descriptions.
 // Strips # headers, ** bold **, __ underline __, and leading/trailing whitespace per line.
-// Also rewrites BKB-forbidden vocabulary — Nathan does not want "subcontractor" /
-// "sub" appearing on client-facing change orders or invoices. Even when the AI
-// prompt forbids these words, the model occasionally regresses; this sanitizer
-// is the safety net so a slip-through never makes it onto a customer document.
-// BKB's preferred term is "trade partner(s)" (the JT cost group is already
-// named "Trade Partners" further down in createDraftBillableInvoice).
-function sanitizeAiDescription(text: string): string {
+// Also rewrites two BKB-forbidden conventions Nathan never wants on client-facing
+// text (estimates, proposals, change orders, invoices, daily logs):
+//   1. "subcontractor" / "sub" → "trade partner". JT's cost group is already
+//      named "Trade Partners" further down in createDraftBillableInvoice.
+//   2. Em-dash (—) and en-dash (–) → comma + space, with surrounding whitespace
+//      collapsed. Nathan finds em-dashes feel AI-generated; he wants natural
+//      sentences.
+// Even when the AI prompt forbids these patterns the model regresses; this
+// sanitizer is the safety net so a slip-through never reaches the customer.
+// Exported so other modules (estimating agent, daily-log summarizers, etc.)
+// can reuse the same scrubbing without re-implementing it.
+export function sanitizeAiDescription(text: string): string {
+  if (!text) return text;
   return text
     .split('\n')
     .map(line => line
       .replace(/^#{1,6}\s+/, '')       // strip markdown headers (# ## ### etc.)
       .replace(/\*\*(.*?)\*\*/g, '*$1*') // convert double bold **text** to single *text*
       .replace(/__(.*?)__/g, '$1')       // strip underline __text__
+      // -- Em-dash / en-dash replacement --
+      // The model frequently uses " — " as a sentence connector; we want a
+      // comma instead so the prose reads naturally. Match optional surrounding
+      // spaces so " a — b " becomes "a, b". Standalone dashes (no spaces)
+      // become a plain hyphen so things like ranges "$2,500–$8,000" don't
+      // get mangled into commas mid-number.
+      .replace(/\s*[—–]\s*/g, (match) => {
+        // If both sides had spaces, treat as sentence connector → ", "
+        // If neither side had a space, treat as numeric range → "-"
+        const leftSpace = /^\s/.test(match);
+        const rightSpace = /\s$/.test(match);
+        if (leftSpace && rightSpace) return ', ';
+        return '-';
+      })
       // Strip BKB-forbidden vocabulary. Order matters: do plural/inflected
       // forms before the singular base so we don't half-replace longer words.
       // \b word boundaries keep "submitted", "subject", "subdivision", etc.
-      // intact — we only target the standalone tokens.
+      // intact - we only target the standalone tokens.
       .replace(/\bSubcontractors\b/g, 'Trade Partners')
       .replace(/\bsubcontractors\b/g, 'trade partners')
       .replace(/\bSubcontractor\b/g, 'Trade Partner')

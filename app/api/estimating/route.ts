@@ -20,6 +20,7 @@ import {
   enforceTargetMargins,
   type ProposedBudget,
 } from '@/app/lib/estimating-agent';
+import { sanitizeAiDescription } from '@/app/lib/jobtread';
 
 const anthropic = new Anthropic();
 
@@ -172,6 +173,11 @@ export async function POST(req: NextRequest) {
     // Strip markers from the display reply
     let cleanReply = stripProposalMarkers(replyText);
     cleanReply = stripQuestionMarkers(cleanReply);
+    // Scrub BKB-forbidden vocabulary (em-dashes, "sub" / "subcontractor")
+    // from the conversational reply that renders in the chat UI. The
+    // proposal JSON has already been sanitized inside parseMultipleBudgets;
+    // this catches anything in the reply prose.
+    cleanReply = sanitizeAiDescription(cleanReply);
 
     return NextResponse.json({
       reply: cleanReply,

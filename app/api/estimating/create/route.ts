@@ -9,6 +9,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { validateAuth } from '../../lib/auth';
 import type { ProposedBudget, BudgetLineItem } from '@/app/lib/estimating-agent';
+import { sanitizeAiDescription } from '@/app/lib/jobtread';
 
 const JT_URL = 'https://api.jobtread.com/pave';
 const JT_KEY = () => process.env.JOBTREAD_API_KEY || '';
@@ -218,6 +219,25 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: 'Missing jobId or budget data' }, { status: 400 });
     }
 
+    // Final BKB vocabulary scrub, defensive against hand-edits made in the
+    // dashboard between the AI proposal and the Create click. The estimating
+    // agent already sanitizes inside parse(Multiple)Budget(s); this is the
+    // safety net for any text that came back through the UI.
+    const sanitizedItems: BudgetLineItem[] = budget.lineItems.map((item) => ({
+      ...item,
+      name: sanitizeAiDescription(item.name || ''),
+      description: sanitizeAiDescription(item.description || ''),
+      groupName: sanitizeAiDescription(item.groupName || ''),
+      groupDescription: sanitizeAiDescription(item.groupDescription || ''),
+    }));
+    const sanitizedBudget: ProposedBudget = {
+      ...budget,
+      changeOrderName: budget.changeOrderName ? sanitizeAiDescription(budget.changeOrderName) : budget.changeOrderName,
+      areaName: budget.areaName ? sanitizeAiDescription(budget.areaName) : budget.areaName,
+      optionLabel: budget.optionLabel ? sanitizeAiDescription(budget.optionLabel) : budget.optionLabel,
+      lineItems: sanitizedItems,
+    };
+
     // Fetch existing groups to avoid duplicates
     const existingGroups = await getExistingGroups(jobId);
     const groupCache = new Map<string, string>();
@@ -225,7 +245,7 @@ export async function POST(req: NextRequest) {
     const errors: string[] = [];
 
     // Create items grouped by their groupName path
-    for (const item of budget.lineItems) {
+    for (const item of sanitizedBudget.lineItems) {
       try {
         // Ensure the group hierarchy exists
         const groupId = await ensureGroupPath(
@@ -249,7 +269,7 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({
       success: errors.length === 0,
       createdCount: created.length,
-      totalItems: budget.lineItems.length,
+      totalItems: sanitizedBudget.lineItems.length,
       errors,
       groupsCreated: groupCache.size,
     });
