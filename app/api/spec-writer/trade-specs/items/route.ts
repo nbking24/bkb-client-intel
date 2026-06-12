@@ -21,8 +21,8 @@ export const dynamic = 'force-dynamic';
  * which items are eligible for a trade-spec rewrite.
  */
 
-const PAGE_SIZE = 20; // small pages: nested documentCostItems + customFieldValues
-const MAX_PAGES = 40; // 20 x 40 = 800 items max
+const PAGE_SIZE = 8; // tiny pages: nested documentCostItems + customFieldValues are expensive (JT 413s)
+const MAX_PAGES = 100; // 8 x 100 = 800 items max
 
 async function fetchCostItems(jobId: string): Promise<any[]> {
   let all: any[] = [];
@@ -52,11 +52,11 @@ async function fetchCostItems(jobId: string): Promise<any[]> {
             costGroup: { id: {}, name: {} },
             document: { id: {} },
             customFieldValues: {
-              $: { size: 25 },
+              $: { size: 10 },
               nodes: { value: {}, customField: { id: {} } },
             },
             documentCostItems: {
-              $: { size: 50 },
+              $: { size: 15 },
               nodes: { price: {}, document: { type: {}, status: {} } },
             },
           },
