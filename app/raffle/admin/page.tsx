@@ -63,6 +63,11 @@ export default function RaffleAdminPage() {
   const [drawErr, setDrawErr] = useState('');
   const [drawnWinner, setDrawnWinner] = useState<AdminEntry | null>(null);
 
+  // edit state
+  const [editingId, setEditingId] = useState<string | null>(null);
+  const [editDraft,  setEditDraft]  = useState<EditDraft | null>(null);
+  const [editErr,    setEditErr]    = useState('');
+
   // form
   const [name, setName]       = useState('');
   const [phone, setPhone]     = useState('');
@@ -149,6 +154,66 @@ export default function RaffleAdminPage() {
       return;
     }
     load();
+  }
+
+  // ---- Inline edit ----
+  type EditDraft = {
+    name: string;
+    phone: string;
+    email: string;
+    contact_ok: boolean;
+    interests: Set<string>;
+  };
+
+  function startEdit(e: AdminEntry) {
+    setEditingId(e.id);
+    setEditDraft({
+      name: e.name || '',
+      phone: e.phone || '',
+      email: e.email || '',
+      contact_ok: !!e.contact_ok,
+      interests: new Set(e.interests || []),
+    });
+    setEditErr('');
+  }
+  function cancelEdit() {
+    setEditingId(null);
+    setEditDraft(null);
+    setEditErr('');
+  }
+  async function saveEdit(id: string) {
+    if (!editDraft) return;
+    setEditErr('');
+    if (!editDraft.name.trim()) {
+      setEditErr('Name cannot be empty.');
+      return;
+    }
+    const r = await fetch('/api/raffle/admin', {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${getToken()}` },
+      body: JSON.stringify({
+        id,
+        name: editDraft.name.trim(),
+        phone: editDraft.phone.trim() || null,
+        email: editDraft.email.trim() || null,
+        contact_ok: editDraft.contact_ok,
+        interests: Array.from(editDraft.interests),
+      }),
+    });
+    if (!r.ok) {
+      const b = await r.json().catch(() => ({}));
+      setEditErr(b?.message || b?.error || 'save_failed');
+      return;
+    }
+    setEditingId(null);
+    setEditDraft(null);
+    await load();
+  }
+  function toggleEditInterest(id: string) {
+    if (!editDraft) return;
+    const next = new Set(editDraft.interests);
+    if (next.has(id)) next.delete(id); else next.add(id);
+    setEditDraft({ ...editDraft, interests: next });
   }
 
   async function triggerDraw(override = false) {
@@ -392,25 +457,101 @@ export default function RaffleAdminPage() {
                   </tr>
                 </thead>
                 <tbody>
-                  {entries.map(e => (
-                    <tr key={e.id} style={{ borderTop: BORDER, background: e.is_winner ? '#fff7e0' : 'transparent' }}>
-                      <td style={td()}>
-                        {e.is_winner && <span style={{ color: BKB_GOLD, marginRight: 6 }}>★</span>}
-                        {e.name}
-                      </td>
-                      <td style={td()}>{e.phone || '—'}</td>
-                      <td style={td()}>{e.email || '—'}</td>
-                      <td style={td()}>{e.contact_ok ? <span style={{ color: BKB_RED, fontWeight: 600 }}>YES</span> : '—'}</td>
-                      <td style={td()}>{(e.interests || []).join(', ') || '—'}</td>
-                      <td style={td()}>
-                        {e.source === 'public_qr' ? 'QR' : `manual${e.entered_by ? ' · ' + e.entered_by : ''}`}
-                      </td>
-                      <td style={td()}>{new Date(e.created_at).toLocaleString()}</td>
-                      <td style={td()}>
-                        <button onClick={() => delEntry(e.id)} style={{ background: 'none', border: 'none', color: BKB_RED, cursor: 'pointer', fontSize: 12 }}>delete</button>
-                      </td>
-                    </tr>
-                  ))}
+                  {entries.map(e => {
+                    const isEditing = editingId === e.id && editDraft;
+                    if (isEditing && editDraft) {
+                      return (
+                        <tr key={e.id} style={{ borderTop: BORDER, background: '#fffcec' }}>
+                          <td style={td()}>
+                            <input value={editDraft.name}
+                              onChange={ev => setEditDraft({ ...editDraft, name: ev.target.value })}
+                              style={{ ...input(), padding: '0.3rem 0.4rem', fontSize: 13 }} />
+                          </td>
+                          <td style={td()}>
+                            <input value={editDraft.phone}
+                              onChange={ev => setEditDraft({ ...editDraft, phone: ev.target.value })}
+                              style={{ ...input(), padding: '0.3rem 0.4rem', fontSize: 13 }} />
+                          </td>
+                          <td style={td()}>
+                            <input value={editDraft.email}
+                              onChange={ev => setEditDraft({ ...editDraft, email: ev.target.value })}
+                              style={{ ...input(), padding: '0.3rem 0.4rem', fontSize: 13 }} />
+                          </td>
+                          <td style={td()}>
+                            <label style={{ fontSize: 12, display: 'flex', alignItems: 'center', gap: 4 }}>
+                              <input type="checkbox" checked={editDraft.contact_ok}
+                                onChange={ev => setEditDraft({ ...editDraft, contact_ok: ev.target.checked })} />
+                              Yes
+                            </label>
+                          </td>
+                          <td style={td()}>
+                            <div style={{ display: 'flex', flexWrap: 'wrap', gap: 4, maxWidth: 220 }}>
+                              {INTERESTS.map(opt => {
+                                const on = editDraft.interests.has(opt.id);
+                                return (
+                                  <button key={opt.id} type="button" onClick={() => toggleEditInterest(opt.id)}
+                                    style={{
+                                      padding: '0.15rem 0.35rem',
+                                      border: `1px solid ${on ? BKB_RED : '#ccc'}`,
+                                      background: on ? `${BKB_RED}11` : '#fff',
+                                      color: on ? BKB_RED : INK,
+                                      borderRadius: 3, fontSize: 10, cursor: 'pointer',
+                                    }}>
+                                    {on ? '✓ ' : ''}{opt.label}
+                                  </button>
+                                );
+                              })}
+                            </div>
+                          </td>
+                          <td style={td()}>
+                            {e.source === 'public_qr' ? 'QR' : `manual${e.entered_by ? ' · ' + e.entered_by : ''}`}
+                          </td>
+                          <td style={td()}>{new Date(e.created_at).toLocaleString()}</td>
+                          <td style={td()}>
+                            <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+                              <button onClick={() => saveEdit(e.id)}
+                                style={{ background: BKB_RED, color: '#fff', border: 'none', padding: '0.3rem 0.5rem', borderRadius: 3, fontSize: 11, cursor: 'pointer', fontWeight: 600 }}>
+                                save
+                              </button>
+                              <button onClick={cancelEdit}
+                                style={{ background: 'none', border: '1px solid #ccc', padding: '0.3rem 0.5rem', borderRadius: 3, fontSize: 11, cursor: 'pointer', color: INK_SOFT }}>
+                                cancel
+                              </button>
+                              {editErr && <div style={{ color: BKB_RED, fontSize: 10 }}>{editErr}</div>}
+                            </div>
+                          </td>
+                        </tr>
+                      );
+                    }
+                    return (
+                      <tr key={e.id} style={{ borderTop: BORDER, background: e.is_winner ? '#fff7e0' : 'transparent' }}>
+                        <td style={td()}>
+                          {e.is_winner && <span style={{ color: BKB_GOLD, marginRight: 6 }}>★</span>}
+                          {e.name}
+                        </td>
+                        <td style={td()}>{e.phone || '—'}</td>
+                        <td style={td()}>{e.email || '—'}</td>
+                        <td style={td()}>{e.contact_ok ? <span style={{ color: BKB_RED, fontWeight: 600 }}>YES</span> : '—'}</td>
+                        <td style={td()}>{(e.interests || []).join(', ') || '—'}</td>
+                        <td style={td()}>
+                          {e.source === 'public_qr' ? 'QR' : `manual${e.entered_by ? ' · ' + e.entered_by : ''}`}
+                        </td>
+                        <td style={td()}>{new Date(e.created_at).toLocaleString()}</td>
+                        <td style={td()}>
+                          <div style={{ display: 'flex', gap: 8 }}>
+                            <button onClick={() => startEdit(e)}
+                              style={{ background: 'none', border: 'none', color: BKB_RED, cursor: 'pointer', fontSize: 12 }}>
+                              edit
+                            </button>
+                            <button onClick={() => delEntry(e.id)}
+                              style={{ background: 'none', border: 'none', color: BKB_RED, cursor: 'pointer', fontSize: 12 }}>
+                              delete
+                            </button>
+                          </div>
+                        </td>
+                      </tr>
+                    );
+                  })}
                 </tbody>
               </table>
             </div>
