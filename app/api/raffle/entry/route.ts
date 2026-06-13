@@ -88,6 +88,9 @@ export async function POST(req: NextRequest) {
   if (!name) {
     return NextResponse.json({ error: 'name_required' }, { status: 400 });
   }
+  if (!email) {
+    return NextResponse.json({ error: 'email_required' }, { status: 400 });
+  }
   if (emailRaw && !email) {
     return NextResponse.json({ error: 'invalid_email' }, { status: 400 });
   }

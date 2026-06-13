@@ -62,6 +62,10 @@ export default function RaffleEnterPage() {
     setErrMsg('');
 
     if (!name.trim()) { setErrMsg('Please enter your name.'); return; }
+    if (!email.trim()) {
+      setErrMsg('Please enter your email so we can let you know if you win.');
+      return;
+    }
     if (contactOk === null) {
       setErrMsg('Please let us know whether we may contact you about a project.');
       return;
@@ -187,7 +191,7 @@ export default function RaffleEnterPage() {
           }}
         >
           <div style={{ marginBottom: 18 }}>
-            <label style={labelStyle}>Your name</label>
+            <label style={labelStyle}>Your name *</label>
             <input
               type="text"
               value={name}
@@ -199,7 +203,7 @@ export default function RaffleEnterPage() {
           </div>
 
           <div style={{ marginBottom: 18 }}>
-            <label style={labelStyle}>Phone</label>
+            <label style={labelStyle}>Phone (optional)</label>
             <input
               type="tel"
               value={phone}
@@ -212,7 +216,7 @@ export default function RaffleEnterPage() {
           </div>
 
           <div style={{ marginBottom: 22 }}>
-            <label style={labelStyle}>Email</label>
+            <label style={labelStyle}>Email *</label>
             <input
               type="email"
               value={email}
@@ -220,10 +224,11 @@ export default function RaffleEnterPage() {
               autoComplete="email"
               inputMode="email"
               placeholder="you@example.com"
+              required
               style={fieldStyle}
             />
             <div style={{ fontSize: 12, color: INK_SOFT, marginTop: 6 }}>
-              Optional, but helps us reach you if you win.
+              We need your email so we can let you know if you win.
             </div>
           </div>
 
