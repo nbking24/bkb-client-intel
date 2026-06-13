@@ -276,9 +276,7 @@ export default function WheelPage() {
               boxShadow: '0 2px 4px rgba(0,0,0,0.15)',
             }}
           >
-            {spinning
-              ? 'SPINNING…'
-              : (isDrawingTime ? 'SPIN THE WHEEL' : 'TEST SPIN')}
+            {spinning ? 'SPINNING…' : 'SPIN THE WHEEL'}
           </button>
         )}
         {errMsg && (
