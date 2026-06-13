@@ -53,7 +53,7 @@ export async function GET(req: NextRequest) {
   const supabase = getSupabase();
   const { data, error } = await supabase
     .from('raffle_entries')
-    .select('id, name, phone, email, contact_ok, interests, source, entered_by, is_winner, drawn_at, created_at')
+    .select('id, name, phone, email, contact_ok, interests, source, entered_by, is_winner, drawn_at, created_at, loop_contact_id, loop_synced_at, loop_sync_error, contacted_at, contacted_by, contact_notes')
     .is('deleted_at', null)
     .order('created_at', { ascending: false });
 
@@ -91,7 +91,7 @@ export async function POST(req: NextRequest) {
       source: 'admin_manual',
       entered_by,
     })
-    .select('id, name, phone, email, contact_ok, interests, source, entered_by, is_winner, drawn_at, created_at')
+    .select('id, name, phone, email, contact_ok, interests, source, entered_by, is_winner, drawn_at, created_at, loop_contact_id, loop_synced_at, loop_sync_error, contacted_at, contacted_by, contact_notes')
     .single();
 
   if (error) {

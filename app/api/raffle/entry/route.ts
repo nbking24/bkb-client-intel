@@ -28,6 +28,7 @@
  */
 import { NextRequest, NextResponse } from 'next/server';
 import { getSupabase } from '../../lib/supabase';
+import { syncRaffleEntryToLoop } from '../../lib/raffle/loop-sync';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -151,6 +152,35 @@ export async function POST(req: NextRequest) {
       );
     }
     return NextResponse.json({ error: 'insert_failed', detail: error.message }, { status: 500 });
+  }
+
+  // Fire-and-await Loop sync. We update the row with the resulting Loop
+  // contact id (or error) but always return success to the visitor since the
+  // entry IS recorded in our DB.
+  try {
+    const sync = await syncRaffleEntryToLoop({
+      name,
+      email: email!,           // required at this point
+      phone,
+      contactOk: contact_ok,
+      interests,
+    });
+    await supabase
+      .from('raffle_entries')
+      .update({
+        loop_contact_id: sync.contactId,
+        loop_sync_error: sync.error,
+        loop_synced_at:  new Date().toISOString(),
+      })
+      .eq('id', data.id);
+  } catch (e: any) {
+    await supabase
+      .from('raffle_entries')
+      .update({
+        loop_sync_error: ('sync_threw: ' + (e?.message || 'unknown')).slice(0, 240),
+        loop_synced_at:  new Date().toISOString(),
+      })
+      .eq('id', data.id);
   }
 
   return NextResponse.json({ ok: true, id: data.id, contact_ok: data.contact_ok });

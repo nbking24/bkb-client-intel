@@ -46,6 +46,12 @@ type AdminEntry = {
   is_winner: boolean;
   drawn_at: string | null;
   created_at: string;
+  loop_contact_id?: string | null;
+  loop_synced_at?:  string | null;
+  loop_sync_error?: string | null;
+  contacted_at?:    string | null;
+  contacted_by?:    string | null;
+  contact_notes?:   string | null;
 };
 
 function getToken(): string {
@@ -216,6 +222,20 @@ export default function RaffleAdminPage() {
     setEditDraft({ ...editDraft, interests: next });
   }
 
+  async function markContacted(id: string, contacted: boolean) {
+    const r = await fetch('/api/raffle/contacted', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${getToken()}` },
+      body: JSON.stringify({ id, contacted }),
+    });
+    if (!r.ok) {
+      const b = await r.json().catch(() => ({}));
+      alert(b?.error || 'mark_contacted_failed');
+      return;
+    }
+    await load();
+  }
+
   async function resetWinner() {
     if (!confirm('Clear the current winner so the wheel can be re-spun? (Use for testing.)')) return;
     setDrawErr('');
@@ -306,6 +326,106 @@ export default function RaffleAdminPage() {
           <Stat label="ENTERED BY US" value={stats.manual} />
           <Stat label="OPT-IN LEADS" value={stats.optIn} accent />
         </div>
+
+        {/* ---------- LEADS TO FOLLOW UP ---------- */}
+        {(() => {
+          const leads = entries.filter(e => e.contact_ok && !e.contacted_at);
+          const recentlyContacted = entries.filter(e => e.contact_ok && e.contacted_at).slice(0, 5);
+          if (leads.length === 0 && recentlyContacted.length === 0) return null;
+          return (
+            <div style={{ background: '#fff', border: BORDER, borderRadius: 6, padding: '1rem 1.2rem', marginBottom: 22 }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12 }}>
+                <h2 style={{ margin: 0, fontFamily: 'Georgia, "Times New Roman", serif', fontStyle: 'italic', fontWeight: 400, fontSize: 22, color: BKB_RED }}>
+                  Leads to follow up
+                </h2>
+                <div style={{ fontSize: 13, color: INK_SOFT }}>
+                  {leads.length} waiting{recentlyContacted.length > 0 ? ` · ${recentlyContacted.length} recently contacted` : ''}
+                </div>
+              </div>
+              {leads.length === 0 ? (
+                <div style={{ color: INK_SOFT, fontStyle: 'italic' }}>All caught up. Nice.</div>
+              ) : (
+                <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 13 }}>
+                  <thead>
+                    <tr style={{ color: INK_SOFT, fontWeight: 600, fontSize: 11, letterSpacing: '0.18em' }}>
+                      <th style={th()}>NAME</th>
+                      <th style={th()}>EMAIL</th>
+                      <th style={th()}>PHONE</th>
+                      <th style={th()}>WANTS</th>
+                      <th style={th()}>ENTERED</th>
+                      <th style={th()}></th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {leads.map(e => (
+                      <tr key={e.id} style={{ borderTop: BORDER, background: '#fffcf4' }}>
+                        <td style={td()}><strong style={{ color: BKB_RED }}>{e.name}</strong></td>
+                        <td style={td()}>
+                          {e.email ? <a href={`mailto:${e.email}`} style={{ color: BKB_RED, textDecoration: 'underline' }}>{e.email}</a> : '—'}
+                        </td>
+                        <td style={td()}>
+                          {e.phone ? <a href={`tel:${e.phone}`} style={{ color: BKB_RED, textDecoration: 'underline' }}>{e.phone}</a> : '—'}
+                        </td>
+                        <td style={td()}>
+                          {(e.interests || []).length > 0
+                            ? (e.interests || []).join(', ')
+                            : <em style={{ color: INK_SOFT }}>not specified</em>}
+                        </td>
+                        <td style={td()}>{new Date(e.created_at).toLocaleString()}</td>
+                        <td style={td()}>
+                          <button
+                            onClick={() => markContacted(e.id, true)}
+                            style={{
+                              padding: '0.4rem 0.7rem',
+                              background: BKB_RED,
+                              color: '#fff',
+                              border: 'none',
+                              borderRadius: 3,
+                              fontSize: 11,
+                              letterSpacing: '0.12em',
+                              fontWeight: 700,
+                              cursor: 'pointer',
+                            }}
+                          >
+                            MARK CONTACTED
+                          </button>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              )}
+              {recentlyContacted.length > 0 && (
+                <details style={{ marginTop: 14 }}>
+                  <summary style={{ fontSize: 12, color: INK_SOFT, cursor: 'pointer', letterSpacing: '0.18em', fontWeight: 600 }}>
+                    RECENTLY CONTACTED ({recentlyContacted.length})
+                  </summary>
+                  <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12, marginTop: 8 }}>
+                    <tbody>
+                      {recentlyContacted.map(e => (
+                        <tr key={e.id} style={{ borderTop: BORDER }}>
+                          <td style={td()}>{e.name}</td>
+                          <td style={td()}>{e.email || '—'}</td>
+                          <td style={td()}>
+                            <span style={{ color: INK_SOFT }}>
+                              by {e.contacted_by || '?'} · {e.contacted_at ? new Date(e.contacted_at).toLocaleString() : ''}
+                            </span>
+                          </td>
+                          <td style={td()}>
+                            <button onClick={() => markContacted(e.id, false)}
+                                    style={{ background: 'none', border: 'none', color: BKB_RED, cursor: 'pointer', fontSize: 11 }}>
+                              undo
+                            </button>
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </details>
+              )}
+            </div>
+          );
+        })()}
 
         {/* Drawing control */}
         <div style={{ background: '#fff', border: BORDER, borderRadius: 6, padding: '1rem 1.2rem', marginBottom: 24 }}>
