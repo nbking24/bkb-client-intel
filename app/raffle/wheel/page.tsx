@@ -118,7 +118,7 @@ export default function WheelPage() {
           'Content-Type': 'application/json',
           Authorization: `Bearer ${authToken || ''}`,
         },
-        body: JSON.stringify({}),
+        body: JSON.stringify({ override: true }),
       });
       if (!res.ok) {
         const body = await res.json().catch(() => ({}));
@@ -241,7 +241,7 @@ export default function WheelPage() {
                 fontStyle: 'italic',
               }}
             >
-              Saturday, June 14, 2026 · 4:00 PM
+              Sunday, June 14, 2026 · 4:00 PM
             </div>
           </>
         )}
@@ -259,11 +259,11 @@ export default function WheelPage() {
         {authedAdmin && !winner && (
           <button
             onClick={handleSpin}
-            disabled={spinning || !isDrawingTime || entries.length === 0}
+            disabled={spinning || entries.length === 0}
             style={{
               marginTop: 20,
               padding: '1rem 2.6rem',
-              background: (spinning || !isDrawingTime) ? '#888' : BKB_RED,
+              background: spinning ? '#888' : BKB_RED,
               color: BKB_CREAM,
               border: `2px solid ${BKB_GOLD}`,
               borderRadius: 4,
@@ -271,12 +271,14 @@ export default function WheelPage() {
               fontSize: 17,
               fontWeight: 700,
               letterSpacing: '0.28em',
-              cursor: (spinning || !isDrawingTime) ? 'not-allowed' : 'pointer',
-              opacity: (spinning || !isDrawingTime) ? 0.65 : 1,
+              cursor: spinning ? 'not-allowed' : 'pointer',
+              opacity: spinning ? 0.65 : 1,
               boxShadow: '0 2px 4px rgba(0,0,0,0.15)',
             }}
           >
-            {spinning ? 'SPINNING…' : 'SPIN THE WHEEL'}
+            {spinning
+              ? 'SPINNING…'
+              : (isDrawingTime ? 'SPIN THE WHEEL' : 'TEST SPIN')}
           </button>
         )}
         {errMsg && (

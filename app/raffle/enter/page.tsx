@@ -62,10 +62,6 @@ export default function RaffleEnterPage() {
     setErrMsg('');
 
     if (!name.trim()) { setErrMsg('Please enter your name.'); return; }
-    if (!phone.trim() && !email.trim()) {
-      setErrMsg('Please give us a phone or email so we can let you know if you win.');
-      return;
-    }
     if (contactOk === null) {
       setErrMsg('Please let us know whether we may contact you about a project.');
       return;
@@ -227,7 +223,7 @@ export default function RaffleEnterPage() {
               style={fieldStyle}
             />
             <div style={{ fontSize: 12, color: INK_SOFT, marginTop: 6 }}>
-              We need at least a phone or email so we can reach you if you win.
+              Optional, but helps us reach you if you win.
             </div>
           </div>
 
@@ -390,7 +386,7 @@ export default function RaffleEnterPage() {
               letterSpacing: '0.04em',
             }}
           >
-            Drawing at 4:00 PM on Saturday, June 14, 2026. One entry per person.<br />
+            Drawing at 4:00 PM on Sunday, June 14, 2026. One entry per person.<br />
             Winner notified by phone or email. Your information stays with Brett King Builder.
           </div>
         </form>
@@ -400,7 +396,7 @@ export default function RaffleEnterPage() {
       {stage === 'success_silent' && (
         <ThankYou
           firstName={thankName}
-          line="You're entered. We'll draw the winner at 4 PM on Saturday and let you know if it's you."
+          line="You're entered. We'll draw the winner at 4 PM on Sunday and let you know if it's you."
         />
       )}
 

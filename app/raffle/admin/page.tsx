@@ -216,6 +216,22 @@ export default function RaffleAdminPage() {
     setEditDraft({ ...editDraft, interests: next });
   }
 
+  async function resetWinner() {
+    if (!confirm('Clear the current winner so the wheel can be re-spun? (Use for testing.)')) return;
+    setDrawErr('');
+    const r = await fetch('/api/raffle/reset', {
+      method: 'POST',
+      headers: { Authorization: `Bearer ${getToken()}` },
+    });
+    if (!r.ok) {
+      const b = await r.json().catch(() => ({}));
+      setDrawErr(b?.error || 'reset_failed');
+      return;
+    }
+    setDrawnWinner(null);
+    await load();
+  }
+
   async function triggerDraw(override = false) {
     setDrawErr('');
     const r = await fetch('/api/raffle/draw', {
@@ -297,13 +313,31 @@ export default function RaffleAdminPage() {
             <div>
               <div style={{ fontSize: 11, letterSpacing: '0.28em', color: BKB_GOLD, fontWeight: 600 }}>DRAWING</div>
               <div style={{ fontSize: 18, fontFamily: 'Georgia, "Times New Roman", serif', fontStyle: 'italic', color: BKB_RED }}>
-                Saturday, June 14, 2026 · 4:00 PM
+                Sunday, June 14, 2026 · 4:00 PM
               </div>
               {drawnWinner ? (
-                <div style={{ fontSize: 14, marginTop: 6, color: INK }}>
-                  Winner: <strong style={{ color: BKB_RED }}>{drawnWinner.name}</strong>
-                  {drawnWinner.drawn_at ? `  ·  drawn ${new Date(drawnWinner.drawn_at).toLocaleString()}` : null}
-                </div>
+                <>
+                  <div style={{ fontSize: 14, marginTop: 6, color: INK }}>
+                    Winner: <strong style={{ color: BKB_RED }}>{drawnWinner.name}</strong>
+                    {drawnWinner.drawn_at ? `  ·  drawn ${new Date(drawnWinner.drawn_at).toLocaleString()}` : null}
+                  </div>
+                  <button
+                    onClick={resetWinner}
+                    style={{
+                      marginTop: 8,
+                      padding: '0.4rem 0.9rem',
+                      background: 'transparent',
+                      color: BKB_RED,
+                      border: `1px solid ${BKB_RED}`,
+                      borderRadius: 3,
+                      fontSize: 11,
+                      letterSpacing: '0.16em',
+                      cursor: 'pointer',
+                    }}
+                  >
+                    RESET WINNER (for testing)
+                  </button>
+                </>
               ) : (
                 <div style={{ fontSize: 13, color: INK_SOFT, marginTop: 4 }}>
                   {isDrawTime ? "It's drawing time." : 'Not yet.'}
