@@ -95,7 +95,7 @@ export default function RaffleAdminPage() {
     try {
       const res = await fetch('/api/raffle/loop-backfill', {
         method: 'POST',
-        headers: { Authorization: 'Bearer ' + (auth.token || '') },
+        headers: { Authorization: 'Bearer ' + getToken() },
       });
       const body = await res.json();
       if (res.ok) {
