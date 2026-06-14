@@ -76,7 +76,12 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: 'invalid_json' }, { status: 400 });
   }
 
-  const name = clean(body.name, 120);
+  const firstName = clean(body.first_name, 80);
+  const lastName  = clean(body.last_name, 80);
+  // Compose `name` if first/last present; otherwise honor legacy single-field
+  const name = (firstName || lastName)
+    ? [firstName, lastName].filter(Boolean).join(' ')
+    : clean(body.name, 120);
   const phoneRaw = clean(body.phone, 40);
   const phone = normalizePhone(phoneRaw);
   const emailRaw = clean(body.email, 200);
@@ -88,6 +93,10 @@ export async function POST(req: NextRequest) {
 
   if (!name) {
     return NextResponse.json({ error: 'name_required' }, { status: 400 });
+  }
+  // If client sent first/last (new form), require both
+  if ((firstName || lastName) && (!firstName || !lastName)) {
+    return NextResponse.json({ error: 'first_and_last_name_required' }, { status: 400 });
   }
   if (!email) {
     return NextResponse.json({ error: 'email_required' }, { status: 400 });
@@ -132,6 +141,8 @@ export async function POST(req: NextRequest) {
     .from('raffle_entries')
     .insert({
       name,
+      first_name: firstName,
+      last_name:  lastName,
       phone,
       email,
       contact_ok,
@@ -160,6 +171,8 @@ export async function POST(req: NextRequest) {
   try {
     const sync = await syncRaffleEntryToLoop({
       name,
+      firstName,
+      lastName,
       email: email!,           // required at this point
       phone,
       contactOk: contact_ok,

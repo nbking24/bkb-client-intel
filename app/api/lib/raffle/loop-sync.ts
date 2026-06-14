@@ -55,6 +55,8 @@ function splitName(full: string): { firstName: string; lastName: string } {
 
 export async function syncRaffleEntryToLoop(input: {
   name: string;
+  firstName?: string | null;
+  lastName?: string | null;
   email: string;          // required
   phone?: string | null;
   contactOk: boolean;
@@ -85,8 +87,12 @@ export async function syncRaffleEntryToLoop(input: {
       return { contactId: existing.id, error: null };
     }
 
-    // 2b) Create
-    const { firstName, lastName } = splitName(input.name);
+    // 2b) Create — prefer explicit first/last, fall back to splitName(name)
+    let firstName = (input.firstName || '').trim();
+    let lastName  = (input.lastName  || '').trim();
+    if (!firstName && !lastName) {
+      ({ firstName, lastName } = splitName(input.name));
+    }
     const created = await createContact({
       firstName,
       lastName,

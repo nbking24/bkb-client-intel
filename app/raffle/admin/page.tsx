@@ -75,7 +75,8 @@ export default function RaffleAdminPage() {
   const [editErr,    setEditErr]    = useState('');
 
   // form
-  const [name, setName]       = useState('');
+  const [firstName, setFirstName] = useState('');
+  const [lastName,  setLastName]  = useState('');
   const [phone, setPhone]     = useState('');
   const [email, setEmail]     = useState('');
   const [contactOk, setCont]  = useState(false);
@@ -118,14 +119,17 @@ export default function RaffleAdminPage() {
   async function addEntry(e: React.FormEvent) {
     e.preventDefault();
     setAddErr('');
-    if (!name.trim()) { setAddErr('Name is required.'); return; }
+    if (!firstName.trim()) { setAddErr('First name is required.'); return; }
+    if (!lastName.trim())  { setAddErr('Last name is required.');  return; }
     setAdding(true);
     try {
       const r = await fetch('/api/raffle/admin', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${getToken()}` },
         body: JSON.stringify({
-          name: name.trim(),
+          first_name: firstName.trim(),
+          last_name:  lastName.trim(),
+          name:       (firstName.trim() + ' ' + lastName.trim()).trim(),
           phone: phone.trim() || null,
           email: email.trim() || null,
           contact_ok: contactOk,
@@ -175,6 +179,8 @@ export default function RaffleAdminPage() {
     setEditingId(e.id);
     setEditDraft({
       name: e.name || '',
+      first_name: e.first_name || '',
+      last_name: e.last_name || '',
       phone: e.phone || '',
       email: e.email || '',
       contact_ok: !!e.contact_ok,
@@ -190,6 +196,10 @@ export default function RaffleAdminPage() {
   async function saveEdit(id: string) {
     if (!editDraft) return;
     setEditErr('');
+    if (!editDraft.first_name?.toString().trim() || !editDraft.last_name?.toString().trim()) {
+      setEditErr('First + last name are required.');
+      return;
+    }
     if (!editDraft.name.trim()) {
       setEditErr('Name cannot be empty.');
       return;
@@ -199,7 +209,9 @@ export default function RaffleAdminPage() {
       headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${getToken()}` },
       body: JSON.stringify({
         id,
-        name: editDraft.name.trim(),
+        first_name: editDraft.first_name?.toString().trim() || '',
+        last_name:  editDraft.last_name?.toString().trim()  || '',
+        name:       editDraft.name.trim(),
         phone: editDraft.phone.trim() || null,
         email: editDraft.email.trim() || null,
         contact_ok: editDraft.contact_ok,
@@ -518,7 +530,8 @@ export default function RaffleAdminPage() {
           <form onSubmit={addEntry}>
             <div style={{ display: 'grid', gridTemplateColumns: '2fr 1.4fr 1.8fr', gap: 10, marginBottom: 10 }}>
               <Field label="Name *">
-                <input value={name} onChange={e => setName(e.target.value)} required style={input()} />
+                <input value={firstName} onChange={e => setFirstName(e.target.value)} placeholder="First" required style={input()} />
+                <input value={lastName} onChange={e => setLastName(e.target.value)} placeholder="Last" required style={input()} />
               </Field>
               <Field label="Phone">
                 <input value={phone} onChange={e => setPhone(e.target.value)} placeholder="(215) 555-0123" style={input()} />
@@ -617,7 +630,16 @@ export default function RaffleAdminPage() {
                       return (
                         <tr key={e.id} style={{ borderTop: BORDER, background: '#fffcec' }}>
                           <td style={td()}>
+                            <input value={editDraft.first_name ?? ''}
+                              placeholder="First"
+                              onChange={ev => setEditDraft({ ...editDraft, first_name: ev.target.value, name: ((ev.target.value || '') + ' ' + (editDraft.last_name || '')).trim() })}
+                              style={{ ...input(), width: 90, marginRight: 4 }} />
+                            <input value={editDraft.last_name ?? ''}
+                              placeholder="Last"
+                              onChange={ev => setEditDraft({ ...editDraft, last_name: ev.target.value, name: ((editDraft.first_name || '') + ' ' + (ev.target.value || '')).trim() })}
+                              style={{ ...input(), width: 90, marginRight: 4 }} />
                             <input value={editDraft.name}
+                              type="hidden"
                               onChange={ev => setEditDraft({ ...editDraft, name: ev.target.value })}
                               style={{ ...input(), padding: '0.3rem 0.4rem', fontSize: 13 }} />
                           </td>

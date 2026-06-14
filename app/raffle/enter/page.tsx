@@ -42,7 +42,8 @@ const SCHEDULE_URL =
 type Stage = 'form' | 'submitting' | 'success_silent' | 'already_entered' | 'error';
 
 export default function RaffleEnterPage() {
-  const [name, setName]         = useState('');
+  const [firstName, setFirstName] = useState('');
+  const [lastName,  setLastName]  = useState('');
   const [phone, setPhone]       = useState('');
   const [email, setEmail]       = useState('');
   const [contactOk, setContact] = useState<boolean | null>(null);
@@ -61,7 +62,8 @@ export default function RaffleEnterPage() {
     e.preventDefault();
     setErrMsg('');
 
-    if (!name.trim()) { setErrMsg('Please enter your name.'); return; }
+    if (!firstName.trim()) { setErrMsg('Please enter your first name.'); return; }
+    if (!lastName.trim())  { setErrMsg('Please enter your last name.');  return; }
     if (!email.trim()) {
       setErrMsg('Please enter your email so we can let you know if you win.');
       return;
@@ -77,7 +79,9 @@ export default function RaffleEnterPage() {
         method:  'POST',
         headers: { 'Content-Type': 'application/json' },
         body:    JSON.stringify({
-          name:       name.trim(),
+          first_name: firstName.trim(),
+          last_name:  lastName.trim(),
+          name:       (firstName.trim() + ' ' + lastName.trim()).trim(),
           phone:      phone.trim() || null,
           email:      email.trim() || null,
           contact_ok: contactOk === true,
@@ -87,7 +91,7 @@ export default function RaffleEnterPage() {
 
       if (res.status === 409) {
         const body = await res.json().catch(() => ({}));
-        setThank(name.trim().split(' ')[0] || '');
+        setThank(firstName.trim() || '');
         setErrMsg(body?.message || "You're already entered. Good luck!");
         setStage('already_entered');
         return;
@@ -100,8 +104,7 @@ export default function RaffleEnterPage() {
       }
 
       // Success!
-      const firstName = name.trim().split(' ')[0] || '';
-      setThank(firstName);
+      setThank(firstName.trim());
       if (contactOk === true) {
         // Hand-off to the consultation scheduler
         window.location.href = SCHEDULE_URL;
@@ -190,16 +193,29 @@ export default function RaffleEnterPage() {
             fontFamily: 'system-ui, sans-serif',
           }}
         >
-          <div style={{ marginBottom: 18 }}>
-            <label style={labelStyle}>Your name *</label>
-            <input
-              type="text"
-              value={name}
-              onChange={e => setName(e.target.value)}
-              autoComplete="name"
-              required
-              style={fieldStyle}
-            />
+          <div style={{ display: 'flex', gap: 12, marginBottom: 18 }}>
+            <div style={{ flex: 1 }}>
+              <label style={labelStyle}>First name *</label>
+              <input
+                type="text"
+                value={firstName}
+                onChange={e => setFirstName(e.target.value)}
+                autoComplete="given-name"
+                required
+                style={fieldStyle}
+              />
+            </div>
+            <div style={{ flex: 1 }}>
+              <label style={labelStyle}>Last name *</label>
+              <input
+                type="text"
+                value={lastName}
+                onChange={e => setLastName(e.target.value)}
+                autoComplete="family-name"
+                required
+                style={fieldStyle}
+              />
+            </div>
           </div>
 
           <div style={{ marginBottom: 18 }}>

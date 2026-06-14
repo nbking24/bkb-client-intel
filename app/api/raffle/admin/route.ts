@@ -53,7 +53,7 @@ export async function GET(req: NextRequest) {
   const supabase = getSupabase();
   const { data, error } = await supabase
     .from('raffle_entries')
-    .select('id, name, phone, email, contact_ok, interests, source, entered_by, is_winner, drawn_at, created_at, loop_contact_id, loop_synced_at, loop_sync_error, contacted_at, contacted_by, contact_notes')
+    .select('id, name, first_name, last_name, phone, email, contact_ok, interests, source, entered_by, is_winner, drawn_at, created_at, loop_contact_id, loop_synced_at, loop_sync_error, contacted_at, contacted_by, contact_notes')
     .is('deleted_at', null)
     .order('created_at', { ascending: false });
 
@@ -71,7 +71,12 @@ export async function POST(req: NextRequest) {
   let body: any = {};
   try { body = await req.json(); } catch { return NextResponse.json({ error: 'invalid_json' }, { status: 400 }); }
 
-  const name = clean(body.name, 120);
+  const firstName = clean(body.first_name, 80);
+  const lastName  = clean(body.last_name, 80);
+  const nameRaw   = clean(body.name, 120);
+  const name = (firstName || lastName)
+    ? [firstName, lastName].filter(Boolean).join(' ')
+    : nameRaw;
   const phone = normalizePhone(clean(body.phone, 40));
   const emailRaw = clean(body.email, 200);
   const email = emailRaw && /^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(emailRaw) ? emailRaw.toLowerCase() : null;
@@ -87,11 +92,14 @@ export async function POST(req: NextRequest) {
   const { data, error } = await supabase
     .from('raffle_entries')
     .insert({
-      name, phone, email, contact_ok, interests,
+      name,
+      first_name: firstName,
+      last_name:  lastName,
+      phone, email, contact_ok, interests,
       source: 'admin_manual',
       entered_by,
     })
-    .select('id, name, phone, email, contact_ok, interests, source, entered_by, is_winner, drawn_at, created_at, loop_contact_id, loop_synced_at, loop_sync_error, contacted_at, contacted_by, contact_notes')
+    .select('id, name, first_name, last_name, phone, email, contact_ok, interests, source, entered_by, is_winner, drawn_at, created_at, loop_contact_id, loop_synced_at, loop_sync_error, contacted_at, contacted_by, contact_notes')
     .single();
 
   if (error) {
@@ -117,7 +125,16 @@ export async function PATCH(req: NextRequest) {
   if (!id) return NextResponse.json({ error: 'id_required' }, { status: 400 });
 
   const patch: Record<string, any> = {};
-  if (typeof body.name === 'string')        patch.name = body.name.trim().slice(0, 120);
+  if (typeof body.first_name === 'string')   patch.first_name = body.first_name.trim().slice(0, 80);
+  if (typeof body.last_name === 'string')    patch.last_name  = body.last_name.trim().slice(0, 80);
+  if (typeof body.name === 'string')         patch.name       = body.name.trim().slice(0, 120);
+  // If first/last provided but no composed name, recompose
+  if ((typeof body.first_name === 'string' || typeof body.last_name === 'string') &&
+      typeof body.name !== 'string') {
+    const f = (patch.first_name ?? '').trim();
+    const l = (patch.last_name  ?? '').trim();
+    if (f || l) patch.name = [f, l].filter(Boolean).join(' ');
+  }
   if (typeof body.phone === 'string')       patch.phone = normalizePhone(body.phone);
   if (typeof body.email === 'string')       patch.email = body.email.trim().toLowerCase().slice(0, 200);
   if (typeof body.contact_ok === 'boolean') patch.contact_ok = body.contact_ok;
