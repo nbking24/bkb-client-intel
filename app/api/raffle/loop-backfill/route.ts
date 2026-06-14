@@ -13,13 +13,13 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getSupabase } from '../../lib/supabase';
 import { syncRaffleEntryToLoop } from '../../lib/raffle/loop-sync';
-import { validateAuth } from '../../lib/auth';
+import { validateAgentOrUser } from '../../lib/auth';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
 
 export async function POST(req: NextRequest) {
-  if (!validateAuth(req.headers.get('authorization')).valid) {
+  if (!validateAgentOrUser(req).valid) {
     return NextResponse.json({ error: 'unauthorized' }, { status: 401 });
   }
 
