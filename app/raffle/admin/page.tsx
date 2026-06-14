@@ -85,6 +85,33 @@ export default function RaffleAdminPage() {
   const [adding, setAdding]   = useState(false);
   const [addErr, setAddErr]   = useState('');
 
+  const [backfillBusy, setBackfillBusy] = useState(false);
+  const [backfillMsg,  setBackfillMsg]  = useState<string | null>(null);
+
+  async function runBackfill() {
+    if (backfillBusy) return;
+    setBackfillBusy(true);
+    setBackfillMsg(null);
+    try {
+      const res = await fetch('/api/raffle/loop-backfill', {
+        method: 'POST',
+        headers: { Authorization: 'Bearer ' + (auth.token || '') },
+      });
+      const body = await res.json();
+      if (res.ok) {
+        setBackfillMsg(`Done — processed ${body.processed}, synced ${body.synced}, failed ${body.failed}.`);
+        load();  // refresh list to show updated loop_contact_id
+      } else {
+        setBackfillMsg('Failed: ' + (body.detail || body.error || 'unknown'));
+      }
+    } catch (e: any) {
+      setBackfillMsg('Failed: ' + (e?.message || 'network'));
+    } finally {
+      setBackfillBusy(false);
+    }
+  }
+
+
   async function load() {
     setLoading(true);
     setErr('');
@@ -338,6 +365,43 @@ export default function RaffleAdminPage() {
           <Stat label="ENTERED BY US" value={stats.manual} />
           <Stat label="OPT-IN LEADS" value={stats.optIn} accent />
         </div>
+
+        {/* ---------- LOOP SYNC BACKFILL ---------- */}
+        {(() => {
+          const stranded = entries.filter(e => e.email && !e.loop_contact_id);
+          if (stranded.length === 0 && !backfillMsg) return null;
+          return (
+            <div style={{ background: '#fff', border: BORDER, borderRadius: 6, padding: '0.8rem 1rem', marginBottom: 12, display: 'flex', alignItems: 'center', gap: 12 }}>
+              <div style={{ flex: 1, fontSize: 13, color: INK_SOFT }}>
+                {stranded.length > 0 ? (
+                  <span>{stranded.length} entr{stranded.length === 1 ? 'y has' : 'ies have'} an email but no Loop contact yet.</span>
+                ) : (
+                  <span style={{ color: BKB_RED }}>{backfillMsg}</span>
+                )}
+              </div>
+              {stranded.length > 0 && (
+                <button
+                  type="button"
+                  disabled={backfillBusy}
+                  onClick={runBackfill}
+                  style={{
+                    padding: '6px 14px',
+                    fontSize: 13,
+                    fontWeight: 600,
+                    background: BKB_RED, color: '#fff',
+                    border: 'none', borderRadius: 4, cursor: backfillBusy ? 'wait' : 'pointer',
+                    opacity: backfillBusy ? 0.6 : 1,
+                  }}
+                >
+                  {backfillBusy ? 'Syncing…' : `Sync ${stranded.length} to Loop`}
+                </button>
+              )}
+              {backfillMsg && stranded.length > 0 && (
+                <div style={{ fontSize: 12, color: INK_SOFT }}>{backfillMsg}</div>
+              )}
+            </div>
+          );
+        })()}
 
         {/* ---------- LEADS TO FOLLOW UP ---------- */}
         {(() => {
