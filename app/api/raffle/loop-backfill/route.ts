@@ -17,6 +17,7 @@ import { validateAgentOrUser } from '../../lib/auth';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
+export const maxDuration = 60;
 
 export async function POST(req: NextRequest) {
   if (!validateAgentOrUser(req).valid) {
@@ -29,7 +30,8 @@ export async function POST(req: NextRequest) {
     .select('id, name, first_name, last_name, phone, email, contact_ok, interests')
     .is('deleted_at', null)
     .is('loop_contact_id', null)
-    .not('email', 'is', null);
+    .not('email', 'is', null)
+    .order('created_at', { ascending: true });
   if (error) {
     return NextResponse.json({ error: 'fetch_failed', detail: error.message }, { status: 500 });
   }
