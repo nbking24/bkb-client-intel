@@ -681,14 +681,25 @@ export async function POST(req: Request) {
         if (doc.status === 'approved' && inBudget) contractTotal += entry.price;
       } else if (doc.type === 'customerInvoice') {
         docSummary.customerInvoices.push(entry);
-        // Draft invoices haven't been sent to the client — they should NOT
-        // count as "invoiced" for remaining-to-bill calculations.
-        // Also skip invoices excluded from budget.
-        if (doc.status === 'draft') {
-          if (inBudget) draftInvoiceTotal += entry.price;
-        } else {
-          if (inBudget) invoicedTotal += entry.price;
+        // Status semantics on customerInvoice docs:
+        //   - approved → sent to the client (counts as invoiced)
+        //   - pending  → sent to the client awaiting their action (counts as invoiced)
+        //   - draft    → prepared but not sent yet (tracked separately so the UI
+        //               can show "ready to bill" without inflating invoiced)
+        //   - denied   → rejected / superseded — must NOT count. Pre-fix this
+        //               fell into the catch-all else and was rolled into
+        //               invoicedTotal, which is how Kremser #115 reported
+        //               $734K invoiced ($371K approved + $362K denied) when
+        //               the real number was $371K. The exclude-from-budget
+        //               toggle is a separate filter applied below.
+        if (!inBudget) {
+          // intentional no-op: doc is excluded from budget rollups
+        } else if (doc.status === 'draft') {
+          draftInvoiceTotal += entry.price;
+        } else if (doc.status === 'approved' || doc.status === 'pending') {
+          invoicedTotal += entry.price;
         }
+        // status === 'denied' deliberately ignored.
       } else if (doc.type === 'vendorBill') {
         docSummary.vendorBills.push(entry);
       } else if (doc.type === 'vendorOrder') {
