@@ -17,7 +17,13 @@ import { processConfirmedTranscript } from '@/app/lib/meeting-processing';
 import { deleteDailyLog } from '@/app/lib/jobtread';
 
 export const dynamic = 'force-dynamic';
-export const maxDuration = 60;
+// Bumped from 60 → 300 so long transcripts don't hit Vercel's gateway
+// timeout. The Gibbons 06-09 transcript was 85K chars; the Sonnet
+// summary call alone can run 60-120s on inputs that size, plus the
+// Supabase upload and JT createDailyLog round-trips. 60s was killing
+// the function mid-summary and stranding the row in 'processing' since
+// the catch block never got to mark it 'failed'.
+export const maxDuration = 300;
 
 export async function POST(req: NextRequest, { params }: { params: { id: string } }) {
   const auth = validateAuth(req.headers.get('authorization'));

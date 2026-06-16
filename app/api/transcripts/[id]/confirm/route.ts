@@ -15,6 +15,11 @@ import { createProjectEvent } from '@/app/lib/project-memory';
 import { processConfirmedTranscript } from '@/app/lib/meeting-processing';
 
 export const dynamic = 'force-dynamic';
+// Confirm also runs processConfirmedTranscript inline (summary + upload +
+// JT createDailyLog), which can exceed the default 10s/60s cap on long
+// transcripts. Match the retry route's 300s ceiling so a fresh confirm
+// of an 80K+ char transcript doesn't 504 either.
+export const maxDuration = 300;
 
 export async function POST(req: NextRequest, { params }: { params: { id: string } }) {
   const auth = validateAuth(req.headers.get('authorization'));
