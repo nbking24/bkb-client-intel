@@ -50,27 +50,9 @@ export async function GET(req: NextRequest) {
       getDocumentCostItemsForJob(jobId).catch(() => []),
     ]);
 
-    // Detect cost-plus. Mirrors the job-costing detail route's logic so
-    // both dashboards agree on what counts as a cost-plus job. Falls back
-    // to a "no contract price but real cost budget" heuristic when the
-    // priceType field isn't set explicitly.
-    const priceTypeRaw = String(job?.priceType || '').toLowerCase();
-    const totalEstimatedPrice = (documents || [])
-      .filter((d: any) => d.type === 'customerOrder' && d.status === 'approved' && d.includeInBudget !== false)
-      .reduce((s: number, d: any) => s + (Number(d.price) || 0), 0);
-    const totalEstimatedCost = (documents || [])
-      .filter((d: any) => d.type === 'customerOrder' && d.status === 'approved' && d.includeInBudget !== false)
-      .reduce((s: number, d: any) => s + (Number(d.cost) || 0), 0);
-    const isCostPlus =
-      priceTypeRaw === 'costplus' ||
-      priceTypeRaw === 'cost_plus' ||
-      priceTypeRaw === 'cost plus' ||
-      (totalEstimatedPrice === 0 && totalEstimatedCost > 0);
-
-    // Build the set of jobCostItem IDs that appear on any APPROVED customer
-    // order (skipping docs with "Exclude from Budget" toggled on). A
-    // job-level budget item is considered approved iff its id is in this
-    // set OR the budget item itself was the target of an approved CO line.
+    // Build the set of approved customer-order doc IDs first (we need this
+    // for BOTH the cost-plus detection heuristic and the per-item approval
+    // tagging below).
     const approvedOrderIds = new Set<string>();
     for (const doc of (documents || []) as any[]) {
       if (doc.type === 'customerOrder' && doc.status === 'approved' && doc.includeInBudget !== false) {
@@ -84,13 +66,47 @@ export async function GET(req: NextRequest) {
       if (docType !== 'customerOrder') continue;
       if (!approvedOrderIds.has(docId)) continue;
       // Both the doc-level cost item id AND its linked job-level item
-      // count — the user-visible budget item on the job is the
+      // count - the user-visible budget item on the job is the
       // jobCostItem, but in some flows the doc-level id is what gets
       // referenced. Tracking both keeps us safe.
       if (dci.id) approvedJobCostItemIds.add(dci.id);
       const jcid = (dci as any).jobCostItem?.id;
       if (jcid) approvedJobCostItemIds.add(jcid);
     }
+
+    // Detect cost-plus. Three signals (any one trips the flag):
+    //   1. JT priceType is explicitly "costPlus" (case-insensitive — JT
+    //      writes it camelCase; we lowercase for resilience).
+    //   2. No approved customer orders exist on the job. This is Nathan's
+    //      operational definition: cost-plus jobs don't carry an approved
+    //      budget, so if there's no approved CO the matcher should let any
+    //      budget item be a valid target.
+    //   3. Legacy heuristic: zero contract price but real cost budget
+    //      (kept for jobs that have approved cost-only COs).
+    // Contract jobs that are mid-approval will trip signal 2 too, which is
+    // intentional — the strict approved-only gate produces an empty picker
+    // for them otherwise, blocking the operator from doing anything useful.
+    const priceTypeRaw = String(job?.priceType || '').toLowerCase();
+    const totalEstimatedPrice = (documents || [])
+      .filter((d: any) => d.type === 'customerOrder' && d.status === 'approved' && d.includeInBudget !== false)
+      .reduce((s: number, d: any) => s + (Number(d.price) || 0), 0);
+    const totalEstimatedCost = (documents || [])
+      .filter((d: any) => d.type === 'customerOrder' && d.status === 'approved' && d.includeInBudget !== false)
+      .reduce((s: number, d: any) => s + (Number(d.cost) || 0), 0);
+    const hasNoApprovedOrders = approvedOrderIds.size === 0;
+    const priceTypeMatch =
+      priceTypeRaw === 'costplus' ||
+      priceTypeRaw === 'cost_plus' ||
+      priceTypeRaw === 'cost plus';
+    const legacyHeuristic = totalEstimatedPrice === 0 && totalEstimatedCost > 0;
+    const isCostPlus = priceTypeMatch || hasNoApprovedOrders || legacyHeuristic;
+    const costPlusReason = priceTypeMatch
+      ? 'priceType=' + (job?.priceType || '')
+      : hasNoApprovedOrders
+        ? 'no approved customer orders on job'
+        : legacyHeuristic
+          ? 'approved CO has cost but no price'
+          : 'fixed-price (approved CO with price exists)';
 
     const filtered = (items || [])
       .filter((b: any) => !/^uncategorized\b/i.test((b.name || '').trim()))
@@ -117,7 +133,9 @@ export async function GET(req: NextRequest) {
     return NextResponse.json({
       items: filtered,
       isCostPlus,
+      costPlusReason,
       priceType: job?.priceType || null,
+      approvedItemCount: approvedJobCostItemIds.size,
     });
   } catch (err: any) {
     console.error('[bill-review/budget-items] error:', err?.message || err);
