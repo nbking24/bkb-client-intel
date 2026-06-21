@@ -174,7 +174,7 @@ function TopPriorities({ priorities }: { priorities: string[] }) {
             >
               {i + 1}
             </span>
-            <span style={{ color: '#d4ccc4' }}>{p}</span>
+            <span style={{ color: '#3a3530' }}>{p}</span>
           </div>
         ))}
       </div>
@@ -204,8 +204,8 @@ function EmailDraftSection({
     <div
       className="rounded-md p-2.5"
       style={{
-        background: 'rgba(26,26,26,0.8)',
-        border: `1px solid ${iconColor}20`,
+        background: '#f8f6f3',
+        border: `1px solid ${iconColor}30`,
       }}
     >
       <div className="flex items-center justify-between mb-1.5">
@@ -231,8 +231,8 @@ function EmailDraftSection({
           Copy Email
         </button>
       </div>
-      <div className="text-xs mb-1" style={{ color: '#d4ccc4' }}>
-        <span style={{ color: '#8a8078' }}>Subject: </span>
+      <div className="text-xs mb-1" style={{ color: '#2a2520' }}>
+        <span style={{ color: '#5a5550' }}>Subject: </span>
         {email.subject}
       </div>
       <button
@@ -241,7 +241,7 @@ function EmailDraftSection({
           setShowBody(!showBody);
         }}
         className="text-[10px] hover:opacity-80 transition-opacity"
-        style={{ color: '#8a8078' }}
+        style={{ color: '#5a5550' }}
       >
         {showBody ? '▾ Hide body' : '▸ Show body'}
       </button>
@@ -249,9 +249,9 @@ function EmailDraftSection({
         <div
           className="mt-1.5 p-2 rounded text-xs whitespace-pre-wrap leading-relaxed"
           style={{
-            background: 'rgba(0,0,0,0.3)',
-            color: '#d4ccc4',
-            border: '1px solid rgba(200,140,0,0.06)',
+            background: '#ffffff',
+            color: '#2a2520',
+            border: '1px solid rgba(200,140,0,0.12)',
           }}
         >
           {email.body}
@@ -284,7 +284,7 @@ function ProjectCard({
     >
       <button
         onClick={() => setExpanded(!expanded)}
-        className="w-full text-left px-4 py-3 flex items-start gap-3 hover:bg-[#222] transition-colors"
+        className="w-full text-left px-4 py-3 flex items-start gap-3 hover:bg-[#f8f6f3] transition-colors"
       >
         <div className="flex-shrink-0 mt-0.5">
           {expanded ? (
@@ -352,7 +352,7 @@ function ProjectCard({
         <span className="text-xs font-semibold flex-shrink-0 mt-0.5" style={{ color: '#c88c00' }}>
           NEXT →
         </span>
-        <span style={{ color: '#d4ccc4' }}>{project.nextStep}</span>
+        <span style={{ color: '#2a2520' }}>{project.nextStep}</span>
       </div>
 
       {expanded && (
@@ -364,7 +364,7 @@ function ProjectCard({
               </h4>
               <div className="space-y-1">
                 {project.alerts.map((a, i) => (
-                  <div key={i} className="text-xs flex items-start gap-1.5" style={{ color: '#d4ccc4' }}>
+                  <div key={i} className="text-xs flex items-start gap-1.5" style={{ color: '#2a2520' }}>
                     <AlertTriangle size={10} className="flex-shrink-0 mt-0.5" style={{ color: '#ef4444' }} />
                     {a}
                   </div>
@@ -385,8 +385,8 @@ function ProjectCard({
                       key={i}
                       className="rounded-md p-2.5"
                       style={{
-                        background: 'rgba(26,26,26,0.8)',
-                        border: '1px solid rgba(200,140,0,0.08)',
+                        background: '#f8f6f3',
+                        border: '1px solid rgba(200,140,0,0.15)',
                       }}
                     >
                       <div className="flex items-center gap-2 mb-1">
@@ -406,7 +406,7 @@ function ProjectCard({
                           {rec.actionType}
                         </span>
                       </div>
-                      <p className="text-xs" style={{ color: '#8a8078' }}>
+                      <p className="text-xs" style={{ color: '#3a3530' }}>
                         {rec.description}
                       </p>
                       {/* Ignore / Done buttons */}
@@ -526,7 +526,7 @@ function ScheduleCompliancePanel({
     >
       <button
         onClick={() => setExpanded(!expanded)}
-        className="w-full text-left px-4 py-3 flex items-center justify-between hover:bg-[#222] transition-colors"
+        className="w-full text-left px-4 py-3 flex items-center justify-between hover:bg-[#f8f6f3] transition-colors"
       >
         <div className="flex items-center gap-2">
           {expanded ? (
@@ -552,27 +552,27 @@ function ScheduleCompliancePanel({
           <div className="grid grid-cols-3 gap-2">
             <div
               className="rounded p-2 text-center"
-              style={{ background: 'rgba(26,26,26,0.6)', border: '1px solid rgba(200,140,0,0.1)' }}
+              style={{ background: '#f8f6f3', border: '1px solid rgba(200,140,0,0.15)' }}
             >
-              <div className="text-xs" style={{ color: '#8a8078' }}>Scanned</div>
+              <div className="text-xs" style={{ color: '#5a5550' }}>Scanned</div>
               <div className="text-lg font-bold" style={{ color: '#c88c00' }}>
                 {totalScanned}
               </div>
             </div>
             <div
               className="rounded p-2 text-center"
-              style={{ background: 'rgba(26,26,26,0.6)', border: '1px solid rgba(34,197,94,0.15)' }}
+              style={{ background: '#f8f6f3', border: '1px solid rgba(34,197,94,0.25)' }}
             >
-              <div className="text-xs" style={{ color: '#8a8078' }}>Compliant</div>
+              <div className="text-xs" style={{ color: '#5a5550' }}>Compliant</div>
               <div className="text-lg font-bold" style={{ color: '#22c55e' }}>
                 {compliantCount}
               </div>
             </div>
             <div
               className="rounded p-2 text-center"
-              style={{ background: 'rgba(26,26,26,0.6)', border: '1px solid rgba(239,68,68,0.15)' }}
+              style={{ background: '#f8f6f3', border: '1px solid rgba(239,68,68,0.25)' }}
             >
-              <div className="text-xs" style={{ color: '#8a8078' }}>Non-Compliant</div>
+              <div className="text-xs" style={{ color: '#5a5550' }}>Non-Compliant</div>
               <div className="text-lg font-bold" style={{ color: '#ef4444' }}>
                 {nonCompliantJobs.length}
               </div>
@@ -598,14 +598,14 @@ function ScheduleCompliancePanel({
                 <div
                   key={job.jobId}
                   className="p-2.5 rounded"
-                  style={{ background: 'rgba(26,26,26,0.6)', border: '1px solid rgba(239,68,68,0.1)' }}
+                  style={{ background: '#f8f6f3', border: '1px solid rgba(239,68,68,0.2)' }}
                 >
                   <div className="flex items-start justify-between gap-2 mb-1.5">
                     <div className="flex-1">
-                      <p className="text-sm font-medium" style={{ color: '#d4ccc4' }}>
+                      <p className="text-sm font-medium" style={{ color: '#1a1a1a' }}>
                         {job.jobName}
                       </p>
-                      <p className="text-xs" style={{ color: '#8a8078' }}>
+                      <p className="text-xs" style={{ color: '#5a5550' }}>
                         {job.jobNumber} · {job.clientName}
                       </p>
                     </div>
@@ -622,7 +622,7 @@ function ScheduleCompliancePanel({
                       Fix
                     </button>
                   </div>
-                  <div className="text-xs space-y-1" style={{ color: '#8a8078' }}>
+                  <div className="text-xs space-y-1" style={{ color: '#3a3530' }}>
                     {job.missingPhases?.length > 0 && (
                       <div>
                         <span style={{ color: '#ef4444' }}>Missing Phases ({job.missingPhases.length}): </span>
@@ -997,7 +997,7 @@ export default function PreConDashboard() {
             className="rounded-lg p-4"
             style={{ background: '#ffffff', border: '1px solid rgba(200,140,0,0.1)' }}
           >
-            <p className="text-sm leading-relaxed" style={{ color: '#d4ccc4' }}>
+            <p className="text-sm leading-relaxed" style={{ color: '#2a2520' }}>
               {report.summary}
             </p>
           </div>
@@ -1142,7 +1142,7 @@ export default function PreConDashboard() {
           }}
         >
           <CheckCircle2 size={14} style={{ color: '#22c55e' }} />
-          <span className="text-sm" style={{ color: '#d4ccc4' }}>{toast}</span>
+          <span className="text-sm" style={{ color: '#1a1a1a' }}>{toast}</span>
         </div>
       )}
     </div>
