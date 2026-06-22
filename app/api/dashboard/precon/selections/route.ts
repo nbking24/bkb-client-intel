@@ -11,12 +11,17 @@
  * options (exact strings as authored in JT):
  *   1. "1. Client Selection Needed"
  *   2. "2. Internal Selection Needed"
- *   3. "3. Selected/Needs Order"
- *   4. "4. Ordered/Finalized"
+ *   3. "3. Pricing Pending"
+ *   4. "4. Selected/Needs Order"
+ *   5. "5. Ordered/Finalized"
  *
  * Items in any of those statuses are returned. Items where Status is
  * blank are excluded — the report is meant to surface only the
  * selections Nathan / Allison are actively shepherding.
+ *
+ * Each item also carries forward the Internal Notes custom field
+ * (free-form text) so the coordinator can see the latest update on
+ * the selection without bouncing into JT.
  */
 import { NextResponse } from 'next/server';
 import { getActiveJobs, pave } from '@/app/lib/jobtread';
@@ -25,11 +30,11 @@ export const dynamic = 'force-dynamic';
 export const runtime = 'nodejs';
 export const maxDuration = 300;
 
-// Status custom field ID + canonical option strings. The IDs come from
-// the JT org schema (confirmed via the customFields query — field is
-// targeted at costItem). Keep these in sync with JT if Nathan ever
-// edits the field's options in JT settings.
+// Custom field IDs (both target costItem). Sourced from the org's
+// customFields query - confirmed against JT's schema. Keep in sync if
+// Nathan ever edits the Status field's options in JT settings.
 const STATUS_CF_ID = '22P5WiHgkzx9';
+const INTERNAL_NOTES_CF_ID = '22P5WiMpe6AM';
 
 // Not `export`-ed: Next.js route files only allow specific export
 // names (GET, POST, dynamic, runtime, etc.). Surfaced via the API
@@ -37,8 +42,9 @@ const STATUS_CF_ID = '22P5WiHgkzx9';
 const SELECTION_STATUSES = [
   '1. Client Selection Needed',
   '2. Internal Selection Needed',
-  '3. Selected/Needs Order',
-  '4. Ordered/Finalized',
+  '3. Pricing Pending',
+  '4. Selected/Needs Order',
+  '5. Ordered/Finalized',
 ] as const;
 
 type SelectionStatus = (typeof SELECTION_STATUSES)[number];
@@ -46,8 +52,9 @@ type SelectionStatus = (typeof SELECTION_STATUSES)[number];
 const STATUS_KEY: Record<SelectionStatus, string> = {
   '1. Client Selection Needed': 'clientSelectionNeeded',
   '2. Internal Selection Needed': 'internalSelectionNeeded',
-  '3. Selected/Needs Order': 'selectedNeedsOrder',
-  '4. Ordered/Finalized': 'orderedFinalized',
+  '3. Pricing Pending': 'pricingPending',
+  '4. Selected/Needs Order': 'selectedNeedsOrder',
+  '5. Ordered/Finalized': 'orderedFinalized',
 };
 
 // Pull cost items for a single job, including each item's group + the
@@ -124,7 +131,10 @@ export async function GET() {
 
             // Filter to job-level budget items (document == null) and pull
             // the Status custom field value off each. Drop items that
-            // don't have any status value set.
+            // don't have any status value set. Also harvest Internal
+            // Notes (CF 22P5WiMpe6AM) since the coordinator uses that
+            // free-form text to log the latest update on the selection,
+            // and surfacing it inline keeps Allison out of JT.
             const statusedItems: any[] = [];
             for (const it of items) {
               if (it.document && it.document.id) continue;
@@ -134,6 +144,12 @@ export async function GET() {
               );
               const statusValue = statusCfv?.value;
               if (!statusValue || !String(statusValue).trim()) continue;
+              const notesCfv = cfvs.find(
+                (n: any) => n.customField?.id === INTERNAL_NOTES_CF_ID,
+              );
+              const internalNotes = notesCfv?.value
+                ? String(notesCfv.value).trim()
+                : '';
               statusedItems.push({
                 id: it.id,
                 name: it.name || '',
@@ -148,6 +164,7 @@ export async function GET() {
                 costGroupName: it.costGroup?.name || '',
                 parentGroupName: it.costGroup?.parentCostGroup?.name || '',
                 status: statusValue,
+                internalNotes,
               });
             }
 
@@ -156,6 +173,7 @@ export async function GET() {
             const counts: Record<string, number> = {
               clientSelectionNeeded: 0,
               internalSelectionNeeded: 0,
+              pricingPending: 0,
               selectedNeedsOrder: 0,
               orderedFinalized: 0,
             };
@@ -172,9 +190,14 @@ export async function GET() {
               customStatus: job.customStatus || null,
               statusCategory: job.statusCategory || null,
               counts,
+              // Actionable = anything that still needs the coordinator's
+              // attention (everything except Ordered/Finalized). Pricing
+              // Pending counts as actionable - the selection isn't done
+              // until pricing comes back and the client signs off.
               actionableCount:
                 counts.clientSelectionNeeded +
                 counts.internalSelectionNeeded +
+                counts.pricingPending +
                 counts.selectedNeedsOrder,
               items: statusedItems,
             };
@@ -203,6 +226,7 @@ export async function GET() {
       (acc, j) => {
         acc.clientSelectionNeeded += j.counts.clientSelectionNeeded;
         acc.internalSelectionNeeded += j.counts.internalSelectionNeeded;
+        acc.pricingPending += j.counts.pricingPending;
         acc.selectedNeedsOrder += j.counts.selectedNeedsOrder;
         acc.orderedFinalized += j.counts.orderedFinalized;
         acc.actionable += j.actionableCount;
@@ -213,6 +237,7 @@ export async function GET() {
         actionable: 0,
         clientSelectionNeeded: 0,
         internalSelectionNeeded: 0,
+        pricingPending: 0,
         selectedNeedsOrder: 0,
         orderedFinalized: 0,
       },

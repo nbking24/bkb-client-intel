@@ -60,6 +60,11 @@ interface SelectionItem {
   costGroupName: string;
   parentGroupName: string;
   status: string;
+  // Free-form "Internal Notes" custom field from JT. Used by the
+  // coordinator to log the latest update on the selection (e.g.
+  // "vendor confirmed 6-week lead time", "waiting on Kim's pick").
+  // Surfaced inline so Allison doesn't have to bounce into JT.
+  internalNotes?: string;
 }
 
 interface JobBlock {
@@ -72,6 +77,7 @@ interface JobBlock {
   counts: {
     clientSelectionNeeded: number;
     internalSelectionNeeded: number;
+    pricingPending: number;
     selectedNeedsOrder: number;
     orderedFinalized: number;
   };
@@ -84,6 +90,7 @@ interface Totals {
   actionable: number;
   clientSelectionNeeded: number;
   internalSelectionNeeded: number;
+  pricingPending: number;
   selectedNeedsOrder: number;
   orderedFinalized: number;
 }
@@ -126,8 +133,20 @@ const STATUS_CONFIG: Array<{
     actionable: true,
   },
   {
+    key: 'pricingPending',
+    jtValue: '3. Pricing Pending',
+    label: 'Pricing Pending',
+    shortLabel: 'Pricing',
+    // Indigo - distinct from the warmer amber above and the cooler
+    // blue below, so the eye can sweep across the four-stage funnel.
+    color: '#6d28d9',
+    bg: 'rgba(124,58,237,0.08)',
+    border: 'rgba(124,58,237,0.25)',
+    actionable: true,
+  },
+  {
     key: 'selectedNeedsOrder',
-    jtValue: '3. Selected/Needs Order',
+    jtValue: '4. Selected/Needs Order',
     label: 'Selected, Needs Order',
     shortLabel: 'Order',
     color: '#1e40af',
@@ -137,7 +156,7 @@ const STATUS_CONFIG: Array<{
   },
   {
     key: 'orderedFinalized',
-    jtValue: '4. Ordered/Finalized',
+    jtValue: '5. Ordered/Finalized',
     label: 'Ordered / Finalized',
     shortLabel: 'Done',
     color: '#15803d',
@@ -320,7 +339,7 @@ export default function PreconDashboard() {
         <>
           {/* Portfolio KPI strip */}
           {totals && (
-            <div className="grid grid-cols-2 md:grid-cols-5 gap-3">
+            <div className="grid grid-cols-2 md:grid-cols-3 xl:grid-cols-6 gap-3">
               <div className="rounded-lg p-3" style={{ background: '#ffffff', border: '1px solid rgba(200,140,0,0.10)' }}>
                 <div className="flex items-center gap-1.5 text-xs" style={{ color: '#8a8078' }}>
                   <Users size={12} /> Active jobs
@@ -608,42 +627,64 @@ function SelectionRow({ item, jobId }: { item: SelectionItem; jobId: string }) {
   const groupLabel = item.parentGroupName
     ? `${item.parentGroupName} › ${item.costGroupName}`
     : item.costGroupName;
+  const notes = (item.internalNotes || '').trim();
   return (
-    <div className="px-3 py-2 flex items-start gap-3 text-xs" style={{ background: '#ffffff' }}>
-      {item.costCodeNumber && (
-        <span
-          className="font-mono shrink-0 mt-0.5"
-          style={{ color: '#8a8078' }}
-          title={item.costCodeName}
-        >
-          {item.costCodeNumber}
-        </span>
-      )}
-      <div className="flex-1 min-w-0">
-        <div className="font-medium truncate" style={{ color: '#1a1a1a' }}>
-          {item.name || '(unnamed)'}
-        </div>
-        {groupLabel && (
-          <div className="text-[10px] truncate" style={{ color: '#8a8078' }}>
-            {groupLabel}
-          </div>
+    <div className="px-3 py-2 flex flex-col gap-1.5 text-xs" style={{ background: '#ffffff' }}>
+      <div className="flex items-start gap-3">
+        {item.costCodeNumber && (
+          <span
+            className="font-mono shrink-0 mt-0.5"
+            style={{ color: '#8a8078' }}
+            title={item.costCodeName}
+          >
+            {item.costCodeNumber}
+          </span>
         )}
+        <div className="flex-1 min-w-0">
+          <div className="font-medium truncate" style={{ color: '#1a1a1a' }}>
+            {item.name || '(unnamed)'}
+          </div>
+          {groupLabel && (
+            <div className="text-[10px] truncate" style={{ color: '#8a8078' }}>
+              {groupLabel}
+            </div>
+          )}
+        </div>
+        {item.cost > 0 && (
+          <span className="font-mono shrink-0" style={{ color: '#5a5550' }}>
+            ${Math.round(item.cost).toLocaleString()}
+          </span>
+        )}
+        <a
+          href={`https://app.jobtread.com/jobs/${jobId}/budget`}
+          target="_blank"
+          rel="noreferrer"
+          className="shrink-0 hover:opacity-80"
+          title="Open in JobTread"
+          style={{ color: '#c88c00' }}
+        >
+          <ExternalLink size={12} />
+        </a>
       </div>
-      {item.cost > 0 && (
-        <span className="font-mono shrink-0" style={{ color: '#5a5550' }}>
-          ${Math.round(item.cost).toLocaleString()}
-        </span>
+      {/* Internal Notes - rendered only when set. Uses whitespace-pre-wrap
+          so multi-line notes (e.g. "Vendor confirmed 6-week lead time.\n
+          Waiting on Kim's pick.") read naturally. Indented under the
+          item name so it visually belongs to that row. */}
+      {notes && (
+        <div
+          className="ml-7 text-[11px] rounded px-2 py-1 whitespace-pre-wrap"
+          style={{
+            background: 'rgba(200,140,0,0.06)',
+            border: '1px solid rgba(200,140,0,0.15)',
+            color: '#3d3a36',
+          }}
+        >
+          <span className="text-[9px] uppercase tracking-wide font-semibold mr-1.5" style={{ color: '#8a8078' }}>
+            Notes
+          </span>
+          {notes}
+        </div>
       )}
-      <a
-        href={`https://app.jobtread.com/jobs/${jobId}/budget`}
-        target="_blank"
-        rel="noreferrer"
-        className="shrink-0 hover:opacity-80"
-        title="Open in JobTread"
-        style={{ color: '#c88c00' }}
-      >
-        <ExternalLink size={12} />
-      </a>
     </div>
   );
 }
