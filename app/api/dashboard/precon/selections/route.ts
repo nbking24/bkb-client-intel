@@ -31,14 +31,17 @@ export const maxDuration = 300;
 // edits the field's options in JT settings.
 const STATUS_CF_ID = '22P5WiHgkzx9';
 
-export const SELECTION_STATUSES = [
+// Not `export`-ed: Next.js route files only allow specific export
+// names (GET, POST, dynamic, runtime, etc.). Surfaced via the API
+// response instead so the dashboard can read the canonical list.
+const SELECTION_STATUSES = [
   '1. Client Selection Needed',
   '2. Internal Selection Needed',
   '3. Selected/Needs Order',
   '4. Ordered/Finalized',
 ] as const;
 
-export type SelectionStatus = (typeof SELECTION_STATUSES)[number];
+type SelectionStatus = (typeof SELECTION_STATUSES)[number];
 
 const STATUS_KEY: Record<SelectionStatus, string> = {
   '1. Client Selection Needed': 'clientSelectionNeeded',
