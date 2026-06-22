@@ -59,7 +59,7 @@ export async function syncRaffleEntryToLoop(input: {
   lastName?: string | null;
   email: string;          // required
   phone?: string | null;
-  contactOk: boolean;
+  contactOk: boolean | null;  // null = blank (user left Y/N empty)
   interests: string[];
 }): Promise<{ contactId: string | null; error: string | null }> {
   if (!process.env.GHL_API_KEY) {
@@ -69,9 +69,13 @@ export async function syncRaffleEntryToLoop(input: {
     return { contactId: null, error: 'email_required_for_loop_sync' };
   }
 
+  let contactTag: string;
+  if (input.contactOk === true)       contactTag = 'bucks-beautiful-2026-lead';
+  else if (input.contactOk === false) contactTag = 'bucks-beautiful-2026-raffle-only';
+  else                                contactTag = 'bucks-beautiful-2026-blank-contact';
   const tags: string[] = [
     'bucks-beautiful-2026',
-    input.contactOk ? 'bucks-beautiful-2026-lead' : 'bucks-beautiful-2026-raffle-only',
+    contactTag,
     ...input.interests.map((i) => `interest-${i}`),
   ];
 

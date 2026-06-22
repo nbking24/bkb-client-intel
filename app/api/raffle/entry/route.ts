@@ -86,7 +86,10 @@ export async function POST(req: NextRequest) {
   const phone = normalizePhone(phoneRaw);
   const emailRaw = clean(body.email, 200);
   const email = emailRaw && isValidEmail(emailRaw) ? emailRaw.toLowerCase() : null;
-  const contact_ok = body.contact_ok === true;
+  const contact_ok =
+    body.contact_ok === true  ? true  :
+    body.contact_ok === false ? false :
+    null;
   const interests = Array.isArray(body.interests)
     ? body.interests.filter((x: any) => typeof x === 'string' && INTEREST_VALUES.has(x))
     : [];
