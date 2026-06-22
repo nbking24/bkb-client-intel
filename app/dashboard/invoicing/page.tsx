@@ -163,18 +163,77 @@ interface InvoicingReport {
 // Style Constants
 // ============================================================
 
-const HEALTH_COLORS: Record<InvoicingHealth, { bg: string; text: string; dot: string; label: string }> = {
-  healthy: { bg: 'rgba(34,197,94,0.15)', text: '#22c55e', dot: '#22c55e', label: 'Healthy' },
-  warning: { bg: 'rgba(234,179,8,0.15)', text: '#eab308', dot: '#eab308', label: 'Warning' },
-  overdue: { bg: 'rgba(249,115,22,0.15)', text: '#f97316', dot: '#f97316', label: 'Overdue' },
-  critical: { bg: 'rgba(239,68,68,0.15)', text: '#ef4444', dot: '#ef4444', label: 'Critical' },
+// Health palette. `bg` = chip/badge tint, `text` = the canonical color
+// token for that health state, `dot` = standalone indicator color,
+// `cardBg` = a much-lighter card-background tint so a card's whole
+// surface reads as healthy / warning / overdue / critical at a glance,
+// `cardBorder` = a slightly stronger border so tinted cards still read
+// as a distinct surface against the page background. Healthy cards
+// keep the original neutral stone tone so the eye treats them as
+// "nothing to do here" — that's the whole point of the scanability
+// pass.
+const HEALTH_COLORS: Record<InvoicingHealth, {
+  bg: string;
+  text: string;
+  dot: string;
+  label: string;
+  cardBg: string;
+  cardBorder: string;
+}> = {
+  healthy: {
+    bg: 'rgba(34,197,94,0.15)',
+    text: '#22c55e',
+    dot: '#22c55e',
+    label: 'Healthy',
+    cardBg: '#f8f6f3',
+    cardBorder: 'rgba(200,140,0,0.08)',
+  },
+  warning: {
+    bg: 'rgba(234,179,8,0.15)',
+    text: '#a16207',
+    dot: '#eab308',
+    label: 'Warning',
+    cardBg: 'rgba(234,179,8,0.06)',
+    cardBorder: 'rgba(234,179,8,0.25)',
+  },
+  overdue: {
+    bg: 'rgba(249,115,22,0.15)',
+    text: '#c2410c',
+    dot: '#f97316',
+    label: 'Overdue',
+    cardBg: 'rgba(249,115,22,0.06)',
+    cardBorder: 'rgba(249,115,22,0.25)',
+  },
+  critical: {
+    bg: 'rgba(239,68,68,0.15)',
+    text: '#b91c1c',
+    dot: '#ef4444',
+    label: 'Critical',
+    cardBg: 'rgba(239,68,68,0.06)',
+    cardBorder: 'rgba(239,68,68,0.28)',
+  },
 };
 
+// Default neutral card surface. Used by sections that aren't tied to a
+// single job's health (KPI cards, AR panel, etc.).
 const CARD_STYLE = {
   background: '#f8f6f3',
   border: '1px solid rgba(200,140,0,0.08)',
   borderRadius: '12px',
 };
+
+// Derive a card style from a job's health. Critical / overdue / warning
+// jobs render with their tinted surface; healthy jobs inherit the
+// neutral stone tone so they fade into the background relative to
+// actionable cards above them.
+function healthCardStyle(health: InvoicingHealth) {
+  const cfg = HEALTH_COLORS[health];
+  return {
+    background: cfg.cardBg,
+    border: `1px solid ${cfg.cardBorder}`,
+    borderRadius: '12px',
+  };
+}
 
 // Health priority order for sorting — critical jobs surface first
 const HEALTH_PRIORITY: Record<InvoicingHealth, number> = {
@@ -215,6 +274,48 @@ function HealthBadge({ health }: { health: InvoicingHealth }) {
       <span className="w-1.5 h-1.5 rounded-full" style={{ background: cfg.dot }} />
       {cfg.label}
     </span>
+  );
+}
+
+/**
+ * Disclosure widget for the healthy-jobs cluster inside each job-type
+ * grid. Renders as a slim row that says "All clear: N healthy jobs"
+ * with an expand caret. Click to reveal the cards. Default collapsed
+ * because the whole reason this dashboard exists is to surface what
+ * NEEDS invoicing, not to celebrate what doesn't. (Suggestion A.)
+ */
+function HealthyDisclosure({
+  count,
+  expanded,
+  onToggle,
+  children,
+}: {
+  count: number;
+  expanded: boolean;
+  onToggle: () => void;
+  children: React.ReactNode;
+}) {
+  return (
+    <div className="mt-3 ml-1">
+      <button
+        type="button"
+        onClick={onToggle}
+        className="w-full flex items-center gap-2 text-xs px-3 py-2 rounded-lg hover:bg-stone-50 transition-colors"
+        style={{
+          background: 'rgba(34,197,94,0.04)',
+          border: '1px solid rgba(34,197,94,0.18)',
+          color: '#15803d',
+        }}
+      >
+        {expanded ? <ChevronDown size={12} /> : <ChevronRight size={12} />}
+        <CheckCircle2 size={12} />
+        <span className="font-medium">All clear: {count} healthy job{count === 1 ? '' : 's'}</span>
+        <span className="ml-auto text-[10px] font-normal" style={{ color: '#6b7280' }}>
+          {expanded ? 'hide' : 'show'}
+        </span>
+      </button>
+      {expanded && children}
+    </div>
   );
 }
 
@@ -461,7 +562,7 @@ function ContractJobCard({ job, onInvoiceCreated, arHeld, arToggling, onToggleAr
     .filter((inv) => inv.status === 'open')
     .reduce((sum, inv) => sum + inv.amount, 0);
   return (
-    <div className="px-3 py-2.5 rounded-lg" style={CARD_STYLE}>
+    <div className="px-3 py-2.5 rounded-lg" style={healthCardStyle(job.health)}>
       {/* Header row: name + badge + key stats inline */}
       <div className="flex items-center gap-2 mb-1.5">
         <span className="text-sm font-semibold truncate flex-1 min-w-0" style={{ color: '#1a1a1a' }}>
@@ -512,15 +613,32 @@ function ContractJobCard({ job, onInvoiceCreated, arHeld, arToggling, onToggleAr
         </div>
       )}
 
-      {/* Inline stats row */}
+      {/* Inline stats row.
+          Threshold-based orange used to highlight large unbilled values
+          (>$200 billable, >1h unbilled labor). The card itself is now
+          tinted by health, so those values get amplified by font weight
+          instead of an extra color — the eye picks up "bigger number,
+          tinted card" without competing color hits. (Suggestion F.) */}
       <div className="flex items-center gap-3 text-[11px] mb-1.5">
         <span style={{ color: '#8a8078' }}>
-          Billable: <span style={{ color: job.uninvoicedBillableAmount > 200 ? '#f97316' : '#1a1a1a' }}>
+          Billable:{' '}
+          <span
+            style={{
+              color: '#1a1a1a',
+              fontWeight: job.uninvoicedBillableAmount > 200 ? 700 : 400,
+            }}
+          >
             {formatCurrency(job.uninvoicedBillableAmount ?? 0)}
           </span>
         </span>
         <span style={{ color: '#8a8078' }}>
-          Labor: <span style={{ color: job.unbilledLaborHours > 1 ? '#f97316' : '#1a1a1a' }}>
+          Labor:{' '}
+          <span
+            style={{
+              color: '#1a1a1a',
+              fontWeight: job.unbilledLaborHours > 1 ? 700 : 400,
+            }}
+          >
             {job.unbilledLaborHours ?? 0}h
           </span>
         </span>
@@ -710,7 +828,7 @@ function CostPlusJobCard({ job, onInvoiceCreated, arHeld, arToggling, onToggleAr
   }
 
   return (
-    <div className="px-3 py-2.5 rounded-lg" style={CARD_STYLE}>
+    <div className="px-3 py-2.5 rounded-lg" style={healthCardStyle(job.health)}>
       {/* Header row */}
       <div className="flex items-center gap-2 mb-1.5">
         <span className="text-sm font-semibold truncate flex-1 min-w-0" style={{ color: '#1a1a1a' }}>
@@ -1232,14 +1350,18 @@ function NeedsInvoicingRow({
   }
 
   return (
-    <div className="px-4 py-3 flex items-center gap-3 hover:bg-white/30 transition-colors">
-      {/* Health indicator dot */}
-      <div
-        className="w-2.5 h-2.5 rounded-full flex-shrink-0"
-        style={{ background: cfg.dot }}
-        title={cfg.label}
-      />
-
+    // Health is expressed by a chunky 5px left border so the row reads
+    // as actionable at a glance, instead of relying on a 2.5px dot. The
+    // background also gets a very subtle health tint so the whole row
+    // (not just the border) is visually flagged. (Suggestion E.)
+    <div
+      className="px-4 py-3 flex items-center gap-3 hover:bg-white/40 transition-colors"
+      style={{
+        background: cfg.cardBg,
+        borderLeft: `5px solid ${cfg.dot}`,
+        marginLeft: -1, // align the left border flush with the column edge
+      }}
+    >
       {/* Job info */}
       <div className="flex-1 min-w-0">
         <div className="flex items-center gap-2">
@@ -1256,7 +1378,7 @@ function NeedsInvoicingRow({
         <div className="text-xs mt-0.5" style={{ color: '#8a8078' }}>
           {job.clientName} · #{job.jobNumber}
         </div>
-        <div className="text-xs mt-0.5" style={{ color: cfg.text }}>
+        <div className="text-xs mt-0.5 font-medium" style={{ color: cfg.text }}>
           {actionSummary}
         </div>
       </div>
@@ -1325,6 +1447,12 @@ export default function InvoicingDashboard() {
   // Sections expand/collapse
   const [contractExpanded, setContractExpanded] = useState(true);
   const [costPlusExpanded, setCostPlusExpanded] = useState(true);
+  // Healthy jobs collapse separately, default collapsed. The whole point
+  // of this dashboard is "what needs invoicing?" — healthy cards fading
+  // behind a disclosure keeps the actionable cards above the fold.
+  // (Suggestion A.)
+  const [contractHealthyExpanded, setContractHealthyExpanded] = useState(false);
+  const [costPlusHealthyExpanded, setCostPlusHealthyExpanded] = useState(false);
   const [billableExpanded, setBillableExpanded] = useState(true);
   const [openInvoicesExpanded, setOpenInvoicesExpanded] = useState(false);
 
@@ -1686,11 +1814,16 @@ export default function InvoicingDashboard() {
 
             {/* Aging breakdown bar + AR reminders strip */}
             <div className="px-4 pb-2 pt-1" style={{ borderTop: '1px solid rgba(200,140,0,0.06)' }}>
-              {/* Aging buckets */}
+              {/* Aging buckets.
+                  The 0-14 day bucket reads as neutral gray now (was green).
+                  Green was reading as "fine" when the customer still hasn't
+                  paid; recent open AR is just recent open AR, not healthy.
+                  Yellow/orange/red still flag the buckets that matter.
+                  (Suggestion D.) */}
               <div className="flex items-center gap-3 text-[10px]">
                 <div className="flex items-center gap-1">
                   <span style={{ color: '#8a8078' }}>0-14d:</span>
-                  <span style={{ color: '#22c55e', fontWeight: 600 }}>{formatCurrency(aging.current.amount)}</span>
+                  <span style={{ color: '#5a5550', fontWeight: 600 }}>{formatCurrency(aging.current.amount)}</span>
                   <span style={{ color: '#5a5550' }}>({aging.current.count})</span>
                 </div>
                 <div className="flex items-center gap-1">
@@ -1713,7 +1846,7 @@ export default function InvoicingDashboard() {
               {totalOwed > 0 && (
                 <div className="flex h-[4px] rounded-full overflow-hidden mt-1.5 mb-1" style={{ background: '#ffffff' }}>
                   {aging.current.amount > 0 && (
-                    <div style={{ width: `${(aging.current.amount / totalOwed) * 100}%`, background: '#22c55e' }} />
+                    <div style={{ width: `${(aging.current.amount / totalOwed) * 100}%`, background: '#8a8078' }} />
                   )}
                   {aging.aging15.amount > 0 && (
                     <div style={{ width: `${(aging.aging15.amount / totalOwed) * 100}%`, background: '#eab308' }} />
@@ -1880,9 +2013,13 @@ export default function InvoicingDashboard() {
       {/* Agent Recommendations */}
       <AgentSection report={report} />
 
-      {/* Contract Jobs — sorted by health priority */}
+      {/* Contract Jobs — sorted by health priority. Actionable jobs
+          render in the grid; healthy ones hide behind a disclosure so
+          the eye lands on cards that need action first. */}
       {report.contractJobs.length > 0 && (() => {
         const filtered = sortByHealthPriority(report.contractJobs.filter(matchesSearch));
+        const actionable = filtered.filter((j) => j.health !== 'healthy');
+        const healthy = filtered.filter((j) => j.health === 'healthy');
         return filtered.length > 0 ? (
           <div>
             <SectionHeader
@@ -1893,19 +2030,38 @@ export default function InvoicingDashboard() {
               onToggle={() => setContractExpanded(!contractExpanded)}
             />
             {contractExpanded && (
-              <div className="grid gap-2 md:grid-cols-2 lg:grid-cols-3 ml-1">
-                {filtered.map((job) => (
-                  <ContractJobCard key={job.jobId} job={job} onInvoiceCreated={() => fetchReport(true)} arHeld={arHolds[job.jobId]} arToggling={arToggling === job.jobId} onToggleArHold={toggleArHold} />
-                ))}
-              </div>
+              <>
+                {actionable.length > 0 && (
+                  <div className="grid gap-2 md:grid-cols-2 lg:grid-cols-3 ml-1">
+                    {actionable.map((job) => (
+                      <ContractJobCard key={job.jobId} job={job} onInvoiceCreated={() => fetchReport(true)} arHeld={arHolds[job.jobId]} arToggling={arToggling === job.jobId} onToggleArHold={toggleArHold} />
+                    ))}
+                  </div>
+                )}
+                {healthy.length > 0 && (
+                  <HealthyDisclosure
+                    count={healthy.length}
+                    expanded={contractHealthyExpanded}
+                    onToggle={() => setContractHealthyExpanded(!contractHealthyExpanded)}
+                  >
+                    <div className="grid gap-2 md:grid-cols-2 lg:grid-cols-3 ml-1 mt-2">
+                      {healthy.map((job) => (
+                        <ContractJobCard key={job.jobId} job={job} onInvoiceCreated={() => fetchReport(true)} arHeld={arHolds[job.jobId]} arToggling={arToggling === job.jobId} onToggleArHold={toggleArHold} />
+                      ))}
+                    </div>
+                  </HealthyDisclosure>
+                )}
+              </>
             )}
           </div>
         ) : null;
       })()}
 
-      {/* Cost Plus Jobs — sorted by health priority */}
+      {/* Cost Plus Jobs — same split: actionable visible, healthy collapsed. */}
       {report.costPlusJobs.length > 0 && (() => {
         const filtered = sortByHealthPriority(report.costPlusJobs.filter(matchesSearch));
+        const actionable = filtered.filter((j) => j.health !== 'healthy');
+        const healthy = filtered.filter((j) => j.health === 'healthy');
         return filtered.length > 0 ? (
           <div>
             <SectionHeader
@@ -1916,11 +2072,28 @@ export default function InvoicingDashboard() {
               onToggle={() => setCostPlusExpanded(!costPlusExpanded)}
             />
             {costPlusExpanded && (
-              <div className="grid gap-2 md:grid-cols-2 lg:grid-cols-3 ml-1">
-                {filtered.map((job) => (
-                  <CostPlusJobCard key={job.jobId} job={job} onInvoiceCreated={() => fetchReport(true)} arHeld={arHolds[job.jobId]} arToggling={arToggling === job.jobId} onToggleArHold={toggleArHold} />
-                ))}
-              </div>
+              <>
+                {actionable.length > 0 && (
+                  <div className="grid gap-2 md:grid-cols-2 lg:grid-cols-3 ml-1">
+                    {actionable.map((job) => (
+                      <CostPlusJobCard key={job.jobId} job={job} onInvoiceCreated={() => fetchReport(true)} arHeld={arHolds[job.jobId]} arToggling={arToggling === job.jobId} onToggleArHold={toggleArHold} />
+                    ))}
+                  </div>
+                )}
+                {healthy.length > 0 && (
+                  <HealthyDisclosure
+                    count={healthy.length}
+                    expanded={costPlusHealthyExpanded}
+                    onToggle={() => setCostPlusHealthyExpanded(!costPlusHealthyExpanded)}
+                  >
+                    <div className="grid gap-2 md:grid-cols-2 lg:grid-cols-3 ml-1 mt-2">
+                      {healthy.map((job) => (
+                        <CostPlusJobCard key={job.jobId} job={job} onInvoiceCreated={() => fetchReport(true)} arHeld={arHolds[job.jobId]} arToggling={arToggling === job.jobId} onToggleArHold={toggleArHold} />
+                      ))}
+                    </div>
+                  </HealthyDisclosure>
+                )}
+              </>
             )}
           </div>
         ) : null;
