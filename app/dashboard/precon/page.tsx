@@ -209,7 +209,7 @@ export default function PreconDashboard() {
   // ----------------------------------------------------------
   const filteredJobs = useMemo(() => {
     const q = search.trim().toLowerCase();
-    return jobs.filter((j) => {
+    const filtered = jobs.filter((j) => {
       if (stageFilter !== 'all' && j.statusCategory !== stageFilter) return false;
       if (q) {
         const hay = `${j.clientName || ''} ${j.jobName || ''} ${j.jobNumber || ''}`.toLowerCase();
@@ -220,6 +220,18 @@ export default function PreconDashboard() {
       if (hideFinalized && j.actionableCount === 0) return false;
       return true;
     });
+    // A-Z by client name (the field operators scan first), tiebreak on
+    // job name so two jobs for the same client stay grouped together.
+    // The API returns rows ordered by actionable backlog; the precon
+    // coordinator asked for alphabetical instead so the eye can find a
+    // specific project quickly.
+    filtered.sort((a, b) => {
+      const aKey = (a.clientName || a.jobName || '').toLowerCase().trim();
+      const bKey = (b.clientName || b.jobName || '').toLowerCase().trim();
+      if (aKey !== bKey) return aKey.localeCompare(bKey);
+      return (a.jobName || '').toLowerCase().localeCompare((b.jobName || '').toLowerCase());
+    });
+    return filtered;
   }, [jobs, search, stageFilter, hideFinalized]);
 
   function toggleJob(jobId: string) {
@@ -463,9 +475,17 @@ function JobCard({
           <ChevronRight size={16} style={{ color: '#8a8078' }} />
         )}
 
+        {/* Subtle gold-tinted badge that lives inside the dashboard
+            palette instead of the high-contrast black+yellow chip used
+            elsewhere in the hub. Same content, less visual noise. */}
         <span
-          className="text-[10px] font-mono px-1.5 py-0.5 rounded shrink-0"
-          style={{ background: '#222', color: '#f0c060', fontWeight: 600 }}
+          className="text-[11px] font-mono px-1.5 py-0.5 rounded shrink-0"
+          style={{
+            background: 'rgba(200,140,0,0.10)',
+            color: '#a06f00',
+            border: '1px solid rgba(200,140,0,0.20)',
+            fontWeight: 600,
+          }}
         >
           #{job.jobNumber || '—'}
         </span>
