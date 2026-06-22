@@ -7,7 +7,7 @@ import { usePathname, useRouter } from 'next/navigation';
 import {
   LayoutDashboard, FolderKanban, Menu, X, ChevronRight,
   DollarSign, Calculator, MessageSquare, ClipboardList, LogOut, Users, FileText, BarChart3,
-  Megaphone, Bug, Receipt, Shield, Mic, Type,
+  Megaphone, Bug, Receipt, Shield, Mic, Type, BookOpen,
 } from 'lucide-react';
 import { useAuth } from '../hooks/useAuth';
 import { useAccess, clearAccessCache } from '../hooks/useAccess';
@@ -18,7 +18,7 @@ import TicketReporter from './components/TicketReporter';
 // Map the registry's icon names to the actual lucide components.
 const ICON_MAP: Record<string, any> = {
   LayoutDashboard, Users, FolderKanban, Calculator, DollarSign, BarChart3,
-  Receipt, FileText, Megaphone, Bug, ClipboardList, Shield, Mic, Type,
+  Receipt, FileText, Megaphone, Bug, ClipboardList, Shield, Mic, Type, BookOpen,
 };
 
 // Build the nav from a user's allowed dashboard ids, in registry order.
