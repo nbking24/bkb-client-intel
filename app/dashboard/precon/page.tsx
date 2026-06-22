@@ -1,665 +1,579 @@
+// @ts-nocheck
 'use client';
 
-import { useState, useEffect } from 'react';
+/**
+ * Pre-Construction Dashboard
+ *
+ * Selections Tracker, version 1.
+ *
+ * The pre-con coordinator (currently Allison) lives in this page when
+ * working through pending selections. Every active job (In Design,
+ * Ready, In Production) has a card; collapsed by default so the page
+ * fits a single screen. Each card surfaces only the budget line items
+ * whose JT cost-item "Status" custom field is set, grouped by status:
+ *
+ *   1. Client Selection Needed    (red, top priority - waiting on client)
+ *   2. Internal Selection Needed  (amber - waiting on BKB)
+ *   3. Selected/Needs Order       (blue - decision made, needs to be ordered)
+ *   4. Ordered/Finalized          (green/muted - tracking only)
+ *
+ * Jobs that have hit Final Billing are excluded - by then selections
+ * should already be locked. Jobs with no Status-tagged items are also
+ * dropped so the report stays focused.
+ *
+ * The previous precon page (AI agent recommendations, weekly emails,
+ * orphan task panel, etc.) was wiped in favor of this single-purpose
+ * tracker. If any of that needs to come back, git history has it.
+ */
+
+import { useEffect, useMemo, useState } from 'react';
 import Link from 'next/link';
-import OrphanTaskPanel from './OrphanTaskPanel';
 import {
-  Loader2,
-  RefreshCw,
-  AlertTriangle,
+  AlertCircle,
+  ArrowLeft,
   CheckCircle2,
-  Clock,
-  XCircle,
-  MessageSquare,
-  CalendarDays,
   ChevronDown,
   ChevronRight,
-  Zap,
-  Users,
-  BarChart3,
-  Wrench,
-  EyeOff,
-  Check,
+  ClipboardList,
+  ExternalLink,
+  Loader2,
+  RefreshCw,
   Search,
-  X,
-  Mail,
-  Copy,
-  FileText,
-  Shield,
+  Users,
 } from 'lucide-react';
 
 // ============================================================
-// Types — matches AgentReport from the API route
+// Types
 // ============================================================
-interface AgentRecommendation {
-  action: string;
+
+interface SelectionItem {
+  id: string;
+  name: string;
   description: string;
-  priority: 'high' | 'medium' | 'low';
-  actionType: 'createTask' | 'draftMessage' | 'standardizeSchedule' | 'other';
+  quantity: number | null;
+  unitName: string;
+  unitPrice: number | null;
+  cost: number;
+  costCodeNumber: string;
+  costCodeName: string;
+  costGroupId: string | null;
+  costGroupName: string;
+  parentGroupName: string;
+  status: string;
 }
 
-interface AgentProject {
+interface JobBlock {
   jobId: string;
   jobName: string;
   jobNumber: string;
   clientName: string;
-  category?: 'In-Design' | 'Ready';
-  status: 'on_track' | 'at_risk' | 'stalled' | 'blocked' | 'complete';
-  currentPhase: string | null;
-  nextStep: string;
-  nextStepAssignee: string;
-  lastClientContact: string | null;
-  daysSinceContact: number | null;
-  nextMeeting: string | null;
-  totalProgress: number;
-  alerts: string[];
-  recommendations: AgentRecommendation[];
-  suggestedEmail?: { subject: string; body: string } | null;
-  weeklyUpdateEmail?: { subject: string; body: string } | null;
+  customStatus: string | null;
+  statusCategory: 'IN_DESIGN' | 'READY' | 'IN_PRODUCTION' | string | null;
+  counts: {
+    clientSelectionNeeded: number;
+    internalSelectionNeeded: number;
+    selectedNeedsOrder: number;
+    orderedFinalized: number;
+  };
+  actionableCount: number;
+  items: SelectionItem[];
 }
 
-interface AgentReport {
-  generatedAt: string;
-  summary: string;
-  projectCount: number;
-  alertCount: number;
-  projects: AgentProject[];
-  topPriorities: string[];
-  _fromCache?: boolean;
+interface Totals {
+  jobCount: number;
+  actionable: number;
+  clientSelectionNeeded: number;
+  internalSelectionNeeded: number;
+  selectedNeedsOrder: number;
+  orderedFinalized: number;
 }
 
 // ============================================================
-// Status helpers
+// Status display config (label, color, key)
+// Order matters - this drives the section ordering inside each
+// expanded job card. The three "actionable" statuses come first;
+// Ordered/Finalized is rendered last and visually de-emphasized.
 // ============================================================
-const STATUS_CONFIG: Record<string, { label: string; color: string; bg: string; icon: any }> = {
-  on_track: { label: 'On Track', color: '#22c55e', bg: 'rgba(34,197,94,0.12)', icon: CheckCircle2 },
-  at_risk: { label: 'At Risk', color: '#eab308', bg: 'rgba(234,179,8,0.12)', icon: AlertTriangle },
-  stalled: { label: 'Stalled', color: '#f97316', bg: 'rgba(249,115,22,0.12)', icon: Clock },
-  blocked: { label: 'Blocked', color: '#ef4444', bg: 'rgba(239,68,68,0.12)', icon: XCircle },
-  complete: { label: 'Complete', color: '#22c55e', bg: 'rgba(34,197,94,0.12)', icon: CheckCircle2 },
+
+const STATUS_CONFIG: Array<{
+  key: keyof JobBlock['counts'];
+  jtValue: string;
+  label: string;
+  shortLabel: string;
+  color: string;       // text color
+  bg: string;          // background tint
+  border: string;
+  actionable: boolean;
+}> = [
+  {
+    key: 'clientSelectionNeeded',
+    jtValue: '1. Client Selection Needed',
+    label: 'Client Selection Needed',
+    shortLabel: 'Client',
+    color: '#b91c1c',
+    bg: 'rgba(239,68,68,0.08)',
+    border: 'rgba(239,68,68,0.25)',
+    actionable: true,
+  },
+  {
+    key: 'internalSelectionNeeded',
+    jtValue: '2. Internal Selection Needed',
+    label: 'Internal Selection Needed',
+    shortLabel: 'Internal',
+    color: '#a16207',
+    bg: 'rgba(234,179,8,0.10)',
+    border: 'rgba(234,179,8,0.30)',
+    actionable: true,
+  },
+  {
+    key: 'selectedNeedsOrder',
+    jtValue: '3. Selected/Needs Order',
+    label: 'Selected, Needs Order',
+    shortLabel: 'Order',
+    color: '#1e40af',
+    bg: 'rgba(59,130,246,0.08)',
+    border: 'rgba(59,130,246,0.25)',
+    actionable: true,
+  },
+  {
+    key: 'orderedFinalized',
+    jtValue: '4. Ordered/Finalized',
+    label: 'Ordered / Finalized',
+    shortLabel: 'Done',
+    color: '#15803d',
+    bg: 'rgba(34,197,94,0.06)',
+    border: 'rgba(34,197,94,0.20)',
+    actionable: false,
+  },
+];
+
+const STAGE_LABEL: Record<string, string> = {
+  IN_DESIGN: 'In Design',
+  READY: 'Ready',
+  IN_PRODUCTION: 'In Production',
 };
 
-const PRIORITY_COLORS: Record<string, { color: string; bg: string }> = {
-  high: { color: '#ef4444', bg: 'rgba(239,68,68,0.12)' },
-  medium: { color: '#eab308', bg: 'rgba(234,179,8,0.12)' },
-  low: { color: '#8a8078', bg: 'rgba(138,128,120,0.12)' },
+const STAGE_BG: Record<string, string> = {
+  IN_DESIGN: 'rgba(160,111,0,0.10)',
+  READY: 'rgba(59,130,246,0.10)',
+  IN_PRODUCTION: 'rgba(34,150,80,0.10)',
 };
 
-function formatDate(dateStr: string | null): string {
-  if (!dateStr) return '—';
-  try {
-    return new Date(dateStr).toLocaleDateString('en-US', {
-      month: 'short',
-      day: 'numeric',
-      year: 'numeric',
-    });
-  } catch {
-    return dateStr;
-  }
-}
-
-function formatTimestamp(dateStr: string): string {
-  try {
-    return new Date(dateStr).toLocaleString('en-US', {
-      month: 'short',
-      day: 'numeric',
-      hour: 'numeric',
-      minute: '2-digit',
-    });
-  } catch {
-    return dateStr;
-  }
-}
+const STAGE_COLOR: Record<string, string> = {
+  IN_DESIGN: '#a06f00',
+  READY: '#1e40af',
+  IN_PRODUCTION: '#15803d',
+};
 
 // ============================================================
-// Summary Cards
+// Component
 // ============================================================
-function SummaryCards({ report }: { report: AgentReport }) {
-  const onTrack = (report.projects || []).filter(p => p.status === 'on_track').length;
-  const atRisk = (report.projects || []).filter(p => p.status === 'at_risk').length;
-  const stalled = (report.projects || []).filter(p => p.status === 'stalled' || p.status === 'blocked').length;
 
-  const cards = [
-    { label: 'Projects', value: report.projectCount, color: '#c88c00', icon: BarChart3 },
-    { label: 'On Track', value: onTrack, color: '#22c55e', icon: CheckCircle2 },
-    { label: 'At Risk', value: atRisk, color: '#eab308', icon: AlertTriangle },
-    { label: 'Stalled', value: stalled, color: '#f97316', icon: Clock },
-    { label: 'Alerts', value: report.alertCount, color: '#ef4444', icon: Zap },
-  ];
+export default function PreconDashboard() {
+  const [loading, setLoading] = useState(true);
+  const [refreshing, setRefreshing] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [jobs, setJobs] = useState<JobBlock[]>([]);
+  const [totals, setTotals] = useState<Totals | null>(null);
+  const [computedAt, setComputedAt] = useState<string | null>(null);
+
+  // UI filters and expanded state.
+  const [search, setSearch] = useState('');
+  const [stageFilter, setStageFilter] = useState<string>('all');
+  const [hideFinalized, setHideFinalized] = useState(true);
+  const [expandedJobs, setExpandedJobs] = useState<Set<string>>(new Set());
+
+  // ----------------------------------------------------------
+  // Data load
+  // ----------------------------------------------------------
+  async function load(force = false) {
+    if (force) setRefreshing(true); else setLoading(true);
+    setError(null);
+    try {
+      const res = await fetch('/api/dashboard/precon/selections', { cache: 'no-store' });
+      const data = await res.json();
+      if (!res.ok || data?.error) throw new Error(data?.error || `Load failed (${res.status})`);
+      setJobs(data.jobs || []);
+      setTotals(data.totals || null);
+      setComputedAt(data.computedAt || null);
+    } catch (err: any) {
+      setError(err?.message || 'Failed to load selections');
+    } finally {
+      if (force) setRefreshing(false); else setLoading(false);
+    }
+  }
+  useEffect(() => { load(); }, []);
+
+  // ----------------------------------------------------------
+  // Filter + sort
+  // ----------------------------------------------------------
+  const filteredJobs = useMemo(() => {
+    const q = search.trim().toLowerCase();
+    return jobs.filter((j) => {
+      if (stageFilter !== 'all' && j.statusCategory !== stageFilter) return false;
+      if (q) {
+        const hay = `${j.clientName || ''} ${j.jobName || ''} ${j.jobNumber || ''}`.toLowerCase();
+        if (!hay.includes(q)) return false;
+      }
+      // Hide jobs whose only remaining statused items are Ordered/Finalized
+      // when the operator chose to focus on the actionable backlog.
+      if (hideFinalized && j.actionableCount === 0) return false;
+      return true;
+    });
+  }, [jobs, search, stageFilter, hideFinalized]);
+
+  function toggleJob(jobId: string) {
+    setExpandedJobs((prev) => {
+      const next = new Set(prev);
+      if (next.has(jobId)) next.delete(jobId);
+      else next.add(jobId);
+      return next;
+    });
+  }
+
+  function expandAll() {
+    setExpandedJobs(new Set(filteredJobs.map((j) => j.jobId)));
+  }
+
+  function collapseAll() {
+    setExpandedJobs(new Set());
+  }
+
+  const cachedAtLabel = useMemo(() => {
+    if (!computedAt) return null;
+    const ageMs = Date.now() - new Date(computedAt).getTime();
+    const min = Math.floor(ageMs / 60000);
+    const hr = Math.floor(ageMs / 3600000);
+    if (hr >= 1) return `${hr}h ago`;
+    if (min >= 1) return `${min}m ago`;
+    return 'just now';
+  }, [computedAt]);
+
+  // ============================================================
+  // Render
+  // ============================================================
 
   return (
-    <div className="grid grid-cols-5 gap-3">
-      {cards.map((c) => {
-        const Icon = c.icon;
-        return (
-          <div
-            key={c.label}
-            className="rounded-lg p-3"
-            style={{ background: '#ffffff', border: '1px solid rgba(200,140,0,0.1)' }}
+    <div className="max-w-7xl mx-auto px-4 py-6 space-y-5">
+      {/* Page header */}
+      <div className="flex items-center justify-between flex-wrap gap-3">
+        <div>
+          <Link
+            href="/dashboard"
+            className="inline-flex items-center gap-1 text-xs hover:underline mb-1"
+            style={{ color: '#8a8078' }}
           >
-            <div className="flex items-center gap-2 mb-1">
-              <Icon size={14} style={{ color: c.color }} />
-              <span className="text-xs" style={{ color: '#8a8078' }}>{c.label}</span>
-            </div>
-            <div className="text-2xl font-bold" style={{ color: c.color }}>
-              {c.value}
-            </div>
-          </div>
-        );
-      })}
-    </div>
-  );
-}
-
-// ============================================================
-// Top Priorities
-// ============================================================
-function TopPriorities({ priorities }: { priorities: string[] }) {
-  if (!priorities || !priorities.length) return null;
-  return (
-    <div
-      className="rounded-lg p-4"
-      style={{ background: '#ffffff', border: '1px solid rgba(200,140,0,0.1)' }}
-    >
-      <h3 className="text-sm font-semibold mb-3 flex items-center gap-2" style={{ color: '#c88c00' }}>
-        <Zap size={14} />
-        Agent Top Priorities
-      </h3>
-      <div className="space-y-2">
-        {priorities.map((p, i) => (
-          <div key={i} className="flex gap-3 text-sm">
-            <span
-              className="flex-shrink-0 w-5 h-5 rounded-full flex items-center justify-center text-xs font-bold"
-              style={{ background: 'rgba(201,168,76,0.2)', color: '#c88c00' }}
-            >
-              {i + 1}
-            </span>
-            <span style={{ color: '#d4ccc4' }}>{p}</span>
-          </div>
-        ))}
-      </div>
-    </div>
-  );
-}
-
-// ============================================================
-// Project Card
-// ============================================================
-function EmailDraftSection({
-  title,
-  icon: Icon,
-  iconColor,
-  email,
-  onCopy,
-}: {
-  title: string;
-  icon: any;
-  iconColor: string;
-  email: { subject: string; body: string };
-  onCopy: () => void;
-}) {
-  const [showBody, setShowBody] = useState(false);
-
-  return (
-    <div
-      className="rounded-md p-2.5"
-      style={{
-        background: 'rgba(26,26,26,0.8)',
-        border: `1px solid ${iconColor}20`,
-      }}
-    >
-      <div className="flex items-center justify-between mb-1.5">
-        <div className="flex items-center gap-1.5">
-          <Icon size={12} style={{ color: iconColor }} />
-          <span className="text-[10px] font-semibold uppercase" style={{ color: iconColor }}>
-            {title}
-          </span>
+            <ArrowLeft size={12} /> Back to dashboard
+          </Link>
+          <h1 className="text-2xl font-bold" style={{ color: '#c88c00', fontFamily: 'Georgia, serif' }}>
+            Pre-Construction
+          </h1>
+          <p className="text-sm mt-1" style={{ color: '#8a8078' }}>
+            Selections tracker — every active job's pending design, internal, and order-ready selections.
+          </p>
         </div>
-        <button
-          onClick={(e) => {
-            e.stopPropagation();
-            onCopy();
-          }}
-          className="flex items-center gap-1 text-[10px] px-2 py-1 rounded font-medium hover:opacity-80 transition-opacity"
-          style={{
-            background: `${iconColor}15`,
-            color: iconColor,
-            border: `1px solid ${iconColor}30`,
-          }}
-        >
-          <Copy size={10} />
-          Copy Email
-        </button>
+        <div className="flex items-center gap-3">
+          {cachedAtLabel && (
+            <span className="text-xs hidden sm:inline" style={{ color: '#8a8078' }}>
+              Data as of {cachedAtLabel}
+            </span>
+          )}
+          <button
+            onClick={() => load(true)}
+            disabled={loading || refreshing}
+            className="flex items-center gap-2 px-3 py-1.5 rounded-lg text-sm disabled:opacity-50"
+            style={{ border: '1px solid rgba(200,140,0,0.15)', color: '#8a8078' }}
+            title="Pull a fresh snapshot from JobTread"
+          >
+            <RefreshCw size={14} className={refreshing ? 'animate-spin' : ''} />
+            {refreshing ? 'Refreshing…' : 'Refresh'}
+          </button>
+        </div>
       </div>
-      <div className="text-xs mb-1" style={{ color: '#d4ccc4' }}>
-        <span style={{ color: '#8a8078' }}>Subject: </span>
-        {email.subject}
-      </div>
-      <button
-        onClick={(e) => {
-          e.stopPropagation();
-          setShowBody(!showBody);
-        }}
-        className="text-[10px] hover:opacity-80 transition-opacity"
-        style={{ color: '#8a8078' }}
-      >
-        {showBody ? '▾ Hide body' : '▸ Show body'}
-      </button>
-      {showBody && (
-        <div
-          className="mt-1.5 p-2 rounded text-xs whitespace-pre-wrap leading-relaxed"
-          style={{
-            background: 'rgba(0,0,0,0.3)',
-            color: '#d4ccc4',
-            border: '1px solid rgba(200,140,0,0.06)',
-          }}
-        >
-          {email.body}
+
+      {/* Initial load + error */}
+      {loading && (
+        <div className="flex items-center justify-center py-20 gap-3" style={{ color: '#8a8078' }}>
+          <Loader2 size={24} className="animate-spin" />
+          <span>Loading selections across all active jobs…</span>
         </div>
       )}
-    </div>
-  );
-}
-
-function ProjectCard({
-  project,
-  onDismissRec,
-  onCompleteRec,
-  onCopyEmail,
-}: {
-  project: AgentProject;
-  onDismissRec: (jobId: string, rec: AgentRecommendation) => void;
-  onCompleteRec: (jobId: string, rec: AgentRecommendation) => void;
-  onCopyEmail: (subject: string, body: string) => void;
-}) {
-  const [expanded, setExpanded] = useState(false);
-  const config = STATUS_CONFIG[project.status] || STATUS_CONFIG.stalled;
-  const StatusIcon = config.icon;
-  const contactDanger = project.daysSinceContact !== null && project.daysSinceContact > 14;
-
-  return (
-    <div
-      className="rounded-lg overflow-hidden"
-      style={{ background: '#ffffff', border: `1px solid ${config.color}30` }}
-    >
-      <button
-        onClick={() => setExpanded(!expanded)}
-        className="w-full text-left px-4 py-3 flex items-start gap-3 hover:bg-[#222] transition-colors"
-      >
-        <div className="flex-shrink-0 mt-0.5">
-          {expanded ? (
-            <ChevronDown size={16} style={{ color: '#8a8078' }} />
-          ) : (
-            <ChevronRight size={16} style={{ color: '#8a8078' }} />
-          )}
-        </div>
-
-        <div className="flex-1 min-w-0">
-          <div className="flex items-center gap-2 flex-wrap">
-            <Link
-              href={`/dashboard/precon/${project.jobId}`}
-              className="font-semibold hover:underline"
-              style={{ color: '#1a1a1a' }}
-              onClick={(e) => e.stopPropagation()}
-            >
-              {project.jobName}
-            </Link>
-            <span
-              className="text-xs px-2 py-0.5 rounded-full font-medium flex items-center gap-1"
-              style={{ background: config.bg, color: config.color }}
-            >
-              <StatusIcon size={10} />
-              {config.label}
-            </span>
-          </div>
-          <div className="flex items-center gap-4 mt-1 text-xs" style={{ color: '#8a8078' }}>
-            <span>#{project.jobNumber} · {project.clientName}</span>
-            {project.currentPhase && <span>Phase: {project.currentPhase}</span>}
-          </div>
-          <div className="flex items-center gap-4 mt-2 text-xs">
-            <span className="flex items-center gap-1" style={{ color: contactDanger ? '#ef4444' : '#8a8078' }}>
-              <MessageSquare size={11} />
-              {project.daysSinceContact !== null ? `${project.daysSinceContact}d ago` : 'No record'}
-            </span>
-            <span className="flex items-center gap-1" style={{ color: '#8a8078' }}>
-              <CalendarDays size={11} />
-              {project.nextMeeting || 'None scheduled'}
-            </span>
-            <span className="flex items-center gap-1" style={{ color: '#c88c00' }}>
-              <Users size={11} />
-              {project.nextStepAssignee}
-            </span>
-          </div>
-        </div>
-
-        <div className="flex-shrink-0 text-center">
-          <div
-            className="w-10 h-10 rounded-full flex items-center justify-center text-xs font-bold"
-            style={{ border: `2px solid ${config.color}`, color: config.color }}
-          >
-            {Math.round(project.totalProgress * (project.totalProgress <= 1 ? 100 : 1))}%
-          </div>
-        </div>
-      </button>
-
-      <div
-        className="px-4 py-2 text-sm flex items-start gap-2"
-        style={{
-          background: 'rgba(201,168,76,0.06)',
-          borderTop: '1px solid rgba(200,140,0,0.08)',
-        }}
-      >
-        <span className="text-xs font-semibold flex-shrink-0 mt-0.5" style={{ color: '#c88c00' }}>
-          NEXT →
-        </span>
-        <span style={{ color: '#d4ccc4' }}>{project.nextStep}</span>
-      </div>
-
-      {expanded && (
-        <div className="px-4 py-3 space-y-3" style={{ borderTop: '1px solid rgba(200,140,0,0.08)' }}>
-          {project.alerts.length > 0 && (
-            <div>
-              <h4 className="text-xs font-semibold mb-1.5" style={{ color: '#ef4444' }}>
-                Alerts ({project.alerts.length})
-              </h4>
-              <div className="space-y-1">
-                {project.alerts.map((a, i) => (
-                  <div key={i} className="text-xs flex items-start gap-1.5" style={{ color: '#d4ccc4' }}>
-                    <AlertTriangle size={10} className="flex-shrink-0 mt-0.5" style={{ color: '#ef4444' }} />
-                    {a}
-                  </div>
-                ))}
-              </div>
-            </div>
-          )}
-          {project.recommendations.length > 0 && (
-            <div>
-              <h4 className="text-xs font-semibold mb-1.5" style={{ color: '#c88c00' }}>
-                Agent Recommendations
-              </h4>
-              <div className="space-y-2">
-                {project.recommendations.map((rec, i) => {
-                  const pConfig = PRIORITY_COLORS[rec.priority] || PRIORITY_COLORS.low;
-                  return (
-                    <div
-                      key={i}
-                      className="rounded-md p-2.5"
-                      style={{
-                        background: 'rgba(26,26,26,0.8)',
-                        border: '1px solid rgba(200,140,0,0.08)',
-                      }}
-                    >
-                      <div className="flex items-center gap-2 mb-1">
-                        <span
-                          className="text-[10px] px-1.5 py-0.5 rounded font-medium uppercase"
-                          style={{ background: pConfig.bg, color: pConfig.color }}
-                        >
-                          {rec.priority}
-                        </span>
-                        <span className="text-xs font-semibold" style={{ color: '#1a1a1a' }}>
-                          {rec.action}
-                        </span>
-                        <span
-                          className="text-[10px] px-1.5 py-0.5 rounded ml-auto"
-                          style={{ background: 'rgba(201,168,76,0.1)', color: '#c88c00' }}
-                        >
-                          {rec.actionType}
-                        </span>
-                      </div>
-                      <p className="text-xs" style={{ color: '#8a8078' }}>
-                        {rec.description}
-                      </p>
-                      {/* Ignore / Done buttons */}
-                      <div className="flex items-center gap-2 mt-2 pt-1.5" style={{ borderTop: '1px solid rgba(200,140,0,0.06)' }}>
-                        <button
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            onCompleteRec(project.jobId, rec);
-                          }}
-                          className="flex items-center gap-1 text-[10px] px-2 py-1 rounded font-medium hover:opacity-80 transition-opacity"
-                          style={{
-                            background: 'rgba(34,197,94,0.1)',
-                            color: '#22c55e',
-                            border: '1px solid rgba(34,197,94,0.2)',
-                          }}
-                          title="Mark as done — agent will remember this was completed"
-                        >
-                          <Check size={10} />
-                          Done
-                        </button>
-                        <button
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            onDismissRec(project.jobId, rec);
-                          }}
-                          className="flex items-center gap-1 text-[10px] px-2 py-1 rounded font-medium hover:opacity-80 transition-opacity"
-                          style={{
-                            background: 'rgba(138,128,120,0.1)',
-                            color: '#8a8078',
-                            border: '1px solid rgba(138,128,120,0.2)',
-                          }}
-                          title="Ignore — hide this recommendation"
-                        >
-                          <EyeOff size={10} />
-                          Ignore
-                        </button>
-                      </div>
-                    </div>
-                  );
-                })}
-              </div>
-            </div>
-          )}
-
-          {/* Stale Outreach Email */}
-          {project.suggestedEmail && (
-            <EmailDraftSection
-              title="Suggested Outreach Email"
-              icon={Mail}
-              iconColor="#eab308"
-              email={project.suggestedEmail}
-              onCopy={() =>
-                onCopyEmail(project.suggestedEmail!.subject, project.suggestedEmail!.body)
-              }
-            />
-          )}
-
-          {/* Weekly Update Email */}
-          {project.weeklyUpdateEmail && (
-            <EmailDraftSection
-              title="Weekly Client Update"
-              icon={FileText}
-              iconColor="#c88c00"
-              email={project.weeklyUpdateEmail}
-              onCopy={() =>
-                onCopyEmail(project.weeklyUpdateEmail!.subject, project.weeklyUpdateEmail!.body)
-              }
-            />
-          )}
+      {error && !loading && (
+        <div className="rounded-xl p-4 text-sm" style={{ background: 'rgba(239,68,68,0.08)', color: '#b91c1c', border: '1px solid rgba(239,68,68,0.2)' }}>
+          {error}
         </div>
       )}
-    </div>
-  );
-}
 
-// ============================================================
-// Schedule Compliance Panel
-// ============================================================
-function ScheduleCompliancePanel({
-  report,
-  loading,
-  onRefresh,
-  onFixJob,
-  showToast,
-}: {
-  report: any;
-  loading: boolean;
-  onRefresh: () => void;
-  onFixJob: (jobId: string) => void;
-  showToast: (msg: string) => void;
-}) {
-  const [expanded, setExpanded] = useState(true);
-
-  if (loading) {
-    return (
-      <div
-        className="rounded-lg p-4 flex items-center gap-3"
-        style={{ background: '#ffffff', border: '1px solid rgba(200,140,0,0.1)' }}
-      >
-        <Loader2 size={16} className="animate-spin" style={{ color: '#c88c00' }} />
-        <span className="text-sm" style={{ color: '#8a8078' }}>Loading schedule compliance...</span>
-      </div>
-    );
-  }
-
-  if (!report) return null;
-
-  const nonCompliantJobs = report.jobs || [];
-  const compliantCount = report.compliantJobs || 0;
-  const totalScanned = report.totalJobs || 0;
-  const allCompliant = nonCompliantJobs.length === 0;
-
-  return (
-    <div
-      className="rounded-lg overflow-hidden"
-      style={{ background: '#ffffff', border: '1px solid rgba(200,140,0,0.1)' }}
-    >
-      <button
-        onClick={() => setExpanded(!expanded)}
-        className="w-full text-left px-4 py-3 flex items-center justify-between hover:bg-[#222] transition-colors"
-      >
-        <div className="flex items-center gap-2">
-          {expanded ? (
-            <ChevronDown size={16} style={{ color: '#8a8078' }} />
-          ) : (
-            <ChevronRight size={16} style={{ color: '#8a8078' }} />
-          )}
-          <Shield size={14} style={{ color: '#c88c00' }} />
-          <h3 className="text-sm font-semibold" style={{ color: '#c88c00' }}>
-            Schedule Compliance
-          </h3>
-          {allCompliant && (
-            <span className="text-xs px-2 py-0.5 rounded-full" style={{ background: 'rgba(34,197,94,0.15)', color: '#22c55e' }}>
-              All Compliant
-            </span>
-          )}
-        </div>
-      </button>
-
-      {expanded && (
-        <div className="px-4 py-3 space-y-3" style={{ borderTop: '1px solid rgba(200,140,0,0.08)' }}>
-          {/* Summary stats */}
-          <div className="grid grid-cols-3 gap-2">
-            <div
-              className="rounded p-2 text-center"
-              style={{ background: 'rgba(26,26,26,0.6)', border: '1px solid rgba(200,140,0,0.1)' }}
-            >
-              <div className="text-xs" style={{ color: '#8a8078' }}>Scanned</div>
-              <div className="text-lg font-bold" style={{ color: '#c88c00' }}>
-                {totalScanned}
+      {!loading && !error && (
+        <>
+          {/* Portfolio KPI strip */}
+          {totals && (
+            <div className="grid grid-cols-2 md:grid-cols-5 gap-3">
+              <div className="rounded-lg p-3" style={{ background: '#ffffff', border: '1px solid rgba(200,140,0,0.10)' }}>
+                <div className="flex items-center gap-1.5 text-xs" style={{ color: '#8a8078' }}>
+                  <Users size={12} /> Active jobs
+                </div>
+                <p className="text-2xl font-bold" style={{ color: '#1a1a1a' }}>{totals.jobCount}</p>
+                <p className="text-xs" style={{ color: '#8a8078' }}>with tagged selections</p>
               </div>
-            </div>
-            <div
-              className="rounded p-2 text-center"
-              style={{ background: 'rgba(26,26,26,0.6)', border: '1px solid rgba(34,197,94,0.15)' }}
-            >
-              <div className="text-xs" style={{ color: '#8a8078' }}>Compliant</div>
-              <div className="text-lg font-bold" style={{ color: '#22c55e' }}>
-                {compliantCount}
-              </div>
-            </div>
-            <div
-              className="rounded p-2 text-center"
-              style={{ background: 'rgba(26,26,26,0.6)', border: '1px solid rgba(239,68,68,0.15)' }}
-            >
-              <div className="text-xs" style={{ color: '#8a8078' }}>Non-Compliant</div>
-              <div className="text-lg font-bold" style={{ color: '#ef4444' }}>
-                {nonCompliantJobs.length}
-              </div>
-            </div>
-          </div>
-
-          {/* Compliant message */}
-          {allCompliant && (
-            <div
-              className="p-3 rounded text-center"
-              style={{ background: 'rgba(34,197,94,0.1)', border: '1px solid rgba(34,197,94,0.2)' }}
-            >
-              <p className="text-sm" style={{ color: '#22c55e' }}>
-                ✓ All projects have compliant schedules
-              </p>
-            </div>
-          )}
-
-          {/* Non-compliant jobs list */}
-          {nonCompliantJobs.length > 0 && (
-            <div className="space-y-2">
-              {nonCompliantJobs.map((job: any) => (
+              {STATUS_CONFIG.map((s) => (
                 <div
-                  key={job.jobId}
-                  className="p-2.5 rounded"
-                  style={{ background: 'rgba(26,26,26,0.6)', border: '1px solid rgba(239,68,68,0.1)' }}
+                  key={s.key}
+                  className="rounded-lg p-3"
+                  style={{ background: s.bg, border: `1px solid ${s.border}` }}
                 >
-                  <div className="flex items-start justify-between gap-2 mb-1.5">
-                    <div className="flex-1">
-                      <p className="text-sm font-medium" style={{ color: '#d4ccc4' }}>
-                        {job.jobName}
-                      </p>
-                      <p className="text-xs" style={{ color: '#8a8078' }}>
-                        {job.jobNumber} · {job.clientName}
-                      </p>
-                    </div>
-                    <button
-                      onClick={() => onFixJob(job.jobId)}
-                      className="flex items-center gap-1 text-[10px] px-2 py-1 rounded font-medium hover:opacity-80 transition-opacity flex-shrink-0"
-                      style={{
-                        background: 'rgba(251,146,60,0.15)',
-                        color: '#fb923c',
-                        border: '1px solid rgba(251,146,60,0.3)',
-                      }}
-                    >
-                      <Wrench size={10} />
-                      Fix
-                    </button>
-                  </div>
-                  <div className="text-xs space-y-1" style={{ color: '#8a8078' }}>
-                    {job.missingPhases?.length > 0 && (
-                      <div>
-                        <span style={{ color: '#ef4444' }}>Missing Phases ({job.missingPhases.length}): </span>
-                        {job.missingPhases.map((p: any) => p.name).join(', ')}
-                      </div>
-                    )}
-                    {job.orphanTasks?.length > 0 && (
-                      <div>
-                        <span style={{ color: '#ef4444' }}>Orphan Tasks: </span>
-                        {job.orphanTasks.length}
-                      </div>
-                    )}
-                    {job.misplacedTasks?.length > 0 && (
-                      <div>
-                        <span style={{ color: '#ef4444' }}>Misplaced Tasks: </span>
-                        {job.misplacedTasks.length}
-                      </div>
-                    )}
-                  </div>
+                  <div className="text-xs font-medium" style={{ color: s.color }}>{s.shortLabel}</div>
+                  <p className="text-2xl font-bold" style={{ color: s.color }}>
+                    {totals[s.key]}
+                  </p>
+                  <p className="text-[11px] truncate" style={{ color: '#8a8078' }}>{s.label}</p>
                 </div>
               ))}
             </div>
           )}
 
-          {/* Re-scan button */}
-          <button
-            onClick={onRefresh}
-            className="w-full flex items-center justify-center gap-2 px-3 py-2 rounded text-xs font-medium hover:opacity-80 transition-opacity"
-            style={{
-              background: 'rgba(201,168,76,0.1)',
-              color: '#c88c00',
-              border: '1px solid rgba(201,168,76,0.2)',
-            }}
+          {/* Toolbar */}
+          <div className="rounded-xl p-3 flex items-center gap-3 flex-wrap" style={{ background: '#ffffff', border: '1px solid rgba(200,140,0,0.12)' }}>
+            <div className="relative flex-1 min-w-[240px]">
+              <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 pointer-events-none" style={{ color: '#8a8078' }} />
+              <input
+                type="text"
+                value={search}
+                onChange={(e) => setSearch(e.target.value)}
+                placeholder="Search by client name, job name, or job number…"
+                className="w-full pl-9 pr-3 py-2 rounded-lg text-sm"
+                style={{ background: '#fdfcfa', border: '1px solid rgba(200,140,0,0.15)', color: '#1a1a1a' }}
+              />
+            </div>
+            <select
+              value={stageFilter}
+              onChange={(e) => setStageFilter(e.target.value)}
+              className="rounded-lg px-3 py-2 text-sm"
+              style={{ background: '#fdfcfa', border: '1px solid rgba(200,140,0,0.15)', color: '#1a1a1a' }}
+            >
+              <option value="all">All stages</option>
+              <option value="IN_DESIGN">In Design</option>
+              <option value="READY">Ready</option>
+              <option value="IN_PRODUCTION">In Production</option>
+            </select>
+            <label className="flex items-center gap-2 text-xs cursor-pointer" style={{ color: '#3d3a36' }}>
+              <input
+                type="checkbox"
+                checked={hideFinalized}
+                onChange={(e) => setHideFinalized(e.target.checked)}
+              />
+              Hide jobs with only finalized selections
+            </label>
+            <div className="ml-auto flex items-center gap-2">
+              <button
+                onClick={expandAll}
+                className="text-xs px-2 py-1 rounded hover:bg-stone-50"
+                style={{ border: '1px solid rgba(200,140,0,0.15)', color: '#8a8078' }}
+                disabled={filteredJobs.length === 0}
+              >
+                Expand all
+              </button>
+              <button
+                onClick={collapseAll}
+                className="text-xs px-2 py-1 rounded hover:bg-stone-50"
+                style={{ border: '1px solid rgba(200,140,0,0.15)', color: '#8a8078' }}
+                disabled={expandedJobs.size === 0}
+              >
+                Collapse all
+              </button>
+            </div>
+          </div>
+
+          {/* Job cards */}
+          {filteredJobs.length === 0 ? (
+            <div
+              className="rounded-xl p-8 text-center text-sm"
+              style={{ background: '#fdfcfa', border: '1px solid rgba(200,140,0,0.12)', color: '#8a8078' }}
+            >
+              {jobs.length === 0
+                ? 'No active jobs have any Status-tagged selections yet.'
+                : 'No jobs match the current filters.'}
+            </div>
+          ) : (
+            <div className="space-y-2">
+              {filteredJobs.map((job) => (
+                <JobCard
+                  key={job.jobId}
+                  job={job}
+                  expanded={expandedJobs.has(job.jobId)}
+                  onToggle={() => toggleJob(job.jobId)}
+                />
+              ))}
+            </div>
+          )}
+        </>
+      )}
+    </div>
+  );
+}
+
+// ============================================================
+// Job card (collapsible)
+// ============================================================
+
+function JobCard({
+  job,
+  expanded,
+  onToggle,
+}: {
+  job: JobBlock;
+  expanded: boolean;
+  onToggle: () => void;
+}) {
+  const stageLabel = STAGE_LABEL[job.statusCategory || ''] || job.customStatus || '';
+  const stageBg = STAGE_BG[job.statusCategory || ''] || 'rgba(200,140,0,0.10)';
+  const stageColor = STAGE_COLOR[job.statusCategory || ''] || '#c88c00';
+
+  // Group line items by status, preserving the priority order. Items
+  // sort alphabetically by name within each status block.
+  const itemsByStatus = useMemo(() => {
+    const buckets: Record<string, SelectionItem[]> = {};
+    for (const s of STATUS_CONFIG) buckets[s.jtValue] = [];
+    for (const item of job.items) {
+      if (buckets[item.status]) buckets[item.status].push(item);
+    }
+    for (const k of Object.keys(buckets)) {
+      buckets[k].sort((a, b) => (a.name || '').localeCompare(b.name || ''));
+    }
+    return buckets;
+  }, [job]);
+
+  return (
+    <div
+      className="rounded-xl"
+      style={{
+        background: '#ffffff',
+        border: '1px solid rgba(200,140,0,0.15)',
+      }}
+    >
+      {/* Header row - always visible */}
+      <button
+        type="button"
+        onClick={onToggle}
+        className="w-full flex items-center gap-3 px-4 py-3 text-left hover:bg-stone-50 rounded-xl"
+      >
+        {expanded ? (
+          <ChevronDown size={16} style={{ color: '#8a8078' }} />
+        ) : (
+          <ChevronRight size={16} style={{ color: '#8a8078' }} />
+        )}
+
+        <span
+          className="text-[10px] font-mono px-1.5 py-0.5 rounded shrink-0"
+          style={{ background: '#222', color: '#f0c060', fontWeight: 600 }}
+        >
+          #{job.jobNumber || '—'}
+        </span>
+
+        <div className="flex-1 min-w-0">
+          <div className="text-sm font-semibold truncate" style={{ color: '#1a1a1a' }}>
+            {job.clientName || 'No client'}
+          </div>
+          <div className="text-[11px] truncate" style={{ color: '#8a8078' }}>
+            {job.jobName}
+          </div>
+        </div>
+
+        {stageLabel && (
+          <span
+            className="text-[10px] font-medium px-2 py-0.5 rounded shrink-0"
+            style={{ background: stageBg, color: stageColor }}
           >
-            <RefreshCw size={12} />
-            Re-scan
-          </button>
+            {stageLabel}
+          </span>
+        )}
+
+        {/* Inline counters - one chip per status that has items */}
+        <div className="hidden md:flex items-center gap-1.5 shrink-0">
+          {STATUS_CONFIG.map((s) => {
+            const count = job.counts[s.key];
+            if (count === 0) return null;
+            return (
+              <span
+                key={s.key}
+                className="text-[10px] font-semibold px-1.5 py-0.5 rounded"
+                style={{ background: s.bg, color: s.color, border: `1px solid ${s.border}` }}
+                title={`${count} ${s.label.toLowerCase()}`}
+              >
+                {count} {s.shortLabel}
+              </span>
+            );
+          })}
+        </div>
+
+        {job.actionableCount > 0 ? (
+          <span
+            className="text-xs font-semibold shrink-0 hidden sm:inline-flex items-center gap-1"
+            style={{ color: '#b91c1c' }}
+          >
+            <AlertCircle size={12} />
+            {job.actionableCount} to finalize
+          </span>
+        ) : (
+          <span
+            className="text-xs shrink-0 hidden sm:inline-flex items-center gap-1"
+            style={{ color: '#15803d' }}
+          >
+            <CheckCircle2 size={12} />
+            All ordered
+          </span>
+        )}
+      </button>
+
+      {/* Expanded body */}
+      {expanded && (
+        <div className="px-4 pb-4 pt-1 space-y-3 border-t" style={{ borderColor: 'rgba(200,140,0,0.10)' }}>
+          {STATUS_CONFIG.map((s) => {
+            const items = itemsByStatus[s.jtValue] || [];
+            if (items.length === 0) return null;
+            return (
+              <div
+                key={s.key}
+                className="rounded-lg"
+                style={{
+                  background: s.bg,
+                  border: `1px solid ${s.border}`,
+                  opacity: s.actionable ? 1 : 0.75,
+                }}
+              >
+                <div
+                  className="px-3 py-1.5 flex items-center gap-2 text-xs font-semibold"
+                  style={{ color: s.color, borderBottom: `1px solid ${s.border}` }}
+                >
+                  <ClipboardList size={12} />
+                  {s.label}
+                  <span className="ml-auto text-[10px] font-normal" style={{ color: s.color }}>
+                    {items.length}
+                  </span>
+                </div>
+                <div className="divide-y" style={{ borderColor: s.border }}>
+                  {items.map((it) => (
+                    <SelectionRow
+                      key={it.id}
+                      item={it}
+                      jobId={job.jobId}
+                    />
+                  ))}
+                </div>
+              </div>
+            );
+          })}
+          <div className="text-[10px] flex items-center justify-end" style={{ color: '#8a8078' }}>
+            <a
+              href={`https://app.jobtread.com/jobs/${job.jobId}/budget`}
+              target="_blank"
+              rel="noreferrer"
+              className="inline-flex items-center gap-1 hover:underline"
+              style={{ color: '#c88c00' }}
+            >
+              Open job budget in JobTread <ExternalLink size={10} />
+            </a>
+          </div>
         </div>
       )}
     </div>
@@ -667,484 +581,49 @@ function ScheduleCompliancePanel({
 }
 
 // ============================================================
-// Main Page
+// Single selection row inside a status block
 // ============================================================
-export default function PreConDashboard() {
-  const [report, setReport] = useState<AgentReport | null>(null);
-  const [loading, setLoading] = useState(true);
-  const [refreshing, setRefreshing] = useState(false);
-  const [error, setError] = useState('');
-  const [inDesignOpen, setInDesignOpen] = useState(true);
-  const [readyOpen, setReadyOpen] = useState(true);
-  const [toast, setToast] = useState<string | null>(null);
-  const [searchQuery, setSearchQuery] = useState('');
-  const [bulkRunning, setBulkRunning] = useState(false);
-  const [complianceReport, setComplianceReport] = useState<any>(null);
-  const [complianceLoading, setComplianceLoading] = useState(true);
 
-  // Load cached report on mount (instant)
-  async function loadCachedReport() {
-    try {
-      const res = await fetch('/api/agent/design-manager?cached=true');
-      const json = await res.json();
-      if (json.error) throw new Error(json.error);
-      setReport(json);
-      setError('');
-    } catch (err: any) {
-      setError(err.message);
-    }
-  }
-
-  // Run fresh agent analysis (slow — triggers Claude API)
-  async function runFreshAnalysis() {
-    try {
-      const res = await fetch('/api/agent/design-manager');
-      const json = await res.json();
-      if (json.error) throw new Error(json.error);
-      setReport(json);
-      setError('');
-    } catch (err: any) {
-      setError(err.message);
-    }
-  }
-
-  useEffect(() => {
-    loadCachedReport().finally(() => setLoading(false));
-    loadComplianceReport();
-  }, []);
-
-  async function handleRefresh() {
-    setRefreshing(true);
-    await runFreshAnalysis();
-    setRefreshing(false);
-  }
-
-  // Show a toast message briefly
-  function showToast(msg: string) {
-    setToast(msg);
-    setTimeout(() => setToast(null), 3000);
-  }
-
-  // Dismiss (Ignore) a recommendation
-  async function handleDismissRec(jobId: string, rec: AgentRecommendation) {
-    try {
-      const res = await fetch('/api/agent/design-manager', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          action: 'dismissRecommendation',
-          jobId,
-          recAction: rec.action,
-          recActionType: rec.actionType,
-          recDescription: rec.description,
-        }),
-      });
-      const json = await res.json();
-      if (json.success) {
-        // Remove the recommendation from local state immediately
-        setReport((prev) => {
-          if (!prev) return prev;
-          return {
-            ...prev,
-            projects: prev.projects.map((p) =>
-              p.jobId === jobId
-                ? {
-                    ...p,
-                    recommendations: p.recommendations.filter(
-                      (r) => !(r.action === rec.action && r.actionType === rec.actionType)
-                    ),
-                  }
-                : p
-            ),
-          };
-        });
-        showToast(`Ignored: "${rec.action}"`);
-      } else {
-        showToast(`Failed to ignore: ${json.message || json.error}`);
-      }
-    } catch (err: any) {
-      showToast(`Error: ${err.message}`);
-    }
-  }
-
-  // Complete (Done) a recommendation
-  async function handleCompleteRec(jobId: string, rec: AgentRecommendation) {
-    try {
-      const res = await fetch('/api/agent/design-manager', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          action: 'completeRecommendation',
-          jobId,
-          recAction: rec.action,
-          recActionType: rec.actionType,
-          recDescription: rec.description,
-        }),
-      });
-      const json = await res.json();
-      if (json.success) {
-        // Remove the recommendation from local state immediately
-        setReport((prev) => {
-          if (!prev) return prev;
-          return {
-            ...prev,
-            projects: prev.projects.map((p) =>
-              p.jobId === jobId
-                ? {
-                    ...p,
-                    recommendations: p.recommendations.filter(
-                      (r) => !(r.action === rec.action && r.actionType === rec.actionType)
-                    ),
-                  }
-                : p
-            ),
-          };
-        });
-        showToast(`Completed: "${rec.action}"`);
-      } else {
-        showToast(`Failed to complete: ${json.message || json.error}`);
-      }
-    } catch (err: any) {
-      showToast(`Error: ${err.message}`);
-    }
-  }
-
-  // Copy email to clipboard
-  function handleCopyEmail(subject: string, body: string) {
-    const text = `Subject: ${subject}\n\n${body}`;
-    navigator.clipboard.writeText(text).then(() => {
-      showToast('Email copied to clipboard');
-    }).catch(() => {
-      showToast('Failed to copy email');
-    });
-  }
-
-  // Load compliance report
-  async function loadComplianceReport() {
-    try {
-      const res = await fetch('/api/dashboard/schedule-compliance');
-      const json = await res.json();
-      if (!json.error) setComplianceReport(json);
-    } catch {}
-    setComplianceLoading(false);
-  }
-
-  // Handle bulk standardize
-  async function handleBulkStandardize() {
-    setBulkRunning(true);
-    try {
-      const res = await fetch('/api/dashboard/schedule-compliance', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ action: 'bulkStandardize' }),
-      });
-      const json = await res.json();
-      if (json.totals) {
-        const t = json.totals;
-        showToast(`Standardized ${json.totalJobs} jobs: ${t.phasesCreated} phases created, ${t.orphansMoved + t.misplacedMoved} tasks moved`);
-      }
-      // Refresh compliance report after bulk standardize
-      loadComplianceReport();
-    } catch (err: any) {
-      showToast(`Bulk standardize failed: ${err.message}`);
-    }
-    setBulkRunning(false);
-  }
-
-  // Handle fix single job
-  async function handleFixJob(jobId: string) {
-    try {
-      const res = await fetch('/api/dashboard/schedule-compliance', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ action: 'autoFix', jobId }),
-      });
-      const json = await res.json();
-      if (json.totals) {
-        const t = json.totals;
-        const jobName = json.jobResults?.[0]?.jobName || 'Job';
-        showToast(`Fixed ${jobName}: ${t.phasesCreated} phases created, ${t.orphansMoved + t.misplacedMoved} tasks moved`);
-        loadComplianceReport();
-      } else {
-        showToast(`Fix failed: ${json.error || 'Unknown error'}`);
-      }
-    } catch (err: any) {
-      showToast(`Error fixing job: ${err.message}`);
-    }
-  }
-
-  // Filter projects by search query (matches job name, job number, or client name)
-  const normalizedQuery = searchQuery.trim().toLowerCase();
-
-  function matchesSearch(project: AgentProject): boolean {
-    if (!normalizedQuery) return true;
-    return (
-      project.jobName.toLowerCase().includes(normalizedQuery) ||
-      project.jobNumber.toLowerCase().includes(normalizedQuery) ||
-      project.clientName.toLowerCase().includes(normalizedQuery)
-    );
-  }
-
-  // Group projects by category (In-Design vs Ready), filtered by search
-  const allInDesign = report?.projects?.filter(p => p.category !== 'Ready') || [];
-  const allReady = report?.projects?.filter(p => p.category === 'Ready') || [];
-  const inDesignProjects = allInDesign.filter(matchesSearch);
-  const readyProjects = allReady.filter(matchesSearch);
-  const totalMatches = inDesignProjects.length + readyProjects.length;
-  const totalProjects = allInDesign.length + allReady.length;
-
+function SelectionRow({ item, jobId }: { item: SelectionItem; jobId: string }) {
+  const groupLabel = item.parentGroupName
+    ? `${item.parentGroupName} › ${item.costGroupName}`
+    : item.costGroupName;
   return (
-    <div className="space-y-4">
-      <div className="flex items-start justify-between flex-wrap gap-3">
-        <div>
-          <h1
-            className="text-2xl font-bold"
-            style={{ fontFamily: 'Georgia, serif', color: '#c88c00' }}
-          >
-            Design Manager Agent
-          </h1>
-          <p className="text-sm mt-1" style={{ color: '#8a8078' }}>
-            AI-powered oversight of all design-phase projects
-            {report && (
-              <span>
-                {' '}· Last run: {formatTimestamp(report.generatedAt)}
-                {report._fromCache && (
-                  <span style={{ color: '#c88c00' }}> (cached)</span>
-                )}
-              </span>
-            )}
-          </p>
+    <div className="px-3 py-2 flex items-start gap-3 text-xs" style={{ background: '#ffffff' }}>
+      {item.costCodeNumber && (
+        <span
+          className="font-mono shrink-0 mt-0.5"
+          style={{ color: '#8a8078' }}
+          title={item.costCodeName}
+        >
+          {item.costCodeNumber}
+        </span>
+      )}
+      <div className="flex-1 min-w-0">
+        <div className="font-medium truncate" style={{ color: '#1a1a1a' }}>
+          {item.name || '(unnamed)'}
         </div>
-
-        <div className="flex items-center gap-2 shrink-0">
-          <Link
-            href="/dashboard/precon/setup"
-            className="flex items-center gap-2 px-3 py-2 rounded-lg text-xs font-medium hover:opacity-90 transition-opacity"
-            style={{
-              background: 'rgba(201,168,76,0.08)',
-              color: '#c88c00',
-              border: '1px solid rgba(201,168,76,0.2)',
-            }}
-          >
-            <Wrench size={14} />
-            Standardize Schedule
-          </Link>
-          <button
-            onClick={handleBulkStandardize}
-            disabled={bulkRunning}
-            className="flex items-center gap-2 px-3 py-2 rounded-lg text-xs font-medium hover:opacity-90 transition-opacity disabled:opacity-50"
-            style={{
-              background: 'rgba(34,197,94,0.15)',
-              color: '#22c55e',
-              border: '1px solid rgba(34,197,94,0.3)',
-            }}
-          >
-            {bulkRunning ? (
-              <Loader2 size={14} className="animate-spin" />
-            ) : (
-              <Wrench size={14} />
-            )}
-            {bulkRunning ? 'Standardizing...' : 'Standardize All'}
-          </button>
-          <button
-            onClick={handleRefresh}
-            disabled={refreshing}
-            className="flex items-center gap-2 px-3 py-2 rounded-lg text-xs font-medium hover:opacity-90 transition-opacity disabled:opacity-50"
-            style={{
-              background: 'rgba(201,168,76,0.15)',
-              color: '#c88c00',
-              border: '1px solid rgba(201,168,76,0.3)',
-            }}
-          >
-            <RefreshCw size={14} className={refreshing ? 'animate-spin' : ''} />
-            {refreshing ? 'Running Agent...' : 'Run Agent Now'}
-          </button>
-        </div>
+        {groupLabel && (
+          <div className="text-[10px] truncate" style={{ color: '#8a8078' }}>
+            {groupLabel}
+          </div>
+        )}
       </div>
-
-          <OrphanTaskPanel />
-          <ScheduleCompliancePanel
-            report={complianceReport}
-            loading={complianceLoading}
-            onRefresh={loadComplianceReport}
-            onFixJob={handleFixJob}
-            showToast={showToast}
-          />
-      {loading ? (
-        <div className="flex flex-col items-center justify-center py-16 gap-3">
-          <Loader2 size={28} className="animate-spin" style={{ color: '#c88c00' }} />
-          <p className="text-sm" style={{ color: '#8a8078' }}>Loading dashboard...</p>
-        </div>
-      ) : error && !report ? (
-        <div className="p-6 rounded-xl text-center" style={{ background: '#f8f6f3' }}>
-          <p className="text-sm" style={{ color: '#ef4444' }}>Agent error: {error}</p>
-          <p className="text-xs mt-1" style={{ color: '#8a8078' }}>
-            No cached data available. Click &quot;Run Agent Now&quot; to generate a fresh report.
-          </p>
-          <button
-            onClick={handleRefresh}
-            className="text-xs mt-2 underline"
-            style={{ color: '#c88c00' }}
-          >
-            Run Agent Now
-          </button>
-        </div>
-      ) : report ? (
-        <div className="space-y-4">
-          <SummaryCards report={report} />
-
-          <div
-            className="rounded-lg p-4"
-            style={{ background: '#ffffff', border: '1px solid rgba(200,140,0,0.1)' }}
-          >
-            <p className="text-sm leading-relaxed" style={{ color: '#d4ccc4' }}>
-              {report.summary}
-            </p>
-          </div>
-
-          <TopPriorities priorities={report.topPriorities} />
-
-          {/* ── Search Box ── */}
-          <div className="relative">
-            <Search
-              size={15}
-              className="absolute left-3 top-1/2 -translate-y-1/2 pointer-events-none"
-              style={{ color: '#8a8078' }}
-            />
-            <input
-              type="text"
-              value={searchQuery}
-              onChange={(e) => setSearchQuery(e.target.value)}
-              placeholder="Search projects by name, number, or client..."
-              className="w-full rounded-lg pl-9 pr-9 py-2.5 text-sm outline-none placeholder:text-[#5a5550]"
-              style={{
-                background: '#ffffff',
-                border: '1px solid rgba(200,140,0,0.15)',
-                color: '#1a1a1a',
-              }}
-              onFocus={(e) => {
-                e.currentTarget.style.borderColor = 'rgba(201,168,76,0.4)';
-              }}
-              onBlur={(e) => {
-                e.currentTarget.style.borderColor = 'rgba(200,140,0,0.15)';
-              }}
-            />
-            {searchQuery && (
-              <button
-                onClick={() => setSearchQuery('')}
-                className="absolute right-3 top-1/2 -translate-y-1/2 hover:opacity-80"
-                style={{ color: '#8a8078' }}
-                title="Clear search"
-              >
-                <X size={14} />
-              </button>
-            )}
-          </div>
-          {normalizedQuery && (
-            <p className="text-xs" style={{ color: '#8a8078' }}>
-              Showing {totalMatches} of {totalProjects} project{totalProjects !== 1 ? 's' : ''}
-              {totalMatches === 0 && (
-                <span style={{ color: '#ef4444' }}> — no matches found</span>
-              )}
-            </p>
-          )}
-
-          <div className="space-y-6">
-            {/* In-Design Projects */}
-            <div>
-              <button
-                onClick={() => setInDesignOpen(!inDesignOpen)}
-                className="w-full text-left text-sm font-semibold mb-3 flex items-center gap-2 hover:opacity-80 transition-opacity"
-                style={{ color: '#c88c00' }}
-              >
-                {inDesignOpen ? <ChevronDown size={14} /> : <ChevronRight size={14} />}
-                <Clock size={14} />
-                In-Design ({inDesignProjects.length})
-              </button>
-              {inDesignOpen && (
-                <div className="space-y-2">
-                  {inDesignProjects.map((project) => (
-                    <ProjectCard
-                      key={project.jobId}
-                      project={project}
-                      onDismissRec={handleDismissRec}
-                      onCompleteRec={handleCompleteRec}
-                      onCopyEmail={handleCopyEmail}
-                    />
-                  ))}
-                  {inDesignProjects.length === 0 && (
-                    <p className="text-xs py-2" style={{ color: '#8a8078' }}>
-                      {normalizedQuery ? 'No matching projects in design phase' : 'No projects in design phase'}
-                    </p>
-                  )}
-                </div>
-              )}
-            </div>
-
-            {/* Ready Projects */}
-            <div>
-              <button
-                onClick={() => setReadyOpen(!readyOpen)}
-                className="w-full text-left text-sm font-semibold mb-3 flex items-center gap-2 hover:opacity-80 transition-opacity"
-                style={{ color: '#22c55e' }}
-              >
-                {readyOpen ? <ChevronDown size={14} /> : <ChevronRight size={14} />}
-                <CheckCircle2 size={14} />
-                Ready ({readyProjects.length})
-              </button>
-              {readyOpen && (
-                <div className="space-y-2">
-                  {readyProjects.map((project) => (
-                    <ProjectCard
-                      key={project.jobId}
-                      project={project}
-                      onDismissRec={handleDismissRec}
-                      onCompleteRec={handleCompleteRec}
-                      onCopyEmail={handleCopyEmail}
-                    />
-                  ))}
-                  {readyProjects.length === 0 && (
-                    <p className="text-xs py-2" style={{ color: '#8a8078' }}>
-                      {normalizedQuery ? 'No matching projects ready' : 'No projects ready'}
-                    </p>
-                  )}
-                </div>
-              )}
-            </div>
-          </div>
-        </div>
-      ) : null}
-
-      {refreshing && (
-        <div
-          className="fixed bottom-4 right-4 rounded-lg px-4 py-3 flex items-center gap-3 shadow-lg"
-          style={{
-            background: '#ffffff',
-            border: '1px solid rgba(201,168,76,0.3)',
-            zIndex: 50,
-          }}
-        >
-          <Loader2 size={16} className="animate-spin" style={{ color: '#c88c00' }} />
-          <span className="text-sm" style={{ color: '#c88c00' }}>
-            Agent is analyzing projects... this may take 30-60 seconds
-          </span>
-        </div>
+      {item.cost > 0 && (
+        <span className="font-mono shrink-0" style={{ color: '#5a5550' }}>
+          ${Math.round(item.cost).toLocaleString()}
+        </span>
       )}
-
-      {/* Toast notification */}
-      {toast && (
-        <div
-          className="fixed bottom-4 left-1/2 -translate-x-1/2 rounded-lg px-4 py-2.5 shadow-lg flex items-center gap-2 animate-in fade-in slide-in-from-bottom-2"
-          style={{
-            background: '#f0eeeb',
-            border: '1px solid rgba(201,168,76,0.3)',
-            zIndex: 60,
-          }}
-        >
-          <CheckCircle2 size={14} style={{ color: '#22c55e' }} />
-          <span className="text-sm" style={{ color: '#d4ccc4' }}>{toast}</span>
-        </div>
-      )}
+      <a
+        href={`https://app.jobtread.com/jobs/${jobId}/budget`}
+        target="_blank"
+        rel="noreferrer"
+        className="shrink-0 hover:opacity-80"
+        title="Open in JobTread"
+        style={{ color: '#c88c00' }}
+      >
+        <ExternalLink size={12} />
+      </a>
     </div>
   );
 }
