@@ -4,14 +4,10 @@
  *
  * Strip bucks-beautiful-2026* tags from every Loop contact whose
  * raffle_entries row has loop_sync_error LIKE 'mailbox_invalid:%'.
- *
- * SAFETY: This endpoint is idempotent and only acts on rows whose
- * loop_sync_error has been pre-flagged (cannot be triggered to act
- * on arbitrary contacts). Open auth is acceptable for the one-off
- * raffle cleanup.
  */
 import { NextRequest, NextResponse } from 'next/server';
 import { getSupabase } from '../../lib/supabase';
+import { validateAgentOrUser } from '../../lib/auth';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -33,20 +29,28 @@ function headers() {
   };
 }
 
-async function removeTags(contactId: string, tags: string[]): Promise<{ ok: boolean; status: number }> {
-  try {
-    const res = await fetch(`${GHL_BASE}/contacts/${contactId}/tags`, {
-      method: 'DELETE',
-      headers: headers(),
-      body: JSON.stringify({ tags }),
-    });
-    return { ok: res.ok, status: res.status };
-  } catch {
-    return { ok: false, status: 0 };
+async function removeTagsOneByOne(contactId: string, tags: string[]): Promise<{ removed: number; failed: number }> {
+  let removed = 0;
+  let failed = 0;
+  for (const t of tags) {
+    try {
+      const res = await fetch(`${GHL_BASE}/contacts/${contactId}/tags`, {
+        method: 'DELETE',
+        headers: headers(),
+        body: JSON.stringify({ tags: [t] }),
+      });
+      if (res.ok) removed++; else failed++;
+    } catch {
+      failed++;
+    }
   }
+  return { removed, failed };
 }
 
 export async function POST(req: NextRequest) {
+  if (!validateAgentOrUser(req).valid) {
+    return NextResponse.json({ error: 'unauthorized' }, { status: 401 });
+  }
   const supabase = getSupabase();
   const { data: rows, error } = await supabase
     .from('raffle_entries')
@@ -58,25 +62,11 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: 'fetch_failed', detail: error.message }, { status: 500 });
   }
 
-  const results: Array<{ name: string; email: string; ok: boolean; status: number }> = [];
-  let cleaned = 0;
-  let failed = 0;
-
+  const results: Array<{ name: string; email: string; removed: number; failed: number }> = [];
   for (const row of rows || []) {
-    const r = await removeTags(row.loop_contact_id, RAFFLE_TAGS);
-    if (r.ok) cleaned++; else failed++;
-    results.push({ name: row.name, email: row.email, ok: r.ok, status: r.status });
+    const r = await removeTagsOneByOne(row.loop_contact_id, RAFFLE_TAGS);
+    results.push({ name: row.name, email: row.email, ...r });
   }
 
-  return NextResponse.json({
-    ok: true,
-    processed: (rows || []).length,
-    tags_removed: cleaned,
-    failed,
-    results,
-  });
-}
-
-export async function GET(req: NextRequest) {
-  return POST(req);
+  return NextResponse.json({ ok: true, processed: (rows || []).length, results });
 }
