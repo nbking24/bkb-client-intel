@@ -46,7 +46,10 @@ export async function POST(req: NextRequest) {
       lastName:  row.last_name || null,
       email:     row.email,
       phone:     row.phone,
-      contactOk: !!row.contact_ok,
+      contactOk:
+        row.contact_ok === true  ? true  :
+        row.contact_ok === false ? false :
+        null,
       interests: Array.isArray(row.interests) ? row.interests : [],
     });
     await supabase
