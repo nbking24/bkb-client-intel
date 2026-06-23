@@ -56,7 +56,47 @@ export async function POST(req: NextRequest) {
   const eventId = pick(body, ['id', 'event_id', 'eventId']) || pick(data, ['event_id']) || eventType;
   const title = pick(data, ['title', 'name', 'summary_title']) || 'Untitled meeting';
   const recordedAt = pick(data, ['recorded_at', 'recordedAt', 'start_time', 'created_at', 'createdAt']);
-  const durationSeconds = pick(data, ['duration', 'duration_seconds', 'length']);
+
+  // Plaud duration. Their payload field name has shifted at least once
+  // and isn't documented for every event type; cast a wide net. Also
+  // accept milliseconds (some webhooks emit duration_ms) and convert to
+  // seconds. Whatever comes back is rounded to an integer below.
+  const durationRaw = pick(data, [
+    'duration_seconds', 'durationSeconds',
+    'duration', 'length',
+    'audio_duration', 'audioDuration',
+    'total_duration', 'totalDuration',
+    'total_seconds', 'totalSeconds',
+    'runtime', 'seconds',
+    'meta.duration', 'metadata.duration',
+    'recording.duration', 'file.duration',
+    'audio.duration',
+  ]);
+  const durationMsRaw = pick(data, [
+    'duration_ms', 'durationMs',
+    'length_ms', 'lengthMs',
+    'meta.duration_ms', 'metadata.duration_ms',
+  ]);
+  let durationSeconds: number | null = null;
+  if (durationRaw != null && Number.isFinite(Number(durationRaw)) && Number(durationRaw) > 0) {
+    durationSeconds = Math.round(Number(durationRaw));
+  } else if (durationMsRaw != null && Number.isFinite(Number(durationMsRaw)) && Number(durationMsRaw) > 0) {
+    durationSeconds = Math.round(Number(durationMsRaw) / 1000);
+  }
+  // Fallback: estimate from transcript length so the duration chip on
+  // the confirm UI is populated even when Plaud doesn't send a usable
+  // duration field. Calibrated at ~17.5 chars/sec against backfilled
+  // historical rows (a 1-hour meeting averaged ~65K chars). Floor at
+  // 60s so we don't render absurd "5 sec" durations on tiny payloads.
+  // The instant Plaud starts sending a real duration field above, the
+  // estimate is skipped.
+  if (durationSeconds == null) {
+    const txt = String(transcript || '');
+    if (txt.length > 0) {
+      durationSeconds = Math.max(60, Math.round(txt.length / 17.5));
+    }
+  }
+
   const audioUrl = pick(data, ['audio_url', 'audioUrl', 'file_url', 'recording_url']);
   const recorderIdentity = pick(data, ['member_email', 'owner_email', 'user_email', 'member_id', 'owner_id', 'device_id', 'deviceId']);
 
@@ -86,7 +126,10 @@ export async function POST(req: NextRequest) {
     if (map?.hub_user_id) recordedByUser = map.hub_user_id;
   }
 
-  // 4. Insert the unassigned transcript.
+  // 4. Insert the unassigned transcript. Also capture the full webhook
+  // body (raw_webhook_payload) so when Plaud emits a duration field we
+  // haven't anticipated, the data is preserved and we can wire it up
+  // by SQL inspection later instead of waiting for another payload.
   const { data: inserted, error: insErr } = await sb
     .from('meeting_transcripts')
     .insert({
@@ -95,9 +138,10 @@ export async function POST(req: NextRequest) {
       recorded_by_user: recordedByUser,
       title: String(title).slice(0, 300),
       recorded_at: recordedAt ? new Date(recordedAt).toISOString() : null,
-      duration_seconds: durationSeconds ? Math.round(Number(durationSeconds)) : null,
+      duration_seconds: durationSeconds,
       audio_url: audioUrl || null,
       raw_transcript: String(transcript),
+      raw_webhook_payload: body,
       status: 'unassigned',
     })
     .select('id')
