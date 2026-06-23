@@ -52,7 +52,7 @@ async function updateContactEmail(
 }
 
 export async function POST(req: NextRequest) {
-  if (false && !validateAgentOrUser(req).valid) {
+  if (!validateAgentOrUser(req).valid) {
     return NextResponse.json({ error: 'unauthorized' }, { status: 401 });
   }
 
