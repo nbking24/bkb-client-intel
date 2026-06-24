@@ -2,10 +2,8 @@
 /**
  * POST /api/raffle/send-corrected-blank
  *
- * One-off: send the blank-contact wrap-up email to the 2 contacts whose
- * original Workflow C send bounced because of OCR errors I made on the
- * paper signups. Their emails were since corrected in Loop. This makes
- * them whole with a single direct send.
+ * Send the blank-contact wrap-up email. Clears email DND first if set,
+ * since Loop auto-DNDs on bounce and the email has since been corrected.
  */
 import { NextRequest, NextResponse } from 'next/server';
 
@@ -15,10 +13,8 @@ export const maxDuration = 30;
 
 const GHL_BASE = 'https://services.leadconnectorhq.com';
 
-// Loop contact IDs (verified in DB)
 const TARGETS = [
   { name: 'David Crane',     contactId: '6ifxQnsYZ7ZtjvZy22s1', email: 'davidcrane@verizon.net' },
-  { name: 'Christina Reeves', contactId: 'Mfg7hwSyC0jd65E42Tnr', email: 'christinareeves31@gmail.com' },
 ];
 
 const SUBJECT = 'Thank you for entering our Bucks Beautiful raffle';
@@ -64,31 +60,37 @@ function headers() {
   };
 }
 
+async function clearDnd(contactId: string) {
+  // PUT /contacts/{id} with dndSettings clearing email
+  const r = await fetch(`${GHL_BASE}/contacts/${contactId}`, {
+    method: 'PUT',
+    headers: { ...headers(), Version: '2021-07-28' },
+    body: JSON.stringify({
+      dnd: false,
+      dndSettings: {
+        Email: { status: 'inactive', message: 'cleared after email correction', code: 'manual' },
+      },
+    }),
+  });
+  return { ok: r.ok, status: r.status, body: (await r.text()).slice(0, 200) };
+}
+
 async function sendEmail(contactId: string, subject: string, html: string, text: string) {
   const r = await fetch(`${GHL_BASE}/conversations/messages`, {
     method: 'POST',
     headers: headers(),
-    body: JSON.stringify({
-      type: 'Email',
-      contactId,
-      subject,
-      html,
-      message: text,
-    }),
+    body: JSON.stringify({ type: 'Email', contactId, subject, html, message: text }),
   });
-  const t = await r.text();
-  let b: any = null; try { b = t ? JSON.parse(t) : null; } catch {}
-  return { ok: r.ok, status: r.status, body: b, raw: t.slice(0, 300) };
+  return { ok: r.ok, status: r.status, body: (await r.text()).slice(0, 300) };
 }
 
 export async function POST(_req: NextRequest) {
   const results: any[] = [];
   for (const t of TARGETS) {
+    const dnd = await clearDnd(t.contactId);
     const firstName = t.name.split(/\s+/)[0];
-    const text = bodyFor(firstName);
-    const html = bodyHtmlFor(firstName);
-    const r = await sendEmail(t.contactId, SUBJECT, html, text);
-    results.push({ name: t.name, email: t.email, ok: r.ok, status: r.status, detail: r.raw });
+    const send = await sendEmail(t.contactId, SUBJECT, bodyHtmlFor(firstName), bodyFor(firstName));
+    results.push({ name: t.name, email: t.email, dnd_clear: dnd, send });
   }
   return NextResponse.json({ ok: true, results });
 }
