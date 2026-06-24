@@ -636,7 +636,8 @@ async function analyzeCostPlusJob(
   documents: JTDocument[],
   timeEntries: JTTimeEntry[],
   costItems: JTCostItem[],
-  todayStr: string
+  todayStr: string,
+  excludedBillIds: Set<string> = new Set(),
 ): Promise<CostPlusJobHealth> {
   const alerts: string[] = [];
 
@@ -675,28 +676,9 @@ async function analyzeCostPlusJob(
   // Uses parallel batches of 5 to balance speed vs PAVE rate limits.
   // (Can't use nested job.documents.costItems — causes 413 on large jobs.
   //  Can't do sequential per-document — causes 504 timeout on 88+ bills.)
-  // Pull the set of vendor bills the operator has tagged as
-  // "already-billed-outside-Hub" (excluded_vendor_bills table). Used
-  // for cost-plus jobs where some bills were invoiced via a previous
-  // system before the Hub existed; without this filter those bills
-  // would permanently show as unbilled work. We do this inline so the
-  // function stays self-contained. Failure is non-fatal — fall through
-  // to the unfiltered set on any error.
-  let excludedBillIds: Set<string> = new Set();
-  try {
-    const { getSupabase } = await import('@/app/api/lib/supabase');
-    const sb = getSupabase();
-    const { data: excludedRows } = await sb
-      .from('excluded_vendor_bills')
-      .select('doc_id')
-      .eq('job_id', job.id);
-    if (excludedRows && excludedRows.length > 0) {
-      excludedBillIds = new Set(excludedRows.map((r: any) => r.doc_id));
-    }
-  } catch (err: any) {
-    console.warn('[invoicing-health] excluded_vendor_bills lookup failed:', err?.message || err);
-  }
-
+  // The excluded vendor bill set was pre-fetched once in
+  // buildInvoicingContext and passed in. Empty Set when no
+  // exclusions exist on this job, so the filter is a no-op.
   const vendorBills = documents.filter(
     (d) => d.type === 'vendorBill'
       && d.status !== 'denied'
@@ -1116,6 +1098,30 @@ export async function buildInvoicingContext(): Promise<InvoicingFullContext> {
 
   console.log(`[InvoicingHealth] Filtered ${allJobs.length} active jobs → ${rawJobs.length} with allowed status`);
 
+  // 1c. Pre-fetch every excluded vendor bill in one Supabase round-trip
+  // so the per-job cost-plus analysis doesn't hammer Supabase from
+  // inside concurrent batches. The previous in-function dynamic import
+  // + per-job query was adding multiplicative latency on every refresh
+  // (one PAVE-bound import + one query per cost-plus job, parallel but
+  // still serial-cost on cold Vercel functions). Hoisting it to a
+  // single up-front read keeps the dashboard refresh fast.
+  let excludedBillsByJob: Map<string, Set<string>> = new Map();
+  try {
+    const { getSupabase } = await import('@/app/api/lib/supabase');
+    const sb = getSupabase();
+    const { data: excludedRows } = await sb
+      .from('excluded_vendor_bills')
+      .select('doc_id, job_id');
+    for (const row of excludedRows || []) {
+      if (!excludedBillsByJob.has(row.job_id)) {
+        excludedBillsByJob.set(row.job_id, new Set());
+      }
+      excludedBillsByJob.get(row.job_id)!.add(row.doc_id);
+    }
+  } catch (err: any) {
+    console.warn('[InvoicingHealth] excluded_vendor_bills pre-fetch failed:', err?.message || err);
+  }
+
   // 2. For each job, fetch documents, cost items, time entries — AND schedule
   //    for contract jobs — in parallel. Concurrency 10 (per the same pattern
   //    used by job-costing detail) balances throughput against PAVE rate
@@ -1232,7 +1238,14 @@ export async function buildInvoicingContext(): Promise<InvoicingFullContext> {
             return { kind: 'contract', health: contractHealth, jobName: job.name, billable: null };
           }
           if (job.priceType === 'Cost-Plus') {
-            const cpHealth = await analyzeCostPlusJob(job, documents, timeEntries, costItems, todayStr);
+            const cpHealth = await analyzeCostPlusJob(
+              job,
+              documents,
+              timeEntries,
+              costItems,
+              todayStr,
+              excludedBillsByJob.get(job.id) || new Set(),
+            );
             // Billable items rollup (non-contract only)
             const deniedBillIds = new Set(
               documents.filter((d) => d.type === 'vendorBill' && d.status === 'denied').map((d) => d.id)
