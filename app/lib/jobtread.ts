@@ -1263,6 +1263,14 @@ export async function getDocumentsForJob(jobId: string): Promise<JTDocument[]> {
             // includeInBudget=false means "Exclude from Budget" is toggled on
             // in JT — all budget/contract/CO calculations must skip these docs.
             includeInBudget: {},
+            // account.name on a vendorBill is the vendor that issued the
+            // bill ("Wehrung's Lumber", "Amazon.com", ...); on a customer
+            // invoice it's the client account. The doc-level `name` field
+            // is just JT's generic label ("Bill", "Invoice"), so consumers
+            // that want to identify who a doc is with need this. Added
+            // 2026-06-28 after the invoicing dashboard's bill-exclusion
+            // modal was showing "Bill" everywhere instead of the vendor.
+            account: { id: {}, name: {} },
           },
         },
       },
@@ -1275,7 +1283,15 @@ export async function getDocumentsForJob(jobId: string): Promise<JTDocument[]> {
     if (!nextPage || nodes.length < PAGE_SIZE) break;
   }
 
-  return allDocs.map((d: any) => ({ ...d, job: { id: jobId, name: '' } }));
+  // Promote account.name to accountName at the top level so callers can
+  // read it without digging through the nested object. account is also
+  // kept intact in case anyone needs the id.
+  return allDocs.map((d: any) => ({
+    ...d,
+    accountName: d.account?.name || null,
+    accountId: d.account?.id || null,
+    job: { id: jobId, name: '' },
+  }));
 }
 
 /**
