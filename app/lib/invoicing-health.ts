@@ -675,8 +675,32 @@ async function analyzeCostPlusJob(
   // Uses parallel batches of 5 to balance speed vs PAVE rate limits.
   // (Can't use nested job.documents.costItems — causes 413 on large jobs.
   //  Can't do sequential per-document — causes 504 timeout on 88+ bills.)
+  // Pull the set of vendor bills the operator has tagged as
+  // "already-billed-outside-Hub" (excluded_vendor_bills table). Used
+  // for cost-plus jobs where some bills were invoiced via a previous
+  // system before the Hub existed; without this filter those bills
+  // would permanently show as unbilled work. We do this inline so the
+  // function stays self-contained. Failure is non-fatal — fall through
+  // to the unfiltered set on any error.
+  let excludedBillIds: Set<string> = new Set();
+  try {
+    const { getSupabase } = await import('@/app/api/lib/supabase');
+    const sb = getSupabase();
+    const { data: excludedRows } = await sb
+      .from('excluded_vendor_bills')
+      .select('doc_id')
+      .eq('job_id', job.id);
+    if (excludedRows && excludedRows.length > 0) {
+      excludedBillIds = new Set(excludedRows.map((r: any) => r.doc_id));
+    }
+  } catch (err: any) {
+    console.warn('[invoicing-health] excluded_vendor_bills lookup failed:', err?.message || err);
+  }
+
   const vendorBills = documents.filter(
-    (d) => d.type === 'vendorBill' && d.status !== 'denied'
+    (d) => d.type === 'vendorBill'
+      && d.status !== 'denied'
+      && !excludedBillIds.has(d.id),
   );
   const nonDraftInvoices = customerInvoices.filter(
     (d) => d.status !== 'draft'
