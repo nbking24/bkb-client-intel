@@ -976,10 +976,16 @@ function CostPlusJobCard({ job, onInvoiceCreated, arHeld, arToggling, onToggleAr
           control doesn't apply there. Lets the operator tag vendor
           bills as "already billed outside the Hub" so the
           dashboard's unbilled total drops them. Opens a modal so
-          the card itself stays compact. */}
+          the card itself stays compact. Passes the card's known
+          totals through so the modal can render a math breakdown
+          that ties back to the unbilled number on the card. */}
       <BillExclusionDrawer
         jobId={job.jobId}
         jobName={job.jobName}
+        cardUnbilledAmount={job.unbilledAmount}
+        cardUnbilledCosts={job.unbilledCosts}
+        cardUnbilledHours={job.unbilledHours}
+        cardTotalInvoiced={job.totalInvoiced}
         onChanged={onInvoiceCreated}
       />
 
@@ -1012,10 +1018,21 @@ interface ExcludableBill {
 function BillExclusionDrawer({
   jobId,
   jobName,
+  cardUnbilledAmount,
+  cardUnbilledCosts,
+  cardUnbilledHours,
+  cardTotalInvoiced,
   onChanged,
 }: {
   jobId: string;
   jobName: string;
+  // Card-level totals plumbed in so the modal can reconcile the math
+  // breakdown against the number Nathan sees on the card. Passed by
+  // value so we don't have to re-fetch the whole report.
+  cardUnbilledAmount?: number;
+  cardUnbilledCosts?: number;
+  cardUnbilledHours?: number;
+  cardTotalInvoiced?: number;
   onChanged?: () => void;
 }) {
   const [open, setOpen] = useState(false);
@@ -1189,6 +1206,19 @@ function BillExclusionDrawer({
               </button>
             </div>
 
+            {/* Math breakdown reconciling the bill list against the
+                card's "Unbilled" number. Only shows once the bill
+                list is loaded so we have totals to display. */}
+            {!loading && !error && bills.length > 0 && (
+              <BillExclusionMath
+                bills={bills}
+                cardUnbilledAmount={cardUnbilledAmount}
+                cardUnbilledCosts={cardUnbilledCosts}
+                cardUnbilledHours={cardUnbilledHours}
+                cardTotalInvoiced={cardTotalInvoiced}
+              />
+            )}
+
             {/* Body */}
             <div style={{ flex: 1, minHeight: 0, overflowY: 'auto' }}>
               {loading && (
@@ -1320,6 +1350,142 @@ function BillExclusionDrawer({
         </div>
       )}
     </>
+  );
+}
+
+// ============================================================
+// Bill Exclusion Math Breakdown
+//
+// Lives inside the cost-plus Manage Bills modal so Nathan can see how
+// the card's "Unbilled" number reconciles against the bills he's
+// checking. Without this, excluding bills makes the card jump in ways
+// the operator can't predict, because the underlying math is:
+//
+//   unbilled = sum(bills, after FIFO offset by invoiced amounts, per
+//              budget item) + (unbilled labor hours × bill rate)
+//
+// Several common surprises:
+//   - Some non-excluded bills are already absorbed by customer invoices
+//     (they show on the bill list but contribute $0 to unbilled).
+//   - Labor hours add separately and aren't visible in the bill list
+//     at all.
+//   - Excluding a bill won't always drop unbilled by the bill's full
+//     amount if it was already partly invoiced.
+//
+// We show the totals we know (from the card props + from the bill
+// list) and explain the FIFO step in plain English, rather than
+// recomputing it client-side, which would duplicate logic that
+// already lives in invoicing-health.ts.
+// ============================================================
+
+function BillExclusionMath({
+  bills,
+  cardUnbilledAmount,
+  cardUnbilledCosts,
+  cardUnbilledHours,
+  cardTotalInvoiced,
+}: {
+  bills: ExcludableBill[];
+  cardUnbilledAmount?: number;
+  cardUnbilledCosts?: number;
+  cardUnbilledHours?: number;
+  cardTotalInvoiced?: number;
+}) {
+  const totalBills = bills.reduce((s, b) => s + b.cost, 0);
+  const excludedTotal = bills.filter((b) => b.excluded).reduce((s, b) => s + b.cost, 0);
+  const includedTotal = totalBills - excludedTotal;
+  // Labor cost is the leftover when you subtract the bill-derived
+  // unbilled from the total card unbilled. Surfaces the labor
+  // component even though we don't have a direct number for it.
+  const laborCost =
+    cardUnbilledAmount != null && cardUnbilledCosts != null
+      ? Math.max(0, cardUnbilledAmount - cardUnbilledCosts)
+      : null;
+  return (
+    <div
+      className="px-4 py-3 text-xs"
+      style={{
+        borderBottom: '1px solid rgba(200,140,0,0.15)',
+        background: 'rgba(200,140,0,0.04)',
+      }}
+    >
+      <div className="font-semibold mb-2 flex items-center gap-2" style={{ color: '#1a1a1a' }}>
+        How this ties to the card
+        {cardUnbilledAmount != null && (
+          <span className="text-[10px] font-normal" style={{ color: '#8a8078' }}>
+            Card unbilled = <strong>{formatCurrency(cardUnbilledAmount)}</strong>
+          </span>
+        )}
+      </div>
+      <div
+        className="grid gap-1"
+        style={{
+          gridTemplateColumns: 'minmax(0, 1fr) auto',
+          rowGap: 2,
+          color: '#3d3a36',
+        }}
+      >
+        <span>All vendor bills on this job ({bills.length})</span>
+        <span className="font-mono text-right">{formatCurrency(totalBills)}</span>
+        <span style={{ color: '#15803d' }}>
+          Less excluded bills ({bills.filter((b) => b.excluded).length})
+        </span>
+        <span className="font-mono text-right" style={{ color: '#15803d' }}>
+          −{formatCurrency(excludedTotal)}
+        </span>
+        <span className="font-semibold" style={{ color: '#1a1a1a' }}>
+          Included bills (factored into unbilled)
+        </span>
+        <span className="font-mono text-right font-semibold" style={{ color: '#1a1a1a' }}>
+          {formatCurrency(includedTotal)}
+        </span>
+        {cardTotalInvoiced != null && (
+          <>
+            <span style={{ color: '#5a5550' }}>
+              Less customer invoices already issued
+            </span>
+            <span className="font-mono text-right" style={{ color: '#5a5550' }}>
+              −{formatCurrency(cardTotalInvoiced)}
+            </span>
+          </>
+        )}
+        <span style={{ color: '#1a1a1a' }}>
+          Net unbilled from bills (after FIFO match per budget item)
+        </span>
+        <span className="font-mono text-right" style={{ color: '#1a1a1a' }}>
+          {cardUnbilledCosts != null ? formatCurrency(cardUnbilledCosts) : '—'}
+        </span>
+        {laborCost != null && laborCost > 0 && (
+          <>
+            <span style={{ color: '#5a5550' }}>
+              Plus unbilled labor ({cardUnbilledHours ?? 0}h)
+            </span>
+            <span className="font-mono text-right" style={{ color: '#5a5550' }}>
+              +{formatCurrency(laborCost)}
+            </span>
+          </>
+        )}
+        {cardUnbilledAmount != null && (
+          <>
+            <span
+              className="font-semibold pt-1"
+              style={{ color: '#1a1a1a', borderTop: '1px solid rgba(200,140,0,0.20)' }}
+            >
+              Card unbilled total
+            </span>
+            <span
+              className="font-mono text-right font-semibold pt-1"
+              style={{ color: '#c2410c', borderTop: '1px solid rgba(200,140,0,0.20)' }}
+            >
+              {formatCurrency(cardUnbilledAmount)}
+            </span>
+          </>
+        )}
+      </div>
+      <div className="mt-2 text-[10px]" style={{ color: '#8a8078' }}>
+        The FIFO match assigns each customer invoice to the oldest bills it covers, per budget item, before computing the remainder. That's why excluding a bill won't always drop the card's unbilled total by the bill's full amount, the offsetting invoice would just absorb a different bill instead. Click Refresh on the dashboard after toggling to recompute.
+      </div>
+    </div>
   );
 }
 

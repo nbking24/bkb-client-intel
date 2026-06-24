@@ -77,16 +77,41 @@ export async function GET(req: NextRequest) {
         };
       })
       .sort((a, b) => (a.createdAt || '').localeCompare(b.createdAt || ''));
+    // Math summary so the modal can show the operator exactly how the
+    // card's "Unbilled" number is derived. Mirrors the high-level
+    // components without recomputing the per-budget-item FIFO (that's
+    // intentionally deferred to the dashboard's main pipeline).
+    const totalBillCost = vendorBills.reduce((s: number, b: any) => s + b.cost, 0);
+    const excludedBillCost = vendorBills
+      .filter((b: any) => b.excluded)
+      .reduce((s: number, b: any) => s + b.cost, 0);
+    const includedBillCost = totalBillCost - excludedBillCost;
     return NextResponse.json({
       jobId,
       bills: vendorBills,
       excludedCount: excludedMap.size,
-      excludedTotal: vendorBills
-        .filter((b: any) => b.excluded)
-        .reduce((s: number, b: any) => s + b.cost, 0),
+      excludedTotal: excludedBillCost,
+      totalBillCost,
+      includedBillCost,
     });
   } catch (err: any) {
     return NextResponse.json({ error: err?.message || 'Failed to load excluded bills' }, { status: 500 });
+  }
+}
+
+/**
+ * Invalidate the invoicing-health Supabase cache so the next dashboard
+ * fetch with cached=true returns null and falls through to a fresh
+ * recompute. Without this, exclusions land in the table but the
+ * cached unbilled totals stay stale until the operator hits Refresh,
+ * which has been the source of confusion: modal says "8 excluded"
+ * but the card still shows the pre-exclusion number.
+ */
+async function bustInvoicingCache(sb: any) {
+  try {
+    await sb.from('agent_cache').delete().eq('key', 'invoicing-health-report');
+  } catch (err: any) {
+    console.warn('[excluded-bills] cache bust failed:', err?.message || err);
   }
 }
 
@@ -112,6 +137,7 @@ export async function POST(req: NextRequest) {
         excluded_at: new Date().toISOString(),
       }, { onConflict: 'doc_id' });
     if (error) return NextResponse.json({ error: error.message }, { status: 500 });
+    await bustInvoicingCache(sb);
     return NextResponse.json({ ok: true, docId });
   } catch (err: any) {
     return NextResponse.json({ error: err?.message || 'Exclude failed' }, { status: 500 });
@@ -130,6 +156,7 @@ export async function DELETE(req: NextRequest) {
       .delete()
       .eq('doc_id', docId);
     if (error) return NextResponse.json({ error: error.message }, { status: 500 });
+    await bustInvoicingCache(sb);
     return NextResponse.json({ ok: true, docId });
   } catch (err: any) {
     return NextResponse.json({ error: err?.message || 'Un-exclude failed' }, { status: 500 });
