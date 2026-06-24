@@ -29,6 +29,7 @@ import { useEffect, useMemo, useState, useRef } from 'react';
 import {
   AlertTriangle,
   CalendarDays,
+  Check,
   CheckCircle2,
   ChevronDown,
   ChevronRight,
@@ -164,6 +165,15 @@ export default function SchedulesCalendar() {
   // visual space.
   const [collapsedJobs, setCollapsedJobs] = useState<Set<string>>(new Set());
 
+  // Per-task "completing" state - the spinner appears on the bar while
+  // the JT mutation is in flight. Stored as a Set of taskIds rather
+  // than a boolean so simultaneous completes don't step on each other.
+  const [completing, setCompleting] = useState<Set<string>>(new Set());
+  // Surface a transient error toast when a complete fails. Keyed by
+  // taskId so we can render it next to the right row instead of a
+  // global banner.
+  const [completeError, setCompleteError] = useState<Record<string, string>>({});
+
   // Window anchor (left edge of the visible Gantt). Starts at today
   // minus DEFAULT_BACK_DAYS, advances with the Prev/Next buttons.
   const [windowStart, setWindowStart] = useState<Date>(() => addDays(todayLocal(), -DEFAULT_BACK_DAYS));
@@ -263,6 +273,82 @@ export default function SchedulesCalendar() {
       else next.add(jobId);
       return next;
     });
+  }
+
+  /**
+   * Mark a JT task complete. Optimistic update: flip the task's
+   * progress to 1.0 + status to 'completed' in local state immediately
+   * so the bar disappears from the chart, then fire the JT mutation.
+   * On failure, roll back and surface the error inline.
+   *
+   * The Gantt body filters out completed/undated tasks already, so the
+   * status flip is what makes the bar vanish - no separate "hide" flag
+   * needed.
+   */
+  async function completeTask(taskId: string) {
+    if (!data) return;
+    if (completing.has(taskId)) return; // already in flight
+    setCompleting((cur) => {
+      const next = new Set(cur);
+      next.add(taskId);
+      return next;
+    });
+    setCompleteError((cur) => {
+      const next = { ...cur };
+      delete next[taskId];
+      return next;
+    });
+    // Snapshot for rollback.
+    const prevData = data;
+    const optimistic: ScheduleResponse = {
+      ...prevData,
+      jobs: prevData.jobs.map((j) => ({
+        ...j,
+        tasks: j.tasks.map((t) =>
+          t.id === taskId
+            ? { ...t, progress: 1, status: 'completed' as const }
+            : t,
+        ),
+        // Recompute the active/completed counts so the AI flagged
+        // panel doesn't keep showing the old "no active work" rule.
+        activeTaskCount:
+          j.tasks.filter((t) => t.id !== taskId && t.status === 'active').length,
+        completedTaskCount:
+          j.tasks.filter((t) => t.id === taskId || t.status === 'completed').length,
+        hasNoActiveWork:
+          j.tasks.filter((t) => t.id !== taskId && t.status === 'active').length === 0,
+      })),
+      totals: {
+        ...prevData.totals,
+        activeTaskCount: Math.max(0, prevData.totals.activeTaskCount - 1),
+        completedTaskCount: prevData.totals.completedTaskCount + 1,
+      },
+    };
+    setData(optimistic);
+    try {
+      const res = await fetch('/api/dashboard/precon/schedule/complete-task', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ taskId }),
+      });
+      const json = await res.json().catch(() => ({}));
+      if (!res.ok || json?.error) {
+        throw new Error(json?.error || `Update failed (${res.status})`);
+      }
+    } catch (err: any) {
+      // Roll back local state and surface the error.
+      setData(prevData);
+      setCompleteError((cur) => ({
+        ...cur,
+        [taskId]: err?.message || 'Could not mark task complete',
+      }));
+    } finally {
+      setCompleting((cur) => {
+        const next = new Set(cur);
+        next.delete(taskId);
+        return next;
+      });
+    }
   }
 
   // ----------------------------------------------------------
@@ -510,6 +596,9 @@ export default function SchedulesCalendar() {
               collapsedJobs={collapsedJobs}
               onCollapseToggle={collapseToggle}
               scrollRef={scrollRef}
+              completingTaskIds={completing}
+              completeErrors={completeError}
+              onCompleteTask={completeTask}
             />
           )}
 
@@ -571,6 +660,9 @@ function GanttBody({
   collapsedJobs,
   onCollapseToggle,
   scrollRef,
+  completingTaskIds,
+  completeErrors,
+  onCompleteTask,
 }: {
   jobs: JobSchedule[];
   windowStart: Date;
@@ -579,6 +671,9 @@ function GanttBody({
   collapsedJobs: Set<string>;
   onCollapseToggle: (jobId: string) => void;
   scrollRef: React.RefObject<HTMLDivElement>;
+  completingTaskIds: Set<string>;
+  completeErrors: Record<string, string>;
+  onCompleteTask: (taskId: string) => void;
 }) {
   const totalWidthPx = windowDays * DAY_PX;
   const todayOffset = daysBetween(windowStart, today);
@@ -798,6 +893,8 @@ function GanttBody({
                     const width = Math.max(DAY_PX - 2, days * DAY_PX - 2);
                     const isOverdue = endD < today && task.progress < 1;
                     const fillColor = job.color;
+                    const isCompleting = completingTaskIds.has(task.id);
+                    const rowError = completeErrors[task.id];
                     return (
                       <div
                         key={task.id}
@@ -808,7 +905,7 @@ function GanttBody({
                         }}
                       >
                         <div
-                          className="px-2 flex items-center text-[11px] h-full"
+                          className="px-2 flex items-center gap-1.5 text-[11px] h-full"
                           style={{
                             width: NAME_COL_PX,
                             flexShrink: 0,
@@ -817,6 +914,42 @@ function GanttBody({
                           }}
                           title={task.name}
                         >
+                          {/* Mark-complete checkbox button. Sits in the
+                              left task-name column so it stays reachable
+                              regardless of horizontal scroll. Clicking
+                              fires the JT updateTask mutation via the
+                              parent's onCompleteTask handler. While the
+                              request is in flight, render a spinner; on
+                              failure, surface a small error icon with the
+                              message in its title. */}
+                          <button
+                            type="button"
+                            onClick={() => {
+                              if (isCompleting) return;
+                              const ok = window.confirm(
+                                `Mark "${task.name}" complete in JobTread? This sets the task's progress to 100% on the job's schedule.`,
+                              );
+                              if (ok) onCompleteTask(task.id);
+                            }}
+                            disabled={isCompleting}
+                            className="shrink-0 inline-flex items-center justify-center rounded hover:bg-stone-100 transition-colors"
+                            style={{
+                              width: 16,
+                              height: 16,
+                              border: '1px solid rgba(200,140,0,0.35)',
+                              background: '#ffffff',
+                              cursor: isCompleting ? 'wait' : 'pointer',
+                            }}
+                            title={rowError
+                              ? `Last attempt failed: ${rowError}. Click to retry.`
+                              : `Mark "${task.name}" complete in JobTread`}
+                          >
+                            {isCompleting
+                              ? <Loader2 size={10} className="animate-spin" style={{ color: '#c88c00' }} />
+                              : rowError
+                                ? <AlertTriangle size={10} style={{ color: '#b91c1c' }} />
+                                : <Check size={10} style={{ color: '#22c55e', opacity: 0.6 }} />}
+                          </button>
                           <span className="truncate">{task.name}</span>
                         </div>
                         <div
