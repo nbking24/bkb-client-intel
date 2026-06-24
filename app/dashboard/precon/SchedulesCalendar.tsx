@@ -2,26 +2,36 @@
 'use client';
 
 /**
- * SchedulesCalendar
+ * SchedulesCalendar (Gantt view)
  *
- * Pre-Construction dashboard's master calendar: every In-Design job's
- * tasks overlaid on a single month grid, color-coded by job. Tasks
- * with no dates land in an "Undated" pile below the calendar. A
- * Refresh button kicks off an AI staleness check that flags jobs
- * with no active work and proposes the next concrete schedule update.
+ * Pre-Construction dashboard's master schedule view: every In-Design
+ * job's tasks rendered as a Gantt timeline so Nathan / Allison can
+ * see overlapping work across clients on a single canvas.
  *
- * Self-contained component — manages its own fetch + state — so the
- * precon page just imports and renders <SchedulesCalendar />.
+ * Each task = one row with a colored bar spanning its start->end
+ * dates. Rows group by job, color follows job. Above the chart sits
+ * a client multi-select (All Clients toggle + per-job chips) so the
+ * operator can isolate two clients to study their overlap, or pull
+ * everything in for a portfolio view.
+ *
+ * The component still owns:
+ *   - The Refresh + Analyze flow (fetch + AI staleness check)
+ *   - The flagged-jobs panel above the chart
+ *   - A color legend below the chart
+ *   - An "Undated tasks" disclosure (tasks with no start/end dates)
+ *
+ * Filename kept as SchedulesCalendar even though the view is now a
+ * Gantt; the precon page imports under that name and I'm avoiding
+ * an import churn just for naming.
  */
 
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useState, useRef } from 'react';
 import {
   AlertTriangle,
   CalendarDays,
   CheckCircle2,
-  ChevronLeft,
+  ChevronDown,
   ChevronRight,
-  Clock,
   ExternalLink,
   Loader2,
   RefreshCw,
@@ -75,7 +85,8 @@ interface AnalysisResult {
 }
 
 // ============================================================
-// Date helpers (local time so day boundaries match the operator's clock)
+// Date helpers - local-midnight semantics so day boundaries match
+// the operator's wall clock instead of UTC.
 // ============================================================
 
 function parseLocalDate(s: string | null): Date | null {
@@ -90,85 +101,48 @@ function todayLocal(): Date {
   return new Date(d.getFullYear(), d.getMonth(), d.getDate());
 }
 
-function sameDay(a: Date, b: Date): boolean {
-  return a.getFullYear() === b.getFullYear() && a.getMonth() === b.getMonth() && a.getDate() === b.getDate();
+function daysBetween(a: Date, b: Date): number {
+  // Integer count of midnight boundaries crossed from a -> b.
+  const ms = b.getTime() - a.getTime();
+  return Math.round(ms / 86400000);
 }
 
-function ymd(d: Date): string {
-  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
-}
-
-function fmtMonthYear(d: Date): string {
-  return d.toLocaleString('en-US', { month: 'long', year: 'numeric' });
+function addDays(d: Date, n: number): Date {
+  const out = new Date(d);
+  out.setDate(d.getDate() + n);
+  return out;
 }
 
 function fmtShortDate(d: Date): string {
   return d.toLocaleString('en-US', { month: 'short', day: 'numeric' });
 }
 
-const DOW_LABELS = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
-
-/** Build the array of 42 day cells (6 weeks) covering the visible month. */
-function buildMonthGrid(monthAnchor: Date): Date[] {
-  const firstOfMonth = new Date(monthAnchor.getFullYear(), monthAnchor.getMonth(), 1);
-  const startOffset = firstOfMonth.getDay(); // 0 = Sunday
-  const gridStart = new Date(firstOfMonth);
-  gridStart.setDate(firstOfMonth.getDate() - startOffset);
-  const days: Date[] = [];
-  for (let i = 0; i < 42; i++) {
-    const d = new Date(gridStart);
-    d.setDate(gridStart.getDate() + i);
-    days.push(d);
-  }
-  return days;
+function fmtMonthYear(d: Date): string {
+  return d.toLocaleString('en-US', { month: 'long', year: 'numeric' });
 }
 
 // ============================================================
-// Bucketing tasks by day
+// Layout constants
 // ============================================================
 
-interface CalendarChip {
-  task: ScheduleTask;
-  job: JobSchedule;
-  // What kind of marker is this chip on this specific day?
-  //   'start'   - the task starts on this day (renders as a solid pill)
-  //   'continue' - the task spans through this day, neither start nor end
-  //   'end'     - the task ends on this day (renders as a hollow/outlined pill)
-  //   'single'  - a one-day task (renders as a solid pill)
-  kind: 'start' | 'continue' | 'end' | 'single';
-}
-
-function buildChipsByDay(jobs: JobSchedule[]): Map<string, CalendarChip[]> {
-  const out = new Map<string, CalendarChip[]>();
-  for (const job of jobs) {
-    for (const task of job.tasks) {
-      if (task.status === 'undated' || task.status === 'completed') continue;
-      const start = parseLocalDate(task.startDate);
-      const end = parseLocalDate(task.endDate);
-      const anchor = start || end;
-      if (!anchor) continue;
-      const finish = end || start!;
-      // Walk every day between anchor and finish, capped at 60 days so a
-      // single 6-month task doesn't blow up rendering across the whole grid.
-      const cur = new Date(anchor);
-      let dayIndex = 0;
-      while (cur <= finish && dayIndex < 60) {
-        const key = ymd(cur);
-        const isStart = sameDay(cur, anchor);
-        const isEnd = sameDay(cur, finish);
-        const kind: CalendarChip['kind'] = isStart && isEnd ? 'single' : isStart ? 'start' : isEnd ? 'end' : 'continue';
-        if (!out.has(key)) out.set(key, []);
-        out.get(key)!.push({ task, job, kind });
-        cur.setDate(cur.getDate() + 1);
-        dayIndex++;
-      }
-    }
-  }
-  return out;
-}
+// Pixel width of one day on the Gantt timeline. Tuned so a 3-month
+// window fits comfortably without horizontal scroll on a 1280-wide
+// monitor (~24px/day * 90 days = ~2160px - so we DO get horizontal
+// scroll, intentional - the chart scrolls inside its container).
+const DAY_PX = 22;
+// Width of the left-hand task-name column. Sticky on horizontal scroll.
+const NAME_COL_PX = 240;
+// Default visible window: 14 days back, 76 days forward = ~3 months
+// centered loosely on today. Operator can scroll left/right to see more.
+const DEFAULT_BACK_DAYS = 14;
+const DEFAULT_FWD_DAYS = 76;
+// Row height for task rows.
+const ROW_PX = 26;
+// Row height for job header rows.
+const HEADER_ROW_PX = 30;
 
 // ============================================================
-// Main component
+// Component
 // ============================================================
 
 export default function SchedulesCalendar() {
@@ -176,14 +150,26 @@ export default function SchedulesCalendar() {
   const [refreshing, setRefreshing] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [data, setData] = useState<ScheduleResponse | null>(null);
-  const [monthAnchor, setMonthAnchor] = useState<Date>(() => {
-    const t = new Date();
-    return new Date(t.getFullYear(), t.getMonth(), 1);
-  });
-  const [selectedDay, setSelectedDay] = useState<string | null>(null);
   const [analyses, setAnalyses] = useState<Record<string, AnalysisResult>>({});
   const [analyzing, setAnalyzing] = useState(false);
   const [analyzeError, setAnalyzeError] = useState<string | null>(null);
+
+  // Client multi-select: which jobs to render on the Gantt. Defaults
+  // to "all" so first load shows everything. Stored as a Set of jobIds
+  // for O(1) lookup during render.
+  const [selectedJobIds, setSelectedJobIds] = useState<Set<string> | null>(null);
+
+  // Per-job collapsed/expanded state. Default expanded so the operator
+  // sees the bars on first load; they can collapse busy jobs to clear
+  // visual space.
+  const [collapsedJobs, setCollapsedJobs] = useState<Set<string>>(new Set());
+
+  // Window anchor (left edge of the visible Gantt). Starts at today
+  // minus DEFAULT_BACK_DAYS, advances with the Prev/Next buttons.
+  const [windowStart, setWindowStart] = useState<Date>(() => addDays(todayLocal(), -DEFAULT_BACK_DAYS));
+  const windowDays = DEFAULT_BACK_DAYS + DEFAULT_FWD_DAYS;
+
+  const scrollRef = useRef<HTMLDivElement | null>(null);
 
   // ----------------------------------------------------------
   // Data load
@@ -196,6 +182,9 @@ export default function SchedulesCalendar() {
       const json = await res.json();
       if (!res.ok || json?.error) throw new Error(json?.error || `Load failed (${res.status})`);
       setData(json);
+      // Initialize selection to "all" only on the very first load.
+      // Subsequent reloads preserve whatever the operator picked.
+      setSelectedJobIds((cur) => cur === null ? new Set((json.jobs || []).map((j: any) => j.jobId)) : cur);
     } catch (err: any) {
       setError(err?.message || 'Failed to load schedule data');
     } finally {
@@ -205,14 +194,13 @@ export default function SchedulesCalendar() {
   useEffect(() => { load(); }, []);
 
   // ----------------------------------------------------------
-  // AI analysis
+  // AI staleness analysis
   // ----------------------------------------------------------
   async function runAnalysis() {
     if (!data?.jobs?.length) return;
     setAnalyzing(true);
     setAnalyzeError(null);
     try {
-      // Compact payload - only fields the prompt needs.
       const slim = data.jobs.map((j) => ({
         jobId: j.jobId,
         jobName: j.jobName,
@@ -242,29 +230,52 @@ export default function SchedulesCalendar() {
     }
   }
 
-  // Combined refresh button: pull fresh schedule, then re-run AI analysis
-  // so the operator gets a single "do everything" action.
   async function refreshAll() {
     await load(true);
     await runAnalysis();
   }
 
   // ----------------------------------------------------------
+  // Selection helpers
+  // ----------------------------------------------------------
+  const allJobIds = useMemo(() => (data?.jobs || []).map((j) => j.jobId), [data]);
+  const allSelected = selectedJobIds !== null && selectedJobIds.size === allJobIds.length && allJobIds.length > 0;
+
+  function toggleAll() {
+    if (allSelected) {
+      setSelectedJobIds(new Set());
+    } else {
+      setSelectedJobIds(new Set(allJobIds));
+    }
+  }
+  function toggleJob(jobId: string) {
+    setSelectedJobIds((cur) => {
+      const next = new Set(cur || []);
+      if (next.has(jobId)) next.delete(jobId);
+      else next.add(jobId);
+      return next;
+    });
+  }
+  function collapseToggle(jobId: string) {
+    setCollapsedJobs((cur) => {
+      const next = new Set(cur);
+      if (next.has(jobId)) next.delete(jobId);
+      else next.add(jobId);
+      return next;
+    });
+  }
+
+  // ----------------------------------------------------------
   // Derived data
   // ----------------------------------------------------------
-  const chipsByDay = useMemo(() => buildChipsByDay(data?.jobs || []), [data]);
-  const grid = useMemo(() => buildMonthGrid(monthAnchor), [monthAnchor]);
-  const today = useMemo(() => todayLocal(), []);
-
-  const selectedDayChips: CalendarChip[] = useMemo(() => {
-    if (!selectedDay) return [];
-    return chipsByDay.get(selectedDay) || [];
-  }, [selectedDay, chipsByDay]);
+  const visibleJobs = useMemo(() => {
+    if (!data?.jobs) return [];
+    if (!selectedJobIds) return data.jobs;
+    return data.jobs.filter((j) => selectedJobIds.has(j.jobId));
+  }, [data, selectedJobIds]);
 
   const flaggedJobs = useMemo(() => {
     if (!data?.jobs) return [];
-    // Show jobs that the AI flagged OR (when no AI run has happened
-    // yet) jobs with no active task per the deterministic rule.
     return data.jobs.filter((j) => {
       const a = analyses[j.jobId];
       if (a) return a.needsUpdate;
@@ -273,23 +284,24 @@ export default function SchedulesCalendar() {
   }, [data, analyses]);
 
   const undatedJobs = useMemo(() => {
-    if (!data?.jobs) return [];
-    return data.jobs
+    return visibleJobs
       .map((j) => ({ job: j, tasks: j.tasks.filter((t) => t.status === 'undated') }))
       .filter((x) => x.tasks.length > 0);
-  }, [data]);
+  }, [visibleJobs]);
+
+  const today = useMemo(() => todayLocal(), []);
 
   // ----------------------------------------------------------
   // Render
   // ----------------------------------------------------------
   return (
     <div className="rounded-xl border" style={{ borderColor: 'rgba(200,140,0,0.15)', background: '#ffffff' }}>
-      {/* Header row */}
+      {/* Header */}
       <div className="flex items-center justify-between flex-wrap gap-3 px-4 py-3 border-b" style={{ borderColor: 'rgba(200,140,0,0.10)' }}>
         <div className="flex items-center gap-2">
           <CalendarDays size={18} style={{ color: '#c88c00' }} />
           <h2 className="text-base font-semibold" style={{ color: '#1a1a1a' }}>
-            In-Design Schedule Calendar
+            In-Design Schedule Gantt
           </h2>
           {data?.totals && (
             <span className="text-xs ml-2" style={{ color: '#8a8078' }}>
@@ -315,7 +327,6 @@ export default function SchedulesCalendar() {
         </div>
       </div>
 
-      {/* Loading / error states */}
       {loading && (
         <div className="flex items-center justify-center py-12 gap-2 text-sm" style={{ color: '#8a8078' }}>
           <Loader2 size={16} className="animate-spin" />
@@ -355,18 +366,13 @@ export default function SchedulesCalendar() {
                   const a = analyses[j.jobId];
                   return (
                     <div key={j.jobId} className="flex items-start gap-2 text-xs">
-                      <span
-                        className="mt-1 w-2 h-2 rounded-full shrink-0"
-                        style={{ background: j.color }}
-                      />
+                      <span className="mt-1 w-2 h-2 rounded-full shrink-0" style={{ background: j.color }} />
                       <div className="flex-1 min-w-0">
                         <div className="flex items-center gap-1.5 flex-wrap">
                           <span className="font-medium" style={{ color: '#1a1a1a' }}>
                             {j.clientName || j.jobName}
                           </span>
-                          <span style={{ color: '#8a8078' }}>
-                            #{j.jobNumber}
-                          </span>
+                          <span style={{ color: '#8a8078' }}>#{j.jobNumber}</span>
                           <span style={{ color: '#8a8078' }}>·</span>
                           <span style={{ color: '#8a8078' }}>
                             {j.activeTaskCount} active, {j.undatedTaskCount} undated, {j.upcomingTaskCount} upcoming
@@ -405,161 +411,106 @@ export default function SchedulesCalendar() {
             </div>
           )}
 
-          {/* Month nav */}
-          <div className="flex items-center justify-between">
-            <button
-              type="button"
-              onClick={() => setMonthAnchor(new Date(monthAnchor.getFullYear(), monthAnchor.getMonth() - 1, 1))}
-              className="flex items-center gap-1 text-sm px-2 py-1 rounded hover:bg-stone-50"
-              style={{ color: '#8a8078', border: '1px solid rgba(200,140,0,0.12)' }}
-            >
-              <ChevronLeft size={14} /> Prev
-            </button>
-            <div className="flex items-center gap-3">
-              <span className="text-sm font-semibold" style={{ color: '#1a1a1a' }}>
-                {fmtMonthYear(monthAnchor)}
+          {/* Client multi-select chip toolbar.
+              "All Clients" toggles the whole set; individual chips
+              toggle one job at a time. Selected = filled with the
+              job's color; unselected = neutral outline. Nathan can
+              pick any subset to compare overlap on the Gantt. */}
+          <div className="rounded-lg p-3 space-y-2" style={{ background: '#faf8f5', border: '1px solid rgba(200,140,0,0.10)' }}>
+            <div className="flex items-center gap-2 text-xs">
+              <span className="font-semibold uppercase tracking-wide" style={{ color: '#8a8078' }}>
+                Show clients
               </span>
+              <span style={{ color: '#8a8078' }}>
+                {(selectedJobIds?.size ?? 0)} of {allJobIds.length} selected
+              </span>
+            </div>
+            <div className="flex flex-wrap gap-1.5">
               <button
                 type="button"
-                onClick={() => {
-                  const t = new Date();
-                  setMonthAnchor(new Date(t.getFullYear(), t.getMonth(), 1));
+                onClick={toggleAll}
+                className="text-xs px-2.5 py-1 rounded-full"
+                style={{
+                  background: allSelected ? '#c88c00' : '#ffffff',
+                  color: allSelected ? '#ffffff' : '#5a5550',
+                  border: `1px solid ${allSelected ? '#c88c00' : 'rgba(200,140,0,0.30)'}`,
+                  fontWeight: 600,
                 }}
-                className="text-xs px-2 py-1 rounded hover:bg-stone-50"
-                style={{ color: '#8a8078', border: '1px solid rgba(200,140,0,0.12)' }}
               >
-                Today
+                {allSelected ? '✓ All clients' : 'All clients'}
               </button>
+              {(data.jobs || []).map((j) => {
+                const on = selectedJobIds?.has(j.jobId);
+                return (
+                  <button
+                    key={j.jobId}
+                    type="button"
+                    onClick={() => toggleJob(j.jobId)}
+                    className="text-xs px-2.5 py-1 rounded-full flex items-center gap-1.5"
+                    style={{
+                      background: on ? j.color : '#ffffff',
+                      color: on ? '#ffffff' : '#5a5550',
+                      border: `1px solid ${on ? j.color : 'rgba(200,140,0,0.20)'}`,
+                      fontWeight: on ? 600 : 400,
+                    }}
+                  >
+                    <span
+                      className="w-2 h-2 rounded-sm shrink-0"
+                      style={{ background: on ? '#ffffff' : j.color, opacity: on ? 0.9 : 1 }}
+                    />
+                    {j.clientName || j.jobName}
+                  </button>
+                );
+              })}
             </div>
+          </div>
+
+          {/* Gantt timeline window controls */}
+          <div className="flex items-center gap-2 text-sm">
             <button
               type="button"
-              onClick={() => setMonthAnchor(new Date(monthAnchor.getFullYear(), monthAnchor.getMonth() + 1, 1))}
-              className="flex items-center gap-1 text-sm px-2 py-1 rounded hover:bg-stone-50"
-              style={{ color: '#8a8078', border: '1px solid rgba(200,140,0,0.12)' }}
+              onClick={() => setWindowStart(addDays(windowStart, -14))}
+              className="text-xs px-2 py-1 rounded hover:bg-stone-50"
+              style={{ border: '1px solid rgba(200,140,0,0.12)', color: '#8a8078' }}
             >
-              Next <ChevronRight size={14} />
+              ← 2 weeks
             </button>
+            <button
+              type="button"
+              onClick={() => setWindowStart(addDays(today, -DEFAULT_BACK_DAYS))}
+              className="text-xs px-2 py-1 rounded hover:bg-stone-50"
+              style={{ border: '1px solid rgba(200,140,0,0.12)', color: '#8a8078' }}
+            >
+              Today
+            </button>
+            <button
+              type="button"
+              onClick={() => setWindowStart(addDays(windowStart, 14))}
+              className="text-xs px-2 py-1 rounded hover:bg-stone-50"
+              style={{ border: '1px solid rgba(200,140,0,0.12)', color: '#8a8078' }}
+            >
+              2 weeks →
+            </button>
+            <span className="ml-2 text-xs" style={{ color: '#8a8078' }}>
+              {fmtShortDate(windowStart)} to {fmtShortDate(addDays(windowStart, windowDays - 1))}
+            </span>
           </div>
 
-          {/* Day-of-week header */}
-          <div className="grid grid-cols-7 gap-px text-[10px] uppercase tracking-wide font-semibold" style={{ color: '#8a8078' }}>
-            {DOW_LABELS.map((d) => (
-              <div key={d} className="px-1 py-1">{d}</div>
-            ))}
-          </div>
-
-          {/* Month grid */}
-          <div
-            className="grid grid-cols-7 gap-px rounded-lg overflow-hidden"
-            style={{ background: 'rgba(200,140,0,0.10)', border: '1px solid rgba(200,140,0,0.15)' }}
-          >
-            {grid.map((d) => {
-              const inMonth = d.getMonth() === monthAnchor.getMonth();
-              const isToday = sameDay(d, today);
-              const key = ymd(d);
-              const chips = chipsByDay.get(key) || [];
-              const isSelected = selectedDay === key;
-              return (
-                <button
-                  key={key}
-                  type="button"
-                  onClick={() => setSelectedDay(isSelected ? null : key)}
-                  className="text-left p-1 min-h-[78px] hover:bg-stone-50 transition-colors"
-                  style={{
-                    background: isSelected ? 'rgba(200,140,0,0.10)' : inMonth ? '#ffffff' : '#faf8f5',
-                    opacity: inMonth ? 1 : 0.55,
-                    cursor: 'pointer',
-                  }}
-                >
-                  <div className="flex items-center gap-1 mb-1">
-                    <span
-                      className="text-[11px] font-semibold inline-flex items-center justify-center"
-                      style={{
-                        color: isToday ? '#ffffff' : inMonth ? '#1a1a1a' : '#8a8078',
-                        background: isToday ? '#c88c00' : 'transparent',
-                        width: 18,
-                        height: 18,
-                        borderRadius: 9,
-                      }}
-                    >
-                      {d.getDate()}
-                    </span>
-                  </div>
-                  {/* Up to 3 chips per cell, then "+N" overflow */}
-                  <div className="space-y-0.5">
-                    {chips.slice(0, 3).map((c, idx) => (
-                      <ChipPill key={`${c.task.id}-${idx}`} chip={c} />
-                    ))}
-                    {chips.length > 3 && (
-                      <div className="text-[9px]" style={{ color: '#8a8078' }}>
-                        +{chips.length - 3} more
-                      </div>
-                    )}
-                  </div>
-                </button>
-              );
-            })}
-          </div>
-
-          {/* Selected-day drill-down */}
-          {selectedDay && selectedDayChips.length > 0 && (
-            <div className="rounded-lg p-3" style={{ background: '#faf8f5', border: '1px solid rgba(200,140,0,0.12)' }}>
-              <div className="flex items-center gap-2 mb-2 text-xs font-semibold" style={{ color: '#1a1a1a' }}>
-                <Clock size={12} />
-                {(() => {
-                  const d = parseLocalDate(selectedDay);
-                  return d ? fmtShortDate(d) : selectedDay;
-                })()}
-                <span className="ml-1 font-normal" style={{ color: '#8a8078' }}>
-                  {selectedDayChips.length} item{selectedDayChips.length === 1 ? '' : 's'}
-                </span>
-              </div>
-              <div className="space-y-1">
-                {selectedDayChips.map((c, idx) => (
-                  <div key={`${c.task.id}-detail-${idx}`} className="flex items-center gap-2 text-xs">
-                    <span
-                      className="w-2 h-2 rounded-full shrink-0"
-                      style={{ background: c.job.color }}
-                    />
-                    <span className="font-medium truncate" style={{ color: '#1a1a1a' }}>
-                      {c.task.name}
-                    </span>
-                    <span className="shrink-0" style={{ color: '#8a8078' }}>
-                      {c.job.clientName || c.job.jobName} · #{c.job.jobNumber}
-                    </span>
-                    <span className="shrink-0 text-[10px] px-1 py-0.5 rounded" style={{ background: '#ffffff', color: '#8a8078', border: '1px solid rgba(200,140,0,0.10)' }}>
-                      {c.kind === 'start' ? 'Starts' : c.kind === 'end' ? 'Ends' : c.kind === 'single' ? 'Single' : 'Active'}
-                    </span>
-                  </div>
-                ))}
-              </div>
+          {/* Gantt chart */}
+          {visibleJobs.length === 0 ? (
+            <div className="text-center py-12 text-sm" style={{ color: '#8a8078' }}>
+              No clients selected. Pick at least one above to see their schedule.
             </div>
-          )}
-
-          {/* Job color legend */}
-          {data.jobs.length > 0 && (
-            <div>
-              <div className="text-[11px] uppercase tracking-wide font-semibold mb-1.5" style={{ color: '#8a8078' }}>
-                Color legend
-              </div>
-              <div className="flex flex-wrap gap-2">
-                {data.jobs.map((j) => (
-                  <div
-                    key={j.jobId}
-                    className="flex items-center gap-1.5 text-xs px-2 py-1 rounded"
-                    style={{ background: '#faf8f5', border: '1px solid rgba(200,140,0,0.10)' }}
-                  >
-                    <span className="w-2.5 h-2.5 rounded-sm shrink-0" style={{ background: j.color }} />
-                    <span style={{ color: '#1a1a1a' }}>
-                      {j.clientName || j.jobName}
-                    </span>
-                    <span style={{ color: '#8a8078' }}>
-                      ({j.activeTaskCount + j.upcomingTaskCount} scheduled)
-                    </span>
-                  </div>
-                ))}
-              </div>
-            </div>
+          ) : (
+            <GanttBody
+              jobs={visibleJobs}
+              windowStart={windowStart}
+              windowDays={windowDays}
+              today={today}
+              collapsedJobs={collapsedJobs}
+              onCollapseToggle={collapseToggle}
+              scrollRef={scrollRef}
+            />
           )}
 
           {/* Undated tasks pile */}
@@ -580,7 +531,8 @@ export default function SchedulesCalendar() {
                   <div key={u.job.jobId}>
                     <div className="flex items-center gap-1.5 text-xs font-semibold mb-1" style={{ color: '#1a1a1a' }}>
                       <span className="w-2 h-2 rounded-full shrink-0" style={{ background: u.job.color }} />
-                      {u.job.clientName || u.job.jobName} <span style={{ color: '#8a8078', fontWeight: 400 }}>#{u.job.jobNumber}</span>
+                      {u.job.clientName || u.job.jobName}
+                      <span style={{ color: '#8a8078', fontWeight: 400 }}>#{u.job.jobNumber}</span>
                     </div>
                     <div className="space-y-0.5 ml-3.5">
                       {u.tasks.map((t) => (
@@ -595,7 +547,6 @@ export default function SchedulesCalendar() {
             </details>
           )}
 
-          {/* Empty state */}
           {data.jobs.length === 0 && (
             <div className="text-center py-8 text-sm" style={{ color: '#8a8078' }}>
               <CheckCircle2 size={24} style={{ color: '#22c55e' }} className="mx-auto mb-2" />
@@ -609,42 +560,361 @@ export default function SchedulesCalendar() {
 }
 
 // ============================================================
-// ChipPill - the colored bar inside a day cell
+// GanttBody - the actual chart (header + rows + bars)
 // ============================================================
 
-function ChipPill({ chip }: { chip: CalendarChip }) {
-  const { task, job, kind } = chip;
-  // 'start' and 'single' get a solid color fill; 'end' gets a lighter
-  // outlined version so the eye can spot where a multi-day task wraps
-  // up; 'continue' chips render as just a thin colored bar.
-  if (kind === 'continue') {
-    return (
-      <div
-        className="text-[9px] truncate px-1 rounded"
-        style={{
-          background: job.color,
-          color: '#ffffff',
-          opacity: 0.65,
-        }}
-        title={`${task.name} (continues)`}
-      >
-        {task.name}
-      </div>
-    );
+function GanttBody({
+  jobs,
+  windowStart,
+  windowDays,
+  today,
+  collapsedJobs,
+  onCollapseToggle,
+  scrollRef,
+}: {
+  jobs: JobSchedule[];
+  windowStart: Date;
+  windowDays: number;
+  today: Date;
+  collapsedJobs: Set<string>;
+  onCollapseToggle: (jobId: string) => void;
+  scrollRef: React.RefObject<HTMLDivElement>;
+}) {
+  const totalWidthPx = windowDays * DAY_PX;
+  const todayOffset = daysBetween(windowStart, today);
+  const todayInWindow = todayOffset >= 0 && todayOffset < windowDays;
+
+  // Build the per-day header cells, plus month-band cells so the
+  // operator gets month context above the day numbers.
+  const dayCells: Array<{ date: Date; isToday: boolean; isWeekendStart: boolean }> = [];
+  for (let i = 0; i < windowDays; i++) {
+    const d = addDays(windowStart, i);
+    dayCells.push({
+      date: d,
+      isToday: d.getTime() === today.getTime(),
+      isWeekendStart: d.getDay() === 0,
+    });
   }
-  const isEnd = kind === 'end';
+  // Month bands: group consecutive same-month days.
+  const monthBands: Array<{ label: string; startOffset: number; widthPx: number }> = [];
+  for (let i = 0; i < dayCells.length; ) {
+    const dc = dayCells[i];
+    const monthKey = `${dc.date.getFullYear()}-${dc.date.getMonth()}`;
+    let j = i;
+    while (j < dayCells.length) {
+      const dj = dayCells[j];
+      if (`${dj.date.getFullYear()}-${dj.date.getMonth()}` !== monthKey) break;
+      j++;
+    }
+    monthBands.push({
+      label: fmtMonthYear(dc.date),
+      startOffset: i * DAY_PX,
+      widthPx: (j - i) * DAY_PX,
+    });
+    i = j;
+  }
+
+  // Render each visible job as an expandable group with its task rows
+  // below. Filter tasks down to those that overlap the visible window
+  // so we don't render bars miles off-screen.
+  const visible = jobs.map((j) => {
+    const dated = j.tasks.filter((t) => t.status !== 'undated' && t.status !== 'completed');
+    const inWindow = dated
+      .map((t) => {
+        const s = parseLocalDate(t.startDate);
+        const e = parseLocalDate(t.endDate);
+        const startD = s || e!;
+        const endD = e || s!;
+        return { task: t, startD, endD };
+      })
+      .filter((x) => {
+        // Overlap if [startD, endD] intersects [windowStart, windowEnd].
+        const windowEnd = addDays(windowStart, windowDays - 1);
+        return !(x.endD < windowStart || x.startD > windowEnd);
+      });
+    return { job: j, taskBars: inWindow };
+  });
+
   return (
     <div
-      className="text-[9px] truncate px-1 rounded"
-      style={{
-        background: isEnd ? '#ffffff' : job.color,
-        color: isEnd ? job.color : '#ffffff',
-        border: `1px solid ${job.color}`,
-        fontWeight: 600,
-      }}
-      title={`${task.name} (${kind === 'single' ? 'one-day' : kind})`}
+      className="rounded-lg"
+      style={{ border: '1px solid rgba(200,140,0,0.15)', background: '#ffffff', overflow: 'hidden' }}
     >
-      {task.name}
+      <div
+        ref={scrollRef}
+        className="overflow-x-auto"
+        style={{ scrollbarWidth: 'thin' }}
+      >
+        <div style={{ minWidth: NAME_COL_PX + totalWidthPx + 1, position: 'relative' }}>
+          {/* Header: month band + day cells. Left column reserves
+              space for the task-name column so the timeline starts
+              flush with the bars below. */}
+          <div className="flex" style={{ borderBottom: '1px solid rgba(200,140,0,0.15)' }}>
+            <div
+              style={{
+                width: NAME_COL_PX,
+                flexShrink: 0,
+                background: '#faf8f5',
+                borderRight: '1px solid rgba(200,140,0,0.15)',
+              }}
+            >
+              <div
+                className="px-2 py-1.5 text-[10px] uppercase tracking-wide font-semibold"
+                style={{ color: '#8a8078' }}
+              >
+                Task
+              </div>
+              <div
+                className="px-2 py-1 text-[10px] font-medium"
+                style={{ color: '#8a8078', borderTop: '1px solid rgba(200,140,0,0.10)' }}
+              >
+                Day
+              </div>
+            </div>
+            <div style={{ position: 'relative', width: totalWidthPx, flexShrink: 0 }}>
+              {/* Month band row */}
+              <div
+                className="flex text-[11px] font-semibold"
+                style={{ height: 26, color: '#5a5550', background: '#fcfaf6' }}
+              >
+                {monthBands.map((m, idx) => (
+                  <div
+                    key={`${m.label}-${idx}`}
+                    className="px-1 py-1 truncate"
+                    style={{
+                      width: m.widthPx,
+                      flexShrink: 0,
+                      borderRight: idx < monthBands.length - 1 ? '1px solid rgba(200,140,0,0.20)' : 'none',
+                    }}
+                  >
+                    {m.label}
+                  </div>
+                ))}
+              </div>
+              {/* Day-number row */}
+              <div className="flex" style={{ borderTop: '1px solid rgba(200,140,0,0.10)' }}>
+                {dayCells.map((dc, idx) => (
+                  <div
+                    key={idx}
+                    className="text-[10px] text-center"
+                    style={{
+                      width: DAY_PX,
+                      flexShrink: 0,
+                      padding: '4px 0',
+                      color: dc.isToday ? '#ffffff' : dc.date.getDay() === 0 || dc.date.getDay() === 6 ? '#8a8078' : '#5a5550',
+                      background: dc.isToday
+                        ? '#c88c00'
+                        : dc.date.getDay() === 0 || dc.date.getDay() === 6
+                          ? 'rgba(200,140,0,0.04)'
+                          : 'transparent',
+                      borderRight: dc.isWeekendStart ? '1px solid rgba(200,140,0,0.18)' : '1px solid rgba(200,140,0,0.05)',
+                      fontWeight: dc.isToday ? 700 : 400,
+                    }}
+                  >
+                    {dc.date.getDate()}
+                  </div>
+                ))}
+              </div>
+            </div>
+          </div>
+
+          {/* Body: job groups with task rows */}
+          <div style={{ position: 'relative' }}>
+            {/* Today vertical line - spans the full body height. */}
+            {todayInWindow && (
+              <div
+                style={{
+                  position: 'absolute',
+                  left: NAME_COL_PX + todayOffset * DAY_PX,
+                  top: 0,
+                  bottom: 0,
+                  width: 1,
+                  background: '#c88c00',
+                  pointerEvents: 'none',
+                  zIndex: 2,
+                }}
+              />
+            )}
+
+            {visible.map(({ job, taskBars }) => {
+              const collapsed = collapsedJobs.has(job.jobId);
+              return (
+                <div key={job.jobId}>
+                  {/* Job header row */}
+                  <div
+                    className="flex items-center cursor-pointer hover:bg-stone-50 transition-colors"
+                    onClick={() => onCollapseToggle(job.jobId)}
+                    style={{
+                      height: HEADER_ROW_PX,
+                      background: 'rgba(200,140,0,0.04)',
+                      borderBottom: '1px solid rgba(200,140,0,0.10)',
+                    }}
+                  >
+                    <div
+                      style={{
+                        width: NAME_COL_PX,
+                        flexShrink: 0,
+                        borderRight: '1px solid rgba(200,140,0,0.10)',
+                      }}
+                      className="px-2 flex items-center gap-1.5 text-xs h-full"
+                    >
+                      {collapsed
+                        ? <ChevronRight size={12} style={{ color: '#8a8078' }} />
+                        : <ChevronDown size={12} style={{ color: '#8a8078' }} />}
+                      <span className="w-2 h-2 rounded-sm shrink-0" style={{ background: job.color }} />
+                      <span className="font-semibold truncate" style={{ color: '#1a1a1a' }}>
+                        {job.clientName || job.jobName}
+                      </span>
+                      <span className="text-[10px]" style={{ color: '#8a8078' }}>
+                        #{job.jobNumber}
+                      </span>
+                    </div>
+                    <div
+                      style={{
+                        width: totalWidthPx,
+                        flexShrink: 0,
+                        height: '100%',
+                        position: 'relative',
+                      }}
+                    >
+                      <span
+                        className="absolute text-[10px]"
+                        style={{ color: '#8a8078', top: 8, left: 8 }}
+                      >
+                        {taskBars.length} task{taskBars.length === 1 ? '' : 's'} in window
+                      </span>
+                    </div>
+                  </div>
+
+                  {/* Task rows (hidden when collapsed) */}
+                  {!collapsed && taskBars.map(({ task, startD, endD }) => {
+                    // Clip bar to the visible window so it doesn't
+                    // overflow into the name column or off the right.
+                    const windowEnd = addDays(windowStart, windowDays - 1);
+                    const clipStart = startD < windowStart ? windowStart : startD;
+                    const clipEnd = endD > windowEnd ? windowEnd : endD;
+                    const left = daysBetween(windowStart, clipStart) * DAY_PX;
+                    const days = daysBetween(clipStart, clipEnd) + 1;
+                    const width = Math.max(DAY_PX - 2, days * DAY_PX - 2);
+                    const isOverdue = endD < today && task.progress < 1;
+                    const fillColor = job.color;
+                    return (
+                      <div
+                        key={task.id}
+                        className="flex hover:bg-stone-50 transition-colors"
+                        style={{
+                          height: ROW_PX,
+                          borderBottom: '1px solid rgba(200,140,0,0.06)',
+                        }}
+                      >
+                        <div
+                          className="px-2 flex items-center text-[11px] h-full"
+                          style={{
+                            width: NAME_COL_PX,
+                            flexShrink: 0,
+                            borderRight: '1px solid rgba(200,140,0,0.10)',
+                            color: '#3d3a36',
+                          }}
+                          title={task.name}
+                        >
+                          <span className="truncate">{task.name}</span>
+                        </div>
+                        <div
+                          style={{
+                            width: totalWidthPx,
+                            flexShrink: 0,
+                            position: 'relative',
+                            height: '100%',
+                          }}
+                        >
+                          {/* Weekend stripe background */}
+                          {dayCells.map((dc, idx) => {
+                            if (dc.date.getDay() !== 0 && dc.date.getDay() !== 6) return null;
+                            return (
+                              <div
+                                key={idx}
+                                style={{
+                                  position: 'absolute',
+                                  left: idx * DAY_PX,
+                                  top: 0,
+                                  width: DAY_PX,
+                                  height: '100%',
+                                  background: 'rgba(200,140,0,0.04)',
+                                }}
+                              />
+                            );
+                          })}
+                          {/* The bar itself */}
+                          <div
+                            title={`${task.name} (${task.startDate || '?'} to ${task.endDate || '?'}${task.progress > 0 ? `, ${Math.round(task.progress * 100)}%` : ''})`}
+                            style={{
+                              position: 'absolute',
+                              left,
+                              top: 4,
+                              height: ROW_PX - 8,
+                              width,
+                              background: fillColor,
+                              borderRadius: 4,
+                              boxShadow: isOverdue ? 'inset 0 0 0 1px #b91c1c' : 'none',
+                              cursor: 'pointer',
+                              display: 'flex',
+                              alignItems: 'center',
+                              paddingLeft: 6,
+                              color: '#ffffff',
+                              fontSize: 10,
+                              fontWeight: 600,
+                              overflow: 'hidden',
+                              whiteSpace: 'nowrap',
+                              textOverflow: 'ellipsis',
+                            }}
+                          >
+                            {width > 60 ? task.name : ''}
+                          </div>
+                          {/* Progress overlay - hatched portion of the bar
+                              indicating % complete. Hidden for very small
+                              bars where the indicator would be illegible. */}
+                          {task.progress > 0 && task.progress < 1 && width > 30 && (
+                            <div
+                              style={{
+                                position: 'absolute',
+                                left,
+                                top: 4,
+                                height: ROW_PX - 8,
+                                width: width * task.progress,
+                                background: 'rgba(0,0,0,0.18)',
+                                borderRadius: 4,
+                                pointerEvents: 'none',
+                              }}
+                            />
+                          )}
+                        </div>
+                      </div>
+                    );
+                  })}
+
+                  {/* Empty-state row when job has no tasks in this window */}
+                  {!collapsed && taskBars.length === 0 && (
+                    <div className="flex" style={{ height: ROW_PX, borderBottom: '1px solid rgba(200,140,0,0.06)' }}>
+                      <div
+                        className="px-2 flex items-center text-[11px] italic"
+                        style={{
+                          width: NAME_COL_PX,
+                          flexShrink: 0,
+                          borderRight: '1px solid rgba(200,140,0,0.10)',
+                          color: '#8a8078',
+                        }}
+                      >
+                        No scheduled tasks in window
+                      </div>
+                      <div style={{ width: totalWidthPx, flexShrink: 0 }} />
+                    </div>
+                  )}
+                </div>
+              );
+            })}
+          </div>
+        </div>
+      </div>
     </div>
   );
 }
