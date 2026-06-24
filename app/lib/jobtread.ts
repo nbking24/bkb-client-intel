@@ -1263,14 +1263,6 @@ export async function getDocumentsForJob(jobId: string): Promise<JTDocument[]> {
             // includeInBudget=false means "Exclude from Budget" is toggled on
             // in JT — all budget/contract/CO calculations must skip these docs.
             includeInBudget: {},
-            // account.name on a vendorBill is the vendor that issued the
-            // bill ("Wehrung's Lumber", "Amazon.com", ...); on a customer
-            // invoice it's the client account. The doc-level `name` field
-            // is just JT's generic label ("Bill", "Invoice"), so consumers
-            // that want to identify who a doc is with need this. Added
-            // 2026-06-28 after the invoicing dashboard's bill-exclusion
-            // modal was showing "Bill" everywhere instead of the vendor.
-            account: { id: {}, name: {} },
           },
         },
       },
@@ -1283,14 +1275,77 @@ export async function getDocumentsForJob(jobId: string): Promise<JTDocument[]> {
     if (!nextPage || nodes.length < PAGE_SIZE) break;
   }
 
-  // Promote account.name to accountName at the top level so callers can
-  // read it without digging through the nested object. account is also
-  // kept intact in case anyone needs the id.
-  return allDocs.map((d: any) => ({
-    ...d,
-    accountName: d.account?.name || null,
+  return allDocs.map((d: any) => ({ ...d, job: { id: jobId, name: '' } }));
+}
+
+/**
+ * Targeted query: vendor bills for a job with the issuing account
+ * (vendor) name attached. Used by the bill-exclusion modal so the UI
+ * can show "Wehrung's Lumber" instead of the generic "Bill" label.
+ *
+ * Why this isn't on getDocumentsForJob: that helper is hot, called
+ * from the invoicing health compute for every active job. Adding the
+ * account join to every document query 10x-ed PAVE round-trip latency
+ * on jobs with many docs and pushed the invoicing endpoint past its
+ * 300s gateway timeout. This narrower query is only hit when the
+ * operator opens the bill-exclusion modal for one job, so the join
+ * cost is irrelevant to dashboard performance.
+ */
+export async function getVendorBillsWithVendorForJob(jobId: string): Promise<Array<{
+  id: string;
+  name: string;
+  number: string;
+  status: string;
+  createdAt: string;
+  cost: number;
+  price: number;
+  accountId: string | null;
+  accountName: string | null;
+}>> {
+  const PAGE_SIZE = 50;
+  const out: any[] = [];
+  let nextPage: string | null = null;
+  for (let page = 0; page < 10; page++) {
+    const pageParams: Record<string, unknown> = {
+      size: PAGE_SIZE,
+      where: ['type', '=', 'vendorBill'],
+    };
+    if (nextPage) pageParams.page = nextPage;
+    const data = await pave({
+      job: {
+        $: { id: jobId },
+        documents: {
+          $: pageParams,
+          nextPage: {},
+          nodes: {
+            id: {},
+            name: {},
+            number: {},
+            status: {},
+            createdAt: {},
+            cost: {},
+            price: {},
+            account: { id: {}, name: {} },
+          },
+        },
+      },
+    });
+    const docsPage = (data as any)?.job?.documents;
+    const nodes = docsPage?.nodes || [];
+    out.push(...nodes);
+    nextPage = docsPage?.nextPage || null;
+    if (!nextPage || nodes.length < PAGE_SIZE) break;
+  }
+  return out.map((d: any) => ({
+    id: d.id,
+    name: d.name || '',
+    number: d.number != null ? String(d.number) : '',
+    status: d.status,
+    createdAt: d.createdAt || '',
+    cost: Number(d.cost) || 0,
+    price: Number(d.price) || 0,
     accountId: d.account?.id || null,
-    job: { id: jobId, name: '' },
+    accountName: d.account?.name || null,
   }));
 }
 
