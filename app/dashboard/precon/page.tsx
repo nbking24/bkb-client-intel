@@ -41,6 +41,10 @@ import {
   Search,
   Users,
 } from 'lucide-react';
+// Master In-Design calendar lives in its own component so the page
+// file stays focused. Renders above the Selections Tracker per the
+// pre-con coordinator's request.
+import SchedulesCalendar from './SchedulesCalendar';
 
 // ============================================================
 // Types
@@ -300,7 +304,7 @@ export default function PreconDashboard() {
             Pre-Construction
           </h1>
           <p className="text-sm mt-1" style={{ color: '#8a8078' }}>
-            Selections tracker — every active job's pending design, internal, and order-ready selections.
+            In-design schedule calendar and selections tracker. Refresh + Analyze flags projects with stale schedules.
           </p>
         </div>
         <div className="flex items-center gap-3">
@@ -321,6 +325,13 @@ export default function PreconDashboard() {
           </button>
         </div>
       </div>
+
+      {/* In-Design schedule calendar - the master view across every
+          design-phase project, color-coded by job. Lives ABOVE the
+          selections tracker so the precon coordinator sees the
+          calendar first, then the selection backlog second. The
+          component manages its own data + AI staleness check. */}
+      <SchedulesCalendar />
 
       {/* Initial load + error */}
       {loading && (
