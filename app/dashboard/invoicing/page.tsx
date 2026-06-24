@@ -952,8 +952,13 @@ function CostPlusJobCard({ job, onInvoiceCreated, arHeld, arToggling, onToggleAr
           price jobs don't use the FIFO unbilled deduction so this
           control doesn't apply there. Lets the operator tag vendor
           bills as "already billed outside the Hub" so the
-          dashboard's unbilled total drops them. */}
-      <BillExclusionDrawer jobId={job.jobId} onChanged={onInvoiceCreated} />
+          dashboard's unbilled total drops them. Opens a modal so
+          the card itself stays compact. */}
+      <BillExclusionDrawer
+        jobId={job.jobId}
+        jobName={job.jobName}
+        onChanged={onInvoiceCreated}
+      />
 
       <InvoiceDetails drafts={job.draftInvoices} released={job.releasedInvoices} />
     </div>
@@ -983,12 +988,14 @@ interface ExcludableBill {
 
 function BillExclusionDrawer({
   jobId,
+  jobName,
   onChanged,
 }: {
   jobId: string;
+  jobName: string;
   onChanged?: () => void;
 }) {
-  const [expanded, setExpanded] = useState(false);
+  const [open, setOpen] = useState(false);
   const [loading, setLoading] = useState(false);
   const [bills, setBills] = useState<ExcludableBill[]>([]);
   const [error, setError] = useState<string | null>(null);
@@ -1009,10 +1016,18 @@ function BillExclusionDrawer({
     }
   }
 
-  function toggleOpen() {
-    const next = !expanded;
-    setExpanded(next);
-    if (next && bills.length === 0 && !loading) loadBills();
+  function openModal() {
+    setOpen(true);
+    if (bills.length === 0 && !loading) loadBills();
+  }
+
+  function closeModal() {
+    setOpen(false);
+    // Nudge the parent on close so the unbilled totals recompute
+    // immediately. Toggling triggers it too, but if the operator
+    // changed several bills in one session, this guarantees one
+    // final refresh.
+    onChanged?.();
   }
 
   async function toggleExclude(bill: ExcludableBill) {
@@ -1021,7 +1036,6 @@ function BillExclusionDrawer({
       next.add(bill.docId);
       return next;
     });
-    // Optimistic flip
     const prev = bills;
     setBills(bills.map((b) => (b.docId === bill.docId ? { ...b, excluded: !b.excluded } : b)));
     try {
@@ -1042,11 +1056,7 @@ function BillExclusionDrawer({
         });
         if (!res.ok) throw new Error(`Exclude failed (${res.status})`);
       }
-      // Nudge the parent so the unbilled totals recompute on the
-      // next refresh cycle.
-      onChanged?.();
     } catch (err: any) {
-      // Roll back optimistic flip on failure.
       setBills(prev);
       setError(err?.message || 'Toggle failed');
     } finally {
@@ -1058,123 +1068,235 @@ function BillExclusionDrawer({
     }
   }
 
+  // Close on Escape so the modal feels like a native dialog.
+  useEffect(() => {
+    if (!open) return;
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') closeModal();
+    };
+    document.addEventListener('keydown', onKey);
+    return () => document.removeEventListener('keydown', onKey);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [open]);
+
   const excludedCount = bills.filter((b) => b.excluded).length;
   const excludedTotal = bills.filter((b) => b.excluded).reduce((s, b) => s + b.cost, 0);
 
   return (
-    <div className="mt-2 pt-2" style={{ borderTop: '1px solid rgba(200,140,0,0.08)' }}>
-      <button
-        type="button"
-        onClick={toggleOpen}
-        className="w-full flex items-center gap-1.5 text-[11px] font-medium hover:opacity-80 transition-opacity"
-        style={{ color: '#8a8078' }}
-      >
-        {expanded
-          ? <ChevronDown size={12} />
-          : <ChevronRight size={12} />}
-        Manage bills
-        {excludedCount > 0 && (
-          <span className="text-[10px]" style={{ color: '#22c55e' }}>
-            · {excludedCount} excluded ({formatCurrency(excludedTotal)})
+    <>
+      {/* Trigger inside the cost-plus card. Small, single-line - the
+          card is space-constrained, but the actual manage-bills UI
+          lives in a roomy modal below so vendor names have space to
+          breathe. */}
+      <div className="mt-2 pt-2" style={{ borderTop: '1px solid rgba(200,140,0,0.08)' }}>
+        <button
+          type="button"
+          onClick={openModal}
+          className="w-full flex items-center gap-1.5 text-[11px] font-medium hover:opacity-80 transition-opacity"
+          style={{ color: '#8a8078' }}
+        >
+          <FileText size={11} />
+          Manage bills
+          {excludedCount > 0 && (
+            <span className="text-[10px]" style={{ color: '#22c55e' }}>
+              · {excludedCount} excluded ({formatCurrency(excludedTotal)})
+            </span>
+          )}
+          <span className="text-[10px] font-normal ml-auto" style={{ color: '#8a8078' }}>
+            mark pre-Hub bills as already billed
           </span>
-        )}
-        <span className="text-[10px] font-normal ml-auto" style={{ color: '#8a8078' }}>
-          mark pre-Hub bills as already billed
-        </span>
-      </button>
+        </button>
+      </div>
 
-      {expanded && (
-        <div className="mt-2 rounded-md text-[11px]" style={{ background: '#ffffff', border: '1px solid rgba(200,140,0,0.10)' }}>
-          {loading && (
-            <div className="px-2 py-3 flex items-center gap-1.5" style={{ color: '#8a8078' }}>
-              <Loader2 size={10} className="animate-spin" /> Loading bills…
-            </div>
-          )}
-          {error && (
-            <div className="px-2 py-2" style={{ color: '#b91c1c' }}>
-              {error}
-            </div>
-          )}
-          {!loading && !error && bills.length === 0 && (
-            <div className="px-2 py-3 italic" style={{ color: '#8a8078' }}>
-              No vendor bills on this job.
-            </div>
-          )}
-          {!loading && !error && bills.length > 0 && (
-            <>
-              <div
-                className="px-2 py-1 text-[10px] font-semibold uppercase tracking-wide flex items-center gap-2"
-                style={{ color: '#8a8078', background: '#faf8f5', borderBottom: '1px solid rgba(200,140,0,0.10)' }}
-              >
-                <span className="flex-1">Vendor bills · {bills.length}</span>
-                <span style={{ width: 80 }}>Date</span>
-                <span style={{ width: 70, textAlign: 'right' }}>Amount</span>
-                <span style={{ width: 86, textAlign: 'right' }}>Already billed</span>
+      {/* Modal portal. Renders into a fixed backdrop so the dialog can
+          be wide enough (max ~720px) to show vendor names + status +
+          dates + amounts + checkboxes without cramping. Backdrop click
+          and Escape both close. */}
+      {open && (
+        <div
+          onClick={closeModal}
+          style={{
+            position: 'fixed',
+            inset: 0,
+            background: 'rgba(20,15,10,0.55)',
+            zIndex: 50,
+            display: 'flex',
+            alignItems: 'flex-start',
+            justifyContent: 'center',
+            padding: '5vh 16px',
+            overflowY: 'auto',
+          }}
+        >
+          <div
+            onClick={(e) => e.stopPropagation()}
+            style={{
+              width: '100%',
+              maxWidth: 720,
+              background: '#ffffff',
+              borderRadius: 12,
+              border: '1px solid rgba(200,140,0,0.20)',
+              boxShadow: '0 20px 60px rgba(0,0,0,0.30)',
+              display: 'flex',
+              flexDirection: 'column',
+              maxHeight: '90vh',
+            }}
+          >
+            {/* Header */}
+            <div
+              className="flex items-center gap-3 px-4 py-3"
+              style={{ borderBottom: '1px solid rgba(200,140,0,0.15)' }}
+            >
+              <FileText size={16} style={{ color: '#c88c00' }} />
+              <div className="flex-1 min-w-0">
+                <div className="text-sm font-semibold truncate" style={{ color: '#1a1a1a' }}>
+                  Manage bills for {jobName}
+                </div>
+                <div className="text-[11px]" style={{ color: '#8a8078' }}>
+                  Check any bill that was already invoiced to the client outside the Hub. Excluded bills drop out of the cost-plus unbilled total.
+                </div>
               </div>
-              <div className="max-h-64 overflow-y-auto">
-                {bills.map((bill) => {
-                  const isToggling = toggling.has(bill.docId);
-                  return (
-                    <div
-                      key={bill.docId}
-                      className="px-2 py-1.5 flex items-center gap-2 border-b"
-                      style={{
-                        borderColor: 'rgba(200,140,0,0.06)',
-                        opacity: bill.excluded ? 0.65 : 1,
-                        background: bill.excluded ? 'rgba(34,197,94,0.05)' : 'transparent',
-                      }}
-                    >
-                      <div className="flex-1 min-w-0">
-                        <div
-                          className="truncate"
-                          style={{
-                            color: '#1a1a1a',
-                            textDecoration: bill.excluded ? 'line-through' : 'none',
-                            fontWeight: 600,
-                          }}
-                          title={bill.vendorName || bill.name || '(unnamed)'}
+              <button
+                type="button"
+                onClick={closeModal}
+                className="p-1 rounded hover:bg-stone-100"
+                style={{ color: '#8a8078' }}
+                title="Close (Esc)"
+              >
+                <X size={16} />
+              </button>
+            </div>
+
+            {/* Body */}
+            <div style={{ flex: 1, minHeight: 0, overflowY: 'auto' }}>
+              {loading && (
+                <div className="flex items-center justify-center gap-2 py-12 text-sm" style={{ color: '#8a8078' }}>
+                  <Loader2 size={14} className="animate-spin" /> Loading bills…
+                </div>
+              )}
+              {error && (
+                <div
+                  className="m-3 rounded p-2 text-xs"
+                  style={{ background: 'rgba(239,68,68,0.08)', color: '#b91c1c', border: '1px solid rgba(239,68,68,0.20)' }}
+                >
+                  {error}
+                </div>
+              )}
+              {!loading && !error && bills.length === 0 && (
+                <div className="py-12 text-center text-sm italic" style={{ color: '#8a8078' }}>
+                  No vendor bills on this job.
+                </div>
+              )}
+              {!loading && !error && bills.length > 0 && (
+                <>
+                  {/* Column header */}
+                  <div
+                    className="px-4 py-2 text-[10px] font-semibold uppercase tracking-wide grid gap-3 items-center"
+                    style={{
+                      gridTemplateColumns: '32px 1fr 100px 110px',
+                      color: '#8a8078',
+                      background: '#faf8f5',
+                      borderBottom: '1px solid rgba(200,140,0,0.10)',
+                    }}
+                  >
+                    <span>Excl.</span>
+                    <span>Vendor</span>
+                    <span style={{ textAlign: 'right' }}>Amount</span>
+                    <span>Date · Bill #</span>
+                  </div>
+                  {bills.map((bill) => {
+                    const isToggling = toggling.has(bill.docId);
+                    return (
+                      <div
+                        key={bill.docId}
+                        className="px-4 py-2.5 grid gap-3 items-center border-b transition-colors"
+                        style={{
+                          gridTemplateColumns: '32px 1fr 100px 110px',
+                          borderColor: 'rgba(200,140,0,0.08)',
+                          background: bill.excluded ? 'rgba(34,197,94,0.06)' : 'transparent',
+                          opacity: bill.excluded ? 0.7 : 1,
+                        }}
+                      >
+                        <label
+                          className="inline-flex items-center justify-center gap-1"
+                          style={{ cursor: isToggling ? 'wait' : 'pointer' }}
                         >
-                          {bill.vendorName || bill.name || '(unnamed vendor)'}
+                          {isToggling
+                            ? <Loader2 size={12} className="animate-spin" style={{ color: '#c88c00' }} />
+                            : (
+                              <input
+                                type="checkbox"
+                                checked={bill.excluded}
+                                disabled={isToggling}
+                                onChange={() => toggleExclude(bill)}
+                                style={{ width: 16, height: 16, cursor: isToggling ? 'wait' : 'pointer' }}
+                                title={bill.excluded
+                                  ? 'Click to put this bill back in the unbilled total'
+                                  : 'Click to exclude this bill (already billed outside the Hub)'}
+                              />
+                            )}
+                        </label>
+                        <div className="min-w-0">
+                          <div
+                            className="text-sm truncate"
+                            style={{
+                              color: '#1a1a1a',
+                              fontWeight: 600,
+                              textDecoration: bill.excluded ? 'line-through' : 'none',
+                            }}
+                            title={bill.vendorName || bill.name || '(unnamed vendor)'}
+                          >
+                            {bill.vendorName || bill.name || '(unnamed vendor)'}
+                          </div>
+                          <div className="text-[11px] truncate" style={{ color: '#8a8078' }}>
+                            {bill.status}
+                            {bill.excluded && bill.excludedAt && (
+                              <span> · excluded {formatDate(bill.excludedAt)}</span>
+                            )}
+                          </div>
                         </div>
-                        <div className="text-[10px] truncate" style={{ color: '#8a8078' }}>
-                          {bill.status}
-                          {bill.number && <span> · bill #{bill.number}</span>}
-                          {bill.excludedAt && bill.excluded && (
-                            <span> · excluded {formatDate(bill.excludedAt)}</span>
-                          )}
+                        <div
+                          className="text-sm font-mono"
+                          style={{ color: '#1a1a1a', fontWeight: 600, textAlign: 'right' }}
+                        >
+                          {formatCurrency(bill.cost)}
+                        </div>
+                        <div className="text-[11px]" style={{ color: '#8a8078' }}>
+                          <div>{bill.createdAt ? formatDate(bill.createdAt) : '—'}</div>
+                          {bill.number && <div>#{bill.number}</div>}
                         </div>
                       </div>
-                      <span style={{ width: 80, color: '#8a8078' }}>
-                        {bill.createdAt ? formatDate(bill.createdAt) : '—'}
-                      </span>
-                      <span style={{ width: 70, textAlign: 'right', color: '#1a1a1a', fontWeight: 600 }}>
-                        {formatCurrency(bill.cost)}
-                      </span>
-                      <label
-                        style={{ width: 86, textAlign: 'right', cursor: isToggling ? 'wait' : 'pointer' }}
-                        className="inline-flex items-center justify-end gap-1"
-                      >
-                        {isToggling && <Loader2 size={9} className="animate-spin" style={{ color: '#c88c00' }} />}
-                        <input
-                          type="checkbox"
-                          checked={bill.excluded}
-                          disabled={isToggling}
-                          onChange={() => toggleExclude(bill)}
-                          style={{ cursor: isToggling ? 'wait' : 'pointer' }}
-                          title={bill.excluded
-                            ? 'Click to put this bill back in the unbilled total'
-                            : 'Click to exclude this bill (already billed outside the Hub)'}
-                        />
-                      </label>
-                    </div>
-                  );
-                })}
-              </div>
-            </>
-          )}
+                    );
+                  })}
+                </>
+              )}
+            </div>
+
+            {/* Footer */}
+            <div
+              className="flex items-center gap-3 px-4 py-3"
+              style={{ borderTop: '1px solid rgba(200,140,0,0.15)', background: '#faf8f5' }}
+            >
+              <span className="text-xs" style={{ color: '#5a5550' }}>
+                {bills.length > 0 && (
+                  <>
+                    <strong>{excludedCount}</strong> of {bills.length} bill{bills.length === 1 ? '' : 's'} excluded
+                    {excludedCount > 0 && <span> · {formatCurrency(excludedTotal)} total</span>}
+                  </>
+                )}
+              </span>
+              <button
+                type="button"
+                onClick={closeModal}
+                className="ml-auto px-3 py-1.5 rounded-lg text-sm font-medium"
+                style={{ background: '#c88c00', color: '#ffffff' }}
+              >
+                Done
+              </button>
+            </div>
+          </div>
         </div>
       )}
-    </div>
+    </>
   );
 }
 
