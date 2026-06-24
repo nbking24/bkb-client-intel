@@ -53,6 +53,8 @@ export async function GET(req: NextRequest) {
     // Surface every vendor bill (not just approved) so the operator
     // can mark old draft / pending bills too. Denied bills are
     // skipped - they're already filtered out of the unbilled compute.
+    // accountName carries the JT vendor / account name (issuer of the
+    // bill) so the UI can show "Acme Plumbing" instead of "#1234".
     const vendorBills = (docs || [])
       .filter((d: any) => d.type === 'vendorBill' && d.status !== 'denied')
       .map((d: any) => {
@@ -61,6 +63,7 @@ export async function GET(req: NextRequest) {
           docId: d.id,
           name: d.name || '',
           number: d.number || '',
+          vendorName: d.accountName || '',
           status: d.status,
           createdAt: d.createdAt,
           cost: Number(d.cost) || 0,

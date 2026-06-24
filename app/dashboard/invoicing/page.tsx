@@ -968,6 +968,10 @@ interface ExcludableBill {
   docId: string;
   name: string;
   number: string;
+  // JT account.name on the bill - the vendor that issued it. Shown as
+  // the primary label in the row since Nathan reads bills by vendor
+  // ("Acme Plumbing") faster than by JT-assigned bill number.
+  vendorName: string;
   status: string;
   createdAt: string;
   cost: number;
@@ -1126,14 +1130,15 @@ function BillExclusionDrawer({
                           style={{
                             color: '#1a1a1a',
                             textDecoration: bill.excluded ? 'line-through' : 'none',
+                            fontWeight: 600,
                           }}
-                          title={bill.name}
+                          title={bill.vendorName || bill.name || '(unnamed)'}
                         >
-                          {bill.name || '(unnamed)'}
-                          {bill.number ? ` · #${bill.number}` : ''}
+                          {bill.vendorName || bill.name || '(unnamed vendor)'}
                         </div>
-                        <div className="text-[10px]" style={{ color: '#8a8078' }}>
+                        <div className="text-[10px] truncate" style={{ color: '#8a8078' }}>
                           {bill.status}
+                          {bill.number && <span> · bill #{bill.number}</span>}
                           {bill.excludedAt && bill.excluded && (
                             <span> · excluded {formatDate(bill.excludedAt)}</span>
                           )}
