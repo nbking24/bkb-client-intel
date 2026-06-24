@@ -527,6 +527,10 @@ function InvoiceDetails({ drafts, released }: { drafts: DraftInvoiceInfo[]; rele
 function ContractJobCard({ job, onInvoiceCreated, arHeld, arToggling, onToggleArHold }: { job: ContractJobHealth; onInvoiceCreated?: () => void; arHeld?: boolean; arToggling?: boolean; onToggleArHold?: (jobId: string, jobName: string) => void }) {
   const [creatingBillable, setCreatingBillable] = useState(false);
   const [billableResult, setBillableResult] = useState<{ success: boolean; message: string; documentNumber?: string } | null>(null);
+  // Modal that lists the CC23 vendor-bill line items contributing to
+  // job.uninvoicedBillableAmount. Opened from clicking the Billable
+  // stat on this card.
+  const [billablesOpen, setBillablesOpen] = useState(false);
 
   const hasBillableWork = (job.uninvoicedBillableAmount ?? 0) > 0 || (job.unbilledLaborHours ?? 0) > 0;
 
@@ -618,19 +622,32 @@ function ContractJobCard({ job, onInvoiceCreated, arHeld, arToggling, onToggleAr
           (>$200 billable, >1h unbilled labor). The card itself is now
           tinted by health, so those values get amplified by font weight
           instead of an extra color — the eye picks up "bigger number,
-          tinted card" without competing color hits. (Suggestion F.) */}
+          tinted card" without competing color hits. (Suggestion F.)
+          The Billable stat is a clickable target that opens a modal
+          listing the CC23 vendor-bill line items contributing to that
+          dollar amount, so the operator can audit where the number
+          comes from without bouncing into JT. */}
       <div className="flex items-center gap-3 text-[11px] mb-1.5">
-        <span style={{ color: '#8a8078' }}>
+        <button
+          type="button"
+          onClick={() => setBillablesOpen(true)}
+          className="text-left hover:opacity-80 transition-opacity inline-flex items-center gap-1 px-1 -mx-1 rounded"
+          style={{ color: '#8a8078', cursor: 'pointer' }}
+          title="View the vendor bill line items contributing to this number"
+        >
           Billable:{' '}
           <span
             style={{
               color: '#1a1a1a',
               fontWeight: job.uninvoicedBillableAmount > 200 ? 700 : 400,
+              textDecoration: 'underline dotted',
+              textUnderlineOffset: 2,
+              textDecorationColor: 'rgba(200,140,0,0.5)',
             }}
           >
             {formatCurrency(job.uninvoicedBillableAmount ?? 0)}
           </span>
-        </span>
+        </button>
         <span style={{ color: '#8a8078' }}>
           Labor:{' '}
           <span
@@ -643,6 +660,12 @@ function ContractJobCard({ job, onInvoiceCreated, arHeld, arToggling, onToggleAr
           </span>
         </span>
       </div>
+      <ContractBillablesModal
+        open={billablesOpen}
+        onClose={() => setBillablesOpen(false)}
+        jobId={job.jobId}
+        jobName={job.jobName}
+      />
 
       {/* Compact alert rows — only show if there are issues */}
       {job.approachingMilestones && job.approachingMilestones.length > 0 && (
@@ -1297,6 +1320,315 @@ function BillExclusionDrawer({
         </div>
       )}
     </>
+  );
+}
+
+// ============================================================
+// Contract Billables Modal (CC23 lines on vendor bills)
+// ============================================================
+
+interface ContractBillablesPayload {
+  jobId: string;
+  totalBilled: number;
+  totalInvoiced: number;
+  netUninvoiced: number;
+  billLines: Array<{
+    lineItemId: string;
+    lineName: string;
+    lineDescription: string;
+    cost: number;
+    quantity: number;
+    unitCost: number;
+    costCodeNumber: string | null;
+    costTypeName: string | null;
+    docId: string;
+    vendorName: string;
+    billNumber: string;
+    billStatus: string;
+    billDate: string | null;
+  }>;
+  invoiceLines: Array<{
+    lineItemId: string;
+    lineName: string;
+    cost: number;
+    docId: string;
+    invoiceNumber: string;
+    invoiceStatus: string;
+    invoiceDate: string | null;
+  }>;
+}
+
+function ContractBillablesModal({
+  open,
+  onClose,
+  jobId,
+  jobName,
+}: {
+  open: boolean;
+  onClose: () => void;
+  jobId: string;
+  jobName: string;
+}) {
+  const [loading, setLoading] = useState(false);
+  const [data, setData] = useState<ContractBillablesPayload | null>(null);
+  const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (!open) return;
+    let cancelled = false;
+    (async () => {
+      setLoading(true);
+      setError(null);
+      try {
+        const res = await fetch(`/api/dashboard/invoicing/contract-billables?jobId=${encodeURIComponent(jobId)}`);
+        const json = await res.json();
+        if (cancelled) return;
+        if (!res.ok || json?.error) throw new Error(json?.error || `Failed to load (${res.status})`);
+        setData(json);
+      } catch (err: any) {
+        if (!cancelled) setError(err?.message || 'Failed to load billable items');
+      } finally {
+        if (!cancelled) setLoading(false);
+      }
+    })();
+    return () => { cancelled = true; };
+  }, [open, jobId]);
+
+  useEffect(() => {
+    if (!open) return;
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') onClose();
+    };
+    document.addEventListener('keydown', onKey);
+    return () => document.removeEventListener('keydown', onKey);
+  }, [open, onClose]);
+
+  if (!open) return null;
+
+  return (
+    <div
+      onClick={onClose}
+      style={{
+        position: 'fixed',
+        inset: 0,
+        background: 'rgba(20,15,10,0.55)',
+        zIndex: 50,
+        display: 'flex',
+        alignItems: 'flex-start',
+        justifyContent: 'center',
+        padding: '5vh 16px',
+        overflowY: 'auto',
+      }}
+    >
+      <div
+        onClick={(e) => e.stopPropagation()}
+        style={{
+          width: '100%',
+          maxWidth: 820,
+          background: '#ffffff',
+          borderRadius: 12,
+          border: '1px solid rgba(200,140,0,0.20)',
+          boxShadow: '0 20px 60px rgba(0,0,0,0.30)',
+          display: 'flex',
+          flexDirection: 'column',
+          maxHeight: '90vh',
+        }}
+      >
+        {/* Header */}
+        <div
+          className="flex items-center gap-3 px-4 py-3"
+          style={{ borderBottom: '1px solid rgba(200,140,0,0.15)' }}
+        >
+          <FileText size={16} style={{ color: '#c88c00' }} />
+          <div className="flex-1 min-w-0">
+            <div className="text-sm font-semibold truncate" style={{ color: '#1a1a1a' }}>
+              Uninvoiced billable items, {jobName}
+            </div>
+            <div className="text-[11px]" style={{ color: '#8a8078' }}>
+              Cost Code 23 vendor bill lines that haven't been pushed onto a customer invoice. Math is bill-line totals minus invoice-line totals.
+            </div>
+          </div>
+          <button
+            type="button"
+            onClick={onClose}
+            className="p-1 rounded hover:bg-stone-100"
+            style={{ color: '#8a8078' }}
+            title="Close (Esc)"
+          >
+            <X size={16} />
+          </button>
+        </div>
+
+        {/* Summary strip */}
+        {data && !loading && !error && (
+          <div
+            className="grid gap-3 px-4 py-3 text-xs"
+            style={{
+              gridTemplateColumns: '1fr 1fr 1fr',
+              borderBottom: '1px solid rgba(200,140,0,0.10)',
+              background: '#faf8f5',
+            }}
+          >
+            <div>
+              <div style={{ color: '#8a8078' }}>Billed (CC23)</div>
+              <div className="text-base font-bold" style={{ color: '#1a1a1a' }}>
+                {formatCurrency(data.totalBilled)}
+              </div>
+              <div style={{ color: '#8a8078' }}>{data.billLines.length} line{data.billLines.length === 1 ? '' : 's'}</div>
+            </div>
+            <div>
+              <div style={{ color: '#8a8078' }}>Invoiced (CC23)</div>
+              <div className="text-base font-bold" style={{ color: '#1a1a1a' }}>
+                {formatCurrency(data.totalInvoiced)}
+              </div>
+              <div style={{ color: '#8a8078' }}>{data.invoiceLines.length} line{data.invoiceLines.length === 1 ? '' : 's'}</div>
+            </div>
+            <div>
+              <div style={{ color: '#8a8078' }}>Net uninvoiced</div>
+              <div className="text-base font-bold" style={{ color: data.netUninvoiced > 0 ? '#c2410c' : '#15803d' }}>
+                {formatCurrency(data.netUninvoiced)}
+              </div>
+              <div style={{ color: '#8a8078' }}>billed minus invoiced</div>
+            </div>
+          </div>
+        )}
+
+        {/* Body */}
+        <div style={{ flex: 1, minHeight: 0, overflowY: 'auto' }}>
+          {loading && (
+            <div className="flex items-center justify-center gap-2 py-12 text-sm" style={{ color: '#8a8078' }}>
+              <Loader2 size={14} className="animate-spin" /> Loading billable items…
+            </div>
+          )}
+          {error && (
+            <div
+              className="m-3 rounded p-2 text-xs"
+              style={{ background: 'rgba(239,68,68,0.08)', color: '#b91c1c', border: '1px solid rgba(239,68,68,0.20)' }}
+            >
+              {error}
+            </div>
+          )}
+          {data && !loading && !error && data.billLines.length === 0 && data.invoiceLines.length === 0 && (
+            <div className="py-12 text-center text-sm italic" style={{ color: '#8a8078' }}>
+              No CC23 billable items on this job.
+            </div>
+          )}
+          {data && !loading && !error && data.billLines.length > 0 && (
+            <>
+              <div
+                className="px-4 py-2 text-[10px] font-semibold uppercase tracking-wide"
+                style={{ color: '#8a8078', background: '#faf8f5', borderBottom: '1px solid rgba(200,140,0,0.10)' }}
+              >
+                Bill lines · {data.billLines.length}
+              </div>
+              <div
+                className="px-4 py-2 text-[10px] font-semibold uppercase tracking-wide grid gap-3 items-center"
+                style={{
+                  gridTemplateColumns: '1fr 110px 100px 100px',
+                  color: '#8a8078',
+                  borderBottom: '1px solid rgba(200,140,0,0.10)',
+                }}
+              >
+                <span>Vendor / item</span>
+                <span>Date · Bill #</span>
+                <span>Type</span>
+                <span style={{ textAlign: 'right' }}>Cost</span>
+              </div>
+              {data.billLines.map((line) => (
+                <div
+                  key={line.lineItemId}
+                  className="px-4 py-2.5 grid gap-3 items-center border-b"
+                  style={{
+                    gridTemplateColumns: '1fr 110px 100px 100px',
+                    borderColor: 'rgba(200,140,0,0.08)',
+                  }}
+                >
+                  <div className="min-w-0">
+                    <div
+                      className="text-sm truncate"
+                      style={{ color: '#1a1a1a', fontWeight: 600 }}
+                      title={line.vendorName || '(no vendor)'}
+                    >
+                      {line.vendorName || '(no vendor)'}
+                    </div>
+                    <div className="text-[11px] truncate" style={{ color: '#5a5550' }} title={line.lineName}>
+                      {line.lineName}
+                    </div>
+                  </div>
+                  <div className="text-[11px]" style={{ color: '#8a8078' }}>
+                    <div>{line.billDate ? formatDate(line.billDate) : '—'}</div>
+                    {line.billNumber && <div>#{line.billNumber}</div>}
+                  </div>
+                  <div className="text-[11px]" style={{ color: '#8a8078' }}>
+                    <div>{line.costTypeName || '—'}</div>
+                    <div>{line.billStatus}</div>
+                  </div>
+                  <div
+                    className="text-sm font-mono"
+                    style={{ color: '#1a1a1a', fontWeight: 600, textAlign: 'right' }}
+                  >
+                    {formatCurrency(line.cost)}
+                  </div>
+                </div>
+              ))}
+            </>
+          )}
+          {data && !loading && !error && data.invoiceLines.length > 0 && (
+            <>
+              <div
+                className="px-4 py-2 text-[10px] font-semibold uppercase tracking-wide"
+                style={{ color: '#8a8078', background: '#faf8f5', borderBottom: '1px solid rgba(200,140,0,0.10)' }}
+              >
+                Already invoiced · {data.invoiceLines.length}
+              </div>
+              {data.invoiceLines.map((line) => (
+                <div
+                  key={line.lineItemId}
+                  className="px-4 py-2 grid gap-3 items-center border-b"
+                  style={{
+                    gridTemplateColumns: '1fr 110px 100px',
+                    borderColor: 'rgba(200,140,0,0.08)',
+                    opacity: 0.75,
+                  }}
+                >
+                  <div className="text-sm truncate" style={{ color: '#1a1a1a' }} title={line.lineName}>
+                    {line.lineName}
+                  </div>
+                  <div className="text-[11px]" style={{ color: '#8a8078' }}>
+                    <div>{line.invoiceDate ? formatDate(line.invoiceDate) : '—'}</div>
+                    {line.invoiceNumber && <div>Inv #{line.invoiceNumber}</div>}
+                  </div>
+                  <div
+                    className="text-sm font-mono"
+                    style={{ color: '#15803d', textAlign: 'right' }}
+                  >
+                    {formatCurrency(line.cost)}
+                  </div>
+                </div>
+              ))}
+            </>
+          )}
+        </div>
+
+        {/* Footer */}
+        <div
+          className="flex items-center gap-3 px-4 py-3"
+          style={{ borderTop: '1px solid rgba(200,140,0,0.15)', background: '#faf8f5' }}
+        >
+          <span className="text-xs" style={{ color: '#5a5550' }}>
+            Read-only view. To exclude a bill from this calculation, mark it as billed on its job in JobTread.
+          </span>
+          <button
+            type="button"
+            onClick={onClose}
+            className="ml-auto px-3 py-1.5 rounded-lg text-sm font-medium"
+            style={{ background: '#c88c00', color: '#ffffff' }}
+          >
+            Done
+          </button>
+        </div>
+      </div>
+    </div>
   );
 }
 
