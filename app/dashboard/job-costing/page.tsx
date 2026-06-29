@@ -1066,6 +1066,109 @@ export default function JobCostingDashboard() {
               })}
             </div>
 
+            {/* WIP analysis panel - fixed-price only.
+                Renders the full earned-revenue breakdown so Nathan can
+                see why the kanban card's WIP chip says what it does:
+                Cost ÷ Budget = % complete, % complete × Contract =
+                Earned, Earned − Billed = Over/Under. Cost-plus is
+                excluded because the model doesn't apply. */}
+            {!detail.job.isCostPlus && (() => {
+              const fs = detail.financialSummary;
+              const contractPrice = fs.contractPrice || fs.estimatedPrice || 0;
+              const totalCosts = fs.totalCosts || fs.committedCost || 0;
+              const estimatedCost = fs.estimatedCost || 0;
+              if (contractPrice <= 0 || estimatedCost <= 0) return null;
+              const costPctRaw = totalCosts / estimatedCost;
+              const costPct = Math.min(1, Math.max(0, costPctRaw));
+              const earned = costPct * contractPrice;
+              const overUnder = fs.invoicedTotal - earned;
+              const overUnderPct = overUnder / contractPrice;
+              const wipStatus: 'ahead' | 'on_track' | 'behind' =
+                Math.abs(overUnderPct) <= 0.05 ? 'on_track'
+                : overUnderPct > 0 ? 'ahead'
+                : 'behind';
+              const palette =
+                wipStatus === 'behind'
+                  ? { color: '#b91c1c', bg: 'rgba(239,68,68,0.06)', border: 'rgba(239,68,68,0.22)', label: '↓ Behind on invoicing', desc: 'Work has been performed but is not yet billed. Consider invoicing the gap.' }
+                  : wipStatus === 'ahead'
+                    ? { color: '#1e40af', bg: 'rgba(59,130,246,0.06)', border: 'rgba(59,130,246,0.22)', label: '↑ Ahead on invoicing', desc: 'Client has been invoiced for more work than has been performed. Liability until completed.' }
+                    : { color: '#15803d', bg: 'rgba(34,197,94,0.06)', border: 'rgba(34,197,94,0.22)', label: '= On track', desc: 'Billings are within 5% of the cost-based earned revenue.' };
+              return (
+                <div
+                  className="rounded-lg p-4"
+                  style={{ background: palette.bg, border: `1px solid ${palette.border}` }}
+                >
+                  <div className="flex items-center gap-2 mb-3 flex-wrap">
+                    <span className="text-sm font-semibold uppercase tracking-wide" style={{ color: palette.color }}>
+                      WIP Analysis · {palette.label}
+                    </span>
+                    <span className="text-xs" style={{ color: '#5a5550' }}>
+                      Cost-based earned-revenue model
+                    </span>
+                    {fs.manualProgress != null && (
+                      <span
+                        className="ml-auto text-[11px] px-2 py-0.5 rounded"
+                        style={{ background: '#ffffff', color: '#5a5550', border: '1px solid rgba(200,140,0,0.20)' }}
+                        title="Manual % complete is shown for reference only. WIP math uses cost-based %."
+                      >
+                        Manual: {fs.manualProgress}%
+                      </span>
+                    )}
+                  </div>
+                  <div className="grid grid-cols-2 md:grid-cols-5 gap-3 text-sm">
+                    <div>
+                      <p className="text-xs" style={{ color: '#8a8078' }}>Cost ÷ Budget</p>
+                      <p className="text-lg font-bold" style={{ color: '#1a1a1a' }}>
+                        {Math.round(costPct * 100)}%
+                      </p>
+                      <p className="text-[11px]" style={{ color: '#8a8078' }}>
+                        ${fmt(totalCosts)} / ${fmt(estimatedCost)}
+                      </p>
+                    </div>
+                    <div>
+                      <p className="text-xs" style={{ color: '#8a8078' }}>Earned Revenue</p>
+                      <p className="text-lg font-bold" style={{ color: '#1a1a1a' }}>
+                        ${fmt(earned)}
+                      </p>
+                      <p className="text-[11px]" style={{ color: '#8a8078' }}>
+                        {Math.round(costPct * 100)}% × ${fmt(contractPrice)}
+                      </p>
+                    </div>
+                    <div>
+                      <p className="text-xs" style={{ color: '#8a8078' }}>Invoiced to Date</p>
+                      <p className="text-lg font-bold" style={{ color: '#1a1a1a' }}>
+                        ${fmt(fs.invoicedTotal)}
+                      </p>
+                      <p className="text-[11px]" style={{ color: '#8a8078' }}>
+                        {contractPrice > 0 ? `${Math.round((fs.invoicedTotal / contractPrice) * 100)}% of contract` : ''}
+                      </p>
+                    </div>
+                    <div>
+                      <p className="text-xs" style={{ color: '#8a8078' }}>Over / (Under) Billed</p>
+                      <p className="text-lg font-bold" style={{ color: palette.color }}>
+                        {overUnder >= 0 ? '+' : '−'}${fmt(Math.abs(overUnder))}
+                      </p>
+                      <p className="text-[11px]" style={{ color: palette.color }}>
+                        {overUnderPct >= 0 ? '+' : '−'}{Math.abs(overUnderPct * 100).toFixed(1)}% of contract
+                      </p>
+                    </div>
+                    <div>
+                      <p className="text-xs" style={{ color: '#8a8078' }}>Contract Price</p>
+                      <p className="text-lg font-bold" style={{ color: '#c88c00' }}>
+                        ${fmt(contractPrice)}
+                      </p>
+                      <p className="text-[11px]" style={{ color: '#8a8078' }}>
+                        Approved CO total
+                      </p>
+                    </div>
+                  </div>
+                  <p className="text-xs mt-3" style={{ color: '#5a5550' }}>
+                    {palette.desc}
+                  </p>
+                </div>
+              );
+            })()}
+
             {/* Manual % complete override editor. Inline form that appears
                 below the cards when the user clicks the Progress card. Save
                 writes to job_manual_progress and refetches the detail so
@@ -2194,6 +2297,19 @@ export default function JobCostingDashboard() {
               </span>
             );
           })()}
+          {/* WIP Report button - takes the operator to a dedicated
+              spreadsheet view of every open fixed-price job with the
+              full earned-revenue breakdown and a CSV export. Sits
+              next to Refresh so it's reachable from the same row. */}
+          <a
+            href="/dashboard/job-costing/wip-report"
+            className="flex items-center gap-2 px-3 py-1.5 rounded-lg text-sm hover:opacity-90 transition-opacity"
+            style={{ background: '#c88c00', color: '#ffffff' }}
+            title="Open the spreadsheet-style WIP report across every open fixed-price job"
+          >
+            <FileText size={14} />
+            WIP Report
+          </a>
           <button
             onClick={() => loadSummary(true)}
             disabled={loading || refreshing}
