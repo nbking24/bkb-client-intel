@@ -62,6 +62,15 @@ interface JobSummary {
   // no override has ever been set for the job.
   manualPercentComplete?: number | null;
   manualPercentSetAt?: string | null;
+  // WIP (work in progress) fields. Cost-based earned-revenue model.
+  // Fixed-price only; cost-plus jobs return wipStatus='na'. Manual
+  // percent stays as a separate field above for reference and never
+  // drives the WIP math.
+  wipStatus?: 'on_track' | 'ahead' | 'behind' | 'na';
+  costBasedPercent?: number | null;
+  earnedRevenue?: number;
+  overUnderBilled?: number;
+  overUnderPercent?: number;
 }
 
 interface Totals {
@@ -2560,6 +2569,74 @@ export default function JobCostingDashboard() {
                                   </span>
                                 )}
                               </div>
+
+                              {/* WIP block - fixed-price only.
+                                  Shows the cost-based earned-revenue
+                                  picture: cost %, earned $, billed $,
+                                  and the over/under amount with a
+                                  status chip (Ahead / On track /
+                                  Behind). Hidden on cost-plus because
+                                  the contract earned-revenue model
+                                  doesn't apply. */}
+                              {job.wipStatus && job.wipStatus !== 'na' && (
+                                <div
+                                  className="mt-1.5 rounded px-1.5 py-1 text-[10px]"
+                                  style={{
+                                    background:
+                                      job.wipStatus === 'behind'
+                                        ? 'rgba(239,68,68,0.08)'
+                                        : job.wipStatus === 'ahead'
+                                          ? 'rgba(59,130,246,0.08)'
+                                          : 'rgba(34,197,94,0.06)',
+                                    border: `1px solid ${
+                                      job.wipStatus === 'behind'
+                                        ? 'rgba(239,68,68,0.22)'
+                                        : job.wipStatus === 'ahead'
+                                          ? 'rgba(59,130,246,0.22)'
+                                          : 'rgba(34,197,94,0.22)'
+                                    }`,
+                                  }}
+                                >
+                                  <div className="flex items-center gap-1.5">
+                                    <span
+                                      className="font-semibold uppercase tracking-wide text-[9px]"
+                                      style={{
+                                        color:
+                                          job.wipStatus === 'behind' ? '#b91c1c'
+                                          : job.wipStatus === 'ahead' ? '#1e40af'
+                                          : '#15803d',
+                                      }}
+                                    >
+                                      WIP {job.wipStatus === 'behind' ? '↓ Behind' : job.wipStatus === 'ahead' ? '↑ Ahead' : '= On track'}
+                                    </span>
+                                    {job.costBasedPercent != null && (
+                                      <span style={{ color: '#5a5550' }}>
+                                        · {Math.round((job.costBasedPercent || 0) * 100)}% by cost
+                                      </span>
+                                    )}
+                                  </div>
+                                  <div className="flex items-center gap-2 mt-0.5" style={{ color: '#5a5550' }}>
+                                    <span>
+                                      Earned <strong style={{ color: '#1a1a1a' }}>${fmt(job.earnedRevenue ?? 0)}</strong>
+                                    </span>
+                                    <span>
+                                      Billed <strong style={{ color: '#1a1a1a' }}>${fmt(job.invoicedAmount)}</strong>
+                                    </span>
+                                    <span
+                                      style={{
+                                        fontWeight: 600,
+                                        color:
+                                          job.wipStatus === 'behind' ? '#b91c1c'
+                                          : job.wipStatus === 'ahead' ? '#1e40af'
+                                          : '#15803d',
+                                        marginLeft: 'auto',
+                                      }}
+                                    >
+                                      {(job.overUnderBilled ?? 0) >= 0 ? '+' : '−'}${fmt(Math.abs(job.overUnderBilled ?? 0))}
+                                    </span>
+                                  </div>
+                                </div>
+                              )}
 
                               {/* Inline % complete editor.
                                   Saves to job_manual_progress on blur (or

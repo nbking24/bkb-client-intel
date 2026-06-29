@@ -25,6 +25,7 @@ import {
   type JTTimeEntry,
 } from './jobtread';
 import { getCOTrackingForJob } from './co-tracking';
+import { computeWip } from './wip';
 
 // ============================================================
 // Constants
@@ -104,6 +105,14 @@ export interface ContractJobHealth {
   appliedCOsCount: number;
   health: InvoicingHealth;
   alerts: string[];
+  // WIP fields (cost-based). Drive the ahead / on-track / behind
+  // indicator on the invoicing card. See app/lib/wip.ts for formulas.
+  wipStatus: 'on_track' | 'ahead' | 'behind' | 'na';
+  costBasedPercent: number | null;
+  earnedRevenue: number;
+  overUnderBilled: number;
+  overUnderPercent: number;
+  /** Cost-plus has no WIP concept; same fields exist for type symmetry. */
 }
 
 export interface MilestoneInfo {
@@ -598,6 +607,37 @@ async function analyzeContractJob(
     })),
   ];
 
+  // -----------------------------------------------------------
+  // WIP (Work in Progress) analysis
+  //
+  // Cost-based earned-revenue model. Lets the invoicing card show
+  // an ahead / on-track / behind indicator at a glance.
+  //
+  // totalEstimatedCost = sum of cost on approved customer-order docs
+  //                      that are included in the budget. Matches the
+  //                      "budgeted cost" denominator the job costing
+  //                      dashboard uses.
+  // totalActualCost    = sum of cost on approved + pending vendor bills
+  //                      (and POs), denied docs skipped. Mirrors what
+  //                      the job costing route calls totalCosts.
+  // -----------------------------------------------------------
+  const totalEstimatedCost = documents
+    .filter((d) => d.type === 'customerOrder' && d.status === 'approved' && d.includeInBudget !== false)
+    .reduce((sum, d) => sum + (Number(d.cost) || 0), 0);
+  const totalActualCost = documents
+    .filter((d) =>
+      (d.type === 'vendorBill' || d.type === 'vendorOrder') &&
+      d.status !== 'denied'
+    )
+    .reduce((sum, d) => sum + (Number(d.cost) || 0), 0);
+  const wip = computeWip({
+    isCostPlus: false,
+    totalCosts: totalActualCost,
+    estimatedCost: totalEstimatedCost,
+    contractPrice: totalContractAndCOValue || totalContractValue,
+    invoicedAmount: invoicedToDate,
+  });
+
   return {
     jobId: job.id,
     jobName: job.name,
@@ -624,6 +664,11 @@ async function analyzeContractJob(
     appliedCOsCount,
     health,
     alerts,
+    wipStatus: wip.status,
+    costBasedPercent: wip.costBasedPercent,
+    earnedRevenue: wip.earnedRevenue,
+    overUnderBilled: wip.overUnderBilled,
+    overUnderPercent: wip.overUnderPercent,
   };
 }
 

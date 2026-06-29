@@ -3,7 +3,7 @@
 import { useState, useEffect } from 'react';
 import {
   DollarSign, AlertTriangle, Clock, CheckCircle2,
-  RefreshCw, Loader2, FileText, TrendingUp,
+  RefreshCw, Loader2, FileText, TrendingUp, TrendingDown, Minus,
   Calendar, AlertCircle, ChevronDown, ChevronRight,
   Search, X, Plus, Check, Send, PauseCircle, PlayCircle,
 } from 'lucide-react';
@@ -90,6 +90,14 @@ interface ContractJobHealth {
   appliedCOsCount?: number;
   health: InvoicingHealth;
   alerts: string[];
+  // WIP fields (cost-based earned-revenue model). Optional because
+  // older cached payloads may not include them yet; falls back to
+  // 'na' on the UI side when missing.
+  wipStatus?: 'on_track' | 'ahead' | 'behind' | 'na';
+  costBasedPercent?: number | null;
+  earnedRevenue?: number;
+  overUnderBilled?: number;
+  overUnderPercent?: number;
 }
 
 interface CostPlusJobHealth {
@@ -272,6 +280,61 @@ function HealthBadge({ health }: { health: InvoicingHealth }) {
       style={{ background: cfg.bg, color: cfg.text }}
     >
       <span className="w-1.5 h-1.5 rounded-full" style={{ background: cfg.dot }} />
+      {cfg.label}
+    </span>
+  );
+}
+
+/**
+ * WIP indicator for fixed-price contract cards. Color + arrow show
+ * whether the job is ahead (over-billed), on-track, or behind
+ * (under-billed) relative to its cost-based percent complete.
+ * Behind is the actionable state for invoicing — work has been
+ * performed but not yet billed — so we color it warm/red. Ahead is
+ * a liability (client paid for work not yet done) so it gets a
+ * neutral cool color. On-track is muted green. Cost-plus jobs and
+ * jobs missing the data return null so the icon doesn't render.
+ */
+function WipBadge({
+  wipStatus,
+  overUnderBilled,
+  overUnderPercent,
+  costBasedPercent,
+}: {
+  wipStatus?: 'on_track' | 'ahead' | 'behind' | 'na';
+  overUnderBilled?: number;
+  overUnderPercent?: number;
+  costBasedPercent?: number | null;
+}) {
+  if (!wipStatus || wipStatus === 'na') return null;
+  const cfg =
+    wipStatus === 'behind'
+      ? { label: 'Behind', icon: TrendingDown, color: '#b91c1c', bg: 'rgba(239,68,68,0.10)', border: 'rgba(239,68,68,0.25)' }
+      : wipStatus === 'ahead'
+        ? { label: 'Ahead', icon: TrendingUp, color: '#1e40af', bg: 'rgba(59,130,246,0.10)', border: 'rgba(59,130,246,0.25)' }
+        : { label: 'On track', icon: Minus, color: '#15803d', bg: 'rgba(34,197,94,0.08)', border: 'rgba(34,197,94,0.25)' };
+  const Icon = cfg.icon;
+  const dollars = overUnderBilled != null ? Math.abs(overUnderBilled) : 0;
+  const pct = overUnderPercent != null ? Math.abs(overUnderPercent * 100) : 0;
+  // Tooltip explains the math without taking up card real estate:
+  // current cost-based progress + the dollar / % gap between billings
+  // and earned revenue, with a one-line interpretation.
+  const progressLabel = costBasedPercent != null
+    ? `${Math.round(costBasedPercent * 100)}% complete (cost-based)`
+    : 'No cost-based % available';
+  const interpretation =
+    wipStatus === 'behind'
+      ? `Under-billed by ${formatCurrency(dollars)} (${pct.toFixed(1)}%). Work performed has not yet been invoiced.`
+      : wipStatus === 'ahead'
+        ? `Over-billed by ${formatCurrency(dollars)} (${pct.toFixed(1)}%). Client has been invoiced for more work than has been completed.`
+        : 'Billings are within 5% of cost-based earned revenue.';
+  return (
+    <span
+      className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-semibold"
+      style={{ background: cfg.bg, color: cfg.color, border: `1px solid ${cfg.border}` }}
+      title={`WIP: ${cfg.label}\n${progressLabel}\n${interpretation}`}
+    >
+      <Icon size={10} />
       {cfg.label}
     </span>
   );
@@ -567,11 +630,17 @@ function ContractJobCard({ job, onInvoiceCreated, arHeld, arToggling, onToggleAr
     .reduce((sum, inv) => sum + inv.amount, 0);
   return (
     <div className="px-3 py-2.5 rounded-lg" style={healthCardStyle(job.health)}>
-      {/* Header row: name + badge + key stats inline */}
-      <div className="flex items-center gap-2 mb-1.5">
+      {/* Header row: name + WIP + health + key stats inline */}
+      <div className="flex items-center gap-2 mb-1.5 flex-wrap">
         <span className="text-sm font-semibold truncate flex-1 min-w-0" style={{ color: '#1a1a1a' }}>
           {job.jobName}
         </span>
+        <WipBadge
+          wipStatus={job.wipStatus}
+          overUnderBilled={job.overUnderBilled}
+          overUnderPercent={job.overUnderPercent}
+          costBasedPercent={job.costBasedPercent}
+        />
         <HealthBadge health={job.health} />
       </div>
       <div className="flex items-center justify-between mb-2">

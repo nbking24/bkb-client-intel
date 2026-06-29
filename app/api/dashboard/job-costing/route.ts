@@ -7,6 +7,7 @@ import {
   getTimeEntriesForJob,
 } from '../../../lib/jobtread';
 import { getSupabase } from '../../lib/supabase';
+import { computeWip, type WipStatus } from '../../../lib/wip';
 
 export const maxDuration = 300;
 // Belt-and-suspenders: GET handlers without a Request param can be
@@ -52,6 +53,15 @@ interface JobCostSummary {
   // Health
   health: 'on-track' | 'watch' | 'over-budget';
   alerts: string[];
+  // WIP (work in progress) reporting fields. Cost-based formula only;
+  // manual percent complete is surfaced separately by the mergeManual-
+  // Progress overlay. Fixed-price only — cost-plus jobs return
+  // wipStatus='na' and the UI hides the WIP block on those cards.
+  wipStatus: WipStatus;
+  costBasedPercent: number | null;
+  earnedRevenue: number;
+  overUnderBilled: number;
+  overUnderPercent: number;
 }
 
 function computeHours(startedAt: string, endedAt: string): number {
@@ -364,6 +374,20 @@ async function computeSummaries() {
               if (health === 'on-track') health = 'watch';
             }
 
+            // WIP analysis. computeWip handles the cost-plus / zero-
+            // contract / zero-budget edge cases by returning
+            // status='na' so the UI can hide the WIP block. Uses
+            // total committed costs (paid + pending) so a job with
+            // a big approved-but-unpaid PO doesn't show artificially
+            // low % complete.
+            const wip = computeWip({
+              isCostPlus,
+              totalCosts,
+              estimatedCost,
+              contractPrice: estimatedPrice,
+              invoicedAmount,
+            });
+
             return {
               jobId: job.id,
               jobName: job.name,
@@ -386,6 +410,11 @@ async function computeSummaries() {
               hoursVariance: Math.round(hoursVariance * 10) / 10,
               health,
               alerts,
+              wipStatus: wip.status,
+              costBasedPercent: wip.costBasedPercent,
+              earnedRevenue: wip.earnedRevenue,
+              overUnderBilled: wip.overUnderBilled,
+              overUnderPercent: wip.overUnderPercent,
             } as JobCostSummary;
           } catch (err: any) {
             console.error(`Error fetching job ${job.id}:`, err.message);
