@@ -40,7 +40,7 @@ export async function GET(req: NextRequest) {
       const html = briefingEmailHtml(payload);
       emailResult = await sendEmail({
         to: NATHAN_EMAIL,
-        subject: `Daily Briefing — ${payload.weekdayLabel}`,
+        subject: `Daily Briefing for ${payload.weekdayLabel}`,
         html,
       });
     }
@@ -79,7 +79,7 @@ function briefingEmailHtml(p: any): string {
     : li('<span style="color:#8a8078;">No events today.</span>');
 
   const email = (p.email?.items || []).length
-    ? p.email.items.slice(0, 15).map((m: any) => li(`<b>${escapeHtml(shortFrom(m.from))}</b> &mdash; ${escapeHtml(m.subject)} <span style="color:#8a8078;">(${m.ageDays}d)</span>`)).join('')
+    ? p.email.items.slice(0, 15).map((m: any) => li(`<b>${escapeHtml(shortFrom(m.from))}</b> &middot; ${escapeHtml(m.subject)} <span style="color:#8a8078;">(${m.ageDays}d)</span>`)).join('')
     : li('<span style="color:#8a8078;">Inbox clear of items needing a reply.</span>');
 
   const myTasks = (p.myTasks?.overdue?.length || p.myTasks?.upcoming?.length)
@@ -94,7 +94,7 @@ function briefingEmailHtml(p: any): string {
   const slip = slipParts.length ? slipParts.join('') : li('<span style="color:#8a8078;">No projects slipping.</span>');
 
   const messages = (p.messages?.flagged || []).length
-    ? p.messages.flagged.map((c: any) => li(`<b>${escapeHtml(c.jobName)}</b> &mdash; ${escapeHtml(c.author)}: ${escapeHtml((c.message || '').slice(0, 140))}`)).join('')
+    ? p.messages.flagged.map((c: any) => li(`<b>${escapeHtml(c.jobName)}</b> &middot; ${escapeHtml(c.author)}: ${escapeHtml((c.message || '').slice(0, 140))}`)).join('')
     : li('<span style="color:#8a8078;">No JobTread messages mention you.</span>');
 
   const leads = (p.leads?.counts?.newUncontacted || 0) > 0
@@ -114,7 +114,7 @@ function briefingEmailHtml(p: any): string {
       const pct = j.manualPercentComplete ?? j.costBasedPercent;
       return li(`<span style="color:${color};font-weight:600;">${escapeHtml(fmtPct(j.marginPct))}</span> margin &nbsp; ${escapeHtml(j.jobName)} ${pct != null ? `<span style="color:#8a8078;">(${Math.round(pct)}% complete)</span>` : ''}`);
     }).join('');
-    special = section(p.cadence === 'monday' ? 'Week Planner — Job Costing (all active jobs)' : 'Week in Review — Job Costing (all active jobs)', rows);
+    special = section(p.cadence === 'monday' ? 'Week Planner: Job Costing (all active jobs)' : 'Week in Review: Job Costing (all active jobs)', rows);
   }
 
   const body = `

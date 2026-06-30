@@ -27,6 +27,7 @@ import {
 import { fetchFullInbox, fetchCalendarEvents } from '@/app/lib/google-api';
 import { computeLeadsNeedsAttention } from '@/app/lib/leads-needs-attention';
 import { createServerClient } from '@/app/lib/supabase';
+import Anthropic from '@anthropic-ai/sdk';
 
 const NATHAN_MEMBERSHIP = JT_MEMBERS.nathan;
 const NATHAN_GOOGLE_USER = 'nathan';
@@ -89,6 +90,59 @@ function looksAutomated(from: string): boolean {
   return AUTOMATED_FROM.some((s) => f.includes(s));
 }
 
+// Classify candidate emails with Haiku. Returns a Map<index, {category, needsReply, reason}>
+// or null if the AI call fails (so the caller can fall back to a strict heuristic).
+async function classifyEmailsForReply(candidates: any[]): Promise<Map<number, any> | null> {
+  if (!candidates.length) return new Map();
+  try {
+    const anthropic = new Anthropic();
+    const list = candidates
+      .map((m, i) => `${i}. From: ${m.from}\n   Subject: ${m.subject}\n   Preview: ${(m.snippet || '').slice(0, 220)}`)
+      .join('\n\n');
+    const resp = await anthropic.messages.create({
+      model: 'claude-haiku-4-5-20251001',
+      max_tokens: 1500,
+      messages: [{
+        role: 'user',
+        content: `You are triaging the inbox of Nathan King, owner of Brett King Builder, a high-end residential construction company. For EACH email below decide two things.
+
+category: one of
+  "vendor"      a supplier, trade partner, materials or fixtures rep, lumberyard, showroom, inspector, or other business Nathan works with on projects
+  "client"      a homeowner or customer for a current or prospective project (including a new lead inquiry)
+  "internal"    a Brett King Builder team member (brettkingbuilder.com or a known staffer)
+  "automated"   receipts, order or shipping notifications, bank or account statements, calendar or system notices, anything no-reply
+  "promotional" marketing, newsletters, cold sales or recruiting outreach
+  "other"       anything that does not fit above
+
+needsReply: true ONLY if this specific message is genuinely awaiting a response or action from Nathan, such as a direct question, a request for a quote, scheduling, pricing, an approval, or a decision. Set false for statements, FYIs, confirmations, receipts, marketing, and anything informational that does not ask Nathan for something.
+
+Return ONLY a JSON array, one object per email, in the same order, no prose:
+[{"i":0,"category":"vendor","needsReply":true,"reason":"<max 6 words>"}]
+
+Emails:
+${list}`,
+      }],
+    });
+    const text = resp.content[0]?.type === 'text' ? resp.content[0].text : '';
+    const match = text.match(/\[[\s\S]*\]/);
+    const arr = match ? JSON.parse(match[0]) : [];
+    const map = new Map<number, any>();
+    for (const o of arr) if (typeof o.i === 'number') map.set(o.i, o);
+    return map;
+  } catch (err: any) {
+    console.warn('[daily-briefing] email AI triage failed, using heuristic fallback:', err?.message);
+    return null;
+  }
+}
+
+// Strict heuristic fallback when AI triage is unavailable: only keep messages
+// that actually look like they request something (a question or a request verb).
+function heuristicNeedsReply(m: any): boolean {
+  const t = `${m.subject || ''} ${m.snippet || ''}`.toLowerCase();
+  if (t.includes('?')) return true;
+  return /\b(can you|could you|could we|can we|please (send|confirm|advise|let me know|provide|review|approve)|let me know|need(ed|s)? (your|the)|when (can|will|are)|are you available|quote|estimate|pricing|proposal|schedule|confirm|approve|sign off|get back to)\b/.test(t);
+}
+
 async function buildEmailNeedsReply() {
   try {
     const sb = createServerClient();
@@ -102,16 +156,17 @@ async function buildEmailNeedsReply() {
     const cutoff = new Date();
     cutoff.setDate(cutoff.getDate() - 14);
 
-    const items = (inbox || [])
+    // Pre-filter: drop self-sent, automated senders, internal teammates, stale, and dismissed.
+    const candidates = (inbox || [])
       .filter((m) => {
         const from = (m.from || '').toLowerCase();
-        if (from.includes(NATHAN_EMAIL)) return false;       // sent by Nathan -> ball not in his court
+        if (from.includes(NATHAN_EMAIL)) return false;          // sent by Nathan
+        if (from.includes('@brettkingbuilder.com')) return false; // internal teammate, not a vendor/client
         if (looksAutomated(from)) return false;
         const dt = new Date(m.date);
         if (isNaN(dt.getTime()) || dt < cutoff) return false;
-        // Suppress if dismissed AND no newer message since the dismissal
         const dAt = dismissed.get(m.threadId);
-        if (dAt && dt <= new Date(dAt)) return false;
+        if (dAt && dt <= new Date(dAt)) return false;           // dismissed and nothing newer
         return true;
       })
       .map((m) => ({
@@ -123,10 +178,26 @@ async function buildEmailNeedsReply() {
         date: m.date,
         isUnread: m.isUnread,
         ageDays: daysBetween(centralNow(), new Date(m.date)),
-      }))
-      .sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
+      }));
 
-    return { items, count: items.length };
+    // AI triage: keep only vendor/client emails that genuinely need a reply.
+    const cls = await classifyEmailsForReply(candidates);
+    let items: any[];
+    let triage: 'ai' | 'heuristic';
+    if (cls) {
+      triage = 'ai';
+      items = candidates
+        .map((m, i) => ({ ...m, ...(cls.get(i) || {}) }))
+        .filter((m) => m.needsReply === true && (m.category === 'vendor' || m.category === 'client'));
+    } else {
+      triage = 'heuristic';
+      items = candidates
+        .filter(heuristicNeedsReply)
+        .map((m) => ({ ...m, category: null, reason: null }));
+    }
+    items.sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
+
+    return { items, count: items.length, triage, candidateCount: candidates.length };
   } catch (err: any) {
     return { items: [], count: 0, error: err?.message || 'gmail failed' };
   }

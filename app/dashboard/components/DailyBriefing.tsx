@@ -154,7 +154,7 @@ export default function DailyBriefing({ firstName }: { firstName?: string }) {
       </div>
 
       {/* Calendar */}
-      <Section title="Calendar — Today" count={(p.calendar?.events || []).length}>
+      <Section title="Calendar (Today)" count={(p.calendar?.events || []).length}>
         {(p.calendar?.events || []).length ? p.calendar.events.map((e: any) => (
           <Row key={e.id}>
             <b>{e.allDay ? 'All day' : fmtTime(e.start)}</b> &nbsp; {e.summary}
@@ -168,9 +168,15 @@ export default function DailyBriefing({ firstName }: { firstName?: string }) {
         {emailItems.length ? emailItems.map((m: any) => (
           <div key={m.id} style={{ padding: '9px 0', borderBottom: '1px solid #f0ece6', display: 'flex', justifyContent: 'space-between', gap: 10 }}>
             <div style={{ fontSize: 14, lineHeight: 1.4, minWidth: 0 }}>
-              <div style={{ fontWeight: 600 }}>{shortFrom(m.from)} {m.isUnread && <span style={{ color: MAROON, fontSize: 11 }}>• unread</span>}</div>
+              <div style={{ fontWeight: 600, display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
+                {m.category && (
+                  <span style={{ fontSize: 10, fontWeight: 700, letterSpacing: '.04em', textTransform: 'uppercase', color: '#fff', background: m.category === 'client' ? GREEN : MAROON, borderRadius: 4, padding: '1px 6px' }}>{m.category}</span>
+                )}
+                <span>{shortFrom(m.from)}</span>
+                {m.isUnread && <span style={{ color: MAROON, fontSize: 11 }}>• unread</span>}
+              </div>
               <div>{m.subject} <span style={{ color: '#8a8078' }}>({m.ageDays}d)</span></div>
-              <div style={{ color: '#8a8078', fontSize: 13, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{m.snippet}</div>
+              <div style={{ color: '#8a8078', fontSize: 13, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{m.reason ? `${m.reason}: ${m.snippet}` : m.snippet}</div>
             </div>
             <button onClick={() => dismissEmail(m)} title="I replied to this elsewhere" style={btnDismiss}>Mark replied</button>
           </div>
@@ -233,7 +239,7 @@ export default function DailyBriefing({ firstName }: { firstName?: string }) {
 
       {/* Cadence special — Mon/Fri full job costing */}
       {isCadenceSpecial && (p.jobCosting?.all || []).length > 0 && (
-        <Section title={`${p.cadence === 'monday' ? 'Week Planner' : 'Week in Review'} — Job Costing (all active jobs)`} count={p.jobCosting.jobCount}>
+        <Section title={`${p.cadence === 'monday' ? 'Week Planner' : 'Week in Review'}: Job Costing (all active jobs)`} count={p.jobCosting.jobCount}>
           {p.jobCosting.all.map((j: any) => {
             const pct = j.manualPercentComplete ?? j.costBasedPercent;
             return (
@@ -247,7 +253,7 @@ export default function DailyBriefing({ firstName }: { firstName?: string }) {
       )}
 
       <div style={{ textAlign: 'center', color: '#b3aaa0', fontSize: 12, marginTop: 8 }}>
-        Auto-refreshes weekdays at 3 AM. Last generated {meta.generatedAt ? new Date(meta.generatedAt).toLocaleString() : '—'}.
+        Auto-refreshes weekdays at 3 AM. Last generated {meta.generatedAt ? new Date(meta.generatedAt).toLocaleString() : 'not yet'}.
       </div>
 
       {showSettings && <MonitoredJobsModal onClose={() => setShowSettings(false)} />}
