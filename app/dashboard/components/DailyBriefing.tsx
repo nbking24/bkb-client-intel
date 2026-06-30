@@ -231,7 +231,10 @@ export default function DailyBriefing({ firstName }: { firstName?: string }) {
           <>
             <div style={{ fontSize: 13, color: '#6b6258', padding: '4px 0 8px' }}>{p.teamTasks.overdueCount} overdue of {p.teamTasks.totalOpen} open company-wide.</div>
             {(p.teamTasks.overdue || []).slice(0, isCadenceSpecial ? 40 : 12).map((t: any) => (
-              <Row key={t.id}><span style={{ color: RED }}>{t.daysOverdue}d</span> &nbsp; {t.name}{t.jobName ? <span style={{ color: '#8a8078' }}> ({t.jobName})</span> : null}</Row>
+              <Row key={t.id}>
+                <span style={{ color: RED }}>{t.daysOverdue}d</span> &nbsp; {t.name}{t.jobName ? <span style={{ color: '#8a8078' }}> ({t.jobName})</span> : null}
+                <span style={{ display: 'inline-block', marginLeft: 6, fontSize: 12, fontWeight: 600, color: t.assignees && t.assignees.length ? MAROON : '#b3aaa0' }}>{t.assigneeLabel || 'Unassigned'}</span>
+              </Row>
             ))}
           </>
         ) : <Empty text="No overdue team tasks." />}

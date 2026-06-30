@@ -103,7 +103,7 @@ function briefingEmailHtml(p: any): string {
 
   const team = (p.teamTasks?.overdueCount || 0) > 0
     ? li(`${p.teamTasks.overdueCount} overdue of ${p.teamTasks.totalOpen} open tasks company-wide.`) +
-      (p.teamTasks.overdue || []).slice(0, 12).map((t: any) => li(`<span style="color:#b00020;">${t.daysOverdue}d</span> &nbsp; ${escapeHtml(t.name)}${t.jobName ? ` <span style="color:#8a8078;">(${escapeHtml(t.jobName)})</span>` : ''}`)).join('')
+      (p.teamTasks.overdue || []).slice(0, 12).map((t: any) => li(`<span style="color:#b00020;">${t.daysOverdue}d</span> &nbsp; ${escapeHtml(t.name)}${t.jobName ? ` <span style="color:#8a8078;">(${escapeHtml(t.jobName)})</span>` : ''} &nbsp; <span style="color:#68050a;font-weight:600;">${escapeHtml(t.assigneeLabel || 'Unassigned')}</span>`)).join('')
     : li('<span style="color:#8a8078;">No overdue team tasks.</span>');
 
   // Cadence specials

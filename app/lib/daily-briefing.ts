@@ -23,6 +23,7 @@ import {
   getAllOpenTasks,
   getDailyLogsFromDB,
   getCommentsFromDB,
+  getMembers,
 } from '@/app/lib/jobtread';
 import { fetchFullInbox, fetchCalendarEvents } from '@/app/lib/google-api';
 import { computeLeadsNeedsAttention } from '@/app/lib/leads-needs-attention';
@@ -242,11 +243,19 @@ async function buildMyTasks() {
 async function buildOutstandingTeamTasks() {
   try {
     const today = startOfTodayCentral();
-    const all = await getAllOpenTasks();
+    const [all, members] = await Promise.all([
+      getAllOpenTasks(),
+      getMembers().catch(() => []),
+    ]);
+    const nameByMembership = new Map<string, string>();
+    for (const m of members || []) if (m?.id) nameByMembership.set(m.id, m.user?.name || '');
     const mapped = (all || [])
       .map((t) => {
         const due = t.endDate ? new Date(t.endDate) : null;
         const daysOverdue = due ? daysBetween(today, due) : null;
+        const assignees = ((t.assignedMemberships?.nodes) || [])
+          .map((n: any) => n.user?.name || nameByMembership.get(n.id) || '')
+          .filter(Boolean);
         return {
           id: t.id,
           name: t.name,
@@ -254,6 +263,8 @@ async function buildOutstandingTeamTasks() {
           jobNumber: t.job?.number || null,
           endDate: t.endDate,
           progress: t.progress,
+          assignees,
+          assigneeLabel: assignees.length ? assignees.join(', ') : 'Unassigned',
           daysOverdue: daysOverdue !== null && daysOverdue > 0 ? daysOverdue : 0,
         };
       });
