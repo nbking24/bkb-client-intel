@@ -21,8 +21,7 @@ import {
   getActiveJobs,
   getOpenTasksForMemberAcrossJobs,
   getAllOpenTasks,
-  getDailyLogsFromDB,
-  getDailyLogsForJob,
+  pave,
   getCommentsFromDB,
   getMembers,
 } from '@/app/lib/jobtread';
@@ -376,6 +375,30 @@ async function buildJobCosting() {
   }
 }
 
+// Fetch a job's daily logs directly with the correct PAVE fields. The shared
+// getDailyLogsForJob() requests an "assignedMemberships" field that does not
+// exist on dailyLog in this org's schema, so it 400s and returns []. Daily logs
+// expose the author as `user`, and we sort by date desc server-side.
+async function fetchLatestDailyLog(jobId: string): Promise<{ date: string | null; by: string | null } | null> {
+  try {
+    const data = await pave({
+      job: {
+        $: { id: jobId },
+        dailyLogs: {
+          $: { size: 1, sortBy: [{ field: 'date', order: 'desc' }] },
+          nodes: { id: {}, date: {}, createdAt: {}, user: { id: {}, name: {} } },
+        },
+      },
+    });
+    const node = (data as any)?.job?.dailyLogs?.nodes?.[0];
+    if (!node) return null;
+    return { date: node.date || (node.createdAt ? String(node.createdAt).split('T')[0] : null), by: node.user?.name || null };
+  } catch (err: any) {
+    console.warn('[daily-briefing] daily log fetch failed for', jobId, err?.message);
+    return null;
+  }
+}
+
 async function buildDailyLogGaps() {
   try {
     const sb = createServerClient();
@@ -390,23 +413,12 @@ async function buildDailyLogGaps() {
       let lastLogDate: string | null = null;
       let lastLogBy: string | null = null;
       let daysSinceLastLog: number | null = null;
-      try {
-        // Pull logs live for the (few) monitored jobs so the last-log date is
-        // always accurate, even when the DB cache has not synced this job.
-        let logs = await getDailyLogsForJob(m.jt_job_id, 50).catch(() => []);
-        if (!logs || logs.length === 0) logs = await getDailyLogsFromDB(m.jt_job_id, 50).catch(() => []);
-        const sorted = (logs || [])
-          .map((l: any) => ({ when: new Date(l.date || l.createdAt), raw: l }))
-          .filter((x: any) => !isNaN(x.when.getTime()))
-          .sort((a: any, b: any) => b.when.getTime() - a.when.getTime());
-        const latest = sorted[0] || null;
-        if (latest) {
-          lastLogDate = latest.when.toISOString().split('T')[0];
-          lastLogBy = latest.raw?.assignedMemberships?.nodes?.[0]?.user?.name || null;
-          daysSinceLastLog = daysBetween(today, latest.when);
-        }
-      } catch {
-        // leave last-log fields null on error
+      const latest = await fetchLatestDailyLog(m.jt_job_id);
+      if (latest?.date) {
+        lastLogDate = latest.date;
+        lastLogBy = latest.by;
+        const when = new Date(latest.date);
+        if (!isNaN(when.getTime())) daysSinceLastLog = daysBetween(today, when);
       }
       const freq = m.frequency_per_week || 2;
       const thresholdDays = Math.ceil(7 / freq) + 1; // grace of 1 day
