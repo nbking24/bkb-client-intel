@@ -199,7 +199,7 @@ export default function DailyBriefing({ firstName }: { firstName?: string }) {
       {/* JobTread messages */}
       <Section title="JobTread Messages" count={p.messages?.mentionCount || 0}>
         {(p.messages?.flagged || []).length ? p.messages.flagged.map((c: any) => (
-          <Row key={c.id}><b>{c.jobName}</b> &nbsp; <span style={{ color: '#8a8078' }}>{c.author}</span>: {(c.message || '').slice(0, 220)}</Row>
+          <JTMessageItem key={c.id} c={c} />
         )) : <Empty text="No JobTread messages mention you." />}
       </Section>
 
@@ -260,8 +260,16 @@ export default function DailyBriefing({ firstName }: { firstName?: string }) {
   );
 }
 
-// ---- Email item with inline reply drafter ---------------------------------
-function EmailItem({ m, onDismiss }: { m: any; onDismiss: () => void }) {
+// ---- Shared reply drafter (email + JobTread) ------------------------------
+// Generates a suggested reply in Nathan's voice from all JobTread + Gmail
+// context. Supports an optional extra-context box that is folded in on
+// regenerate. Copy copies the markdown text. Gmail-draft creation is email only.
+function ReplyDrafter({ source, payload, allowGmailDraft, label = 'Draft reply' }: {
+  source: 'email' | 'jobtread';
+  payload: any;
+  allowGmailDraft: boolean;
+  label?: string;
+}) {
   const [open, setOpen] = useState(false);
   const [loading, setLoading] = useState(false);
   const [draft, setDraft] = useState('');
@@ -271,13 +279,15 @@ function EmailItem({ m, onDismiss }: { m: any; onDismiss: () => void }) {
   const [copied, setCopied] = useState(false);
   const [creating, setCreating] = useState(false);
   const [gmailUrl, setGmailUrl] = useState<string | null>(null);
+  const [extra, setExtra] = useState('');
+  const [showCtx, setShowCtx] = useState(false);
 
   const doGenerate = async () => {
     setLoading(true); setErr(null); setGmailUrl(null);
     try {
       const res = await fetch('/api/dashboard/briefing/draft-reply', {
         method: 'POST', headers: authHeaders(),
-        body: JSON.stringify({ action: 'generate', threadId: m.threadId }),
+        body: JSON.stringify({ action: 'generate', source, ...payload, extraContext: extra || undefined }),
       });
       const data = await res.json();
       if (!res.ok) throw new Error(data?.error || 'Failed to draft');
@@ -287,15 +297,10 @@ function EmailItem({ m, onDismiss }: { m: any; onDismiss: () => void }) {
     } catch (e: any) { setErr(e?.message || 'Failed to draft'); }
     finally { setLoading(false); }
   };
-  const generate = () => {
-    setOpen(true);
-    if (!draft && !loading) doGenerate();
-  };
-
+  const generate = () => { setOpen(true); if (!draft && !loading) doGenerate(); };
   const copy = async () => {
     try { await navigator.clipboard.writeText(draft); setCopied(true); setTimeout(() => setCopied(false), 1500); } catch { /* ignore */ }
   };
-
   const createGmailDraft = async () => {
     if (!meta) return;
     setCreating(true); setErr(null);
@@ -312,6 +317,51 @@ function EmailItem({ m, onDismiss }: { m: any; onDismiss: () => void }) {
   };
 
   return (
+    <div style={{ marginTop: 8 }}>
+      <button onClick={generate} style={btnGhost}>{open ? 'Reply draft' : label}</button>
+      {open && (
+        <div style={{ marginTop: 8, background: CREAM, borderRadius: 8, padding: 12 }}>
+          {loading && <div style={{ color: '#8a8078', fontSize: 13 }}>Drafting a reply in your voice from JobTread and Gmail context…</div>}
+          {err && <div style={{ color: RED, fontSize: 13 }}>{err}</div>}
+          {!loading && draft && (
+            <>
+              {jobMatched && <div style={{ fontSize: 12, color: '#6b6258', marginBottom: 6 }}>Context: JobTread {jobMatched.number ? `#${jobMatched.number} ` : ''}{jobMatched.name}</div>}
+              <textarea value={draft} onChange={(e) => setDraft(e.target.value)} rows={12}
+                style={{ width: '100%', boxSizing: 'border-box', fontFamily: 'ui-monospace, Menlo, monospace', fontSize: 13, lineHeight: 1.5, padding: 10, border: '1px solid #e0d8ce', borderRadius: 6, background: '#fff', resize: 'vertical' }} />
+
+              {/* Additional context box */}
+              <div style={{ marginTop: 8 }}>
+                <button onClick={() => setShowCtx((v) => !v)} style={{ ...btnGhost, fontSize: 12, padding: '5px 10px' }}>
+                  {showCtx ? 'Hide context' : 'Add context'}
+                </button>
+                {showCtx && (
+                  <div style={{ marginTop: 6 }}>
+                    <textarea value={extra} onChange={(e) => setExtra(e.target.value)} rows={3}
+                      placeholder="Add anything the reply should know or do (facts, decisions, tone). This is combined with all the JobTread and Gmail context on regenerate."
+                      style={{ width: '100%', boxSizing: 'border-box', fontSize: 13, lineHeight: 1.45, padding: 9, border: '1px solid #e0d8ce', borderRadius: 6, background: '#fff', resize: 'vertical' }} />
+                    <button onClick={doGenerate} disabled={loading} style={{ ...btnPrimary, marginTop: 6 }}>Regenerate with this context</button>
+                  </div>
+                )}
+              </div>
+
+              <div style={{ display: 'flex', gap: 8, marginTop: 10, flexWrap: 'wrap', alignItems: 'center' }}>
+                <button onClick={copy} style={btnGhost}>{copied ? 'Copied markdown' : 'Copy markdown'}</button>
+                {allowGmailDraft && <button onClick={createGmailDraft} disabled={creating} style={btnPrimary}>{creating ? 'Creating…' : 'Create Gmail draft'}</button>}
+                <button onClick={doGenerate} disabled={loading} style={btnGhost}>Regenerate</button>
+                {gmailUrl && <a href={gmailUrl} target="_blank" rel="noreferrer" style={{ color: MAROON, fontWeight: 600, fontSize: 13 }}>Open draft in Gmail</a>}
+              </div>
+              {allowGmailDraft && <div style={{ fontSize: 11, color: '#b3aaa0', marginTop: 6 }}>To: {meta?.to}. The Gmail draft replies in the same thread.</div>}
+            </>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ---- Email item -----------------------------------------------------------
+function EmailItem({ m, onDismiss }: { m: any; onDismiss: () => void }) {
+  return (
     <div style={{ padding: '9px 0', borderBottom: '1px solid #f0ece6' }}>
       <div style={{ display: 'flex', justifyContent: 'space-between', gap: 10 }}>
         <div style={{ fontSize: 14, lineHeight: 1.4, minWidth: 0 }}>
@@ -325,32 +375,22 @@ function EmailItem({ m, onDismiss }: { m: any; onDismiss: () => void }) {
           <div>{m.subject} <span style={{ color: '#8a8078' }}>({m.ageDays}d)</span></div>
           <div style={{ color: '#8a8078', fontSize: 13, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{m.reason ? `${m.reason}: ${m.snippet}` : m.snippet}</div>
         </div>
-        <div style={{ display: 'flex', flexDirection: 'column', gap: 6, alignItems: 'flex-end' }}>
-          <button onClick={generate} style={btnGhost}>{open ? 'Reply draft' : 'Draft reply'}</button>
-          <button onClick={onDismiss} title="I replied to this elsewhere" style={btnDismiss}>Mark replied</button>
-        </div>
+        <button onClick={onDismiss} title="I replied to this elsewhere" style={btnDismiss}>Mark replied</button>
       </div>
+      <ReplyDrafter source="email" payload={{ threadId: m.threadId }} allowGmailDraft />
+    </div>
+  );
+}
 
-      {open && (
-        <div style={{ marginTop: 10, background: CREAM, borderRadius: 8, padding: 12 }}>
-          {loading && <div style={{ color: '#8a8078', fontSize: 13 }}>Drafting a reply in your voice from the thread and JobTread context…</div>}
-          {err && <div style={{ color: RED, fontSize: 13 }}>{err}</div>}
-          {!loading && draft && (
-            <>
-              {jobMatched && <div style={{ fontSize: 12, color: '#6b6258', marginBottom: 6 }}>Context: JobTread #{jobMatched.number} {jobMatched.name}</div>}
-              <textarea value={draft} onChange={(e) => setDraft(e.target.value)} rows={12}
-                style={{ width: '100%', boxSizing: 'border-box', fontFamily: 'ui-monospace, Menlo, monospace', fontSize: 13, lineHeight: 1.5, padding: 10, border: '1px solid #e0d8ce', borderRadius: 6, background: '#fff', resize: 'vertical' }} />
-              <div style={{ display: 'flex', gap: 8, marginTop: 8, flexWrap: 'wrap', alignItems: 'center' }}>
-                <button onClick={copy} style={btnGhost}>{copied ? 'Copied' : 'Copy'}</button>
-                <button onClick={createGmailDraft} disabled={creating} style={btnPrimary}>{creating ? 'Creating…' : 'Create Gmail draft'}</button>
-                <button onClick={doGenerate} disabled={loading} style={btnGhost}>Regenerate</button>
-                {gmailUrl && <a href={gmailUrl} target="_blank" rel="noreferrer" style={{ color: MAROON, fontWeight: 600, fontSize: 13 }}>Open draft in Gmail</a>}
-              </div>
-              <div style={{ fontSize: 11, color: '#b3aaa0', marginTop: 6 }}>To: {meta?.to}. The Gmail draft replies in the same thread.</div>
-            </>
-          )}
-        </div>
-      )}
+// ---- JobTread message item ------------------------------------------------
+function JTMessageItem({ c }: { c: any }) {
+  return (
+    <div style={{ padding: '9px 0', borderBottom: '1px solid #f0ece6' }}>
+      <div style={{ fontSize: 14, lineHeight: 1.45 }}>
+        <b>{c.jobName}</b> <span style={{ color: '#8a8078' }}>{c.author}{c.createdAt ? ` · ${(c.createdAt || '').split('T')[0]}` : ''}</span>
+        <div style={{ color: '#3a352f', marginTop: 2 }}>{(c.message || '').slice(0, 400)}</div>
+      </div>
+      <ReplyDrafter source="jobtread" payload={{ jobId: c.jobId, jobName: c.jobName, commentText: c.message, commentAuthor: c.author }} allowGmailDraft={false} />
     </div>
   );
 }

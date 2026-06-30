@@ -587,3 +587,36 @@ export async function createGmailReplyDraft(params: {
     return null;
   }
 }
+
+// Lightweight Gmail search (subject/from/snippet only) for cross-referencing a
+// JobTread message against related email correspondence. Best-effort context.
+export async function searchGmailMessages(query: string, maxResults = 5, userId?: string): Promise<Array<{ from: string; subject: string; snippet: string; date: string }>> {
+  try {
+    const token = await getAccessToken(userId);
+    const listRes = await fetch(
+      `https://gmail.googleapis.com/gmail/v1/users/me/messages?maxResults=${maxResults}&q=${encodeURIComponent(query)}`,
+      { headers: { Authorization: `Bearer ${token}` } }
+    );
+    if (!listRes.ok) return [];
+    const list = await listRes.json();
+    const ids = (list.messages || []).map((m: any) => m.id).slice(0, maxResults);
+    const out: Array<{ from: string; subject: string; snippet: string; date: string }> = [];
+    for (const id of ids) {
+      try {
+        const r = await fetch(
+          `https://gmail.googleapis.com/gmail/v1/users/me/messages/${id}?format=metadata&metadataHeaders=From&metadataHeaders=Subject&metadataHeaders=Date`,
+          { headers: { Authorization: `Bearer ${token}` } }
+        );
+        if (!r.ok) continue;
+        const msg = await r.json();
+        const headers = msg.payload?.headers || [];
+        const h = (n: string) => headers.find((x: any) => x.name.toLowerCase() === n.toLowerCase())?.value || '';
+        out.push({ from: h('From'), subject: h('Subject'), snippet: msg.snippet || '', date: h('Date') });
+      } catch { /* skip */ }
+    }
+    return out;
+  } catch (err: any) {
+    console.error('[GoogleAPI] searchGmailMessages error:', err.message);
+    return [];
+  }
+}
