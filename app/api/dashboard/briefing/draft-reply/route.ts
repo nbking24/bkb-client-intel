@@ -56,7 +56,15 @@ async function callClaude(system: string, user: string): Promise<string> {
   });
   let out = resp.content[0]?.type === 'text' ? resp.content[0].text.trim() : '';
   // Em-dash safety net (Nathan's rule).
-  return out.replace(/\s*—\s*/g, ', ').replace(/—/g, '-');
+  out = out.replace(/\s*—\s*/g, ', ').replace(/—/g, '-');
+  // Strip filler "honesty/straightforward" openers Nathan dislikes. Remove the
+  // clause opener (and its trailing comma) wherever it starts a sentence, then
+  // re-capitalize the following word.
+  out = out.replace(
+    /(^|\n|[.!?]\s+)(let me be (?:straightforward|honest|straight)(?: with you)?|i(?:'| a)?m going to be (?:straightforward|honest)|i want to be (?:honest|transparent|straightforward)|to be (?:honest|frank)|honestly|frankly|in all honesty)[,:]?\s+([a-z])/gi,
+    (_m, pre, _phrase, next) => `${pre}${next.toUpperCase()}`
+  );
+  return out;
 }
 
 export async function POST(req: NextRequest) {
