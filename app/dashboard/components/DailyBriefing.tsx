@@ -187,9 +187,6 @@ export default function DailyBriefing({ firstName }: { firstName?: string }) {
       <Section title="Project Slip Alerts">
         {(() => {
           const parts: React.ReactNode[] = [];
-          for (const g of p.slip?.dailyLogGaps || []) parts.push(
-            <Row key={`g-${g.jobId}`}><span style={{ color: RED, fontWeight: 600 }}>Daily-log gap</span> &nbsp; {g.jobName || g.jobId} {g.lastLogDate ? <span style={{ color: '#8a8078' }}>(last {g.lastLogDate}, {g.daysSinceLastLog}d ago)</span> : <span style={{ color: '#8a8078' }}>(no logs found)</span>}</Row>
-          );
           for (const j of p.slip?.budgetBurn || []) parts.push(
             <Row key={`b-${j.jobId}`}><span style={{ color: healthColor(j.health), fontWeight: 600 }}>{j.health === 'over-budget' ? 'Over budget' : 'Watch'}</span> &nbsp; {j.jobName} <span style={{ color: '#8a8078' }}>(margin {fmtPct(j.marginPct)})</span></Row>
           );
@@ -198,6 +195,18 @@ export default function DailyBriefing({ firstName }: { firstName?: string }) {
           );
           return parts.length ? parts : <Empty text="No projects slipping." />;
         })()}
+      </Section>
+
+      {/* Daily log monitoring */}
+      <Section title="Daily Log Monitoring" count={p.dailyLogReport?.monitoredCount || 0}>
+        {(p.dailyLogReport?.jobs || []).length ? p.dailyLogReport.jobs.map((j: any) => (
+          <Row key={j.jobId}>
+            <span style={{ fontWeight: 600, color: j.behind ? RED : GREEN }}>{j.behind ? 'Behind' : 'On track'}</span> &nbsp; {j.jobName}
+            <span style={{ color: '#8a8078' }}>{' '}{j.lastLogDate
+              ? `Last log ${j.lastLogDate}${j.lastLogBy ? ` by ${j.lastLogBy}` : ''}${j.daysSinceLastLog != null ? `, ${j.daysSinceLastLog}d ago` : ''}`
+              : 'No daily logs on record'} ({j.frequencyPerWeek}x/wk expected)</span>
+          </Row>
+        )) : <Empty text="No jobs set up for daily-log monitoring. Use the Daily-log settings button to add jobs." />}
       </Section>
 
       {/* JobTread messages */}

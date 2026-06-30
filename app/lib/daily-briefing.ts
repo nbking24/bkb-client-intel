@@ -22,6 +22,7 @@ import {
   getOpenTasksForMemberAcrossJobs,
   getAllOpenTasks,
   getDailyLogsFromDB,
+  getDailyLogsForJob,
   getCommentsFromDB,
   getMembers,
 } from '@/app/lib/jobtread';
@@ -250,6 +251,8 @@ async function buildOutstandingTeamTasks() {
     const nameByMembership = new Map<string, string>();
     for (const m of members || []) if (m?.id) nameByMembership.set(m.id, m.user?.name || '');
     const mapped = (all || [])
+      // Drop tasks assigned to Nathan; those appear in the "Your Tasks" section.
+      .filter((t) => !((t.assignedMemberships?.nodes) || []).some((n: any) => n.id === NATHAN_MEMBERSHIP))
       .map((t) => {
         const due = t.endDate ? new Date(t.endDate) : null;
         const daysOverdue = due ? daysBetween(today, due) : null;
@@ -382,34 +385,49 @@ async function buildDailyLogGaps() {
       .eq('expect_logs', true);
 
     const today = startOfTodayCentral();
-    const gaps: any[] = [];
+    const report: any[] = [];
     for (const m of monitored || []) {
+      let lastLogDate: string | null = null;
+      let lastLogBy: string | null = null;
+      let daysSinceLastLog: number | null = null;
       try {
-        const logs = await getDailyLogsFromDB(m.jt_job_id, 50);
-        const latest = (logs || [])
-          .map((l) => new Date(l.date || l.createdAt))
-          .filter((d) => !isNaN(d.getTime()))
-          .sort((a, b) => b.getTime() - a.getTime())[0] || null;
-        const freq = m.frequency_per_week || 2;
-        const thresholdDays = Math.ceil(7 / freq) + 1; // grace of 1 day
-        const sinceDays = latest ? daysBetween(today, latest) : 999;
-        if (!latest || sinceDays > thresholdDays) {
-          gaps.push({
-            jobId: m.jt_job_id,
-            jobName: m.job_name,
-            jobNumber: m.job_number,
-            frequencyPerWeek: freq,
-            lastLogDate: latest ? latest.toISOString().split('T')[0] : null,
-            daysSinceLastLog: latest ? sinceDays : null,
-          });
+        // Pull logs live for the (few) monitored jobs so the last-log date is
+        // always accurate, even when the DB cache has not synced this job.
+        let logs = await getDailyLogsForJob(m.jt_job_id, 50).catch(() => []);
+        if (!logs || logs.length === 0) logs = await getDailyLogsFromDB(m.jt_job_id, 50).catch(() => []);
+        const sorted = (logs || [])
+          .map((l: any) => ({ when: new Date(l.date || l.createdAt), raw: l }))
+          .filter((x: any) => !isNaN(x.when.getTime()))
+          .sort((a: any, b: any) => b.when.getTime() - a.when.getTime());
+        const latest = sorted[0] || null;
+        if (latest) {
+          lastLogDate = latest.when.toISOString().split('T')[0];
+          lastLogBy = latest.raw?.assignedMemberships?.nodes?.[0]?.user?.name || null;
+          daysSinceLastLog = daysBetween(today, latest.when);
         }
       } catch {
-        // skip this job on error
+        // leave last-log fields null on error
       }
+      const freq = m.frequency_per_week || 2;
+      const thresholdDays = Math.ceil(7 / freq) + 1; // grace of 1 day
+      const behind = lastLogDate == null || (daysSinceLastLog != null && daysSinceLastLog > thresholdDays);
+      report.push({
+        jobId: m.jt_job_id,
+        jobName: m.job_name,
+        jobNumber: m.job_number,
+        frequencyPerWeek: freq,
+        lastLogDate,
+        lastLogBy,
+        daysSinceLastLog,
+        behind,
+      });
     }
-    return { gaps, monitoredCount: (monitored || []).length };
+    // Behind jobs sort to the top of the report; gaps drive the slip alert + priority count.
+    report.sort((a, b) => (b.behind ? 1 : 0) - (a.behind ? 1 : 0) || (b.daysSinceLastLog ?? 999) - (a.daysSinceLastLog ?? 999));
+    const gaps = report.filter((r) => r.behind);
+    return { gaps, report, monitoredCount: (monitored || []).length };
   } catch (err: any) {
-    return { gaps: [], monitoredCount: 0, error: err?.message || 'daily-log check failed' };
+    return { gaps: [], report: [], monitoredCount: 0, error: err?.message || 'daily-log check failed' };
   }
 }
 
@@ -520,6 +538,10 @@ export async function generateBriefing() {
       overBudget: jobCosting.overBudget,
       watch: jobCosting.watch,
       all: cadence === 'daily' ? [] : jobCosting.all,
+    },
+    dailyLogReport: {
+      jobs: dailyLogs.report || [],
+      monitoredCount: dailyLogs.monitoredCount,
     },
     slip: {
       overdueScheduleJobs,

@@ -88,7 +88,6 @@ function briefingEmailHtml(p: any): string {
     : li('<span style="color:#8a8078;">No tasks due in the next 7 days.</span>');
 
   const slipParts: string[] = [];
-  for (const g of p.slip?.dailyLogGaps || []) slipParts.push(li(`<span style="color:#b00020;font-weight:600;">Daily log gap</span> &nbsp; ${escapeHtml(g.jobName || g.jobId)} ${g.lastLogDate ? `(last ${escapeHtml(g.lastLogDate)})` : '(no logs found)'}`));
   for (const j of p.slip?.budgetBurn || []) slipParts.push(li(`<span style="color:${j.health === 'over-budget' ? '#b00020' : '#b8860b'};font-weight:600;">${j.health === 'over-budget' ? 'Over budget' : 'Watch'}</span> &nbsp; ${escapeHtml(j.jobName)} (margin ${fmtPct(j.marginPct)})`));
   for (const j of (p.slip?.overdueScheduleJobs || []).slice(0, 12)) slipParts.push(li(`<span style="color:#b8860b;font-weight:600;">${j.count} overdue schedule item${j.count === 1 ? '' : 's'}</span> &nbsp; ${escapeHtml(j.jobName || 'Unassigned')} (worst ${j.maxDaysOverdue}d)`));
   const slip = slipParts.length ? slipParts.join('') : li('<span style="color:#8a8078;">No projects slipping.</span>');
@@ -117,11 +116,16 @@ function briefingEmailHtml(p: any): string {
     special = section(p.cadence === 'monday' ? 'Week Planner: Job Costing (all active jobs)' : 'Week in Review: Job Costing (all active jobs)', rows);
   }
 
+  const dlRows = (p.dailyLogReport?.jobs || []).length
+    ? p.dailyLogReport.jobs.map((j: any) => li(`<span style="color:${j.behind ? '#b00020' : '#1a7f37'};font-weight:600;">${j.behind ? 'Behind' : 'On track'}</span> &nbsp; ${escapeHtml(j.jobName)} <span style="color:#8a8078;">${j.lastLogDate ? `last log ${escapeHtml(j.lastLogDate)}${j.lastLogBy ? ` by ${escapeHtml(j.lastLogBy)}` : ''}${j.daysSinceLastLog != null ? `, ${j.daysSinceLastLog}d ago` : ''}` : 'no daily logs on record'} (${j.frequencyPerWeek}x/wk expected)</span>`)).join('')
+    : li('<span style="color:#8a8078;">No jobs set up for daily-log monitoring.</span>');
+
   const body = `
     ${section('Today’s Priorities', priorities)}
     ${section('Calendar', cal)}
     ${section('Email Needing Reply', email)}
     ${section('Project Slip Alerts', slip)}
+    ${section('Daily Log Monitoring', dlRows)}
     ${section('JobTread Messages', messages)}
     ${section('Your Tasks', myTasks)}
     ${section('New Leads', leads)}
