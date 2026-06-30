@@ -14,6 +14,7 @@ import {
 } from 'lucide-react';
 import { useAuth } from '@/app/hooks/useAuth';
 import TranscriptsFlag from './components/TranscriptsFlag';
+import DailyBriefing from './components/DailyBriefing';
 import { useAccess } from '@/app/hooks/useAccess';
 import {
   formatContent,
@@ -1986,6 +1987,13 @@ export default function DashboardOverview() {
     if (!d) continue;
     if (!calEventsByDate[d]) calEventsByDate[d] = [];
     calEventsByDate[d].push(ev);
+  }
+
+  // Nathan's Overview is fully replaced by the Daily Briefing. Gated to his
+  // account only; every other user keeps the standard widget dashboard below.
+  const briefingOverride = (access?.email || '').toLowerCase() === 'nathan@brettkingbuilder.com';
+  if (briefingOverride) {
+    return <DailyBriefing firstName={firstName} />;
   }
 
   if (loading && !overview) return (

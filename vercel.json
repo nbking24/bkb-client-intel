@@ -45,6 +45,10 @@
     },
     "app/api/dashboard/leads/[contactId]/pre-call-brief/route.ts": {
       "maxDuration": 60
+    },
+    "app/api/cron/daily-briefing/route.ts": {
+      "maxDuration": 300,
+      "memory": 1024
     }
   },
   "crons": [
@@ -87,6 +91,10 @@
     {
       "path": "/api/cron/uncontacted-lead-alerts",
       "schedule": "*/15 * * * *"
+    },
+    {
+      "path": "/api/cron/daily-briefing",
+      "schedule": "0 8 * * 1-5"
     }
   ]
 }

@@ -1,0 +1,478 @@
+// @ts-nocheck
+// ============================================================
+// Daily Briefing generator (Nathan's Overview)
+//
+// Pulls from JobTread, Gmail, Google Calendar, the leads engine, and the
+// cached job-costing summary, then assembles ONE pre-computed payload that the
+// 3 AM cron stores in `daily_briefings`. The Overview page just reads the row.
+//
+// Cadence = Option C (Two-Tier):
+//   - Daily core (Mon-Fri): calendar, email-needs-reply, JT messages, my tasks,
+//     slip alerts, leads, outstanding team tasks
+//   - Monday adds "Week Planner" (full job-costing review + week task load)
+//   - Friday adds "Week in Review" (job-costing wrap + aging team tasks)
+//
+// Every section is independently try/caught so one failing source never blanks
+// the whole briefing. No em dashes in any generated text (Nathan's rule).
+// ============================================================
+
+import { JT_MEMBERS } from '@/app/lib/constants';
+import {
+  getActiveJobs,
+  getOpenTasksForMemberAcrossJobs,
+  getAllOpenTasks,
+  getDailyLogsFromDB,
+  getCommentsFromDB,
+} from '@/app/lib/jobtread';
+import { fetchFullInbox, fetchCalendarEvents } from '@/app/lib/google-api';
+import { computeLeadsNeedsAttention } from '@/app/lib/leads-needs-attention';
+import { createServerClient } from '@/app/lib/supabase';
+
+const NATHAN_MEMBERSHIP = JT_MEMBERS.nathan;
+const NATHAN_GOOGLE_USER = 'nathan';
+const NATHAN_EMAIL = 'nathan@brettkingbuilder.com';
+
+// ---- time helpers (BKB is Central / America/Chicago) ----------------------
+function centralNow(): Date {
+  return new Date(new Date().toLocaleString('en-US', { timeZone: 'America/Chicago' }));
+}
+function startOfTodayCentral(): Date {
+  const d = centralNow();
+  d.setHours(0, 0, 0, 0);
+  return d;
+}
+function daysBetween(a: Date, b: Date): number {
+  return Math.floor((a.getTime() - b.getTime()) / (1000 * 60 * 60 * 24));
+}
+
+export type CadenceKind = 'monday' | 'friday' | 'daily';
+export function cadenceForDate(d = centralNow()): CadenceKind {
+  const dow = d.getDay(); // 0 Sun .. 6 Sat
+  if (dow === 1) return 'monday';
+  if (dow === 5) return 'friday';
+  return 'daily';
+}
+
+// ============================================================
+// Section builders
+// ============================================================
+
+async function buildCalendar() {
+  try {
+    const start = startOfTodayCentral();
+    const end = new Date(start);
+    end.setHours(23, 59, 59, 999);
+    const events = await fetchCalendarEvents(0, start, end, NATHAN_GOOGLE_USER);
+    return {
+      events: (events || []).map((e) => ({
+        id: e.id,
+        summary: e.summary,
+        start: e.start,
+        end: e.end,
+        allDay: e.allDay,
+        location: e.location,
+        attendeeCount: e.attendeeCount,
+      })),
+    };
+  } catch (err: any) {
+    return { events: [], error: err?.message || 'calendar failed' };
+  }
+}
+
+const AUTOMATED_FROM = [
+  'no-reply', 'noreply', 'no_reply', 'notifications@', 'notification@',
+  'mailer-daemon', 'donotreply', 'do-not-reply', 'postmaster@', 'bounce',
+  'updates@', 'newsletter', 'news@', 'support@resend', 'calendar-notification',
+];
+function looksAutomated(from: string): boolean {
+  const f = (from || '').toLowerCase();
+  return AUTOMATED_FROM.some((s) => f.includes(s));
+}
+
+async function buildEmailNeedsReply() {
+  try {
+    const sb = createServerClient();
+    const [inbox, dismissalsRes] = await Promise.all([
+      fetchFullInbox(40, NATHAN_GOOGLE_USER),
+      sb.from('briefing_email_dismissals').select('gmail_thread_id, dismissed_at'),
+    ]);
+    const dismissed = new Map<string, string>();
+    for (const r of dismissalsRes.data || []) dismissed.set(r.gmail_thread_id, r.dismissed_at);
+
+    const cutoff = new Date();
+    cutoff.setDate(cutoff.getDate() - 14);
+
+    const items = (inbox || [])
+      .filter((m) => {
+        const from = (m.from || '').toLowerCase();
+        if (from.includes(NATHAN_EMAIL)) return false;       // sent by Nathan -> ball not in his court
+        if (looksAutomated(from)) return false;
+        const dt = new Date(m.date);
+        if (isNaN(dt.getTime()) || dt < cutoff) return false;
+        // Suppress if dismissed AND no newer message since the dismissal
+        const dAt = dismissed.get(m.threadId);
+        if (dAt && dt <= new Date(dAt)) return false;
+        return true;
+      })
+      .map((m) => ({
+        id: m.id,
+        threadId: m.threadId,
+        from: m.from,
+        subject: m.subject || '(no subject)',
+        snippet: m.snippet || '',
+        date: m.date,
+        isUnread: m.isUnread,
+        ageDays: daysBetween(centralNow(), new Date(m.date)),
+      }))
+      .sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
+
+    return { items, count: items.length };
+  } catch (err: any) {
+    return { items: [], count: 0, error: err?.message || 'gmail failed' };
+  }
+}
+
+async function buildMyTasks() {
+  try {
+    const today = startOfTodayCentral();
+    const horizon = new Date(today);
+    horizon.setDate(horizon.getDate() + 7);
+
+    const tasks = await getOpenTasksForMemberAcrossJobs(NATHAN_MEMBERSHIP);
+    const mapped = (tasks || [])
+      .map((t) => {
+        const due = t.endDate ? new Date(t.endDate) : null;
+        const daysUntil = due ? daysBetween(due, today) : null;
+        return {
+          id: t.id,
+          name: t.name,
+          jobName: t.job?.name || null,
+          jobId: t.job?.id || null,
+          jobNumber: t.job?.number || null,
+          endDate: t.endDate,
+          progress: t.progress,
+          daysUntilDue: daysUntil,
+          overdue: daysUntil !== null && daysUntil < 0,
+        };
+      })
+      .filter((t) => t.endDate && t.daysUntilDue !== null && new Date(t.endDate) <= horizon)
+      .sort((a, b) => (a.daysUntilDue ?? 0) - (b.daysUntilDue ?? 0));
+
+    return {
+      overdue: mapped.filter((t) => t.overdue),
+      upcoming: mapped.filter((t) => !t.overdue),
+      count: mapped.length,
+    };
+  } catch (err: any) {
+    return { overdue: [], upcoming: [], count: 0, error: err?.message || 'tasks failed' };
+  }
+}
+
+async function buildOutstandingTeamTasks() {
+  try {
+    const today = startOfTodayCentral();
+    const all = await getAllOpenTasks();
+    const mapped = (all || [])
+      .map((t) => {
+        const due = t.endDate ? new Date(t.endDate) : null;
+        const daysOverdue = due ? daysBetween(today, due) : null;
+        return {
+          id: t.id,
+          name: t.name,
+          jobName: t.job?.name || null,
+          jobNumber: t.job?.number || null,
+          endDate: t.endDate,
+          progress: t.progress,
+          daysOverdue: daysOverdue !== null && daysOverdue > 0 ? daysOverdue : 0,
+        };
+      });
+    const overdue = mapped.filter((t) => t.daysOverdue > 0).sort((a, b) => b.daysOverdue - a.daysOverdue);
+    return {
+      totalOpen: mapped.length,
+      overdueCount: overdue.length,
+      overdue: overdue.slice(0, 25),
+      aging: overdue.filter((t) => t.daysOverdue >= 14).slice(0, 40), // Friday deep view uses this
+    };
+  } catch (err: any) {
+    return { totalOpen: 0, overdueCount: 0, overdue: [], aging: [], error: err?.message || 'team tasks failed' };
+  }
+}
+
+async function buildMessages(activeJobs: any[]) {
+  try {
+    const sinceDays = 3;
+    const cutoff = new Date();
+    cutoff.setDate(cutoff.getDate() - sinceDays);
+
+    const jobs = (activeJobs || []).slice(0, 80);
+    const collected: any[] = [];
+    const BATCH = 20;
+    for (let i = 0; i < jobs.length; i += BATCH) {
+      const batch = jobs.slice(i, i + BATCH);
+      const results = await Promise.all(
+        batch.map(async (j) => {
+          try {
+            const comments = await getCommentsFromDB(j.id, 25);
+            return (comments || [])
+              .filter((c) => c.createdAt && new Date(c.createdAt) >= cutoff)
+              .map((c) => ({
+                id: c.id,
+                jobId: j.id,
+                jobName: j.name,
+                jobNumber: j.number,
+                author: c.name || '',
+                message: (c.message || '').slice(0, 400),
+                createdAt: c.createdAt,
+                mentionsNathan: /nathan/i.test(c.message || ''),
+              }));
+          } catch {
+            return [];
+          }
+        })
+      );
+      for (const r of results) collected.push(...r);
+    }
+    collected.sort((a, b) => {
+      if (a.mentionsNathan !== b.mentionsNathan) return a.mentionsNathan ? -1 : 1;
+      return new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime();
+    });
+    const mentions = collected.filter((c) => c.mentionsNathan);
+    return {
+      flagged: mentions.slice(0, 15),
+      recent: collected.slice(0, 20),
+      count: collected.length,
+      mentionCount: mentions.length,
+    };
+  } catch (err: any) {
+    return { flagged: [], recent: [], count: 0, mentionCount: 0, error: err?.message || 'messages failed' };
+  }
+}
+
+async function buildJobCosting() {
+  // Read the cached job-costing summary (single row) rather than recompute.
+  try {
+    const sb = createServerClient();
+    const { data } = await sb
+      .from('job_costing_summary_cache')
+      .select('payload, computed_at')
+      .eq('key', 'summary')
+      .single();
+    const summaries = data?.payload?.summaries || [];
+    const rows = summaries.map((s: any) => ({
+      jobId: s.jobId,
+      jobName: s.jobName,
+      jobNumber: s.jobNumber,
+      health: s.health,
+      margin: s.margin,
+      marginPct: s.marginPct,
+      contractPrice: s.contractPrice,
+      totalCosts: s.totalCosts,
+      estimatedCost: s.estimatedCost,
+      overUnderBilled: s.overUnderBilled,
+      overUnderPercent: s.overUnderPercent,
+      costBasedPercent: s.costBasedPercent,
+      manualPercentComplete: s.manualPercentComplete ?? null,
+      isCostPlus: s.isCostPlus,
+      alerts: s.alerts || [],
+    }));
+    const overBudget = rows.filter((r) => r.health === 'over-budget');
+    const watch = rows.filter((r) => r.health === 'watch');
+    // Worst margins first for the full-review (Mon/Fri) table
+    const sorted = [...rows].sort((a, b) => (a.marginPct ?? 0) - (b.marginPct ?? 0));
+    return {
+      computedAt: data?.computed_at || null,
+      jobCount: rows.length,
+      overBudget,
+      watch,
+      all: sorted,
+    };
+  } catch (err: any) {
+    return { computedAt: null, jobCount: 0, overBudget: [], watch: [], all: [], error: err?.message || 'job costing failed' };
+  }
+}
+
+async function buildDailyLogGaps() {
+  try {
+    const sb = createServerClient();
+    const { data: monitored } = await sb
+      .from('briefing_monitored_jobs')
+      .select('jt_job_id, job_name, job_number, expect_logs, frequency_per_week')
+      .eq('expect_logs', true);
+
+    const today = startOfTodayCentral();
+    const gaps: any[] = [];
+    for (const m of monitored || []) {
+      try {
+        const logs = await getDailyLogsFromDB(m.jt_job_id, 50);
+        const latest = (logs || [])
+          .map((l) => new Date(l.date || l.createdAt))
+          .filter((d) => !isNaN(d.getTime()))
+          .sort((a, b) => b.getTime() - a.getTime())[0] || null;
+        const freq = m.frequency_per_week || 2;
+        const thresholdDays = Math.ceil(7 / freq) + 1; // grace of 1 day
+        const sinceDays = latest ? daysBetween(today, latest) : 999;
+        if (!latest || sinceDays > thresholdDays) {
+          gaps.push({
+            jobId: m.jt_job_id,
+            jobName: m.job_name,
+            jobNumber: m.job_number,
+            frequencyPerWeek: freq,
+            lastLogDate: latest ? latest.toISOString().split('T')[0] : null,
+            daysSinceLastLog: latest ? sinceDays : null,
+          });
+        }
+      } catch {
+        // skip this job on error
+      }
+    }
+    return { gaps, monitoredCount: (monitored || []).length };
+  } catch (err: any) {
+    return { gaps: [], monitoredCount: 0, error: err?.message || 'daily-log check failed' };
+  }
+}
+
+async function buildLeads() {
+  try {
+    const res = await computeLeadsNeedsAttention();
+    return {
+      newUncontacted: (res.newUncontacted || []).map((l: any) => ({
+        contactName: l.contactName,
+        opportunityName: l.opportunityName,
+        contactId: l.contactId,
+      })),
+      counts: res.counts,
+    };
+  } catch (err: any) {
+    return { newUncontacted: [], counts: { newUncontacted: 0, upcoming: 0, stale: 0, totalActive: 0 }, error: err?.message || 'leads failed' };
+  }
+}
+
+// ============================================================
+// Assembly
+// ============================================================
+
+function buildPriorities(payload: any): string[] {
+  const p: string[] = [];
+  const email = payload.email?.count || 0;
+  if (email > 0) p.push(`${email} email${email === 1 ? '' : 's'} awaiting your reply`);
+
+  const ob = payload.jobCosting?.overBudget?.length || 0;
+  if (ob > 0) p.push(`${ob} job${ob === 1 ? '' : 's'} over budget`);
+
+  const gaps = payload.slip?.dailyLogGaps?.length || 0;
+  if (gaps > 0) p.push(`${gaps} monitored job${gaps === 1 ? '' : 's'} missing daily logs`);
+
+  const overdueTasks = payload.myTasks?.overdue?.length || 0;
+  if (overdueTasks > 0) p.push(`${overdueTasks} of your tasks overdue`);
+
+  const slipTasks = payload.slip?.overdueScheduleJobs?.length || 0;
+  if (slipTasks > 0) p.push(`${slipTasks} job${slipTasks === 1 ? '' : 's'} with overdue schedule items`);
+
+  const mentions = payload.messages?.mentionCount || 0;
+  if (mentions > 0) p.push(`${mentions} JobTread message${mentions === 1 ? '' : 's'} mention you`);
+
+  const leads = payload.leads?.counts?.newUncontacted || 0;
+  if (leads > 0) p.push(`${leads} new uncontacted lead${leads === 1 ? '' : 's'}`);
+
+  const teamOverdue = payload.teamTasks?.overdueCount || 0;
+  if (teamOverdue > 0) p.push(`${teamOverdue} open team task${teamOverdue === 1 ? '' : 's'} overdue across the company`);
+
+  if (p.length === 0) p.push('Nothing urgent flagged. Good morning.');
+  return p;
+}
+
+export async function generateBriefing() {
+  const startTs = Date.now();
+  const cadence = cadenceForDate();
+  const today = startOfTodayCentral();
+
+  const activeJobs = await getActiveJobs().catch(() => []);
+
+  const [calendar, email, myTasks, teamTasks, messages, jobCosting, dailyLogs, leads] = await Promise.all([
+    buildCalendar(),
+    buildEmailNeedsReply(),
+    buildMyTasks(),
+    buildOutstandingTeamTasks(),
+    buildMessages(activeJobs),
+    buildJobCosting(),
+    buildDailyLogGaps(),
+    buildLeads(),
+  ]);
+
+  // Slip detection aggregates several signals by job.
+  // 1) Overdue schedule items: from the team-task overdue list (active jobs).
+  const overdueByJob = new Map<string, { jobName: string; jobNumber: string; count: number; maxDaysOverdue: number }>();
+  for (const t of teamTasks.overdue || []) {
+    const key = t.jobName || 'Unassigned';
+    const cur = overdueByJob.get(key) || { jobName: t.jobName, jobNumber: t.jobNumber, count: 0, maxDaysOverdue: 0 };
+    cur.count += 1;
+    cur.maxDaysOverdue = Math.max(cur.maxDaysOverdue, t.daysOverdue);
+    overdueByJob.set(key, cur);
+  }
+  const overdueScheduleJobs = Array.from(overdueByJob.values()).sort((a, b) => b.maxDaysOverdue - a.maxDaysOverdue);
+
+  // 2) Stale tasks: open tasks >14 days overdue.
+  const staleJobs = (teamTasks.aging || []).reduce((acc: any[], t: any) => {
+    const found = acc.find((x) => x.jobName === t.jobName);
+    if (found) found.count += 1;
+    else acc.push({ jobName: t.jobName, jobNumber: t.jobNumber, count: 1 });
+    return acc;
+  }, []);
+
+  const payload: any = {
+    version: 1,
+    cadence,
+    generatedAt: new Date().toISOString(),
+    briefingDate: today.toISOString().split('T')[0],
+    weekdayLabel: centralNow().toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric' }),
+    calendar,
+    email,
+    messages,
+    myTasks,
+    leads,
+    teamTasks,
+    jobCosting: {
+      // Tue-Thu only show exceptions; Mon/Fri include the full list (UI decides via cadence)
+      computedAt: jobCosting.computedAt,
+      jobCount: jobCosting.jobCount,
+      overBudget: jobCosting.overBudget,
+      watch: jobCosting.watch,
+      all: cadence === 'daily' ? [] : jobCosting.all,
+    },
+    slip: {
+      overdueScheduleJobs,
+      budgetBurn: [...jobCosting.overBudget, ...jobCosting.watch],
+      dailyLogGaps: dailyLogs.gaps,
+      monitoredCount: dailyLogs.monitoredCount,
+      staleJobs,
+    },
+  };
+
+  payload.priorities = buildPriorities(payload);
+  payload.generateMs = Date.now() - startTs;
+  return payload;
+}
+
+export async function storeBriefing(payload: any) {
+  const sb = createServerClient();
+  const briefingDate = payload.briefingDate;
+  const { error } = await sb
+    .from('daily_briefings')
+    .upsert(
+      { briefing_date: briefingDate, payload, generated_at: new Date().toISOString(), generate_ms: payload.generateMs || null },
+      { onConflict: 'briefing_date' }
+    );
+  if (error) throw new Error(`store briefing failed: ${error.message}`);
+  return briefingDate;
+}
+
+export async function getLatestBriefing() {
+  const sb = createServerClient();
+  const { data } = await sb
+    .from('daily_briefings')
+    .select('payload, generated_at, briefing_date')
+    .order('briefing_date', { ascending: false })
+    .limit(1)
+    .single();
+  return data || null;
+}
