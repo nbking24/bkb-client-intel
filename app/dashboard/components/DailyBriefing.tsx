@@ -166,20 +166,7 @@ export default function DailyBriefing({ firstName }: { firstName?: string }) {
       {/* Email needing reply */}
       <Section title="Email Needing Reply" count={emailItems.length}>
         {emailItems.length ? emailItems.map((m: any) => (
-          <div key={m.id} style={{ padding: '9px 0', borderBottom: '1px solid #f0ece6', display: 'flex', justifyContent: 'space-between', gap: 10 }}>
-            <div style={{ fontSize: 14, lineHeight: 1.4, minWidth: 0 }}>
-              <div style={{ fontWeight: 600, display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
-                {m.category && (
-                  <span style={{ fontSize: 10, fontWeight: 700, letterSpacing: '.04em', textTransform: 'uppercase', color: '#fff', background: m.category === 'client' ? GREEN : MAROON, borderRadius: 4, padding: '1px 6px' }}>{m.category}</span>
-                )}
-                <span>{shortFrom(m.from)}</span>
-                {m.isUnread && <span style={{ color: MAROON, fontSize: 11 }}>• unread</span>}
-              </div>
-              <div>{m.subject} <span style={{ color: '#8a8078' }}>({m.ageDays}d)</span></div>
-              <div style={{ color: '#8a8078', fontSize: 13, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{m.reason ? `${m.reason}: ${m.snippet}` : m.snippet}</div>
-            </div>
-            <button onClick={() => dismissEmail(m)} title="I replied to this elsewhere" style={btnDismiss}>Mark replied</button>
-          </div>
+          <EmailItem key={m.id} m={m} onDismiss={() => dismissEmail(m)} />
         )) : <Empty text="Inbox clear of items needing a reply." />}
       </Section>
 
@@ -269,6 +256,101 @@ export default function DailyBriefing({ firstName }: { firstName?: string }) {
       </div>
 
       {showSettings && <MonitoredJobsModal onClose={() => setShowSettings(false)} />}
+    </div>
+  );
+}
+
+// ---- Email item with inline reply drafter ---------------------------------
+function EmailItem({ m, onDismiss }: { m: any; onDismiss: () => void }) {
+  const [open, setOpen] = useState(false);
+  const [loading, setLoading] = useState(false);
+  const [draft, setDraft] = useState('');
+  const [meta, setMeta] = useState<any>(null);
+  const [jobMatched, setJobMatched] = useState<any>(null);
+  const [err, setErr] = useState<string | null>(null);
+  const [copied, setCopied] = useState(false);
+  const [creating, setCreating] = useState(false);
+  const [gmailUrl, setGmailUrl] = useState<string | null>(null);
+
+  const doGenerate = async () => {
+    setLoading(true); setErr(null); setGmailUrl(null);
+    try {
+      const res = await fetch('/api/dashboard/briefing/draft-reply', {
+        method: 'POST', headers: authHeaders(),
+        body: JSON.stringify({ action: 'generate', threadId: m.threadId }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data?.error || 'Failed to draft');
+      setDraft(data.draft || '');
+      setMeta(data.replyMeta || null);
+      setJobMatched(data.jobMatched || null);
+    } catch (e: any) { setErr(e?.message || 'Failed to draft'); }
+    finally { setLoading(false); }
+  };
+  const generate = () => {
+    setOpen(true);
+    if (!draft && !loading) doGenerate();
+  };
+
+  const copy = async () => {
+    try { await navigator.clipboard.writeText(draft); setCopied(true); setTimeout(() => setCopied(false), 1500); } catch { /* ignore */ }
+  };
+
+  const createGmailDraft = async () => {
+    if (!meta) return;
+    setCreating(true); setErr(null);
+    try {
+      const res = await fetch('/api/dashboard/briefing/draft-reply', {
+        method: 'POST', headers: authHeaders(),
+        body: JSON.stringify({ action: 'createDraft', threadId: meta.threadId, to: meta.to, subject: meta.subject, inReplyTo: meta.inReplyTo, references: meta.references, body: draft }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data?.error || 'Failed to create draft');
+      setGmailUrl(data.gmailUrl || 'https://mail.google.com/mail/#drafts');
+    } catch (e: any) { setErr(e?.message || 'Failed to create draft'); }
+    finally { setCreating(false); }
+  };
+
+  return (
+    <div style={{ padding: '9px 0', borderBottom: '1px solid #f0ece6' }}>
+      <div style={{ display: 'flex', justifyContent: 'space-between', gap: 10 }}>
+        <div style={{ fontSize: 14, lineHeight: 1.4, minWidth: 0 }}>
+          <div style={{ fontWeight: 600, display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
+            {m.category && (
+              <span style={{ fontSize: 10, fontWeight: 700, letterSpacing: '.04em', textTransform: 'uppercase', color: '#fff', background: m.category === 'client' ? GREEN : MAROON, borderRadius: 4, padding: '1px 6px' }}>{m.category}</span>
+            )}
+            <span>{shortFrom(m.from)}</span>
+            {m.isUnread && <span style={{ color: MAROON, fontSize: 11 }}>• unread</span>}
+          </div>
+          <div>{m.subject} <span style={{ color: '#8a8078' }}>({m.ageDays}d)</span></div>
+          <div style={{ color: '#8a8078', fontSize: 13, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{m.reason ? `${m.reason}: ${m.snippet}` : m.snippet}</div>
+        </div>
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 6, alignItems: 'flex-end' }}>
+          <button onClick={generate} style={btnGhost}>{open ? 'Reply draft' : 'Draft reply'}</button>
+          <button onClick={onDismiss} title="I replied to this elsewhere" style={btnDismiss}>Mark replied</button>
+        </div>
+      </div>
+
+      {open && (
+        <div style={{ marginTop: 10, background: CREAM, borderRadius: 8, padding: 12 }}>
+          {loading && <div style={{ color: '#8a8078', fontSize: 13 }}>Drafting a reply in your voice from the thread and JobTread context…</div>}
+          {err && <div style={{ color: RED, fontSize: 13 }}>{err}</div>}
+          {!loading && draft && (
+            <>
+              {jobMatched && <div style={{ fontSize: 12, color: '#6b6258', marginBottom: 6 }}>Context: JobTread #{jobMatched.number} {jobMatched.name}</div>}
+              <textarea value={draft} onChange={(e) => setDraft(e.target.value)} rows={12}
+                style={{ width: '100%', boxSizing: 'border-box', fontFamily: 'ui-monospace, Menlo, monospace', fontSize: 13, lineHeight: 1.5, padding: 10, border: '1px solid #e0d8ce', borderRadius: 6, background: '#fff', resize: 'vertical' }} />
+              <div style={{ display: 'flex', gap: 8, marginTop: 8, flexWrap: 'wrap', alignItems: 'center' }}>
+                <button onClick={copy} style={btnGhost}>{copied ? 'Copied' : 'Copy'}</button>
+                <button onClick={createGmailDraft} disabled={creating} style={btnPrimary}>{creating ? 'Creating…' : 'Create Gmail draft'}</button>
+                <button onClick={doGenerate} disabled={loading} style={btnGhost}>Regenerate</button>
+                {gmailUrl && <a href={gmailUrl} target="_blank" rel="noreferrer" style={{ color: MAROON, fontWeight: 600, fontSize: 13 }}>Open draft in Gmail</a>}
+              </div>
+              <div style={{ fontSize: 11, color: '#b3aaa0', marginTop: 6 }}>To: {meta?.to}. The Gmail draft replies in the same thread.</div>
+            </>
+          )}
+        </div>
+      )}
     </div>
   );
 }

@@ -69,3 +69,12 @@ CONTENT PHILOSOPHY:
 4. Build trust through transparency  - show real numbers and process
 5. Content attracts right people, repels wrong ones  - quality over quantity
 `;
+
+// Nathan's full email signature block (from his real sent emails). The reply
+// drafter appends this to outgoing draft bodies. No images, plain text.
+export const NATHAN_SIGNATURE = `Nathan King
+Owner-Operations, Brett King Builder-Contractor Inc.
+o. 215-536-1145 | c. 267-784-4134
+www.brettkingbuilder.com
+nathan@brettkingbuilder.com
+Since 1982: "Building upon a solid foundation."`;

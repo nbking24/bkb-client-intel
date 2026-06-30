@@ -442,3 +442,148 @@ export async function fetchCalendarEvents(
     return [];
   }
 }
+
+// ============================================================
+// Thread fetch + threaded reply draft (used by the briefing reply drafter)
+// ============================================================
+
+export interface ThreadMessage {
+  id: string;
+  from: string;
+  to: string;
+  date: string;
+  bodyText: string;
+}
+export interface ThreadForReply {
+  threadId: string;
+  subject: string;
+  messages: ThreadMessage[];
+  // Headers needed to build a properly threaded reply to the latest message:
+  replyTo: string;            // address to send the reply to
+  inReplyTo: string | null;   // Message-ID header of the latest message
+  references: string | null;  // References chain for threading
+}
+
+function b64urlDecode(data: string): string {
+  try {
+    const norm = (data || '').replace(/-/g, '+').replace(/_/g, '/');
+    return Buffer.from(norm, 'base64').toString('utf-8');
+  } catch {
+    return '';
+  }
+}
+
+// Recursively pull the best text/plain body from a Gmail message payload.
+function extractPlainText(payload: any): string {
+  if (!payload) return '';
+  if (payload.mimeType === 'text/plain' && payload.body?.data) {
+    return b64urlDecode(payload.body.data);
+  }
+  if (Array.isArray(payload.parts)) {
+    // Prefer text/plain parts; fall back to concatenating any text we find.
+    const plain = payload.parts.find((p: any) => p.mimeType === 'text/plain' && p.body?.data);
+    if (plain) return b64urlDecode(plain.body.data);
+    let acc = '';
+    for (const p of payload.parts) acc += extractPlainText(p);
+    return acc;
+  }
+  if (payload.body?.data && (payload.mimeType || '').startsWith('text/')) {
+    return b64urlDecode(payload.body.data);
+  }
+  return '';
+}
+
+// Strip quoted history so the model focuses on the live message.
+function trimQuoted(text: string): string {
+  if (!text) return '';
+  const lines = text.split(/\r?\n/);
+  const out: string[] = [];
+  for (const line of lines) {
+    if (/^\s*On .*wrote:\s*$/.test(line)) break;
+    if (/^\s*-----Original Message-----/.test(line)) break;
+    if (/^\s*From:\s.+$/.test(line) && out.length > 2) break;
+    out.push(line);
+  }
+  return out.join('\n').trim();
+}
+
+export async function getThreadForReply(threadId: string, userId?: string): Promise<ThreadForReply | null> {
+  try {
+    const token = await getAccessToken(userId);
+    const res = await fetch(
+      `https://gmail.googleapis.com/gmail/v1/users/me/threads/${threadId}?format=full`,
+      { headers: { Authorization: `Bearer ${token}` } }
+    );
+    if (!res.ok) {
+      console.error('[GoogleAPI] getThreadForReply failed:', res.status);
+      return null;
+    }
+    const data = await res.json();
+    const msgs = (data.messages || []) as any[];
+    const hdr = (m: any, name: string) =>
+      (m.payload?.headers || []).find((h: any) => h.name.toLowerCase() === name.toLowerCase())?.value || '';
+
+    const messages: ThreadMessage[] = msgs.map((m) => ({
+      id: m.id,
+      from: hdr(m, 'From'),
+      to: hdr(m, 'To'),
+      date: hdr(m, 'Date'),
+      bodyText: trimQuoted(extractPlainText(m.payload)).slice(0, 6000),
+    }));
+
+    const last = msgs[msgs.length - 1] || {};
+    const subject = hdr(msgs[0] || {}, 'Subject') || hdr(last, 'Subject');
+    // Reply goes to the last message's Reply-To, else its From.
+    const replyTo = hdr(last, 'Reply-To') || hdr(last, 'From');
+    const inReplyTo = hdr(last, 'Message-ID') || hdr(last, 'Message-Id') || null;
+    const priorRefs = hdr(last, 'References');
+    const references = [priorRefs, inReplyTo].filter(Boolean).join(' ').trim() || null;
+
+    return { threadId, subject, messages, replyTo, inReplyTo, references };
+  } catch (err: any) {
+    console.error('[GoogleAPI] getThreadForReply error:', err.message);
+    return null;
+  }
+}
+
+export async function createGmailReplyDraft(params: {
+  threadId: string;
+  to: string;
+  subject: string;
+  body: string;
+  inReplyTo?: string | null;
+  references?: string | null;
+  userId?: string;
+}): Promise<{ draftId: string; gmailUrl: string } | null> {
+  try {
+    const token = await getAccessToken(params.userId);
+    const subject = /^re:/i.test(params.subject) ? params.subject : `Re: ${params.subject}`;
+    const headers = [
+      `To: ${params.to}`,
+      `Subject: ${subject}`,
+      'Content-Type: text/plain; charset=utf-8',
+    ];
+    if (params.inReplyTo) headers.push(`In-Reply-To: ${params.inReplyTo}`);
+    if (params.references) headers.push(`References: ${params.references}`);
+    const email = [...headers, '', params.body].join('\r\n');
+    const encoded = Buffer.from(email).toString('base64').replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
+
+    const res = await fetch('https://gmail.googleapis.com/gmail/v1/users/me/drafts', {
+      method: 'POST',
+      headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
+      body: JSON.stringify({ message: { raw: encoded, threadId: params.threadId } }),
+    });
+    if (!res.ok) {
+      const t = await res.text().catch(() => '');
+      console.error('[GoogleAPI] createGmailReplyDraft failed:', res.status, t.slice(0, 200));
+      return null;
+    }
+    const data = await res.json();
+    const messageId = data.message?.id;
+    const gmailUrl = messageId ? `https://mail.google.com/mail/#drafts/${messageId}` : 'https://mail.google.com/mail/#drafts';
+    return { draftId: data.id, gmailUrl };
+  } catch (err: any) {
+    console.error('[GoogleAPI] createGmailReplyDraft error:', err.message);
+    return null;
+  }
+}
