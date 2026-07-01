@@ -620,3 +620,35 @@ export async function searchGmailMessages(query: string, maxResults = 5, userId?
     return [];
   }
 }
+
+// Determine whether Nathan already replied in a thread. Used by the briefing so
+// an inbound email drops off the "needs reply" list once Nathan sends a reply
+// (the original inbound message stays in the inbox, so we must inspect the
+// thread, not just the inbox message). Ignores DRAFT messages (an unsent draft
+// is not a reply). Returns true when the most recent non-draft message in the
+// thread was sent by Nathan.
+export async function threadRepliedByNathan(threadId: string, userId?: string): Promise<boolean> {
+  const SELF = 'nathan@brettkingbuilder.com';
+  try {
+    const token = await getAccessToken(userId);
+    const res = await fetch(
+      `https://gmail.googleapis.com/gmail/v1/users/me/threads/${threadId}?format=metadata&metadataHeaders=From`,
+      { headers: { Authorization: `Bearer ${token}` } }
+    );
+    if (!res.ok) return false;
+    const data = await res.json();
+    const msgs = (data.messages || []) as any[];
+    let latest: { when: number; from: string } | null = null;
+    for (const m of msgs) {
+      const labels = m.labelIds || [];
+      if (labels.includes('DRAFT')) continue;          // unsent drafts do not count
+      const from = (m.payload?.headers || []).find((h: any) => h.name.toLowerCase() === 'from')?.value || '';
+      const when = Number(m.internalDate || 0);
+      if (!latest || when > latest.when) latest = { when, from };
+    }
+    return !!latest && latest.from.toLowerCase().includes(SELF);
+  } catch (err: any) {
+    console.error('[GoogleAPI] threadRepliedByNathan error:', err.message);
+    return false; // fail open: keep showing the email rather than hide something unanswered
+  }
+}

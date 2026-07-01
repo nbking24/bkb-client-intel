@@ -25,7 +25,7 @@ import {
   getCommentsFromDB,
   getMembers,
 } from '@/app/lib/jobtread';
-import { fetchFullInbox, fetchCalendarEvents } from '@/app/lib/google-api';
+import { fetchFullInbox, fetchCalendarEvents, threadRepliedByNathan } from '@/app/lib/google-api';
 import { computeLeadsNeedsAttention } from '@/app/lib/leads-needs-attention';
 import { createServerClient } from '@/app/lib/supabase';
 import Anthropic from '@anthropic-ai/sdk';
@@ -181,24 +181,39 @@ async function buildEmailNeedsReply() {
         ageDays: daysBetween(centralNow(), new Date(m.date)),
       }));
 
+    // Dedupe to one entry per thread (keep the newest message on each thread).
+    const byThread = new Map<string, any>();
+    for (const c of candidates) {
+      const prev = byThread.get(c.threadId);
+      if (!prev || new Date(c.date).getTime() > new Date(prev.date).getTime()) byThread.set(c.threadId, c);
+    }
+    const deduped = Array.from(byThread.values());
+
+    // Drop threads Nathan has already replied to (his sent reply leaves the
+    // original inbound message in the inbox, so we must inspect the thread).
+    const replyStates = await Promise.all(
+      deduped.map((c) => threadRepliedByNathan(c.threadId, NATHAN_GOOGLE_USER).catch(() => false))
+    );
+    const unanswered = deduped.filter((_, i) => !replyStates[i]);
+
     // AI triage: keep only vendor/client emails that genuinely need a reply.
-    const cls = await classifyEmailsForReply(candidates);
+    const cls = await classifyEmailsForReply(unanswered);
     let items: any[];
     let triage: 'ai' | 'heuristic';
     if (cls) {
       triage = 'ai';
-      items = candidates
+      items = unanswered
         .map((m, i) => ({ ...m, ...(cls.get(i) || {}) }))
         .filter((m) => m.needsReply === true && (m.category === 'vendor' || m.category === 'client'));
     } else {
       triage = 'heuristic';
-      items = candidates
+      items = unanswered
         .filter(heuristicNeedsReply)
         .map((m) => ({ ...m, category: null, reason: null }));
     }
     items.sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
 
-    return { items, count: items.length, triage, candidateCount: candidates.length };
+    return { items, count: items.length, triage, candidateCount: unanswered.length };
   } catch (err: any) {
     return { items: [], count: 0, error: err?.message || 'gmail failed' };
   }
