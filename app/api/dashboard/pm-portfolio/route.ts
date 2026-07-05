@@ -23,7 +23,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { validateAuth } from '@/app/api/lib/auth';
 import { getEffectiveAccess } from '@/app/lib/access';
-import { getActiveJobs, getJob } from '@/app/lib/jobtread';
+import { getActiveJobs, pave } from '@/app/lib/jobtread';
 import { getSupabase } from '@/app/api/lib/supabase';
 
 export const runtime = 'nodejs';
@@ -57,18 +57,30 @@ export async function GET(req: NextRequest) {
       j.customStatus === PRODUCTION_STATUS
   );
 
-  // Fetch details + manual progress in parallel (small N, safe)
+  // Fetch financial fields via PAVE, plus manual progress. Small N (typically < 10 jobs).
+  async function getJobFinancials(jobId: string) {
+    try {
+      const data = await pave({
+        job: {
+          $: { id: jobId },
+          id: {},
+          projectedCost: {},
+          projectedPrice: {},
+          actualCost: {},
+          scheduleStart: {},
+          scheduleEnd: {},
+        },
+      });
+      return (data as any)?.job || null;
+    } catch {
+      return null;
+    }
+  }
+
   const supabase = getSupabase();
   const [details, progressRows] = await Promise.all([
     Promise.all(
-      myJobs.map(async (j: any) => {
-        try {
-          const d = await getJob(j.id);
-          return { id: j.id, detail: d };
-        } catch {
-          return { id: j.id, detail: null };
-        }
-      })
+      myJobs.map(async (j: any) => ({ id: j.id, detail: await getJobFinancials(j.id) }))
     ),
     supabase
       .from('job_manual_progress')
