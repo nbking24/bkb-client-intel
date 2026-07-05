@@ -5,8 +5,8 @@ import { useEffect, useState } from 'react';
 import { Loader2, RefreshCw, ExternalLink, Save, Check, AlertTriangle, Clock } from 'lucide-react';
 
 function getAuthToken() {
-  const pin = typeof window !== 'undefined' ? (process.env.NEXT_PUBLIC_APP_PIN || '') : '';
-  return `Basic ${btoa(pin + ':')}`;
+  const token = typeof window !== 'undefined' ? localStorage.getItem('bkb-token') || '' : '';
+  return `Bearer ${token}`;
 }
 
 function money(n: number | null | undefined) {

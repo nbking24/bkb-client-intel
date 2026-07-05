@@ -6,8 +6,8 @@ import { Loader2, ArrowLeft, RefreshCw, AlertTriangle, TrendingDown, TrendingUp,
 import { useParams } from 'next/navigation';
 
 function getAuthToken() {
-  const pin = typeof window !== 'undefined' ? (process.env.NEXT_PUBLIC_APP_PIN || '') : '';
-  return `Basic ${btoa(pin + ':')}`;
+  const token = typeof window !== 'undefined' ? localStorage.getItem('bkb-token') || '' : '';
+  return `Bearer ${token}`;
 }
 
 function money(n: number | null | undefined) {
