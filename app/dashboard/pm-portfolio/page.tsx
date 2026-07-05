@@ -55,7 +55,8 @@ export default function PmPortfolioPage() {
   async function loadData() {
     setError(null);
     try {
-      const res = await fetch('/api/dashboard/pm-portfolio', {
+      const qs = typeof window !== 'undefined' ? window.location.search : '';
+      const res = await fetch(`/api/dashboard/pm-portfolio${qs}`, {
         headers: { Authorization: getAuthToken() },
         cache: 'no-store',
       });
