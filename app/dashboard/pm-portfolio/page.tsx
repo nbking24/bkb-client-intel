@@ -244,7 +244,7 @@ export default function PmPortfolioPage() {
 
             <div style={{ marginTop: 12, paddingTop: 8, borderTop: '1px dashed #eee5d8' }}>
               <a href={j.jobCostingUrl} style={{ color: '#0d5a7a', fontSize: 12, display: 'inline-flex', alignItems: 'center', gap: 4 }}>
-                <ExternalLink size={12} /> View cost breakdown by division on Job Costing dashboard
+                <ExternalLink size={12} /> View cost breakdown by division
               </a>
             </div>
           </div>

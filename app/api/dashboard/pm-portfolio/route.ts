@@ -131,7 +131,7 @@ export async function GET(req: NextRequest) {
         progressSetBy: p ? p.set_by : null,
         progressSetAt: p ? p.set_at : null,
         progressNotes: p ? p.notes : null,
-        jobCostingUrl: `/dashboard/job-costing?job=${j.id}`,
+        jobCostingUrl: `/dashboard/pm-portfolio/${j.id}`,
       };
     })
     // Sort: overdue first (most days over), then largest contract
