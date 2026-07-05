@@ -53,6 +53,7 @@ export const DASHBOARDS: DashboardDef[] = [
   { id: 'message-formatter', label: 'Message Formatter', href: '/dashboard/message-formatter', icon: 'Type', description: 'Word-like editor that outputs JobTread-ready markdown' },
   { id: 'scripture',   label: 'Daily Scripture',   href: '/dashboard/scripture',   icon: 'BookOpen',        description: '15-minute Bible reading & Scripture memory (ESV)' },
   { id: 'field',       label: 'My Tasks (Field)', href: '/dashboard/field',       icon: 'ClipboardList',   description: 'Simplified field-staff task view' },
+  { id: 'pm-portfolio', label: 'My PM Portfolio',  href: '/dashboard/pm-portfolio', icon: 'Briefcase',       description: 'Your in-production jobs with editable overall % complete per job' },
   { id: 'admin',       label: 'Admin',            href: '/dashboard/admin',       icon: 'Shield', ownerOnly: true, description: 'User & access management' },
 ];
 
