@@ -314,11 +314,17 @@ export async function archiveEmails(messageIds: string[]): Promise<{ archived: n
  * Fetch broader inbox for cleanup analysis — includes promotions, social, updates.
  * Unlike fetchGmailInbox which filters to primary only, this gets everything.
  */
-export async function fetchFullInbox(maxResults = 30, userId?: string): Promise<GmailMessage[]> {
+export async function fetchFullInbox(maxResults = 150, userId?: string, days = 14): Promise<GmailMessage[]> {
   try {
     const token = await getAccessToken(userId);
 
-    const query = 'in:inbox newer_than:3d';
+    // The needs-reply builder filters to `today - 14 days`, so the Gmail
+    // query must cover at least that window. Previously hardcoded to 3d,
+    // which caused Friday inbound emails to disappear from Monday's
+    // briefing even when Nathan had not replied (nothing to filter -
+    // the message never made it out of Gmail). Fixed to default 14 days
+    // and bumped maxResults to 150 so a moderate email volume still fits.
+    const query = `in:inbox newer_than:${days}d`;
     const listRes = await fetch(
       `https://gmail.googleapis.com/gmail/v1/users/me/messages?q=${encodeURIComponent(query)}&maxResults=${maxResults}`,
       { headers: { Authorization: `Bearer ${token}` } }

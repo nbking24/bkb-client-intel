@@ -148,7 +148,11 @@ async function buildEmailNeedsReply() {
   try {
     const sb = createServerClient();
     const [inbox, dismissalsRes] = await Promise.all([
-      fetchFullInbox(40, NATHAN_GOOGLE_USER),
+      // 150 messages over 14 days: covers a moderate inbox volume so
+      // Friday inbound emails still surface in Monday's briefing (the
+      // downstream cutoff is 14 days but the Gmail query MUST include
+      // that window or nothing older than the query window can appear).
+      fetchFullInbox(150, NATHAN_GOOGLE_USER, 14),
       sb.from('briefing_email_dismissals').select('gmail_thread_id, dismissed_at'),
     ]);
     const dismissed = new Map<string, string>();
