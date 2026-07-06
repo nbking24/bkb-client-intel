@@ -16,6 +16,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { validateAuth } from '@/app/api/lib/auth';
 import { getEffectiveAccess } from '@/app/lib/access';
 import { getJob, getCostItemsForJobLite } from '@/app/lib/jobtread';
+import { getSupabase } from '@/app/api/lib/supabase';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -108,6 +109,14 @@ export async function GET(req: NextRequest, { params }: { params: { jobId: strin
   const totalVariance = totalActual - totalBudgeted;
   const overallPct = totalBudgeted > 0 ? (totalActual / totalBudgeted) * 100 : 0;
 
+  // Pull current manual % complete so the detail page can show + let PM edit
+  const supabase = getSupabase();
+  const { data: progress } = await supabase
+    .from('job_manual_progress')
+    .select('percent_complete, set_by, set_at, notes')
+    .eq('job_id', jobId)
+    .maybeSingle();
+
   return NextResponse.json({
     jobId,
     jobName: job.name,
@@ -116,6 +125,9 @@ export async function GET(req: NextRequest, { params }: { params: { jobId: strin
     priceType: job.priceType,
     scheduleStart: job.scheduleStart || null,
     scheduleEnd: job.scheduleEnd || null,
+    manualPercentComplete: progress?.percent_complete ?? null,
+    progressSetBy: progress?.set_by ?? null,
+    progressSetAt: progress?.set_at ?? null,
     totals: {
       budgetedCost: totalBudgeted,
       actualCost: totalActual,
@@ -125,5 +137,59 @@ export async function GET(req: NextRequest, { params }: { params: { jobId: strin
     },
     divisions,
     generatedAt: new Date().toISOString(),
+  });
+}
+
+// PUT: PM can update % complete from this page too. Same table, same
+// data as the main portfolio and the job costing dashboard.
+export async function PUT(req: NextRequest, { params }: { params: { jobId: string } }) {
+  const auth = validateAuth(req.headers.get('authorization'));
+  if (!auth.valid || !auth.userId) {
+    return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+  }
+  const access = await getEffectiveAccess(auth.userId);
+  if (!access) return NextResponse.json({ error: 'User not found' }, { status: 404 });
+
+  const jobId = params.jobId;
+  if (!jobId) return NextResponse.json({ error: 'jobId required' }, { status: 400 });
+
+  // Same PM-assignment gate as GET
+  const job = await getJob(jobId);
+  if (!job) return NextResponse.json({ error: 'Job not found' }, { status: 404 });
+  const pmField = (job.customFieldValues?.nodes || []).find(
+    (cfv: any) => cfv.customField?.name === 'Project Manager'
+  );
+  const jobPm = (pmField?.value || '').trim().toLowerCase();
+  const userName = (access.name || '').trim().toLowerCase();
+  const isOwner = access.role === 'owner';
+  if (!isOwner && jobPm !== userName) {
+    return NextResponse.json({ error: 'You are not the Project Manager on this job' }, { status: 403 });
+  }
+
+  let body: any = {};
+  try { body = await req.json(); } catch { /* fallthrough */ }
+  const percent = Number(body.percentComplete);
+  if (!Number.isFinite(percent) || percent < 0 || percent > 100) {
+    return NextResponse.json({ error: 'percentComplete must be 0-100' }, { status: 400 });
+  }
+  const supabase = getSupabase();
+  const payload = {
+    job_id: jobId,
+    percent_complete: Math.round(percent),
+    set_by: access.name || auth.userId,
+    set_at: new Date().toISOString(),
+    notes: body.notes || null,
+  };
+  const { error } = await supabase
+    .from('job_manual_progress')
+    .upsert(payload, { onConflict: 'job_id' });
+  if (error) return NextResponse.json({ error: error.message }, { status: 500 });
+  await supabase.from('job_costing_cache').delete().eq('job_id', jobId);
+
+  return NextResponse.json({
+    ok: true,
+    percentComplete: payload.percent_complete,
+    setBy: payload.set_by,
+    setAt: payload.set_at,
   });
 }

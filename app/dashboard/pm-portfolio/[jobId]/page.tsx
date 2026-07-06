@@ -2,7 +2,7 @@
 'use client';
 
 import { useEffect, useState } from 'react';
-import { Loader2, ArrowLeft, RefreshCw, AlertTriangle, TrendingDown, TrendingUp, Minus } from 'lucide-react';
+import { Loader2, ArrowLeft, RefreshCw, AlertTriangle, TrendingDown, TrendingUp, Minus, Save, Check } from 'lucide-react';
 import { useParams } from 'next/navigation';
 
 function getAuthToken() {
@@ -39,6 +39,9 @@ type Detail = {
   priceType: string;
   scheduleStart: string | null;
   scheduleEnd: string | null;
+  manualPercentComplete: number | null;
+  progressSetBy: string | null;
+  progressSetAt: string | null;
   totals: {
     budgetedCost: number;
     actualCost: number;
@@ -57,6 +60,9 @@ export default function PmJobDetailPage() {
   const [error, setError] = useState<string | null>(null);
   const [detail, setDetail] = useState<Detail | null>(null);
   const [refreshing, setRefreshing] = useState(false);
+  const [pctDraft, setPctDraft] = useState<number>(0);
+  const [saving, setSaving] = useState(false);
+  const [savedAt, setSavedAt] = useState<number | null>(null);
 
   async function loadData() {
     setError(null);
@@ -71,11 +77,32 @@ export default function PmJobDetailPage() {
       }
       const data = await res.json();
       setDetail(data);
+      setPctDraft(data.manualPercentComplete ?? 0);
     } catch (e: any) {
       setError(e.message || 'Failed to load job detail');
     } finally {
       setLoading(false);
       setRefreshing(false);
+    }
+  }
+
+  async function saveProgress() {
+    setSaving(true);
+    try {
+      const res = await fetch(`/api/dashboard/pm-portfolio/${jobId}`, {
+        method: 'PUT',
+        headers: { Authorization: getAuthToken(), 'Content-Type': 'application/json' },
+        body: JSON.stringify({ percentComplete: pctDraft }),
+      });
+      if (!res.ok) throw new Error('save failed');
+      setSavedAt(Date.now());
+      if (detail) {
+        setDetail({ ...detail, manualPercentComplete: pctDraft, progressSetAt: new Date().toISOString() });
+      }
+    } catch {
+      setError('Failed to save. Try again.');
+    } finally {
+      setSaving(false);
     }
   }
 
@@ -130,6 +157,55 @@ export default function PmJobDetailPage() {
               {refreshing ? <Loader2 size={16} className="spin" /> : <RefreshCw size={16} />}
               Refresh
             </button>
+          </div>
+
+          {/* Overall % Complete edit row */}
+          <div style={{ background: '#ffffff', border: '1px solid #eee5d8', borderRadius: 8, padding: 16, marginBottom: 16 }}>
+            <label style={{ display: 'block', fontSize: 12, fontWeight: 700, color: '#68050a', letterSpacing: '0.06em', textTransform: 'uppercase', marginBottom: 8 }}>
+              Overall % Complete
+            </label>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 12, flexWrap: 'wrap' }}>
+              <input
+                type="range"
+                min={0}
+                max={100}
+                step={5}
+                value={pctDraft}
+                onChange={(e) => setPctDraft(Number(e.target.value))}
+                style={{ flex: '1 1 320px', accentColor: '#68050a' }}
+              />
+              <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                <input
+                  type="number"
+                  min={0}
+                  max={100}
+                  value={pctDraft}
+                  onChange={(e) => setPctDraft(Math.max(0, Math.min(100, Number(e.target.value))))}
+                  style={{ width: 60, padding: '6px 8px', border: '1px solid #ddd', borderRadius: 4, fontSize: 13 }}
+                />
+                <span style={{ fontSize: 13, color: '#666' }}>%</span>
+              </div>
+              <button
+                onClick={saveProgress}
+                disabled={saving || pctDraft === (detail.manualPercentComplete ?? 0)}
+                style={{
+                  display: 'flex', alignItems: 'center', gap: 4,
+                  background: pctDraft !== (detail.manualPercentComplete ?? 0) ? '#68050a' : '#ccc',
+                  color: '#ffffff', border: 'none',
+                  padding: '8px 14px', borderRadius: 4,
+                  cursor: pctDraft !== (detail.manualPercentComplete ?? 0) ? 'pointer' : 'not-allowed',
+                  fontSize: 13, fontWeight: 600,
+                }}
+              >
+                {saving ? <Loader2 size={14} className="spin" /> : savedAt && Date.now() - savedAt < 3000 ? <Check size={14} /> : <Save size={14} />}
+                {saving ? 'Saving...' : savedAt && Date.now() - savedAt < 3000 ? 'Saved' : 'Save'}
+              </button>
+            </div>
+            {detail.progressSetAt && (
+              <div style={{ fontSize: 11, color: '#999', marginTop: 8 }}>
+                Currently saved: <b>{detail.manualPercentComplete}%</b> - set by {detail.progressSetBy || 'unknown'} on {new Date(detail.progressSetAt).toLocaleDateString()}. This same value shows on your PM Portfolio, the Mon/Thu report, and the job costing dashboard.
+              </div>
+            )}
           </div>
 
           {/* Overall totals row */}

@@ -23,7 +23,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { validateAuth } from '@/app/api/lib/auth';
 import { getEffectiveAccess } from '@/app/lib/access';
-import { getActiveJobs, pave } from '@/app/lib/jobtread';
+import { getActiveJobs, getTasksForJob } from '@/app/lib/jobtread';
 import { getSupabase } from '@/app/api/lib/supabase';
 
 export const runtime = 'nodejs';
@@ -57,36 +57,62 @@ export async function GET(req: NextRequest) {
       j.customStatus === PRODUCTION_STATUS
   );
 
-  // Fetch financial fields via PAVE, plus manual progress. Small N (typically < 10 jobs).
-  async function getJobFinancials(jobId: string) {
-    try {
-      const data = await pave({
-        job: {
-          $: { id: jobId },
-          id: {},
-          projectedCost: {},
-          projectedPrice: {},
-          actualCost: {},
-          scheduleStart: {},
-          scheduleEnd: {},
-        },
-      });
-      return (data as any)?.job || null;
-    } catch {
-      return null;
-    }
-  }
-
+  // Financials: pull from the job_costing_summary_cache (already computed
+  // by the main /api/dashboard/job-costing route). Schedule: derive from
+  // min/max task dates via getTasksForJob. Manual %: job_manual_progress.
   const supabase = getSupabase();
-  const [details, progressRows] = await Promise.all([
+  const [summariesCache, tasksByJob, progressRows] = await Promise.all([
+    supabase
+      .from('job_costing_summary_cache')
+      .select('payload, computed_at')
+      .eq('key', 'summary')
+      .maybeSingle(),
     Promise.all(
-      myJobs.map(async (j: any) => ({ id: j.id, detail: await getJobFinancials(j.id) }))
+      myJobs.map(async (j: any) => ({
+        id: j.id,
+        tasks: await getTasksForJob(j.id).catch(() => []),
+      }))
     ),
     supabase
       .from('job_manual_progress')
       .select('job_id, percent_complete, set_by, set_at, notes')
       .in('job_id', myJobs.map((j: any) => j.id)),
   ]);
+
+  // Build lookup maps
+  const summariesArr: any[] = (summariesCache?.data as any)?.payload?.summaries || [];
+  const summaryByJob: Record<string, any> = {};
+  for (const s of summariesArr) summaryByJob[s.jobId] = s;
+
+  const scheduleByJob: Record<string, { start: string | null; end: string | null }> = {};
+  for (const { id, tasks } of tasksByJob) {
+    let minStart: string | null = null;
+    let maxEnd: string | null = null;
+    for (const t of tasks) {
+      if (t.startDate && (!minStart || t.startDate < minStart)) minStart = t.startDate;
+      if (t.endDate && (!maxEnd || t.endDate > maxEnd)) maxEnd = t.endDate;
+    }
+    scheduleByJob[id] = { start: minStart, end: maxEnd };
+  }
+
+  // Shape into details array for the row builder below
+  const details = myJobs.map((j: any) => {
+    const s = summaryByJob[j.id];
+    const sched = scheduleByJob[j.id] || { start: null, end: null };
+    return {
+      id: j.id,
+      detail: s
+        ? {
+            projectedPrice: s.contractPrice,
+            projectedCost: s.estimatedCost,
+            actualCost: s.actualCost,
+            marginPct: s.marginPct,
+            scheduleStart: sched.start,
+            scheduleEnd: sched.end,
+          }
+        : { scheduleStart: sched.start, scheduleEnd: sched.end },
+    };
+  });
 
   const progressByJob: Record<string, any> = {};
   for (const row of progressRows.data || []) {
