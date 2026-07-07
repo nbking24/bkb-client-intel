@@ -3,7 +3,7 @@
 
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
-import { Megaphone, Star, Mail, MessageCircle, LayoutDashboard, Users, CalendarDays, BookOpen } from 'lucide-react';
+import { Megaphone, Star, Mail, MessageCircle, LayoutDashboard, Users, CalendarDays, BookOpen, Images } from 'lucide-react';
 
 const TABS = [
   { href: '/dashboard/marketing', label: 'Overview', icon: LayoutDashboard, exact: true },
@@ -13,6 +13,7 @@ const TABS = [
   { href: '/dashboard/marketing/newsletter', label: 'Newsletter', icon: Mail },
   { href: '/dashboard/marketing/social-calendar', label: 'Social Calendar', icon: CalendarDays },
   { href: '/dashboard/marketing/facebook', label: 'Facebook', icon: MessageCircle },
+  { href: '/dashboard/marketing/photo-engine', label: 'Photo Engine', icon: Images },
 ];
 
 export default function MarketingLayout({ children }: { children: React.ReactNode }) {

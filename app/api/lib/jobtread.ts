@@ -73,6 +73,93 @@ export async function getActiveJobs(limit = 30) {
   return jobs;
 }
 
+// ---------------------------------------------------------------------------
+// Marketing Photo Engine helpers
+//
+// The Cowork/Claude task does the heavy media work. These helpers just let the
+// Hub list which jobs are opted in for marketing and compute the folder name
+// used on the designer's FTP server. Keep them defensive: JobTread custom-field
+// graphs can be missing or shaped oddly, so tolerate that and return [] rather
+// than throwing.
+// ---------------------------------------------------------------------------
+
+/**
+ * Folder name rule: replace the FIRST space in the job name with a hyphen.
+ *   "Edwards Pool House" -> "Edwards-Pool House"
+ *   "Leonard Kitchen"    -> "Leonard-Kitchen"
+ * A name with no space is returned unchanged.
+ */
+export function folderNameForJob(name: string): string {
+  const clean = (name || '').trim();
+  return clean.replace(' ', '-');
+}
+
+function isTruthyMarketingValue(value: unknown): boolean {
+  if (value === true) return true;
+  if (typeof value === 'number') return value === 1;
+  if (typeof value === 'string') {
+    const v = value.trim().toLowerCase();
+    return v === 'true' || v === 'yes' || v === '1';
+  }
+  return false;
+}
+
+/**
+ * Eligible marketing jobs = active jobs (closedOn = null) whose custom field
+ * named "Marketing" (case-insensitive) is set truthy ("true"/"yes"/"1"/true).
+ *
+ * Returns [] on any error rather than throwing, so callers/UI degrade cleanly.
+ */
+export async function getMarketingJobs(limit = 200): Promise<
+  { id: string; name: string; number: string; folderName: string }[]
+> {
+  try {
+    const result = await orgQuery('jobs', {
+      $: {
+        size: limit,
+        where: ['closedOn', '=', null],
+      },
+      nodes: {
+        id: {},
+        name: {},
+        number: {},
+        customFieldValues: {
+          nodes: { value: {}, customField: { name: {} } },
+        },
+      },
+    });
+
+    const nodes = result.nodes || [];
+    const out: { id: string; name: string; number: string; folderName: string }[] = [];
+
+    for (const job of nodes) {
+      try {
+        const cfvs = job?.customFieldValues?.nodes || [];
+        const marketingField = cfvs.find(
+          (cfv: any) => (cfv?.customField?.name || '').trim().toLowerCase() === 'marketing'
+        );
+        if (!marketingField || !isTruthyMarketingValue(marketingField.value)) continue;
+
+        const name = job?.name || '';
+        out.push({
+          id: job?.id || '',
+          name,
+          number: job?.number || '',
+          folderName: folderNameForJob(name),
+        });
+      } catch {
+        // Skip a single malformed job node rather than failing the whole list.
+        continue;
+      }
+    }
+
+    return out;
+  } catch (err: any) {
+    console.error('[jobtread] getMarketingJobs failed:', err?.message || err);
+    return [];
+  }
+}
+
 export async function createTask(params: {
         jobId: string;
         name: string;
