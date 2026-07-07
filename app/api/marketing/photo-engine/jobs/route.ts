@@ -2,12 +2,17 @@
 /**
  * GET /api/marketing/photo-engine/jobs
  *
- * Returns the jobs opted in for the Marketing Photo Engine (active jobs with a
- * truthy "Marketing" custom field in JobTread), each merged with its latest run
- * row from marketing_photo_runs. Also returns the current live/draft mode read
- * from the single settings row.
+ * Returns ALL active JobTread jobs, each merged with:
+ *   - folderName (the per-job folder used on the designer's FTP server),
+ *   - included (whether the user has manually selected the job for the engine,
+ *     read from marketing_photo_selected_jobs; a job with no row or included
+ *     false is false),
+ *   - lastRun fields from the newest marketing_photo_runs row for that job.
+ * Also returns the current live/draft mode read from the single settings row.
  *
  * Shape: { jobs: [...], liveMode: boolean }
+ *
+ * Included jobs sort first, then by job name.
  *
  * Owner/admin only.
  *
@@ -16,7 +21,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getSupabase } from '@/app/api/lib/supabase';
 import { validateAuth } from '@/app/api/lib/auth';
-import { getMarketingJobs } from '@/app/api/lib/jobtread';
+import { getActiveJobs, folderNameForJob } from '@/app/api/lib/jobtread';
 
 export const runtime = 'nodejs';
 
@@ -29,8 +34,8 @@ export async function GET(req: NextRequest) {
 
   const supabase = getSupabase();
 
-  // Eligible jobs from JobTread (defensive: helper returns [] on error).
-  const jobs = await getMarketingJobs();
+  // All active jobs from JobTread (defensive: helper returns [] on error).
+  const jobs = await getActiveJobs(200);
 
   // Live mode from the single settings row.
   const { data: settings } = await supabase
@@ -40,8 +45,17 @@ export async function GET(req: NextRequest) {
     .maybeSingle();
   const liveMode = settings?.live_mode === true;
 
+  // Which jobs the user has manually included.
+  const includedByJob: Record<string, boolean> = {};
+  const { data: selections } = await supabase
+    .from('marketing_photo_selected_jobs')
+    .select('job_id, included');
+  for (const sel of selections || []) {
+    includedByJob[sel.job_id] = sel.included === true;
+  }
+
   // Latest run per job. Pull recent runs and keep the newest per job_id.
-  const jobIds = jobs.map((j) => j.id).filter(Boolean);
+  const jobIds = jobs.map((j: any) => j.id).filter(Boolean);
   const latestByJob: Record<string, any> = {};
   if (jobIds.length > 0) {
     const { data: runs } = await supabase
@@ -54,10 +68,14 @@ export async function GET(req: NextRequest) {
     }
   }
 
-  const merged = jobs.map((j) => {
+  const merged = jobs.map((j: any) => {
     const last = latestByJob[j.id] || null;
     return {
-      ...j,
+      id: j.id,
+      name: j.name,
+      number: j.number,
+      folderName: folderNameForJob(j.name || ''),
+      included: includedByJob[j.id] === true,
       lastRun: last
         ? {
             status: last.status,
@@ -71,6 +89,12 @@ export async function GET(req: NextRequest) {
           }
         : null,
     };
+  });
+
+  // Included jobs first, then by job name (case-insensitive).
+  merged.sort((a: any, b: any) => {
+    if (a.included !== b.included) return a.included ? -1 : 1;
+    return (a.name || '').localeCompare(b.name || '', undefined, { sensitivity: 'base' });
   });
 
   return NextResponse.json({ jobs: merged, liveMode });
