@@ -42,6 +42,7 @@ export default function PhotoEnginePage() {
   const [error, setError] = useState<string | null>(null);
   const [busyJob, setBusyJob] = useState<string | null>(null);
   const [search, setSearch] = useState('');
+  const [showAdd, setShowAdd] = useState(false);
 
   async function loadAll() {
     const token = getToken();
@@ -175,7 +176,16 @@ export default function PhotoEnginePage() {
 
       {/* Selected jobs */}
       <div>
-        <h3 className="text-sm font-semibold text-gray-700 mb-2">Selected jobs</h3>
+        <div className="flex items-center justify-between mb-2">
+          <h3 className="text-sm font-semibold text-gray-700">Selected jobs</h3>
+          <button
+            onClick={() => { setSearch(''); setShowAdd(true); }}
+            className="inline-flex items-center gap-1.5 px-3 py-1.5 text-sm font-medium rounded-md bg-blue-700 text-white hover:bg-blue-800"
+          >
+            <Plus className="w-4 h-4" />
+            Add a job
+          </button>
+        </div>
         {selectedJobs.length === 0 ? (
           <div className="bg-white border border-dashed border-gray-300 rounded-lg p-8 text-center">
             <Folder className="w-10 h-10 text-gray-300 mx-auto mb-3" />
@@ -238,54 +248,6 @@ export default function PhotoEnginePage() {
         )}
       </div>
 
-      {/* Add a job */}
-      <div>
-        <div className="flex items-center justify-between mb-2 gap-3">
-          <h3 className="text-sm font-semibold text-gray-700">Add a job</h3>
-          <div className="relative w-64 max-w-full">
-            <Search className="w-3.5 h-3.5 text-gray-400 absolute left-2.5 top-1/2 -translate-y-1/2" />
-            <input
-              value={search}
-              onChange={(e) => setSearch(e.target.value)}
-              placeholder="Search active jobs..."
-              className="w-full pl-8 pr-3 py-1.5 text-sm border border-gray-300 rounded-md focus:outline-none focus:ring-1 focus:ring-blue-500"
-            />
-          </div>
-        </div>
-        {availableJobs.length === 0 ? (
-          <div className="bg-white border border-dashed border-gray-300 rounded-lg p-6 text-center text-sm text-gray-500">
-            {search.trim()
-              ? 'No active jobs match your search.'
-              : 'Every active job is already selected.'}
-          </div>
-        ) : (
-          <div className="bg-white border border-gray-200 rounded-lg divide-y divide-gray-100">
-            {availableJobs.map((j) => (
-              <div key={j.id} className="px-4 py-3 flex items-center justify-between gap-4">
-                <div className="min-w-0">
-                  <div className="font-medium text-gray-900 text-sm">{j.name || 'Unnamed job'}</div>
-                  <div className="mt-0.5 flex flex-wrap items-center gap-x-3 text-xs text-gray-400">
-                    {j.number && <span>#{j.number}</span>}
-                    <span className="inline-flex items-center gap-1">
-                      <Folder className="w-3 h-3" />
-                      {j.folderName}
-                    </span>
-                  </div>
-                </div>
-                <button
-                  onClick={() => setIncluded(j.id, true)}
-                  disabled={busyJob === j.id}
-                  className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium rounded-md border border-blue-700 text-blue-700 hover:bg-blue-50 disabled:opacity-50 disabled:cursor-not-allowed flex-shrink-0"
-                >
-                  {busyJob === j.id ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Plus className="w-3.5 h-3.5" />}
-                  Include
-                </button>
-              </div>
-            ))}
-          </div>
-        )}
-      </div>
-
       {/* Recent activity */}
       <div>
         <h3 className="text-sm font-semibold text-gray-700 mb-2">Recent activity</h3>
@@ -324,6 +286,71 @@ export default function PhotoEnginePage() {
           </div>
         )}
       </div>
+
+      {showAdd && (
+        <div
+          className="fixed inset-0 z-50 flex items-start justify-center bg-black/40 p-4 pt-24"
+          onClick={() => setShowAdd(false)}
+        >
+          <div
+            className="bg-white rounded-lg shadow-xl w-full max-w-lg max-h-[70vh] flex flex-col"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="flex items-center justify-between px-4 py-3 border-b border-gray-200">
+              <h3 className="text-sm font-semibold text-gray-800">Add a job</h3>
+              <button onClick={() => setShowAdd(false)} className="text-gray-400 hover:text-gray-600">
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+            <div className="p-3 border-b border-gray-100">
+              <div className="relative">
+                <Search className="w-3.5 h-3.5 text-gray-400 absolute left-2.5 top-1/2 -translate-y-1/2" />
+                <input
+                  autoFocus
+                  value={search}
+                  onChange={(e) => setSearch(e.target.value)}
+                  placeholder="Search active JobTread jobs..."
+                  className="w-full pl-8 pr-3 py-2 text-sm border border-gray-300 rounded-md focus:outline-none focus:ring-1 focus:ring-blue-500"
+                />
+              </div>
+            </div>
+            <div className="overflow-y-auto">
+              {availableJobs.length === 0 ? (
+                <div className="p-6 text-center text-sm text-gray-500">
+                  {search.trim() ? 'No active jobs match your search.' : 'Every active job is already selected.'}
+                </div>
+              ) : (
+                <div className="divide-y divide-gray-100">
+                  {availableJobs.map((j) => (
+                    <div key={j.id} className="px-4 py-2.5 flex items-center justify-between gap-3">
+                      <div className="min-w-0">
+                        <div className="font-medium text-gray-900 text-sm truncate">{j.name || 'Unnamed job'}</div>
+                        <div className="mt-0.5 flex flex-wrap items-center gap-x-3 text-xs text-gray-400">
+                          {j.number && <span>#{j.number}</span>}
+                          <span className="inline-flex items-center gap-1"><Folder className="w-3 h-3" />{j.folderName}</span>
+                        </div>
+                      </div>
+                      <button
+                        onClick={() => setIncluded(j.id, true)}
+                        disabled={busyJob === j.id}
+                        className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium rounded-md border border-blue-700 text-blue-700 hover:bg-blue-50 disabled:opacity-50 disabled:cursor-not-allowed flex-shrink-0"
+                      >
+                        {busyJob === j.id ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Plus className="w-3.5 h-3.5" />}
+                        Add
+                      </button>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+            <div className="px-4 py-2.5 border-t border-gray-200 text-right">
+              <button onClick={() => setShowAdd(false)} className="px-3 py-1.5 text-sm rounded-md border border-gray-300 text-gray-600 hover:bg-gray-50">
+                Done
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
