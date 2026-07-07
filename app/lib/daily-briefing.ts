@@ -301,11 +301,77 @@ async function buildOutstandingTeamTasks() {
   }
 }
 
+// Classify candidate JT comments with Haiku. Returns Map<index, {needsReply, reason}>
+// or null if the AI call fails (caller falls back to a strict heuristic).
+// Same shape as classifyEmailsForReply but tuned for construction-team chatter.
+async function classifyJTMessagesForReply(candidates: any[]): Promise<Map<number, any> | null> {
+  if (!candidates.length) return new Map();
+  try {
+    const anthropic = new Anthropic();
+    const list = candidates
+      .map((m, i) => `${i}. Job: ${m.jobName || '(no job)'}\n   Author: ${m.author || '(unknown)'}\n   Message: ${(m.message || '').slice(0, 500)}`)
+      .join('\n\n');
+    const resp = await anthropic.messages.create({
+      model: 'claude-haiku-4-5-20251001',
+      max_tokens: 1500,
+      messages: [{
+        role: 'user',
+        content: `You are triaging JobTread messages for Nathan King, owner of Brett King Builder, a high-end residential construction company. These messages are project comments posted by team members, trade partners, or clients on active jobs. For EACH message decide whether Nathan needs to reply.
+
+needsReply: true ONLY when the message directly requests something from Nathan personally, such as:
+  - a direct question addressed to him
+  - a decision, approval, or sign-off he needs to give
+  - pricing, quote, or scope input only he can provide
+  - being pinged for confirmation on a specific matter
+Set false when the message:
+  - just mentions his name in passing ("Nathan approved this yesterday", "waiting on Nathan")
+  - is an FYI, status update, log entry, or team chatter
+  - is directed at someone else even if his name appears
+  - is a system-generated or automated comment
+  - is a general observation without an ask
+
+Return ONLY a JSON array, one object per message, in the same order, no prose:
+[{"i":0,"needsReply":true,"reason":"<max 6 words>"}]
+
+Messages:
+${list}`,
+      }],
+    });
+    const text = resp.content[0]?.type === 'text' ? resp.content[0].text : '';
+    const match = text.match(/\[[\s\S]*\]/);
+    const arr = match ? JSON.parse(match[0]) : [];
+    const map = new Map<number, any>();
+    for (const o of arr) if (typeof o.i === 'number') map.set(o.i, o);
+    return map;
+  } catch (err: any) {
+    console.warn('[daily-briefing] JT message AI triage failed, using heuristic fallback:', err?.message);
+    return null;
+  }
+}
+
+// Heuristic fallback: only flag messages that both mention Nathan by name
+// AND contain a question mark or an obvious request verb. Strict on purpose.
+function heuristicJTNeedsReply(m: any): boolean {
+  const t = (m.message || '').toLowerCase();
+  if (!/\bnathan\b/i.test(t) && !/@nathan/i.test(m.message || '')) return false;
+  if (/\?/.test(t)) return true;
+  return /\b(please|can you|could you|need|approve|confirm|decide|quote|price|sign off|review|thoughts|update|let me know|get back|response|reply)\b/i.test(t);
+}
+
 async function buildMessages(activeJobs: any[]) {
   try {
-    const sinceDays = 3;
+    // Widened from 3 days to 14 days so messages from earlier in the
+    // week still surface on Monday, matching the emails-needing-reply
+    // window and giving Nathan a full workweek horizon.
+    const sinceDays = 14;
     const cutoff = new Date();
     cutoff.setDate(cutoff.getDate() - sinceDays);
+
+    // Author names we treat as "Nathan himself" and exclude from the
+    // needs-reply queue (his own comments cannot need his reply).
+    const NATHAN_AUTHORS = ['nathan king', 'nathan', 'nate king', 'nate'];
+    const isNathanAuthor = (name: string) =>
+      NATHAN_AUTHORS.includes((name || '').trim().toLowerCase());
 
     const jobs = (activeJobs || []).slice(0, 80);
     const collected: any[] = [];
@@ -315,18 +381,18 @@ async function buildMessages(activeJobs: any[]) {
       const results = await Promise.all(
         batch.map(async (j) => {
           try {
-            const comments = await getCommentsFromDB(j.id, 25);
+            const comments = await getCommentsFromDB(j.id, 50);
             return (comments || [])
               .filter((c) => c.createdAt && new Date(c.createdAt) >= cutoff)
+              .filter((c) => !isNathanAuthor(c.name || ''))
               .map((c) => ({
                 id: c.id,
                 jobId: j.id,
                 jobName: j.name,
                 jobNumber: j.number,
                 author: c.name || '',
-                message: (c.message || '').slice(0, 400),
+                message: (c.message || '').slice(0, 500),
                 createdAt: c.createdAt,
-                mentionsNathan: /nathan/i.test(c.message || ''),
               }));
           } catch {
             return [];
@@ -335,19 +401,36 @@ async function buildMessages(activeJobs: any[]) {
       );
       for (const r of results) collected.push(...r);
     }
-    collected.sort((a, b) => {
-      if (a.mentionsNathan !== b.mentionsNathan) return a.mentionsNathan ? -1 : 1;
-      return new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime();
-    });
-    const mentions = collected.filter((c) => c.mentionsNathan);
+
+    // Cap the classifier input so Haiku bills stay reasonable. We only need
+    // the freshest slice to be triaged - older messages that are not yet
+    // replied to are unlikely to spike back into "needs reply" territory.
+    collected.sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
+    const forTriage = collected.slice(0, 60);
+
+    // AI triage: strict "needs Nathan's reply" bar (not just mentions).
+    const cls = await classifyJTMessagesForReply(forTriage);
+    let flagged: any[];
+    let triage: 'ai' | 'heuristic';
+    if (cls) {
+      triage = 'ai';
+      flagged = forTriage
+        .map((m, i) => ({ ...m, ...(cls.get(i) || {}) }))
+        .filter((m) => m.needsReply === true);
+    } else {
+      triage = 'heuristic';
+      flagged = forTriage.filter(heuristicJTNeedsReply).map((m) => ({ ...m, reason: null }));
+    }
+    flagged.sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
+
     return {
-      flagged: mentions.slice(0, 15),
-      recent: collected.slice(0, 20),
-      count: collected.length,
-      mentionCount: mentions.length,
+      flagged: flagged.slice(0, 15),
+      count: collected.length,       // total in window (for diagnostics)
+      mentionCount: flagged.length,  // number needing Nathan's reply (drives priorities)
+      triage,
     };
   } catch (err: any) {
-    return { flagged: [], recent: [], count: 0, mentionCount: 0, error: err?.message || 'messages failed' };
+    return { flagged: [], count: 0, mentionCount: 0, error: err?.message || 'messages failed' };
   }
 }
 
@@ -500,7 +583,7 @@ function buildPriorities(payload: any): string[] {
   if (slipTasks > 0) p.push(`${slipTasks} job${slipTasks === 1 ? '' : 's'} with overdue schedule items`);
 
   const mentions = payload.messages?.mentionCount || 0;
-  if (mentions > 0) p.push(`${mentions} JobTread message${mentions === 1 ? '' : 's'} mention you`);
+  if (mentions > 0) p.push(`${mentions} JobTread message${mentions === 1 ? '' : 's'} need${mentions === 1 ? 's' : ''} your reply`);
 
   const leads = payload.leads?.counts?.newUncontacted || 0;
   if (leads > 0) p.push(`${leads} new uncontacted lead${leads === 1 ? '' : 's'}`);
