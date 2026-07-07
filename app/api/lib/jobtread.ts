@@ -90,8 +90,17 @@ export async function getActiveJobs(limit = 30) {
  * A name with no space is returned unchanged.
  */
 export function folderNameForJob(name: string): string {
-  const clean = (name || '').trim();
-  return clean.replace(' ', '-');
+  // Produce a clean, filesystem-safe per-job folder name.
+  //   "Edwards Pool House"     -> "Edwards-Pool House"
+  //   "Puglia - Sunroom"       -> "Puglia-Sunroom"
+  //   "Halvorsen Roof/Exterior" -> "Halvorsen-Roof-Exterior"
+  let s = (name || '').trim();
+  s = s.replace(/[\/\\]+/g, '-');    // slashes are path separators, not allowed in a folder name
+  s = s.replace(/\s*[-\u2013]\s*/g, '-'); // collapse " - " style separators to a single hyphen
+  s = s.replace(' ', '-');            // first remaining space becomes a hyphen
+  s = s.replace(/-{2,}/g, '-');       // collapse repeated hyphens
+  s = s.replace(/^-+|-+$/g, '');      // trim stray hyphens
+  return s;
 }
 
 function isTruthyMarketingValue(value: unknown): boolean {
