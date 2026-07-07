@@ -160,6 +160,28 @@ export async function getMarketingJobs(limit = 200): Promise<
   }
 }
 
+export async function getAllJobs(max = 2000): Promise<
+  { id: string; name: string; number: string; closedOn: string | null }[]
+> {
+  const out: { id: string; name: string; number: string; closedOn: string | null }[] = [];
+  let page: string | undefined = undefined;
+  // JobTread caps page size at 100, so paginate via nextPage tokens.
+  for (let i = 0; i < 40; i++) {
+    const result: any = await orgQuery('jobs', {
+      $: { size: 100, ...(page ? { page } : {}) },
+      nextPage: {},
+      nodes: { id: {}, name: {}, number: {}, closedOn: {} },
+    });
+    const nodes = result.nodes || [];
+    for (const j of nodes) {
+      out.push({ id: j.id, name: j.name, number: j.number, closedOn: j.closedOn ?? null });
+    }
+    page = result.nextPage || undefined;
+    if (!page || out.length >= max) break;
+  }
+  return out;
+}
+
 export async function createTask(params: {
         jobId: string;
         name: string;

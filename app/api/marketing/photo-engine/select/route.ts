@@ -14,7 +14,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getSupabase } from '@/app/api/lib/supabase';
 import { validateAuth } from '@/app/api/lib/auth';
-import { getActiveJobs, folderNameForJob } from '@/app/api/lib/jobtread';
+import { getAllJobs, folderNameForJob } from '@/app/api/lib/jobtread';
 
 export const runtime = 'nodejs';
 
@@ -37,11 +37,11 @@ export async function POST(req: NextRequest) {
   const included = body?.included !== false; // default true
 
   // Resolve the job among the active JobTread jobs.
-  const jobs = await getActiveJobs(100);
+  const jobs = await getAllJobs();
   const job = jobs.find((j: any) => j.id === jobId);
   if (!job) {
     return NextResponse.json(
-      { error: 'Job not found among active jobs' },
+      { error: 'Job not found in JobTread' },
       { status: 404 }
     );
   }

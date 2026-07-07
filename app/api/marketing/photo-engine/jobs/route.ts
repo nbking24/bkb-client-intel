@@ -21,7 +21,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getSupabase } from '@/app/api/lib/supabase';
 import { validateAuth } from '@/app/api/lib/auth';
-import { getActiveJobs, folderNameForJob } from '@/app/api/lib/jobtread';
+import { getAllJobs, folderNameForJob } from '@/app/api/lib/jobtread';
 
 export const runtime = 'nodejs';
 
@@ -38,7 +38,7 @@ export async function GET(req: NextRequest) {
   // with an empty body, or the client cannot parse the response.
   let jobs: any[] = [];
   try {
-    jobs = await getActiveJobs(100);
+    jobs = await getAllJobs();
   } catch (err: any) {
     return NextResponse.json(
       { jobs: [], liveMode: false, error: 'Could not load jobs from JobTread: ' + (err?.message || 'unknown error') },
@@ -84,6 +84,7 @@ export async function GET(req: NextRequest) {
       name: j.name,
       number: j.number,
       folderName: folderNameForJob(j.name || ''),
+      active: !j.closedOn,
       included: includedByJob[j.id] === true,
       lastRun: last
         ? {
@@ -101,8 +102,10 @@ export async function GET(req: NextRequest) {
   });
 
   // Included jobs first, then by job name (case-insensitive).
+  // Included first, then active jobs before completed jobs, then alphabetical.
   merged.sort((a: any, b: any) => {
     if (a.included !== b.included) return a.included ? -1 : 1;
+    if (a.active !== b.active) return a.active ? -1 : 1;
     return (a.name || '').localeCompare(b.name || '', undefined, { sensitivity: 'base' });
   });
 

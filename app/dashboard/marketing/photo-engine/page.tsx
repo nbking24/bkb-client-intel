@@ -203,7 +203,7 @@ export default function PhotoEnginePage() {
                 <div key={j.id} className="bg-white border border-gray-200 rounded-lg p-4">
                   <div className="flex items-start justify-between gap-4">
                     <div className="min-w-0">
-                      <div className="font-medium text-gray-900">{j.name || 'Unnamed job'}</div>
+                      <div className="font-medium text-gray-900 flex items-center gap-2">{j.name || 'Unnamed job'}{!j.active && (<span className="text-[10px] font-medium px-1.5 py-0.5 rounded bg-gray-100 text-gray-500">Completed</span>)}</div>
                       <div className="mt-1 flex flex-wrap items-center gap-x-4 gap-y-1 text-xs text-gray-500">
                         {j.number && <span>#{j.number}</span>}
                         <span className="inline-flex items-center gap-1.5">
@@ -309,7 +309,7 @@ export default function PhotoEnginePage() {
                   autoFocus
                   value={search}
                   onChange={(e) => setSearch(e.target.value)}
-                  placeholder="Search active JobTread jobs..."
+                  placeholder="Search all JobTread jobs (active first, then completed)..."
                   className="w-full pl-8 pr-3 py-2 text-sm border border-gray-300 rounded-md focus:outline-none focus:ring-1 focus:ring-blue-500"
                 />
               </div>
@@ -317,29 +317,43 @@ export default function PhotoEnginePage() {
             <div className="overflow-y-auto">
               {availableJobs.length === 0 ? (
                 <div className="p-6 text-center text-sm text-gray-500">
-                  {search.trim() ? 'No active jobs match your search.' : 'Every active job is already selected.'}
+                  {search.trim() ? 'No jobs match your search.' : 'Every job is already selected.'}
                 </div>
               ) : (
                 <div className="divide-y divide-gray-100">
-                  {availableJobs.map((j) => (
-                    <div key={j.id} className="px-4 py-2.5 flex items-center justify-between gap-3">
-                      <div className="min-w-0">
-                        <div className="font-medium text-gray-900 text-sm truncate">{j.name || 'Unnamed job'}</div>
-                        <div className="mt-0.5 flex flex-wrap items-center gap-x-3 text-xs text-gray-400">
-                          {j.number && <span>#{j.number}</span>}
-                          <span className="inline-flex items-center gap-1"><Folder className="w-3 h-3" />{j.folderName}</span>
+                  {availableJobs.map((j, idx) => {
+                    const showDivider = idx > 0 && availableJobs[idx - 1].active && !j.active;
+                    return (
+                    <div key={j.id}>
+                      {showDivider && (
+                        <div className="px-4 py-1.5 text-[11px] font-semibold uppercase tracking-wide text-gray-400 bg-gray-50">
+                          Completed jobs
                         </div>
+                      )}
+                      <div className="px-4 py-2.5 flex items-center justify-between gap-3">
+                        <div className="min-w-0">
+                          <div className="font-medium text-gray-900 text-sm truncate flex items-center gap-2">
+                            <span className="truncate">{j.name || 'Unnamed job'}</span>
+                            {!j.active && (
+                              <span className="text-[10px] font-medium px-1.5 py-0.5 rounded bg-gray-100 text-gray-500 flex-shrink-0">Completed</span>
+                            )}
+                          </div>
+                          <div className="mt-0.5 flex flex-wrap items-center gap-x-3 text-xs text-gray-400">
+                            {j.number && <span>#{j.number}</span>}
+                            <span className="inline-flex items-center gap-1"><Folder className="w-3 h-3" />{j.folderName}</span>
+                          </div>
+                        </div>
+                        <button
+                          onClick={() => setIncluded(j.id, true)}
+                          disabled={busyJob === j.id}
+                          className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium rounded-md border border-blue-700 text-blue-700 hover:bg-blue-50 disabled:opacity-50 disabled:cursor-not-allowed flex-shrink-0"
+                        >
+                          {busyJob === j.id ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Plus className="w-3.5 h-3.5" />}
+                          Add
+                        </button>
                       </div>
-                      <button
-                        onClick={() => setIncluded(j.id, true)}
-                        disabled={busyJob === j.id}
-                        className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium rounded-md border border-blue-700 text-blue-700 hover:bg-blue-50 disabled:opacity-50 disabled:cursor-not-allowed flex-shrink-0"
-                      >
-                        {busyJob === j.id ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Plus className="w-3.5 h-3.5" />}
-                        Add
-                      </button>
                     </div>
-                  ))}
+                  );})}
                 </div>
               )}
             </div>
