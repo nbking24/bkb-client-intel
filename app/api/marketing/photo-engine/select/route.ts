@@ -37,7 +37,7 @@ export async function POST(req: NextRequest) {
   const included = body?.included !== false; // default true
 
   // Resolve the job among the active JobTread jobs.
-  const jobs = await getActiveJobs(200);
+  const jobs = await getActiveJobs(100);
   const job = jobs.find((j: any) => j.id === jobId);
   if (!job) {
     return NextResponse.json(

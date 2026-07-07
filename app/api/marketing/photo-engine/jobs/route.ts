@@ -34,8 +34,17 @@ export async function GET(req: NextRequest) {
 
   const supabase = getSupabase();
 
-  // All active jobs from JobTread (defensive: helper returns [] on error).
-  const jobs = await getActiveJobs(200);
+  // All active jobs from JobTread. Never let a JobTread hiccup crash the route
+  // with an empty body, or the client cannot parse the response.
+  let jobs: any[] = [];
+  try {
+    jobs = await getActiveJobs(100);
+  } catch (err: any) {
+    return NextResponse.json(
+      { jobs: [], liveMode: false, error: 'Could not load jobs from JobTread: ' + (err?.message || 'unknown error') },
+      { status: 200 }
+    );
+  }
 
   // Live mode from the single settings row.
   const { data: settings } = await supabase

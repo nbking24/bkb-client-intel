@@ -58,7 +58,7 @@ export async function getMembers(): Promise<{ id: string; name: string }[]> {
 export async function getActiveJobs(limit = 30) {
   const result = await orgQuery('jobs', {
     $: {
-      size: limit,
+      size: Math.min(limit, 100),
       where: ['closedOn', '=', null],
     },
     nodes: {
@@ -116,7 +116,7 @@ export async function getMarketingJobs(limit = 200): Promise<
   try {
     const result = await orgQuery('jobs', {
       $: {
-        size: limit,
+        size: Math.min(limit, 100),
         where: ['closedOn', '=', null],
       },
       nodes: {
