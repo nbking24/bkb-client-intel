@@ -1087,9 +1087,16 @@ export default function JobCostingDashboard() {
               const totalCosts = fs.totalCosts || fs.committedCost || 0;
               const estimatedCost = fs.estimatedCost || 0;
               if (contractPrice <= 0 || estimatedCost <= 0) return null;
+              // Prefer manual % when set (job wrap-up truth) over cost-
+              // based %. Cost-based lags when pending bills haven't
+              // cleared; manual reflects reality.
               const costPctRaw = totalCosts / estimatedCost;
               const costPct = Math.min(1, Math.max(0, costPctRaw));
-              const earned = costPct * contractPrice;
+              const manualPctFraction = fs.manualProgress != null ? fs.manualProgress / 100 : null;
+              const percentComplete = manualPctFraction != null && manualPctFraction > 0
+                ? Math.min(1, manualPctFraction)
+                : costPct;
+              const earned = percentComplete * contractPrice;
               const overUnder = fs.invoicedTotal - earned;
               const overUnderPct = overUnder / contractPrice;
               const wipStatus: 'ahead' | 'on_track' | 'behind' =
@@ -1118,20 +1125,22 @@ export default function JobCostingDashboard() {
                       <span
                         className="ml-auto text-[11px] px-2 py-0.5 rounded"
                         style={{ background: '#ffffff', color: '#5a5550', border: '1px solid rgba(200,140,0,0.20)' }}
-                        title="Manual % complete is shown for reference only. WIP math uses cost-based %."
+                        title="Manual % complete drives the earned-revenue calc when set."
                       >
-                        Manual: {fs.manualProgress}%
+                        Using manual: {fs.manualProgress}%
                       </span>
                     )}
                   </div>
                   <div className="grid grid-cols-2 md:grid-cols-5 gap-3 text-sm">
                     <div>
-                      <p className="text-xs" style={{ color: '#8a8078' }}>Cost ÷ Budget</p>
+                      <p className="text-xs" style={{ color: '#8a8078' }}>{manualPctFraction != null && manualPctFraction > 0 ? 'Manual % Complete' : 'Cost ÷ Budget'}</p>
                       <p className="text-lg font-bold" style={{ color: '#1a1a1a' }}>
-                        {Math.round(costPct * 100)}%
+                        {Math.round(percentComplete * 100)}%
                       </p>
                       <p className="text-[11px]" style={{ color: '#8a8078' }}>
-                        ${fmt(totalCosts)} / ${fmt(estimatedCost)}
+                        {manualPctFraction != null && manualPctFraction > 0
+                          ? `Cost-based would be ${Math.round(costPct * 100)}%`
+                          : `${fmt(totalCosts)} / ${fmt(estimatedCost)}`}
                       </p>
                     </div>
                     <div>
@@ -1140,7 +1149,7 @@ export default function JobCostingDashboard() {
                         ${fmt(earned)}
                       </p>
                       <p className="text-[11px]" style={{ color: '#8a8078' }}>
-                        {Math.round(costPct * 100)}% × ${fmt(contractPrice)}
+                        {Math.round(percentComplete * 100)}% × ${fmt(contractPrice)}
                       </p>
                     </div>
                     <div>
@@ -1186,14 +1195,17 @@ export default function JobCostingDashboard() {
               const fs = detail.financialSummary;
               const contractPrice = fs.contractPrice || fs.estimatedPrice || 0;
               const estimatedCost = fs.estimatedCost || 0;
-              const actualCost = fs.actualCost || 0;
+              const totalCosts = fs.totalCosts || fs.committedCost || fs.actualCost || 0;
               if (contractPrice <= 0 || estimatedCost <= 0) return null;
-              // Prefer manual %, fall back to cost-based %.
+              // Prefer manual %, fall back to cost-based %. Project
+              // final cost from totalCosts (paid + pending) - using
+              // paid-only actualCost would fake a huge margin gain on
+              // wrap-up jobs with big pending bills.
               const manualPct = fs.manualProgress != null ? fs.manualProgress / 100 : null;
-              const costPct = actualCost / estimatedCost;
+              const costPct = totalCosts / estimatedCost;
               const pctForProject = manualPct != null && manualPct > 0 ? manualPct : (costPct > 0 ? Math.min(1, costPct) : null);
               if (pctForProject === null) return null;
-              const projectedFinalCost = actualCost / pctForProject;
+              const projectedFinalCost = totalCosts / pctForProject;
               const originalMarginDollars = contractPrice - estimatedCost;
               const originalMarginPct = originalMarginDollars / contractPrice;
               const projectedMarginDollars = contractPrice - projectedFinalCost;
@@ -1238,7 +1250,7 @@ export default function JobCostingDashboard() {
                     <div>
                       <p className="text-xs" style={{ color: '#8a8078' }}>Projected Final Cost</p>
                       <p className="text-lg font-bold" style={{ color: '#1a1a1a' }}>${fmt(projectedFinalCost)}</p>
-                      <p className="text-[11px]" style={{ color: '#8a8078' }}>${fmt(actualCost)} ÷ {Math.round(pctForProject * 100)}%</p>
+                      <p className="text-[11px]" style={{ color: '#8a8078' }}>${fmt(totalCosts)} committed ÷ {Math.round(pctForProject * 100)}%</p>
                     </div>
                     <div>
                       <p className="text-xs" style={{ color: '#8a8078' }}>Projected Margin</p>

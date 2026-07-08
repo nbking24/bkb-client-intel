@@ -194,19 +194,40 @@ async function mergeManualProgress(payload: any): Promise<any> {
     const summaries = payload.summaries.map((s: any) => {
       const m = map.get(s.jobId);
       const manualPct = m?.percentComplete ?? null;
-      // When Nathan has set a manual % complete, recompute slippage
-      // with that value. Otherwise leave the cost-based slippage from
-      // the initial compute.
-      let slippageOverlay: Record<string, any> = {};
+      // When Nathan has set a manual % complete, recompute BOTH WIP
+      // and slippage with that value. Slippage uses totalCosts as the
+      // committed-cost input (not paid-only actualCost), so pending
+      // bills are correctly reflected in the projection.
+      let overlays: Record<string, any> = {};
       if (manualPct !== null && manualPct > 0) {
-        const slip = computeSlippage({
-          isCostPlus: !!s.isCostPlus,
-          contractPrice: Number(s.contractPrice ?? 0),
-          estimatedCost: Number(s.estimatedCost ?? 0),
-          actualCost: Number(s.actualCost ?? 0),
-          percentComplete: manualPct / 100,
+        const isCostPlus = !!s.isCostPlus;
+        const contractPrice = Number(s.contractPrice ?? 0);
+        const estimatedCost = Number(s.estimatedCost ?? 0);
+        const totalCosts = Number(s.totalCosts ?? s.actualCost ?? 0);
+        const invoicedAmount = Number(s.invoicedAmount ?? 0);
+        const manualFraction = manualPct / 100;
+
+        const wip = computeWip({
+          isCostPlus,
+          totalCosts,
+          estimatedCost,
+          contractPrice,
+          invoicedAmount,
+          manualPercentComplete: manualFraction,
         });
-        slippageOverlay = {
+        const slip = computeSlippage({
+          isCostPlus,
+          contractPrice,
+          estimatedCost,
+          totalCosts,
+          percentComplete: manualFraction,
+        });
+        overlays = {
+          wipStatus: wip.status,
+          costBasedPercent: wip.costBasedPercent,
+          earnedRevenue: wip.earnedRevenue,
+          overUnderBilled: wip.overUnderBilled,
+          overUnderPercent: wip.overUnderPercent,
           slippageStatus: slip.status,
           slippageDollars: slip.slippageDollars,
           slippagePoints: slip.slippagePoints,
@@ -220,7 +241,7 @@ async function mergeManualProgress(payload: any): Promise<any> {
         ...s,
         manualPercentComplete: manualPct,
         manualPercentSetAt: m?.setAt ?? null,
-        ...slippageOverlay,
+        ...overlays,
       };
     });
     return { ...payload, summaries };
@@ -424,13 +445,18 @@ async function computeSummaries() {
 
             // Slippage baseline: uses cost-based % when manual isn't
             // available. mergeManualProgress later recomputes with
-            // Nathan's manual % if the job has one set.
+            // Nathan's manual % if the job has one set. Uses totalCosts
+            // (paid + pending) for projection so wrap-up jobs with big
+            // pending bills don't project a fake gain.
+            const costBasedPctFallback = estimatedCost > 0
+              ? Math.min(1, totalCosts / estimatedCost)
+              : null;
             const slip = computeSlippage({
               isCostPlus,
               contractPrice: estimatedPrice,
               estimatedCost,
-              actualCost,
-              percentComplete: wip.costBasedPercent,
+              totalCosts,
+              percentComplete: costBasedPctFallback,
             });
 
             return {

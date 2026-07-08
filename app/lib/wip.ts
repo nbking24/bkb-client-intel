@@ -34,6 +34,15 @@ export interface WipInputs {
   contractPrice: number;
   /** Sum of approved + pending customer invoices issued to date. */
   invoicedAmount: number;
+  /**
+   * Nathan's manual % complete (0..1) when set. Overrides the cost-
+   * based % for the earned-revenue calculation. If null, WIP falls
+   * back to cost-based % (totalCosts / estimatedCost) as before.
+   * Rationale: on wrap-up jobs the operator has better ground truth
+   * ("work is done, only paying pending bills") than the cost ratio
+   * can express.
+   */
+  manualPercentComplete?: number | null;
 }
 
 export interface WipResult {
@@ -68,12 +77,20 @@ export function computeWip(input: WipInputs): WipResult {
     };
   }
 
-  // Clamp to 0..1. Going over 100% complete by cost means the job is
-  // over budget, but for the WIP earned-revenue calculation we cap at
-  // 100% (you can't earn more than the contract).
-  const rawPercent = input.totalCosts / input.estimatedCost;
-  const costBasedPercent = Math.min(1, Math.max(0, rawPercent));
-  const earnedRevenue = costBasedPercent * input.contractPrice;
+  // Prefer Nathan's manual % complete when set. That's the ground
+  // truth for "work done". Cost-based % is a fallback that assumes
+  // spending pace tracks work progress - fine for mid-project, but
+  // wrong at wrap-up when pending bills haven't cleared yet.
+  // Clamp to 0..1. Going over 100% by cost = over budget, but for
+  // the WIP earned-revenue calc we cap at 100% (you can't earn more
+  // than the contract).
+  const rawCostPercent = input.totalCosts / input.estimatedCost;
+  const costBasedPercent = Math.min(1, Math.max(0, rawCostPercent));
+  const manualPct = input.manualPercentComplete;
+  const percentComplete = manualPct != null && manualPct > 0
+    ? Math.min(1, Math.max(0, manualPct))
+    : costBasedPercent;
+  const earnedRevenue = percentComplete * input.contractPrice;
   const overUnderBilled = input.invoicedAmount - earnedRevenue;
   const overUnderPercent = overUnderBilled / input.contractPrice;
 
@@ -88,7 +105,11 @@ export function computeWip(input: WipInputs): WipResult {
 
   return {
     status,
-    costBasedPercent,
+    // Keep this field name for backwards compat but note it now
+    // reflects whichever % drove the earned-revenue calc (manual
+    // when set, cost-based otherwise). Callers relying on the raw
+    // cost ratio can compute totalCosts / estimatedCost themselves.
+    costBasedPercent: percentComplete,
     earnedRevenue: Math.round(earnedRevenue * 100) / 100,
     overUnderBilled: Math.round(overUnderBilled * 100) / 100,
     overUnderPercent,
@@ -118,12 +139,18 @@ export interface SlippageInputs {
   isCostPlus: boolean;
   contractPrice: number;
   estimatedCost: number;
-  actualCost: number;
+  /**
+   * Paid + committed vendor costs to date. Used as the numerator for
+   * projected final cost - INCLUDES pending bills. On a wrap-up job
+   * with big pending bills, using paid-only actualCost undershoots
+   * the projection dramatically.
+   */
+  totalCosts: number;
   /**
    * 0..1 fraction complete. Prefer Nathan's manual % complete when
    * set (from job_manual_progress); otherwise fall back to cost-based
-   * % (actual/budget). If neither is available or valid, slippage is
-   * unavailable (status='na').
+   * % (totalCosts / estimatedCost). If neither is available or valid,
+   * slippage is unavailable (status='na').
    */
   percentComplete: number | null;
 }
@@ -149,7 +176,7 @@ export const SLIPPAGE_TOLERANCE_POINTS = 2;
 export function computeSlippage(input: SlippageInputs): SlippageResult {
   const contract = input.contractPrice;
   const budget = input.estimatedCost;
-  const actual = input.actualCost;
+  const totalSpent = input.totalCosts;
 
   // Cost-plus and jobs without a contract can't have "margin slippage"
   // in the fixed-price sense - they bill actual costs. We surface na.
@@ -187,7 +214,12 @@ export function computeSlippage(input: SlippageInputs): SlippageResult {
   }
   const pct = Math.min(1, pctRaw);
 
-  const projectedFinalCost = actual / pct;
+  // Projected final cost = committed cost / fraction complete. We use
+  // totalCosts (paid + pending) not just paid actualCost - a wrap-up
+  // job with big pending bills would otherwise project a wildly low
+  // final cost and show fake "gained margin". At 100% complete this
+  // resolves to totalCosts (no extrapolation, no more cost expected).
+  const projectedFinalCost = totalSpent / pct;
   const projectedMarginDollars = contract - projectedFinalCost;
   const projectedMarginPct = projectedMarginDollars / contract;
   const slippageDollars = originalMarginDollars - projectedMarginDollars;
