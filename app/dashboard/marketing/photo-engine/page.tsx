@@ -291,8 +291,8 @@ export default function PhotoEnginePage() {
           <div className="text-sm text-amber-900">
             <div className="font-semibold">Draft mode</div>
             <p className="mt-0.5">
-              Nothing is uploaded to the designer or emailed to Mike Roda until this engine is
-              reviewed and turned on.
+              Draft mode. Photos and profiles are staged for review only. Nothing is uploaded to the
+              designer or emailed to Mike Roda until this is turned on.
             </p>
           </div>
         </div>
@@ -301,119 +301,6 @@ export default function PhotoEnginePage() {
       {error && (
         <div className="rounded-md bg-red-50 p-4 text-red-700 text-sm">Failed: {error}</div>
       )}
-
-      {/* Selected jobs */}
-      <div>
-        <div className="flex items-center justify-between mb-2">
-          <h3 className="text-sm font-semibold text-gray-700">Selected jobs</h3>
-          <button
-            onClick={() => { setSearch(''); setShowAdd(true); }}
-            className="inline-flex items-center gap-1.5 px-3 py-1.5 text-sm font-medium rounded-md bg-blue-700 text-white hover:bg-blue-800"
-          >
-            <Plus className="w-4 h-4" />
-            Add a job
-          </button>
-        </div>
-        {selectedJobs.length === 0 ? (
-          <div className="bg-white border border-dashed border-gray-300 rounded-lg p-8 text-center">
-            <Folder className="w-10 h-10 text-gray-300 mx-auto mb-3" />
-            <p className="text-sm text-gray-600">
-              No jobs selected yet. Add a job from the list below to start building its marketing
-              folder and profile.
-            </p>
-          </div>
-        ) : (
-          <div className="space-y-2">
-            {selectedJobs.map((j) => {
-              const last = j.lastRun;
-              const running = last?.status === 'queued' || last?.status === 'processing';
-              return (
-                <div key={j.id} className="bg-white border border-gray-200 rounded-lg p-4">
-                  <div className="flex items-start justify-between gap-4">
-                    <div className="min-w-0">
-                      <div className="font-medium text-gray-900 flex items-center gap-2">{j.name || 'Unnamed job'}{!j.active && (<span className="text-[10px] font-medium px-1.5 py-0.5 rounded bg-gray-100 text-gray-500">Completed</span>)}</div>
-                      <div className="mt-1 flex flex-wrap items-center gap-x-4 gap-y-1 text-xs text-gray-500">
-                        {j.number && <span>#{j.number}</span>}
-                        <span className="inline-flex items-center gap-1.5">
-                          <Folder className="w-3.5 h-3.5 text-gray-400" />
-                          <code className="bg-gray-100 rounded px-1.5 py-0.5">{j.folderName}</code>
-                        </span>
-                      </div>
-                    </div>
-                    <div className="flex items-center gap-2 flex-shrink-0">
-                      <button
-                        onClick={() => queueJob(j.id)}
-                        disabled={busyJob === j.id || running}
-                        className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium rounded-md bg-blue-700 text-white hover:bg-blue-800 disabled:opacity-50 disabled:cursor-not-allowed"
-                      >
-                        {busyJob === j.id ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Play className="w-3.5 h-3.5" />}
-                        Queue for processing
-                      </button>
-                      <button
-                        onClick={() => setIncluded(j.id, false)}
-                        disabled={busyJob === j.id}
-                        className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium rounded-md border border-gray-300 text-gray-600 hover:bg-gray-50 disabled:opacity-50 disabled:cursor-not-allowed"
-                      >
-                        <X className="w-3.5 h-3.5" />
-                        Remove
-                      </button>
-                    </div>
-                  </div>
-                  <div className="mt-3 flex flex-wrap items-center gap-4 text-sm text-gray-600">
-                    <StatusBadge status={last?.status || null} />
-                    <span className="inline-flex items-center gap-1"><Camera className="w-3.5 h-3.5 text-gray-400" />{last?.photosAdded ?? 0} photos</span>
-                    <span className="inline-flex items-center gap-1"><Film className="w-3.5 h-3.5 text-gray-400" />{last?.videosAdded ?? 0} videos</span>
-                    {last?.profileUpdated ? (
-                      <span className="inline-flex items-center gap-1 text-green-700"><FileText className="w-3.5 h-3.5" />Profile updated</span>
-                    ) : (
-                      <span className="inline-flex items-center gap-1 text-gray-400"><FileText className="w-3.5 h-3.5" />Profile not built yet</span>
-                    )}
-                  </div>
-                </div>
-              );
-            })}
-          </div>
-        )}
-      </div>
-
-      {/* Recent activity */}
-      <div>
-        <h3 className="text-sm font-semibold text-gray-700 mb-2">Recent activity</h3>
-        {runs.length === 0 ? (
-          <div className="bg-white border border-dashed border-gray-300 rounded-lg p-6 text-center text-sm text-gray-500">
-            No runs yet. Queue a selected job above to get started.
-          </div>
-        ) : (
-          <div className="bg-white border border-gray-200 rounded-lg divide-y divide-gray-100">
-            {runs.map((r) => (
-              <div key={r.id} className="px-4 py-3 flex items-start gap-3">
-                <div className="mt-0.5">
-                  {r.status === 'complete' ? <CheckCircle2 className="w-4 h-4 text-green-600" />
-                    : r.status === 'error' ? <XCircle className="w-4 h-4 text-red-600" />
-                    : <Clock className="w-4 h-4 text-gray-400" />}
-                </div>
-                <div className="flex-1 min-w-0">
-                  <div className="flex items-center gap-2 flex-wrap">
-                    <span className="font-medium text-gray-900 text-sm">{r.job_name || r.job_id}</span>
-                    <StatusBadge status={r.status} />
-                    <EmailBadge status={r.email_status} />
-                    <span className="text-xs text-gray-400">{r.trigger}</span>
-                  </div>
-                  {r.change_summary && (
-                    <p className="text-sm text-gray-600 mt-1">{r.change_summary}</p>
-                  )}
-                  {r.error && (
-                    <p className="text-xs text-red-600 mt-1">{r.error}</p>
-                  )}
-                  <div className="text-xs text-gray-400 mt-1">
-                    {r.created_at ? new Date(r.created_at).toLocaleString() : ''}
-                  </div>
-                </div>
-              </div>
-            ))}
-          </div>
-        )}
-      </div>
 
       {/* Project folders (designer FTP browser) */}
       <div>
@@ -562,6 +449,119 @@ export default function PhotoEnginePage() {
                 ))}
               </div>
             )}
+          </div>
+        )}
+      </div>
+
+      {/* Recent activity */}
+      <div>
+        <h3 className="text-sm font-semibold text-gray-700 mb-2">Recent activity</h3>
+        {runs.length === 0 ? (
+          <div className="bg-white border border-dashed border-gray-300 rounded-lg p-6 text-center text-sm text-gray-500">
+            No runs yet. Queue a selected job above to get started.
+          </div>
+        ) : (
+          <div className="bg-white border border-gray-200 rounded-lg divide-y divide-gray-100">
+            {runs.map((r) => (
+              <div key={r.id} className="px-4 py-3 flex items-start gap-3">
+                <div className="mt-0.5">
+                  {r.status === 'complete' ? <CheckCircle2 className="w-4 h-4 text-green-600" />
+                    : r.status === 'error' ? <XCircle className="w-4 h-4 text-red-600" />
+                    : <Clock className="w-4 h-4 text-gray-400" />}
+                </div>
+                <div className="flex-1 min-w-0">
+                  <div className="flex items-center gap-2 flex-wrap">
+                    <span className="font-medium text-gray-900 text-sm">{r.job_name || r.job_id}</span>
+                    <StatusBadge status={r.status} />
+                    <EmailBadge status={r.email_status} />
+                    <span className="text-xs text-gray-400">{r.trigger}</span>
+                  </div>
+                  {r.change_summary && (
+                    <p className="text-sm text-gray-600 mt-1">{r.change_summary}</p>
+                  )}
+                  {r.error && (
+                    <p className="text-xs text-red-600 mt-1">{r.error}</p>
+                  )}
+                  <div className="text-xs text-gray-400 mt-1">
+                    {r.created_at ? new Date(r.created_at).toLocaleString() : ''}
+                  </div>
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
+
+      {/* Selected jobs */}
+      <div>
+        <div className="flex items-center justify-between mb-2">
+          <h3 className="text-sm font-semibold text-gray-700">Selected jobs</h3>
+          <button
+            onClick={() => { setSearch(''); setShowAdd(true); }}
+            className="inline-flex items-center gap-1.5 px-3 py-1.5 text-sm font-medium rounded-md bg-blue-700 text-white hover:bg-blue-800"
+          >
+            <Plus className="w-4 h-4" />
+            Add a job
+          </button>
+        </div>
+        {selectedJobs.length === 0 ? (
+          <div className="bg-white border border-dashed border-gray-300 rounded-lg p-8 text-center">
+            <Folder className="w-10 h-10 text-gray-300 mx-auto mb-3" />
+            <p className="text-sm text-gray-600">
+              No jobs selected yet. Add a job from the list below to start building its marketing
+              folder and profile.
+            </p>
+          </div>
+        ) : (
+          <div className="space-y-2">
+            {selectedJobs.map((j) => {
+              const last = j.lastRun;
+              const running = last?.status === 'queued' || last?.status === 'processing';
+              return (
+                <div key={j.id} className="bg-white border border-gray-200 rounded-lg p-4">
+                  <div className="flex items-start justify-between gap-4">
+                    <div className="min-w-0">
+                      <div className="font-medium text-gray-900 flex items-center gap-2">{j.name || 'Unnamed job'}{!j.active && (<span className="text-[10px] font-medium px-1.5 py-0.5 rounded bg-gray-100 text-gray-500">Completed</span>)}</div>
+                      <div className="mt-1 flex flex-wrap items-center gap-x-4 gap-y-1 text-xs text-gray-500">
+                        {j.number && <span>#{j.number}</span>}
+                        <span className="inline-flex items-center gap-1.5">
+                          <Folder className="w-3.5 h-3.5 text-gray-400" />
+                          <code className="bg-gray-100 rounded px-1.5 py-0.5">{j.folderName}</code>
+                        </span>
+                      </div>
+                    </div>
+                    <div className="flex items-center gap-2 flex-shrink-0">
+                      <button
+                        onClick={() => queueJob(j.id)}
+                        disabled={busyJob === j.id || running}
+                        className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium rounded-md bg-blue-700 text-white hover:bg-blue-800 disabled:opacity-50 disabled:cursor-not-allowed"
+                      >
+                        {busyJob === j.id ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Play className="w-3.5 h-3.5" />}
+                        Queue for processing
+                      </button>
+                      <button
+                        onClick={() => setIncluded(j.id, false)}
+                        disabled={busyJob === j.id}
+                        className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium rounded-md border border-gray-300 text-gray-600 hover:bg-gray-50 disabled:opacity-50 disabled:cursor-not-allowed"
+                      >
+                        <X className="w-3.5 h-3.5" />
+                        Remove
+                      </button>
+                    </div>
+                  </div>
+                  <div className="mt-3 flex flex-wrap items-center gap-4 text-sm text-gray-600">
+                    <StatusBadge status={last?.status || null} />
+                    <span className="inline-flex items-center gap-1"><Camera className="w-3.5 h-3.5 text-gray-400" />{last?.photosAdded ?? 0} photos</span>
+                    <span className="inline-flex items-center gap-1"><Film className="w-3.5 h-3.5 text-gray-400" />{last?.videosAdded ?? 0} videos</span>
+                    {last?.profileUpdated ? (
+                      <span className="inline-flex items-center gap-1 text-green-700"><FileText className="w-3.5 h-3.5" />Profile updated</span>
+                    ) : (
+                      <span className="inline-flex items-center gap-1 text-gray-400"><FileText className="w-3.5 h-3.5" />Profile not built yet</span>
+                    )}
+                  </div>
+                </div>
+              );
+            })}
           </div>
         )}
       </div>
