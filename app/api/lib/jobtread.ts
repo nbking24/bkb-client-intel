@@ -169,6 +169,94 @@ export async function getMarketingJobs(limit = 200): Promise<
   }
 }
 
+/**
+ * Cheap change-detection probe for the nightly marketing detector.
+ *
+ * Returns whether a job has picked up new marketing-worthy items since a given
+ * timestamp, WITHOUT pulling any nodes. We only ask JobTread for counts, so this
+ * stays fast and inexpensive even across many jobs.
+ *   - newMediaCount: files (images/videos and anything else) created after sinceISO.
+ *   - newApprovedOrder: an approved customerOrder document created after sinceISO.
+ *
+ * If sinceISO is null we treat the job as everything-new (first look), returning
+ * hasNew = true so the caller schedules a full scan. On any error we degrade to
+ * "nothing new" so one bad job never breaks the detector run.
+ *
+ * Query shapes (confirmed against the live Pave schema):
+ *   files:     where ["createdAt", ">", sinceISO]  (single infix condition)
+ *   documents: where { and: [ ["type","=","customerOrder"],
+ *                             ["status","=","approved"],
+ *                             ["createdAt",">",sinceISO] ] }
+ * Note: Pave compound filters use the object form { and: [...] }, not a nested
+ * array. size:1 keeps the page tiny; count is computed server side.
+ */
+export async function jobHasNewMarketingItemsSince(
+  jobId: string,
+  sinceISO: string | null
+): Promise<{ hasNew: boolean; newMediaCount: number; newApprovedOrder: boolean }> {
+  // No baseline yet: treat the whole job as new so it gets a full scan.
+  if (!sinceISO) {
+    return { hasNew: true, newMediaCount: 0, newApprovedOrder: false };
+  }
+
+  try {
+    let newMediaCount = 0;
+    let newApprovedOrder = false;
+
+    // New files (photos/videos and any other uploads) since the baseline.
+    try {
+      const filesData: any = await jtQuery({
+        job: {
+          $: { id: jobId },
+          files: {
+            $: { size: 1, where: ['createdAt', '>', sinceISO] },
+            count: {},
+          },
+        },
+      });
+      const c = filesData?.job?.files?.count;
+      newMediaCount = typeof c === 'number' ? c : 0;
+    } catch (err: any) {
+      console.error('[jobtread] jobHasNewMarketingItemsSince files count failed:', err?.message || err);
+    }
+
+    // A newly approved customer order is a strong "this job progressed" signal.
+    try {
+      const docsData: any = await jtQuery({
+        job: {
+          $: { id: jobId },
+          documents: {
+            $: {
+              size: 1,
+              where: {
+                and: [
+                  ['type', '=', 'customerOrder'],
+                  ['status', '=', 'approved'],
+                  ['createdAt', '>', sinceISO],
+                ],
+              },
+            },
+            count: {},
+          },
+        },
+      });
+      const c = docsData?.job?.documents?.count;
+      newApprovedOrder = typeof c === 'number' && c > 0;
+    } catch (err: any) {
+      console.error('[jobtread] jobHasNewMarketingItemsSince documents count failed:', err?.message || err);
+    }
+
+    return {
+      hasNew: newMediaCount > 0 || newApprovedOrder,
+      newMediaCount,
+      newApprovedOrder,
+    };
+  } catch (err: any) {
+    console.error('[jobtread] jobHasNewMarketingItemsSince failed:', err?.message || err);
+    return { hasNew: false, newMediaCount: 0, newApprovedOrder: false };
+  }
+}
+
 export async function getAllJobs(max = 2000): Promise<
   { id: string; name: string; number: string; closedOn: string | null }[]
 > {
