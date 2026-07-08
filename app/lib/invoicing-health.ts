@@ -465,31 +465,39 @@ async function analyzeContractJob(
   const roundedLaborHours = Math.round(unbilledLaborHours * 10) / 10;
 
   // ============================================================
-  // Determine health — priority: critical > overdue > warning
+  // Determine health — priority: overdue > warning > healthy.
+  //
+  // Nathan clarified 2026-07-06: the invoicing dashboard's health
+  // status should reflect ONLY "is there work left to bill". Overdue
+  // billing milestones (JT $-tasks past their due date) used to flag
+  // 'critical' automatically, but that produced false positives on
+  // wrapped-up jobs like Berntsen where the invoice was actually sent
+  // but the milestone task wasn't marked complete in JT. Overdue
+  // invoices/AR are tracked separately (aging report, briefing), so
+  // this dashboard no longer drives health off milestone due dates.
+  //
+  // What still drives health:
+  //   OVERDUE  = real uninvoiced work: > $800 billable items OR > 3
+  //              unbilled labor hours
+  //   WARNING  = approaching milestone, unmatched draft, or lower-
+  //              threshold uninvoiced work ($200+, 1hr+)
+  //
+  // Overdue milestones themselves are still surfaced in the payload
+  // (`overdueMilestones` array) so the UI can display them for
+  // informational reference, but they no longer change the pill.
   // ============================================================
   let health: InvoicingHealth = 'healthy';
 
-  // CRITICAL: milestone 14+ days past due
-  // (Individual overdue milestones shown with name/date in the UI — no summary alert needed)
-  if (overdueMilestones.length > 0) {
-    const worstOverdue = Math.max(...overdueMilestones.map((m) => Math.abs(m.daysUntilDue ?? 0)));
-    if (worstOverdue > 14) {
-      health = 'critical';
-    } else {
-      health = 'overdue';
-    }
-  }
-
-  // OVERDUE: billable items > $800
+  // OVERDUE: billable items > $800 (real uninvoiced work)
   if (uninvoicedBillableAmount > ALERT_THRESHOLDS.contractBillableOverdue) {
     alerts.push(`$${uninvoicedBillableAmount.toLocaleString()} in uninvoiced billable items`);
-    if (health !== 'critical' && health !== 'overdue') health = 'overdue';
+    health = 'overdue';
   }
 
-  // OVERDUE: unbilled labor > 3 hrs
+  // OVERDUE: unbilled labor > 3 hrs (real uninvoiced work)
   if (roundedLaborHours > ALERT_THRESHOLDS.contractLaborOverdue) {
     alerts.push(`${roundedLaborHours} unbilled labor hours`);
-    if (health !== 'critical' && health !== 'overdue') health = 'overdue';
+    if (health !== 'overdue') health = 'overdue';
   }
 
   // WARNING: milestone approaching (due within 2 days)
