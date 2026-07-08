@@ -49,13 +49,19 @@ interface JobSummary {
   earnedRevenue?: number;
   overUnderBilled?: number;
   overUnderPercent?: number;
+  // Slippage: margin erosion between bid and projected completion.
+  slippageStatus?: 'gained' | 'on_track' | 'slipping' | 'na';
+  slippageDollars?: number | null;
+  slippagePoints?: number | null;
+  slippagePctOfContract?: number | null;
 }
 
 type SortKey =
   | 'clientName' | 'customStatus'
   | 'contractPrice' | 'estimatedCost' | 'totalCosts'
   | 'costBasedPercent' | 'earnedRevenue' | 'invoicedAmount'
-  | 'overUnderBilled' | 'wipStatus';
+  | 'overUnderBilled' | 'wipStatus'
+  | 'slippageDollars';
 
 function fmtMoney(n: number): string {
   return n.toLocaleString('en-US', { minimumFractionDigits: 0, maximumFractionDigits: 0 });
@@ -170,9 +176,10 @@ export default function WipReportPage() {
         t.earned += j.earnedRevenue || 0;
         t.invoiced += j.invoicedAmount || 0;
         t.overUnder += j.overUnderBilled || 0;
+        t.slippage += (j.slippageStatus && j.slippageStatus !== 'na' ? (j.slippageDollars || 0) : 0);
         return t;
       },
-      { contract: 0, budget: 0, cost: 0, earned: 0, invoiced: 0, overUnder: 0 },
+      { contract: 0, budget: 0, cost: 0, earned: 0, invoiced: 0, overUnder: 0, slippage: 0 },
     );
   }, [jobs]);
 
@@ -185,6 +192,7 @@ export default function WipReportPage() {
       'Client', 'Job Name', 'Job #', 'Status',
       'Contract Price', 'Budgeted Cost', 'Total Cost', 'Cost %',
       'Earned Revenue', 'Invoiced', 'Over/(Under)', 'WIP Status',
+      'Slippage $', 'Slippage Points',
     ];
     const rows = sorted.map((j) => [
       `"${(j.clientName || '').replace(/"/g, '""')}"`,
@@ -199,6 +207,8 @@ export default function WipReportPage() {
       (j.invoicedAmount || 0).toFixed(2),
       (j.overUnderBilled || 0).toFixed(2),
       j.wipStatus || '',
+      j.slippageStatus && j.slippageStatus !== 'na' && j.slippageDollars != null ? j.slippageDollars.toFixed(2) : '',
+      j.slippageStatus && j.slippageStatus !== 'na' && j.slippagePoints != null ? j.slippagePoints.toFixed(1) : '',
     ]);
     const totalsRow = [
       '"TOTALS"', '""', '', '""',
@@ -209,6 +219,8 @@ export default function WipReportPage() {
       totals.earned.toFixed(2),
       totals.invoiced.toFixed(2),
       totals.overUnder.toFixed(2),
+      '',
+      totals.slippage.toFixed(2),
       '',
     ];
     const csv = [headers.join(','), ...rows.map((r) => r.join(',')), totalsRow.join(',')].join('\n');
@@ -321,6 +333,7 @@ export default function WipReportPage() {
                   <SortHeader keyName="invoicedAmount" label="Invoiced" numeric />
                   <SortHeader keyName="overUnderBilled" label="Over / (Under)" numeric />
                   <SortHeader keyName="wipStatus" label="WIP" />
+                  <SortHeader keyName="slippageDollars" label="Slippage $" numeric />
                 </tr>
               </thead>
               <tbody>
@@ -367,12 +380,29 @@ export default function WipReportPage() {
                       <td className="px-2 py-2">
                         {statusChip(j.wipStatus as any)}
                       </td>
+                      <td
+                        className="px-2 py-2 font-mono text-right"
+                        style={{
+                          color:
+                            j.slippageStatus === 'slipping' ? '#b91c1c'
+                            : j.slippageStatus === 'gained' ? '#15803d'
+                            : '#8a8078',
+                          fontWeight: 600,
+                        }}
+                        title={j.slippagePoints != null ? `${j.slippagePoints > 0 ? '-' : '+'}${Math.abs(j.slippagePoints).toFixed(1)} margin pts` : ''}
+                      >
+                        {j.slippageDollars == null || j.slippageStatus === 'na' ? '—' : (
+                          <>
+                            {j.slippageDollars > 0 ? '−' : j.slippageDollars < 0 ? '+' : ''}${fmtMoney(Math.abs(j.slippageDollars))}
+                          </>
+                        )}
+                      </td>
                     </tr>
                   );
                 })}
                 {sorted.length === 0 && (
                   <tr>
-                    <td colSpan={10} className="px-2 py-8 text-center italic" style={{ color: '#8a8078' }}>
+                    <td colSpan={11} className="px-2 py-8 text-center italic" style={{ color: '#8a8078' }}>
                       No fixed-price jobs to report on. Cost-plus jobs are excluded from WIP.
                     </td>
                   </tr>
@@ -410,6 +440,12 @@ export default function WipReportPage() {
                       {totals.overUnder >= 0 ? '+' : '−'}${fmtMoney(Math.abs(totals.overUnder))}
                     </td>
                     <td />
+                    <td
+                      className="px-2 py-2 font-mono text-right font-semibold"
+                      style={{ color: totals.slippage > 0 ? '#b91c1c' : totals.slippage < 0 ? '#15803d' : '#8a8078' }}
+                    >
+                      {totals.slippage > 0 ? '−' : totals.slippage < 0 ? '+' : ''}${fmtMoney(Math.abs(totals.slippage))}
+                    </td>
                   </tr>
                 </tfoot>
               )}

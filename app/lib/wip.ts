@@ -94,3 +94,124 @@ export function computeWip(input: WipInputs): WipResult {
     overUnderPercent,
   };
 }
+
+// ============================================================
+// SLIPPAGE - margin erosion between bid and projected completion.
+//
+// Answers: "How much of my original bid margin am I on track to
+// lose (or gain) by the time this job wraps?"
+//
+// Original margin $ = contractPrice - estimatedCost   (at bid time)
+// Projected final cost = actualCost ÷ percentComplete (extrapolate today's burn to 100%)
+// Projected margin $ = contractPrice - projected final cost
+// Slippage $ = original margin - projected margin      (positive = eroding, negative = ahead)
+// Slippage points = originalMargin% - projectedMargin% (percentage points of GM lost)
+//
+// Positive slippage is BAD (margin eroding). Negative is GOOD (job
+// running under budget). Tolerance ±2 percentage points is treated
+// as on-track.
+// ============================================================
+
+export type SlippageStatus = 'gained' | 'on_track' | 'slipping' | 'na';
+
+export interface SlippageInputs {
+  isCostPlus: boolean;
+  contractPrice: number;
+  estimatedCost: number;
+  actualCost: number;
+  /**
+   * 0..1 fraction complete. Prefer Nathan's manual % complete when
+   * set (from job_manual_progress); otherwise fall back to cost-based
+   * % (actual/budget). If neither is available or valid, slippage is
+   * unavailable (status='na').
+   */
+  percentComplete: number | null;
+}
+
+export interface SlippageResult {
+  status: SlippageStatus;
+  originalMarginDollars: number;      // contractPrice - estimatedCost
+  originalMarginPct: number;          // originalMarginDollars / contractPrice
+  projectedFinalCost: number | null;  // actualCost / percentComplete (null when N/A)
+  projectedMarginDollars: number | null;
+  projectedMarginPct: number | null;
+  /** Positive = eroding (bad). Rounded to whole dollars. */
+  slippageDollars: number | null;
+  /** Percentage points of GM lost. Positive = margin points shed. */
+  slippagePoints: number | null;
+  /** slippageDollars / contractPrice - useful for the same 5% tolerance framing WIP uses. */
+  slippagePctOfContract: number | null;
+}
+
+/** Points of margin (originalMargin% - projectedMargin%) within this band = on-track. */
+export const SLIPPAGE_TOLERANCE_POINTS = 2;
+
+export function computeSlippage(input: SlippageInputs): SlippageResult {
+  const contract = input.contractPrice;
+  const budget = input.estimatedCost;
+  const actual = input.actualCost;
+
+  // Cost-plus and jobs without a contract can't have "margin slippage"
+  // in the fixed-price sense - they bill actual costs. We surface na.
+  if (input.isCostPlus || contract <= 0 || budget <= 0) {
+    return {
+      status: 'na',
+      originalMarginDollars: 0,
+      originalMarginPct: 0,
+      projectedFinalCost: null,
+      projectedMarginDollars: null,
+      projectedMarginPct: null,
+      slippageDollars: null,
+      slippagePoints: null,
+      slippagePctOfContract: null,
+    };
+  }
+
+  const originalMarginDollars = contract - budget;
+  const originalMarginPct = originalMarginDollars / contract;
+
+  // % complete must be > 0 and finite to project. Also cap at 1.
+  const pctRaw = input.percentComplete;
+  if (pctRaw === null || !Number.isFinite(pctRaw) || pctRaw <= 0) {
+    return {
+      status: 'na',
+      originalMarginDollars: Math.round(originalMarginDollars),
+      originalMarginPct,
+      projectedFinalCost: null,
+      projectedMarginDollars: null,
+      projectedMarginPct: null,
+      slippageDollars: null,
+      slippagePoints: null,
+      slippagePctOfContract: null,
+    };
+  }
+  const pct = Math.min(1, pctRaw);
+
+  const projectedFinalCost = actual / pct;
+  const projectedMarginDollars = contract - projectedFinalCost;
+  const projectedMarginPct = projectedMarginDollars / contract;
+  const slippageDollars = originalMarginDollars - projectedMarginDollars;
+  const slippagePoints = (originalMarginPct - projectedMarginPct) * 100;
+  const slippagePctOfContract = slippageDollars / contract;
+
+  let status: SlippageStatus;
+  if (Math.abs(slippagePoints) <= SLIPPAGE_TOLERANCE_POINTS) {
+    status = 'on_track';
+  } else if (slippagePoints > 0) {
+    status = 'slipping';
+  } else {
+    status = 'gained';
+  }
+
+  return {
+    status,
+    originalMarginDollars: Math.round(originalMarginDollars),
+    originalMarginPct,
+    projectedFinalCost: Math.round(projectedFinalCost),
+    projectedMarginDollars: Math.round(projectedMarginDollars),
+    projectedMarginPct,
+    slippageDollars: Math.round(slippageDollars),
+    slippagePoints: Math.round(slippagePoints * 10) / 10,
+    slippagePctOfContract,
+  };
+}

@@ -71,6 +71,15 @@ interface JobSummary {
   earnedRevenue?: number;
   overUnderBilled?: number;
   overUnderPercent?: number;
+  // Slippage: how much bid margin is being eroded (positive) or gained
+  // back (negative). Uses manualPercentComplete when set, else cost-based %.
+  slippageStatus?: 'gained' | 'on_track' | 'slipping' | 'na';
+  slippageDollars?: number | null;
+  slippagePoints?: number | null;
+  slippagePctOfContract?: number | null;
+  projectedFinalCost?: number | null;
+  originalMarginPct?: number;
+  projectedMarginPct?: number | null;
 }
 
 interface Totals {
@@ -1160,6 +1169,95 @@ export default function JobCostingDashboard() {
                       <p className="text-[11px]" style={{ color: '#8a8078' }}>
                         Approved CO total
                       </p>
+                    </div>
+                  </div>
+                  <p className="text-xs mt-3" style={{ color: '#5a5550' }}>
+                    {palette.desc}
+                  </p>
+                </div>
+              );
+            })()}
+
+            {/* Slippage Analysis - margin erosion since bid.
+                Formula: projected final cost = actualCost / % complete
+                (manual preferred, cost-based fallback). Slippage = bid
+                margin - projected margin. Hidden on cost-plus. */}
+            {!detail.job.isCostPlus && (() => {
+              const fs = detail.financialSummary;
+              const contractPrice = fs.contractPrice || fs.estimatedPrice || 0;
+              const estimatedCost = fs.estimatedCost || 0;
+              const actualCost = fs.actualCost || 0;
+              if (contractPrice <= 0 || estimatedCost <= 0) return null;
+              // Prefer manual %, fall back to cost-based %.
+              const manualPct = fs.manualProgress != null ? fs.manualProgress / 100 : null;
+              const costPct = actualCost / estimatedCost;
+              const pctForProject = manualPct != null && manualPct > 0 ? manualPct : (costPct > 0 ? Math.min(1, costPct) : null);
+              if (pctForProject === null) return null;
+              const projectedFinalCost = actualCost / pctForProject;
+              const originalMarginDollars = contractPrice - estimatedCost;
+              const originalMarginPct = originalMarginDollars / contractPrice;
+              const projectedMarginDollars = contractPrice - projectedFinalCost;
+              const projectedMarginPct = projectedMarginDollars / contractPrice;
+              const slippageDollars = originalMarginDollars - projectedMarginDollars;
+              const slippagePoints = (originalMarginPct - projectedMarginPct) * 100;
+              const status: 'gained' | 'on_track' | 'slipping' =
+                Math.abs(slippagePoints) <= 2 ? 'on_track'
+                : slippagePoints > 0 ? 'slipping'
+                : 'gained';
+              const palette =
+                status === 'slipping'
+                  ? { color: '#b91c1c', bg: 'rgba(239,68,68,0.06)', border: 'rgba(239,68,68,0.22)', label: '↓ Eroding', desc: 'Cost is running ahead of pace. Every dollar over budget is a dollar of margin off the bid.' }
+                  : status === 'gained'
+                    ? { color: '#15803d', bg: 'rgba(34,197,94,0.06)', border: 'rgba(34,197,94,0.22)', label: '↑ Ahead of bid', desc: 'Job is trending under budget. Extra margin is being clawed back vs the bid.' }
+                    : { color: '#4b5563', bg: 'rgba(107,114,128,0.05)', border: 'rgba(107,114,128,0.22)', label: '= On track', desc: 'Projected margin is within 2 points of the bid.' };
+              return (
+                <div
+                  className="rounded-lg p-4"
+                  style={{ background: palette.bg, border: `1px solid ${palette.border}` }}
+                >
+                  <div className="flex items-center gap-2 mb-3 flex-wrap">
+                    <span className="text-sm font-semibold uppercase tracking-wide" style={{ color: palette.color }}>
+                      Slippage Analysis · {palette.label}
+                    </span>
+                    <span className="text-xs" style={{ color: '#5a5550' }}>
+                      Margin trajectory vs the bid
+                    </span>
+                    <span
+                      className="ml-auto text-[11px] px-2 py-0.5 rounded"
+                      style={{ background: '#ffffff', color: '#5a5550', border: '1px solid rgba(200,140,0,0.20)' }}
+                    >
+                      Using {manualPct != null && manualPct > 0 ? 'manual' : 'cost-based'} % complete: {Math.round(pctForProject * 100)}%
+                    </span>
+                  </div>
+                  <div className="grid grid-cols-2 md:grid-cols-5 gap-3 text-sm">
+                    <div>
+                      <p className="text-xs" style={{ color: '#8a8078' }}>Bid Margin</p>
+                      <p className="text-lg font-bold" style={{ color: '#1a1a1a' }}>${fmt(originalMarginDollars)}</p>
+                      <p className="text-[11px]" style={{ color: '#8a8078' }}>{(originalMarginPct * 100).toFixed(1)}% of contract</p>
+                    </div>
+                    <div>
+                      <p className="text-xs" style={{ color: '#8a8078' }}>Projected Final Cost</p>
+                      <p className="text-lg font-bold" style={{ color: '#1a1a1a' }}>${fmt(projectedFinalCost)}</p>
+                      <p className="text-[11px]" style={{ color: '#8a8078' }}>${fmt(actualCost)} ÷ {Math.round(pctForProject * 100)}%</p>
+                    </div>
+                    <div>
+                      <p className="text-xs" style={{ color: '#8a8078' }}>Projected Margin</p>
+                      <p className="text-lg font-bold" style={{ color: palette.color }}>${fmt(projectedMarginDollars)}</p>
+                      <p className="text-[11px]" style={{ color: palette.color }}>{(projectedMarginPct * 100).toFixed(1)}% of contract</p>
+                    </div>
+                    <div>
+                      <p className="text-xs" style={{ color: '#8a8078' }}>Slippage $</p>
+                      <p className="text-lg font-bold" style={{ color: palette.color }}>
+                        {slippageDollars > 0 ? '−' : slippageDollars < 0 ? '+' : ''}${fmt(Math.abs(slippageDollars))}
+                      </p>
+                      <p className="text-[11px]" style={{ color: '#8a8078' }}>bid margin − projected margin</p>
+                    </div>
+                    <div>
+                      <p className="text-xs" style={{ color: '#8a8078' }}>Slippage Points</p>
+                      <p className="text-lg font-bold" style={{ color: palette.color }}>
+                        {slippagePoints > 0 ? '−' : slippagePoints < 0 ? '+' : ''}{Math.abs(slippagePoints).toFixed(1)} pts
+                      </p>
+                      <p className="text-[11px]" style={{ color: '#8a8078' }}>margin points {slippagePoints > 0 ? 'lost' : slippagePoints < 0 ? 'gained' : 'change'}</p>
                     </div>
                   </div>
                   <p className="text-xs mt-3" style={{ color: '#5a5550' }}>
@@ -2749,6 +2847,69 @@ export default function JobCostingDashboard() {
                                       }}
                                     >
                                       {(job.overUnderBilled ?? 0) >= 0 ? '+' : '−'}${fmt(Math.abs(job.overUnderBilled ?? 0))}
+                                    </span>
+                                  </div>
+                                </div>
+                              )}
+
+                              {/* Slippage chip - margin erosion vs bid.
+                                  Positive slippage = margin eroding (bad);
+                                  negative = gained back (good). Same
+                                  visibility rules as WIP: hidden on
+                                  cost-plus, hidden when no % complete
+                                  can be projected. */}
+                              {job.slippageStatus && job.slippageStatus !== 'na' && (
+                                <div
+                                  className="mt-1 rounded px-1.5 py-1 text-[10px]"
+                                  style={{
+                                    background:
+                                      job.slippageStatus === 'slipping'
+                                        ? 'rgba(239,68,68,0.08)'
+                                        : job.slippageStatus === 'gained'
+                                          ? 'rgba(34,197,94,0.08)'
+                                          : 'rgba(107,114,128,0.06)',
+                                    border: `1px solid ${
+                                      job.slippageStatus === 'slipping'
+                                        ? 'rgba(239,68,68,0.22)'
+                                        : job.slippageStatus === 'gained'
+                                          ? 'rgba(34,197,94,0.22)'
+                                          : 'rgba(107,114,128,0.22)'
+                                    }`,
+                                  }}
+                                >
+                                  <div className="flex items-center gap-1.5">
+                                    <span
+                                      className="font-semibold uppercase tracking-wide text-[9px]"
+                                      style={{
+                                        color:
+                                          job.slippageStatus === 'slipping' ? '#b91c1c'
+                                          : job.slippageStatus === 'gained' ? '#15803d'
+                                          : '#4b5563',
+                                      }}
+                                    >
+                                      Slippage {job.slippageStatus === 'slipping' ? '↓ Eroding' : job.slippageStatus === 'gained' ? '↑ Ahead of bid' : '= On track'}
+                                    </span>
+                                    {job.projectedMarginPct != null && job.originalMarginPct != null && (
+                                      <span style={{ color: '#5a5550' }}>
+                                        · {(job.originalMarginPct * 100).toFixed(1)}% → {(job.projectedMarginPct * 100).toFixed(1)}%
+                                      </span>
+                                    )}
+                                  </div>
+                                  <div className="flex items-center gap-2 mt-0.5" style={{ color: '#5a5550' }}>
+                                    <span>
+                                      Projected final cost <strong style={{ color: '#1a1a1a' }}>${fmt(job.projectedFinalCost ?? 0)}</strong>
+                                    </span>
+                                    <span
+                                      style={{
+                                        fontWeight: 700,
+                                        color:
+                                          job.slippageStatus === 'slipping' ? '#b91c1c'
+                                          : job.slippageStatus === 'gained' ? '#15803d'
+                                          : '#4b5563',
+                                        marginLeft: 'auto',
+                                      }}
+                                    >
+                                      {(job.slippageDollars ?? 0) > 0 ? '−' : (job.slippageDollars ?? 0) < 0 ? '+' : ''}${fmt(Math.abs(job.slippageDollars ?? 0))} margin ({(job.slippagePoints ?? 0) > 0 ? '−' : '+'}{Math.abs(job.slippagePoints ?? 0).toFixed(1)} pts)
                                     </span>
                                   </div>
                                 </div>

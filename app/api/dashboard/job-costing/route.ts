@@ -7,7 +7,7 @@ import {
   getTimeEntriesForJob,
 } from '../../../lib/jobtread';
 import { getSupabase } from '../../lib/supabase';
-import { computeWip, type WipStatus } from '../../../lib/wip';
+import { computeWip, computeSlippage, type WipStatus, type SlippageStatus } from '../../../lib/wip';
 
 export const maxDuration = 300;
 // Belt-and-suspenders: GET handlers without a Request param can be
@@ -62,6 +62,16 @@ interface JobCostSummary {
   earnedRevenue: number;
   overUnderBilled: number;
   overUnderPercent: number;
+  // Margin slippage: how much bid margin is being eroded (positive) or
+  // gained back (negative) based on projected final cost. Uses manual %
+  // complete when set (from job_manual_progress), else cost-based %.
+  slippageStatus: SlippageStatus;
+  slippageDollars: number | null;
+  slippagePoints: number | null;
+  slippagePctOfContract: number | null;
+  projectedFinalCost: number | null;
+  originalMarginPct: number;
+  projectedMarginPct: number | null;
 }
 
 function computeHours(startedAt: string, endedAt: string): number {
@@ -183,10 +193,34 @@ async function mergeManualProgress(payload: any): Promise<any> {
     }
     const summaries = payload.summaries.map((s: any) => {
       const m = map.get(s.jobId);
+      const manualPct = m?.percentComplete ?? null;
+      // When Nathan has set a manual % complete, recompute slippage
+      // with that value. Otherwise leave the cost-based slippage from
+      // the initial compute.
+      let slippageOverlay: Record<string, any> = {};
+      if (manualPct !== null && manualPct > 0) {
+        const slip = computeSlippage({
+          isCostPlus: !!s.isCostPlus,
+          contractPrice: Number(s.contractPrice ?? 0),
+          estimatedCost: Number(s.estimatedCost ?? 0),
+          actualCost: Number(s.actualCost ?? 0),
+          percentComplete: manualPct / 100,
+        });
+        slippageOverlay = {
+          slippageStatus: slip.status,
+          slippageDollars: slip.slippageDollars,
+          slippagePoints: slip.slippagePoints,
+          slippagePctOfContract: slip.slippagePctOfContract,
+          projectedFinalCost: slip.projectedFinalCost,
+          originalMarginPct: slip.originalMarginPct,
+          projectedMarginPct: slip.projectedMarginPct,
+        };
+      }
       return {
         ...s,
-        manualPercentComplete: m?.percentComplete ?? null,
+        manualPercentComplete: manualPct,
         manualPercentSetAt: m?.setAt ?? null,
+        ...slippageOverlay,
       };
     });
     return { ...payload, summaries };
@@ -388,6 +422,17 @@ async function computeSummaries() {
               invoicedAmount,
             });
 
+            // Slippage baseline: uses cost-based % when manual isn't
+            // available. mergeManualProgress later recomputes with
+            // Nathan's manual % if the job has one set.
+            const slip = computeSlippage({
+              isCostPlus,
+              contractPrice: estimatedPrice,
+              estimatedCost,
+              actualCost,
+              percentComplete: wip.costBasedPercent,
+            });
+
             return {
               jobId: job.id,
               jobName: job.name,
@@ -415,6 +460,13 @@ async function computeSummaries() {
               earnedRevenue: wip.earnedRevenue,
               overUnderBilled: wip.overUnderBilled,
               overUnderPercent: wip.overUnderPercent,
+              slippageStatus: slip.status,
+              slippageDollars: slip.slippageDollars,
+              slippagePoints: slip.slippagePoints,
+              slippagePctOfContract: slip.slippagePctOfContract,
+              projectedFinalCost: slip.projectedFinalCost,
+              originalMarginPct: slip.originalMarginPct,
+              projectedMarginPct: slip.projectedMarginPct,
             } as JobCostSummary;
           } catch (err: any) {
             console.error(`Error fetching job ${job.id}:`, err.message);
