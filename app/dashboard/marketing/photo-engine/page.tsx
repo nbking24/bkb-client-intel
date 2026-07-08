@@ -5,7 +5,7 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import {
   Loader2, Images, RefreshCw, AlertTriangle, Folder, Camera, Film,
   FileText, Play, CheckCircle2, Clock, XCircle, Plus, X, Search,
-  FolderOpen, ArrowLeft, ChevronRight, Upload, ExternalLink, File as FileIcon,
+  FolderOpen, ArrowLeft, ChevronRight, Upload, ExternalLink, File as FileIcon, Trash2,
 } from 'lucide-react';
 
 function getToken() {
@@ -61,6 +61,7 @@ export default function PhotoEnginePage() {
   const [ftpError, setFtpError] = useState<string | null>(null);
   const [uploading, setUploading] = useState(false);
   const [viewingFile, setViewingFile] = useState<string | null>(null);
+  const [deletingFile, setDeletingFile] = useState<string | null>(null);
   const fileInputRef = useRef<HTMLInputElement | null>(null);
 
   async function loadAll() {
@@ -210,6 +211,33 @@ export default function PhotoEnginePage() {
       setFtpError(err.message);
     } finally {
       setViewingFile(null);
+    }
+  }
+
+  async function deleteFile(name: string) {
+    const token = getToken();
+    if (!token) return;
+    const ok = window.confirm(`Delete "${name}"? This removes it from the folder.`);
+    if (!ok) return;
+    const full = ftpPath ? ftpPath + '/' + name : name;
+    setDeletingFile(name);
+    setFtpError(null);
+    try {
+      const r = await fetch('/api/marketing/photo-engine/ftp/delete', {
+        method: 'POST',
+        headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
+        body: JSON.stringify({ path: full }),
+      });
+      const data = await r.json();
+      if (!data.ok) {
+        setFtpError(data.error || 'Delete failed');
+        return;
+      }
+      await loadFtp(ftpPath);
+    } catch (err: any) {
+      setFtpError(err.message);
+    } finally {
+      setDeletingFile(null);
     }
   }
 
@@ -435,14 +463,25 @@ export default function PhotoEnginePage() {
                       {entry.isDir ? (
                         <ChevronRight className="w-4 h-4 text-gray-300" />
                       ) : (
-                        <button
-                          onClick={() => viewFile(entry.name)}
-                          disabled={viewingFile === entry.name}
-                          className="inline-flex items-center gap-1.5 px-2.5 py-1 text-xs font-medium rounded-md border border-gray-300 text-gray-600 hover:bg-gray-50 disabled:opacity-50"
-                        >
-                          {viewingFile === entry.name ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <ExternalLink className="w-3.5 h-3.5" />}
-                          View
-                        </button>
+                        <div className="flex items-center gap-2">
+                          <button
+                            onClick={() => viewFile(entry.name)}
+                            disabled={viewingFile === entry.name || deletingFile === entry.name}
+                            className="inline-flex items-center gap-1.5 px-2.5 py-1 text-xs font-medium rounded-md border border-gray-300 text-gray-600 hover:bg-gray-50 disabled:opacity-50"
+                          >
+                            {viewingFile === entry.name ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <ExternalLink className="w-3.5 h-3.5" />}
+                            View
+                          </button>
+                          <button
+                            onClick={() => deleteFile(entry.name)}
+                            disabled={deletingFile === entry.name || viewingFile === entry.name}
+                            title="Delete file"
+                            aria-label="Delete file"
+                            className="inline-flex items-center justify-center p-1.5 text-xs rounded-md border border-gray-300 text-gray-400 hover:bg-red-50 hover:text-red-600 hover:border-red-200 disabled:opacity-50 disabled:cursor-not-allowed"
+                          >
+                            {deletingFile === entry.name ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Trash2 className="w-3.5 h-3.5" />}
+                          </button>
+                        </div>
                       )}
                     </div>
                   </div>

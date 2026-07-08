@@ -124,3 +124,21 @@ export async function uploadFile(subpath: string, buffer: Buffer): Promise<void>
     client.close();
   }
 }
+
+/**
+ * Delete a single file at ROOT/subpath. Files only, never directories: a
+ * subpath ending in "/" is rejected. safeJoin keeps the target inside ROOT.
+ */
+export async function deleteFile(subpath: string): Promise<void> {
+  const sub = String(subpath || '');
+  if (!sub || sub.replace(/\\/g, '/').endsWith('/')) {
+    throw new Error('Invalid path');
+  }
+  const full = safeJoin(sub);
+  const client = await connect();
+  try {
+    await client.remove(full);
+  } finally {
+    client.close();
+  }
+}
