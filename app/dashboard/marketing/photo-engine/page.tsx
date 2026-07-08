@@ -1,14 +1,23 @@
 // @ts-nocheck
 'use client';
 
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import {
   Loader2, Images, RefreshCw, AlertTriangle, Folder, Camera, Film,
   FileText, Play, CheckCircle2, Clock, XCircle, Plus, X, Search,
+  FolderOpen, ArrowLeft, ChevronRight, Upload, ExternalLink, File as FileIcon,
 } from 'lucide-react';
 
 function getToken() {
   return typeof window !== 'undefined' ? localStorage.getItem('bkb-token') || '' : '';
+}
+
+function formatBytes(n: number): string {
+  if (!n || n < 0) return '';
+  if (n < 1024) return n + ' B';
+  if (n < 1024 * 1024) return (n / 1024).toFixed(1) + ' KB';
+  if (n < 1024 * 1024 * 1024) return (n / (1024 * 1024)).toFixed(1) + ' MB';
+  return (n / (1024 * 1024 * 1024)).toFixed(1) + ' GB';
 }
 
 function StatusBadge({ status }: { status: string | null }) {
@@ -43,6 +52,16 @@ export default function PhotoEnginePage() {
   const [busyJob, setBusyJob] = useState<string | null>(null);
   const [search, setSearch] = useState('');
   const [showAdd, setShowAdd] = useState(false);
+
+  // Project folders (designer FTP browser)
+  const [ftpConfigured, setFtpConfigured] = useState<boolean | null>(null);
+  const [ftpPath, setFtpPath] = useState('');
+  const [ftpEntries, setFtpEntries] = useState<any[]>([]);
+  const [ftpLoading, setFtpLoading] = useState(false);
+  const [ftpError, setFtpError] = useState<string | null>(null);
+  const [uploading, setUploading] = useState(false);
+  const [viewingFile, setViewingFile] = useState<string | null>(null);
+  const fileInputRef = useRef<HTMLInputElement | null>(null);
 
   async function loadAll() {
     const token = getToken();
@@ -110,6 +129,115 @@ export default function PhotoEnginePage() {
       setError(err.message);
     } finally {
       setBusyJob(null);
+    }
+  }
+
+  async function loadFtp(path = ftpPath) {
+    const token = getToken();
+    if (!token) return;
+    setFtpLoading(true);
+    setFtpError(null);
+    try {
+      const r = await fetch(
+        '/api/marketing/photo-engine/ftp/list?path=' + encodeURIComponent(path),
+        { headers: { Authorization: `Bearer ${token}` } }
+      );
+      const data = await r.json();
+      setFtpConfigured(data.configured === true);
+      if (data.configured === true) {
+        setFtpEntries(data.entries || []);
+        setFtpPath(data.path || path);
+        if (data.error) setFtpError(data.error);
+      }
+    } catch (err: any) {
+      setFtpError(err.message);
+    } finally {
+      setFtpLoading(false);
+    }
+  }
+
+  useEffect(() => { loadFtp(''); }, []);
+
+  function openFolder(name: string) {
+    const next = ftpPath ? ftpPath + '/' + name : name;
+    setFtpPath(next);
+    loadFtp(next);
+  }
+
+  function goToCrumb(index: number) {
+    const parts = ftpPath.split('/').filter(Boolean);
+    const next = parts.slice(0, index + 1).join('/');
+    setFtpPath(next);
+    loadFtp(next);
+  }
+
+  function goRoot() {
+    setFtpPath('');
+    loadFtp('');
+  }
+
+  function goBack() {
+    const parts = ftpPath.split('/').filter(Boolean);
+    parts.pop();
+    const next = parts.join('/');
+    setFtpPath(next);
+    loadFtp(next);
+  }
+
+  async function viewFile(name: string) {
+    const token = getToken();
+    if (!token) return;
+    const full = ftpPath ? ftpPath + '/' + name : name;
+    setViewingFile(name);
+    setFtpError(null);
+    try {
+      const r = await fetch(
+        '/api/marketing/photo-engine/ftp/file?path=' + encodeURIComponent(full),
+        { headers: { Authorization: `Bearer ${token}` } }
+      );
+      if (!r.ok) {
+        let msg = 'Could not open that file';
+        try { const j = await r.json(); if (j.error) msg = j.error; } catch {}
+        setFtpError(msg);
+        return;
+      }
+      const blob = await r.blob();
+      const url = URL.createObjectURL(blob);
+      window.open(url, '_blank');
+      // Give the new tab time to load before revoking.
+      setTimeout(() => URL.revokeObjectURL(url), 60000);
+    } catch (err: any) {
+      setFtpError(err.message);
+    } finally {
+      setViewingFile(null);
+    }
+  }
+
+  async function onUploadPick(e: React.ChangeEvent<HTMLInputElement>) {
+    const input = e.target;
+    const file = input.files && input.files[0];
+    if (!file) return;
+    const token = getToken();
+    if (!token) return;
+    setUploading(true);
+    setFtpError(null);
+    try {
+      const fd = new FormData();
+      fd.append('path', ftpPath);
+      fd.append('file', file);
+      const r = await fetch('/api/marketing/photo-engine/ftp/upload', {
+        method: 'POST',
+        headers: { Authorization: `Bearer ${token}` },
+        body: fd,
+      });
+      const data = await r.json();
+      if (!data.ok) setFtpError(data.error || 'Upload failed');
+      await loadFtp(ftpPath);
+    } catch (err: any) {
+      setFtpError(err.message);
+    } finally {
+      setUploading(false);
+      if (input) input.value = '';
     }
   }
 
@@ -283,6 +411,157 @@ export default function PhotoEnginePage() {
                 </div>
               </div>
             ))}
+          </div>
+        )}
+      </div>
+
+      {/* Project folders (designer FTP browser) */}
+      <div>
+        <div className="flex items-center justify-between mb-2">
+          <h3 className="text-sm font-semibold text-gray-700 flex items-center gap-2">
+            <FolderOpen className="w-4 h-4 text-blue-700" />
+            Project folders
+          </h3>
+          <div className="flex items-center gap-2">
+            {ftpConfigured && (
+              <>
+                <button
+                  onClick={() => fileInputRef.current?.click()}
+                  disabled={uploading || ftpLoading}
+                  className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium rounded-md border border-blue-700 text-blue-700 hover:bg-blue-50 disabled:opacity-50 disabled:cursor-not-allowed"
+                >
+                  {uploading ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Upload className="w-3.5 h-3.5" />}
+                  Upload file
+                </button>
+                <button
+                  onClick={() => loadFtp(ftpPath)}
+                  disabled={ftpLoading}
+                  className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs border border-gray-300 rounded-md hover:bg-gray-50 disabled:opacity-50"
+                >
+                  <RefreshCw className={`w-3.5 h-3.5 ${ftpLoading ? 'animate-spin' : ''}`} />
+                  Refresh
+                </button>
+              </>
+            )}
+          </div>
+        </div>
+
+        <input
+          ref={fileInputRef}
+          type="file"
+          className="hidden"
+          onChange={onUploadPick}
+        />
+
+        {ftpConfigured === false && (
+          <div className="bg-white border border-dashed border-gray-300 rounded-lg p-6 text-center">
+            <FolderOpen className="w-8 h-8 text-gray-300 mx-auto mb-2" />
+            <p className="text-sm text-gray-500">
+              Folder browsing is not connected yet. Add the FTP details in the Hub environment
+              settings to browse and upload here.
+            </p>
+          </div>
+        )}
+
+        {ftpConfigured && (
+          <div className="bg-white border border-gray-200 rounded-lg">
+            {/* Breadcrumb + back */}
+            <div className="flex items-center gap-2 px-4 py-2.5 border-b border-gray-100 text-sm">
+              {ftpPath ? (
+                <button
+                  onClick={goBack}
+                  className="inline-flex items-center gap-1 text-gray-500 hover:text-gray-800"
+                >
+                  <ArrowLeft className="w-3.5 h-3.5" />
+                  Back
+                </button>
+              ) : (
+                <span className="inline-flex items-center gap-1 text-gray-300">
+                  <ArrowLeft className="w-3.5 h-3.5" />
+                  Back
+                </span>
+              )}
+              <span className="text-gray-300">|</span>
+              <div className="flex items-center gap-1 flex-wrap min-w-0">
+                <button
+                  onClick={goRoot}
+                  className={`inline-flex items-center gap-1 ${ftpPath ? 'text-blue-700 hover:underline' : 'text-gray-700 font-medium'}`}
+                >
+                  <Folder className="w-3.5 h-3.5" />
+                  BKB Review
+                </button>
+                {ftpPath.split('/').filter(Boolean).map((seg, i, arr) => (
+                  <span key={i} className="inline-flex items-center gap-1 min-w-0">
+                    <ChevronRight className="w-3.5 h-3.5 text-gray-300" />
+                    {i === arr.length - 1 ? (
+                      <span className="text-gray-700 font-medium truncate">{seg}</span>
+                    ) : (
+                      <button onClick={() => goToCrumb(i)} className="text-blue-700 hover:underline truncate">
+                        {seg}
+                      </button>
+                    )}
+                  </span>
+                ))}
+              </div>
+            </div>
+
+            {ftpError && (
+              <div className="px-4 py-2 text-xs text-red-600 bg-red-50 border-b border-red-100">
+                {ftpError}
+              </div>
+            )}
+
+            {ftpLoading ? (
+              <div className="flex items-center justify-center py-10 text-gray-400 text-sm">
+                <Loader2 className="w-4 h-4 animate-spin mr-2" />
+                Loading folder...
+              </div>
+            ) : ftpEntries.length === 0 ? (
+              <div className="py-10 text-center text-sm text-gray-400">
+                This folder is empty.
+              </div>
+            ) : (
+              <div className="divide-y divide-gray-100">
+                {ftpEntries.map((entry) => (
+                  <div key={entry.name} className="px-4 py-2.5 flex items-center justify-between gap-3">
+                    {entry.isDir ? (
+                      <button
+                        onClick={() => openFolder(entry.name)}
+                        className="flex items-center gap-2 min-w-0 text-left group"
+                      >
+                        <Folder className="w-4 h-4 text-blue-600 flex-shrink-0" />
+                        <span className="text-sm text-gray-800 group-hover:text-blue-700 truncate">{entry.name}</span>
+                      </button>
+                    ) : (
+                      <button
+                        onClick={() => viewFile(entry.name)}
+                        className="flex items-center gap-2 min-w-0 text-left group"
+                      >
+                        <FileIcon className="w-4 h-4 text-gray-400 flex-shrink-0" />
+                        <span className="text-sm text-gray-800 group-hover:text-blue-700 truncate">{entry.name}</span>
+                        {entry.size > 0 && (
+                          <span className="text-xs text-gray-400 flex-shrink-0">{formatBytes(entry.size)}</span>
+                        )}
+                      </button>
+                    )}
+                    <div className="flex-shrink-0">
+                      {entry.isDir ? (
+                        <ChevronRight className="w-4 h-4 text-gray-300" />
+                      ) : (
+                        <button
+                          onClick={() => viewFile(entry.name)}
+                          disabled={viewingFile === entry.name}
+                          className="inline-flex items-center gap-1.5 px-2.5 py-1 text-xs font-medium rounded-md border border-gray-300 text-gray-600 hover:bg-gray-50 disabled:opacity-50"
+                        >
+                          {viewingFile === entry.name ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <ExternalLink className="w-3.5 h-3.5" />}
+                          View
+                        </button>
+                      )}
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
           </div>
         )}
       </div>
