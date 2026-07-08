@@ -736,22 +736,12 @@ function ContractJobCard({ job, onInvoiceCreated, arHeld, arToggling, onToggleAr
         jobName={job.jobName}
       />
 
-      {/* Compact alert rows — only show if there are issues */}
-      {job.approachingMilestones && job.approachingMilestones.length > 0 && (
-        <div className="flex items-center gap-1 text-[11px] py-0.5" style={{ color: '#eab308' }}>
-          <Clock size={10} className="flex-shrink-0" />
-          {job.approachingMilestones.map((m) => m.taskName).join(', ')} — approaching
-        </div>
-      )}
-
-      {job.overdueMilestones.length > 0 && job.overdueMilestones.map((m) => (
-        <div key={m.taskId} className="flex items-center gap-1.5 text-[11px] py-0.5" style={{ color: '#ef4444' }}>
-          <AlertTriangle size={10} className="flex-shrink-0" />
-          <span className="truncate">
-            {m.taskName} — due {formatDate(m.endDate)} ({Math.abs(m.daysUntilDue ?? 0)}d overdue)
-          </span>
-        </div>
-      ))}
+      {/* Compact alert rows — only show real uninvoiced-work signals.
+          Approaching + overdue milestones intentionally suppressed on
+          the card per Nathan 2026-07-06: they produce false positives
+          on wrapped-up jobs where the invoice was sent but the JT
+          milestone task wasn't marked complete. Overdue invoices/AR
+          are tracked separately (aging report + briefing). */}
 
       {job.unmatchedDraftInvoices && job.unmatchedDraftInvoices.length > 0 && (
         <div className="py-0.5">

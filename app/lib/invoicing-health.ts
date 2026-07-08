@@ -500,14 +500,12 @@ async function analyzeContractJob(
     if (health !== 'overdue') health = 'overdue';
   }
 
-  // WARNING: milestone approaching (due within 2 days)
-  if (approachingMilestones.length > 0 && health === 'healthy') {
-    health = 'warning';
-    for (const m of approachingMilestones) {
-      const dueLabel = m.daysUntilDue === 0 ? 'due today' : `due in ${m.daysUntilDue} day${m.daysUntilDue === 1 ? '' : 's'}`;
-      alerts.push(`${m.taskName} — ${dueLabel}`);
-    }
-  }
+  // NOTE (2026-07-06): approachingMilestones no longer flip the pill
+  // to warning. Same false-positive problem as overdue milestones -
+  // Berntsen and similar wrapped-up jobs were showing "$ Final Billing
+  // - approaching" because the JT task's due date is upcoming and the
+  // task isn't marked complete, even though all invoicing is done.
+  // The alerts array intentionally does not push milestone rows.
 
   // WARNING: draft invoice with no matching $ schedule task
   // (Individual unmatched invoices shown via CreateTaskRow — no summary alert needed)
