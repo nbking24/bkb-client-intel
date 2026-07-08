@@ -1087,15 +1087,13 @@ export default function JobCostingDashboard() {
               const totalCosts = fs.totalCosts || fs.committedCost || 0;
               const estimatedCost = fs.estimatedCost || 0;
               if (contractPrice <= 0 || estimatedCost <= 0) return null;
-              // Prefer manual % when set (job wrap-up truth) over cost-
-              // based %. Cost-based lags when pending bills haven't
-              // cleared; manual reflects reality.
+              // Nathan's rule: WIP uses cost-based % except when the
+              // job is marked 100% complete (fully done + fully billed).
+              // Intermediate manual values don't override cost basis.
               const costPctRaw = totalCosts / estimatedCost;
               const costPct = Math.min(1, Math.max(0, costPctRaw));
-              const manualPctFraction = fs.manualProgress != null ? fs.manualProgress / 100 : null;
-              const percentComplete = manualPctFraction != null && manualPctFraction > 0
-                ? Math.min(1, manualPctFraction)
-                : costPct;
+              const manuallyClosed = fs.manualProgress != null && fs.manualProgress >= 100;
+              const percentComplete = manuallyClosed ? 1 : costPct;
               const earned = percentComplete * contractPrice;
               const overUnder = fs.invoicedTotal - earned;
               const overUnderPct = overUnder / contractPrice;
@@ -1133,12 +1131,12 @@ export default function JobCostingDashboard() {
                   </div>
                   <div className="grid grid-cols-2 md:grid-cols-5 gap-3 text-sm">
                     <div>
-                      <p className="text-xs" style={{ color: '#8a8078' }}>{manualPctFraction != null && manualPctFraction > 0 ? 'Manual % Complete' : 'Cost ÷ Budget'}</p>
+                      <p className="text-xs" style={{ color: '#8a8078' }}>{manuallyClosed ? 'Marked 100% Complete' : 'Cost ÷ Budget'}</p>
                       <p className="text-lg font-bold" style={{ color: '#1a1a1a' }}>
                         {Math.round(percentComplete * 100)}%
                       </p>
                       <p className="text-[11px]" style={{ color: '#8a8078' }}>
-                        {manualPctFraction != null && manualPctFraction > 0
+                        {manuallyClosed
                           ? `Cost-based would be ${Math.round(costPct * 100)}%`
                           : `${fmt(totalCosts)} / ${fmt(estimatedCost)}`}
                       </p>

@@ -77,19 +77,18 @@ export function computeWip(input: WipInputs): WipResult {
     };
   }
 
-  // Prefer Nathan's manual % complete when set. That's the ground
-  // truth for "work done". Cost-based % is a fallback that assumes
-  // spending pace tracks work progress - fine for mid-project, but
-  // wrong at wrap-up when pending bills haven't cleared yet.
-  // Clamp to 0..1. Going over 100% by cost = over budget, but for
-  // the WIP earned-revenue calc we cap at 100% (you can't earn more
-  // than the contract).
+  // Nathan's rule (2026-07-06): WIP uses cost-based % during a project
+  // and only respects the manual override when it is set to exactly
+  // 100 (job marked fully complete + fully billed). Mid-project
+  // manual values are subjective; the objective cost-basis is the
+  // right earned-revenue signal until the operator declares closure.
+  // Clamp to 0..1. Cost over 100% = over budget, but earned-revenue
+  // caps at 100% (can't earn more than the contract).
   const rawCostPercent = input.totalCosts / input.estimatedCost;
   const costBasedPercent = Math.min(1, Math.max(0, rawCostPercent));
   const manualPct = input.manualPercentComplete;
-  const percentComplete = manualPct != null && manualPct > 0
-    ? Math.min(1, Math.max(0, manualPct))
-    : costBasedPercent;
+  const manuallyClosed = manualPct != null && manualPct >= 1;
+  const percentComplete = manuallyClosed ? 1 : costBasedPercent;
   const earnedRevenue = percentComplete * input.contractPrice;
   const overUnderBilled = input.invoicedAmount - earnedRevenue;
   const overUnderPercent = overUnderBilled / input.contractPrice;

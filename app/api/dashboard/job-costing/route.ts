@@ -194,10 +194,15 @@ async function mergeManualProgress(payload: any): Promise<any> {
     const summaries = payload.summaries.map((s: any) => {
       const m = map.get(s.jobId);
       const manualPct = m?.percentComplete ?? null;
-      // When Nathan has set a manual % complete, recompute BOTH WIP
-      // and slippage with that value. Slippage uses totalCosts as the
-      // committed-cost input (not paid-only actualCost), so pending
-      // bills are correctly reflected in the projection.
+      // Recompute WIP + Slippage when a manual % is on the job. Two
+      // rules per Nathan (2026-07-06):
+      //   - WIP: manual value only overrides cost-based when it is
+      //     exactly 100 (job marked fully complete). Mid-project
+      //     manual values stay informational only.
+      //   - Slippage: uses whatever manual is set at any value >0.
+      //     That's the only way the projection has a useful signal;
+      //     cost-based % would produce a tautological projection
+      //     (projected = budget always).
       let overlays: Record<string, any> = {};
       if (manualPct !== null && manualPct > 0) {
         const isCostPlus = !!s.isCostPlus;
@@ -213,7 +218,9 @@ async function mergeManualProgress(payload: any): Promise<any> {
           estimatedCost,
           contractPrice,
           invoicedAmount,
-          manualPercentComplete: manualFraction,
+          // Only pass manual value to WIP when it's 100 - the compute-
+          // Wip gate itself also enforces >=1, but be explicit here.
+          manualPercentComplete: manualPct >= 100 ? manualFraction : null,
         });
         const slip = computeSlippage({
           isCostPlus,
