@@ -6,6 +6,7 @@ import {
   Loader2, Images, RefreshCw, AlertTriangle, Folder, Camera, Film,
   FileText, Play, CheckCircle2, Clock, XCircle, Plus, X, Search,
   FolderOpen, ArrowLeft, ChevronRight, Upload, ExternalLink, File as FileIcon, Trash2,
+  RotateCw,
 } from 'lucide-react';
 
 function getToken() {
@@ -63,6 +64,8 @@ export default function PhotoEnginePage() {
   const [viewingFile, setViewingFile] = useState<string | null>(null);
   const [deletingFile, setDeletingFile] = useState<string | null>(null);
   const fileInputRef = useRef<HTMLInputElement | null>(null);
+  const [rebuildBusy, setRebuildBusy] = useState(false);
+  const [rebuildMsg, setRebuildMsg] = useState<string | null>(null);
 
   async function loadAll() {
     const token = getToken();
@@ -138,6 +141,7 @@ export default function PhotoEnginePage() {
     if (!token) return;
     setFtpLoading(true);
     setFtpError(null);
+    setRebuildMsg(null);
     try {
       const r = await fetch(
         '/api/marketing/photo-engine/ftp/list?path=' + encodeURIComponent(path),
@@ -269,6 +273,33 @@ export default function PhotoEnginePage() {
     }
   }
 
+  async function rebuildProfile(folder: string) {
+    const token = getToken();
+    if (!token || !folder) return;
+    setRebuildBusy(true);
+    setRebuildMsg(null);
+    setFtpError(null);
+    try {
+      const r = await fetch('/api/marketing/photo-engine/rebuild', {
+        method: 'POST',
+        headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
+        body: JSON.stringify({ folder }),
+      });
+      const data = await r.json();
+      if (!r.ok || data.error) {
+        setFtpError(data.error || 'Rebuild request failed');
+        return;
+      }
+      setRebuildMsg('Rebuild requested');
+      // Refresh the Recent activity list so the queued rebuild run shows up.
+      await loadAll();
+    } catch (err: any) {
+      setFtpError(err.message);
+    } finally {
+      setRebuildBusy(false);
+    }
+  }
+
   const selectedJobs = useMemo(() => jobs.filter((j) => j.included), [jobs]);
   const availableJobs = useMemo(() => {
     const q = search.trim().toLowerCase();
@@ -280,6 +311,13 @@ export default function PhotoEnginePage() {
         (j.number || '').toLowerCase().includes(q)
       );
   }, [jobs, search]);
+
+  // Folder-browser position helpers. atRoot means no subfolder is open;
+  // topLevelFolder is set only when exactly one folder deep under the root.
+  const ftpSegments = ftpPath.split('/').filter(Boolean);
+  const atRoot = ftpSegments.length === 0;
+  const topLevelFolder = ftpSegments.length === 1 ? ftpSegments[0] : null;
+  const uploadTargetLabel = atRoot ? 'BKB Review' : 'BKB Review / ' + ftpSegments.join(' / ');
 
   if (loading && jobs.length === 0) {
     return (
@@ -340,9 +378,20 @@ export default function PhotoEnginePage() {
           <div className="flex items-center gap-2">
             {ftpConfigured && (
               <>
+                {topLevelFolder && (
+                  <button
+                    onClick={() => rebuildProfile(topLevelFolder)}
+                    disabled={rebuildBusy || ftpLoading}
+                    title="Request a rebuild of this project's profile"
+                    className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium rounded-md border border-gray-300 text-gray-700 hover:bg-gray-50 disabled:opacity-50 disabled:cursor-not-allowed"
+                  >
+                    {rebuildBusy ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <RotateCw className="w-3.5 h-3.5" />}
+                    Rebuild profile
+                  </button>
+                )}
                 <button
                   onClick={() => fileInputRef.current?.click()}
-                  disabled={uploading || ftpLoading}
+                  disabled={uploading || ftpLoading || atRoot}
                   className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium rounded-md border border-blue-700 text-blue-700 hover:bg-blue-50 disabled:opacity-50 disabled:cursor-not-allowed"
                 >
                   {uploading ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Upload className="w-3.5 h-3.5" />}
@@ -367,6 +416,22 @@ export default function PhotoEnginePage() {
           className="hidden"
           onChange={onUploadPick}
         />
+
+        {ftpConfigured && (
+          <div className="mb-2 flex flex-wrap items-center gap-x-2 gap-y-1 text-xs">
+            {atRoot ? (
+              <span className="text-gray-400">Open a job folder to upload files.</span>
+            ) : (
+              <span className="text-gray-400">Uploading to: {uploadTargetLabel}</span>
+            )}
+            {rebuildMsg && (
+              <span className="inline-flex items-center gap-1 text-green-700 font-medium">
+                <CheckCircle2 className="w-3.5 h-3.5" />
+                {rebuildMsg}
+              </span>
+            )}
+          </div>
+        )}
 
         {ftpConfigured === false && (
           <div className="bg-white border border-dashed border-gray-300 rounded-lg p-6 text-center">
