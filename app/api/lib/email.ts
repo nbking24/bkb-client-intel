@@ -21,6 +21,7 @@ type EmailPayload = {
   replyTo?: string;
   from?: string;
   cc?: string | string[];
+  bcc?: string | string[];
 };
 
 export async function sendEmail(payload: EmailPayload): Promise<{ ok: boolean; id?: string; error?: string }> {
@@ -47,6 +48,7 @@ export async function sendEmail(payload: EmailPayload): Promise<{ ok: boolean; i
         text: payload.text,
         reply_to: payload.replyTo,
         cc: payload.cc,
+        bcc: payload.bcc,
       }),
     });
 

@@ -80,7 +80,7 @@ export async function POST(request: NextRequest) {
   if (live) {
     // Live: deliver the real email to the marketing advisor.
     const recipient = settings?.recipient || 'mike@lighthoused.com';
-    const res = await sendEmail({ to: recipient, cc: 'nathan@brettkingbuilder.com', subject, html, text, from: 'Nathan King <nathan@brettkingbuilder.com>', replyTo: 'nathan@brettkingbuilder.com' });
+    const res = await sendEmail({ to: recipient, bcc: 'nathan@brettkingbuilder.com', subject, html, text, from: 'Nathan King <nathan@brettkingbuilder.com>', replyTo: 'nathan@brettkingbuilder.com' });
 
     if (!res.ok) {
       await markRun({ email_status: 'draft', error: res.error || 'Send failed' });
