@@ -40,7 +40,7 @@ function EmailBadge({ status }: { status: string | null }) {
     sent: { label: 'Sent', cls: 'bg-green-100 text-green-700' },
     skipped: { label: 'Skipped', cls: 'bg-gray-100 text-gray-600' },
   };
-  const s = status ? map[status] : map.draft;
+  const s = status ? (map[status] || { label: String(status), cls: 'bg-gray-100 text-gray-600' }) : map.draft;
   return <span className={`inline-block px-2 py-0.5 rounded-full text-xs font-medium ${s.cls}`}>{s.label}</span>;
 }
 
