@@ -19,11 +19,12 @@ type EmailPayload = {
   html: string;
   text?: string;
   replyTo?: string;
+  from?: string;
 };
 
 export async function sendEmail(payload: EmailPayload): Promise<{ ok: boolean; id?: string; error?: string }> {
   const apiKey = process.env.RESEND_API_KEY;
-  const from = process.env.RESEND_FROM_EMAIL || 'BKB Hub <onboarding@resend.dev>';
+  const from = payload.from || process.env.RESEND_FROM_EMAIL || 'BKB Hub <onboarding@resend.dev>';
 
   if (!apiKey) {
     console.warn('[email] RESEND_API_KEY not set, skipping send:', payload.subject);
