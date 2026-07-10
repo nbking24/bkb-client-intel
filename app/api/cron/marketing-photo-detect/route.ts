@@ -27,7 +27,7 @@
 
 import { NextRequest, NextResponse } from 'next/server';
 import { getSupabase } from '@/app/api/lib/supabase';
-import { jobHasNewMarketingItemsSince } from '@/app/api/lib/jobtread';
+import { jobHasNewMarketingItemsSince, getJobVideoFileIds } from '@/app/api/lib/jobtread';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -77,7 +77,7 @@ export async function GET(request: NextRequest) {
       // Has this job ever been built? doc_state is upserted by the processor.
       const { data: docStateRow } = await supabase
         .from('marketing_photo_doc_state')
-        .select('job_id')
+        .select('job_id, content')
         .eq('job_id', job.job_id)
         .maybeSingle();
 
@@ -98,6 +98,41 @@ export async function GET(request: NextRequest) {
           flagged.push({ folder_name: job.folder_name || null, scan_mode: 'delta' });
         }
         // If nothing is new, leave the existing needs_processing flag as is.
+
+        // Blind-spot guard: catch videos that exist on the job but were never
+        // recorded (e.g. skipped during the first build). These predate
+        // last_processed_at so the "new items" check above will never see them.
+        // We compare the job's current video ids against what we have recorded
+        // in marketing_photo_assets (included OR excluded) plus doc_state, and
+        // flag a delta if any video is still unaccounted for. Marking skipped
+        // videos as excluded (the same pattern photos use) stops re-flagging.
+        if (!update.needs_processing) {
+          try {
+            const videoIds = await getJobVideoFileIds(job.job_id);
+            if (videoIds.length) {
+              const { data: recorded } = await supabase
+                .from('marketing_photo_assets')
+                .select('jobtread_file_id')
+                .eq('job_id', job.job_id)
+                .eq('kind', 'video');
+              const known = new Set(
+                (recorded || [])
+                  .map((r: any) => r.jobtread_file_id)
+                  .filter(Boolean)
+              );
+              const dsVideos = (docStateRow?.content?.videos || []) as string[];
+              for (const v of dsVideos) known.add(v);
+              const unhandled = videoIds.filter((id) => !known.has(id));
+              if (unhandled.length) {
+                update.needs_processing = true;
+                update.scan_mode = 'delta';
+                flagged.push({ folder_name: job.folder_name || null, scan_mode: 'delta' });
+              }
+            }
+          } catch (err: any) {
+            console.error('[marketing-photo-detect] video-gap check failed:', job?.job_id, err?.message || err);
+          }
+        }
       }
 
       await supabase

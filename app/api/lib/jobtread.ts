@@ -257,6 +257,49 @@ export async function jobHasNewMarketingItemsSince(
   }
 }
 
+/**
+ * List the JobTread file ids for a job that are videos (mime type video/*, or a
+ * common video file extension). Used by the detector to catch videos that exist
+ * on a job but were never recorded/processed — the old detector only looked for
+ * items NEWER than the last build, so a video skipped during the first build
+ * (e.g. because it was large) got stranded and never revisited. Comparing the
+ * job's current video ids against what we have recorded closes that blind spot.
+ *
+ * Metadata only (id + type + name), small page — no downloads.
+ */
+export async function getJobVideoFileIds(jobId: string): Promise<string[]> {
+  const ids: string[] = [];
+  const videoExt = /\.(mov|mp4|m4v|avi|mkv|webm|hevc|3gp)$/i;
+  try {
+    let page: string | undefined = undefined;
+    for (let i = 0; i < 20; i++) {
+      const data: any = await jtQuery({
+        job: {
+          $: { id: jobId },
+          files: {
+            $: { size: 100, ...(page ? { page } : {}) },
+            nextPage: {},
+            nodes: { id: {}, name: {}, type: {} },
+          },
+        },
+      });
+      const files = data?.job?.files?.nodes || [];
+      for (const f of files) {
+        const type = (f?.type || '').toLowerCase();
+        const name = f?.name || '';
+        if (type.startsWith('video/') || videoExt.test(name)) {
+          if (f?.id) ids.push(f.id);
+        }
+      }
+      page = data?.job?.files?.nextPage || undefined;
+      if (!page) break;
+    }
+  } catch (err: any) {
+    console.error('[jobtread] getJobVideoFileIds failed:', err?.message || err);
+  }
+  return ids;
+}
+
 export async function getAllJobs(max = 2000): Promise<
   { id: string; name: string; number: string; closedOn: string | null }[]
 > {
