@@ -196,12 +196,7 @@ export default function DailyBriefing({ firstName }: { firstName?: string }) {
         )) : <Empty text="No jobs set up for daily-log monitoring. Use the Daily-log settings button to add jobs." />}
       </Section>
 
-      {/* JobTread messages that need Nathan's reply */}
-      <Section title="JobTread Messages Needing Your Reply" count={p.messages?.mentionCount || 0}>
-        {(p.messages?.flagged || []).length ? p.messages.flagged.map((c: any) => (
-          <JTMessageItem key={c.id} c={c} />
-        )) : <Empty text="No JobTread messages need your reply." />}
-      </Section>
+      {/* JT Messages section removed per Nathan 2026-07-06 */}
 
       {/* My tasks */}
       <Section title="Your Tasks (next 7 days)" count={p.myTasks?.count || 0}>

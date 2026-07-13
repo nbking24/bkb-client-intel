@@ -92,9 +92,8 @@ function briefingEmailHtml(p: any): string {
   for (const j of (p.slip?.overdueScheduleJobs || []).slice(0, 12)) slipParts.push(li(`<span style="color:#b8860b;font-weight:600;">${j.count} overdue schedule item${j.count === 1 ? '' : 's'}</span> &nbsp; ${escapeHtml(j.jobName || 'Unassigned')} (worst ${j.maxDaysOverdue}d)`));
   const slip = slipParts.length ? slipParts.join('') : li('<span style="color:#8a8078;">No projects slipping.</span>');
 
-  const messages = (p.messages?.flagged || []).length
-    ? p.messages.flagged.map((c: any) => li(`<b>${escapeHtml(c.jobName)}</b> &middot; ${escapeHtml(c.author)}: ${escapeHtml((c.message || '').slice(0, 140))}`)).join('')
-    : li('<span style="color:#8a8078;">No JobTread messages mention you.</span>');
+  // JT Messages section removed from the briefing email per Nathan
+  // 2026-07-06 (also removed from the overview UI in the same commit).
 
   const leads = (p.leads?.counts?.newUncontacted || 0) > 0
     ? p.leads.newUncontacted.slice(0, 10).map((l: any) => li(`${escapeHtml(l.contactName || 'Lead')}${l.opportunityName ? ` <span style="color:#8a8078;">(${escapeHtml(l.opportunityName)})</span>` : ''}`)).join('')
@@ -126,7 +125,6 @@ function briefingEmailHtml(p: any): string {
     ${section('Email Needing Reply', email)}
     ${section('Project Slip Alerts', slip)}
     ${section('Daily Log Monitoring', dlRows)}
-    ${section('JobTread Messages', messages)}
     ${section('Your Tasks', myTasks)}
     ${section('New Leads', leads)}
     ${section('Outstanding Team Tasks', team)}

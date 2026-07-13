@@ -582,8 +582,7 @@ function buildPriorities(payload: any): string[] {
   const slipTasks = payload.slip?.overdueScheduleJobs?.length || 0;
   if (slipTasks > 0) p.push(`${slipTasks} job${slipTasks === 1 ? '' : 's'} with overdue schedule items`);
 
-  const mentions = payload.messages?.mentionCount || 0;
-  if (mentions > 0) p.push(`${mentions} JobTread message${mentions === 1 ? '' : 's'} need${mentions === 1 ? 's' : ''} your reply`);
+  // JT messages priority removed with the section per Nathan 2026-07-06.
 
   const leads = payload.leads?.counts?.newUncontacted || 0;
   if (leads > 0) p.push(`${leads} new uncontacted lead${leads === 1 ? '' : 's'}`);
@@ -602,12 +601,15 @@ export async function generateBriefing() {
 
   const activeJobs = await getActiveJobs().catch(() => []);
 
-  const [calendar, email, myTasks, teamTasks, messages, jobCosting, dailyLogs, leads] = await Promise.all([
+  // JT Messages section removed from the briefing per Nathan
+  // (2026-07-06). The AI-triaged needs-reply signal was too noisy to
+  // be worth surfacing daily. buildMessages() remains in the file for
+  // now in case we revive a curated version later.
+  const [calendar, email, myTasks, teamTasks, jobCosting, dailyLogs, leads] = await Promise.all([
     buildCalendar(),
     buildEmailNeedsReply(),
     buildMyTasks(),
     buildOutstandingTeamTasks(),
-    buildMessages(activeJobs),
     buildJobCosting(),
     buildDailyLogGaps(),
     buildLeads(),
@@ -641,7 +643,6 @@ export async function generateBriefing() {
     weekdayLabel: centralNow().toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric' }),
     calendar,
     email,
-    messages,
     myTasks,
     leads,
     teamTasks,
