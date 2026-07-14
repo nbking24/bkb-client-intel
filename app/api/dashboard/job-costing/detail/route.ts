@@ -784,7 +784,10 @@ export async function POST(req: Request) {
     const budgetCostAtCompletion = Number(job?.projectedCost) > 0
       ? Number(job?.projectedCost)
       : totalEstimatedCost;
-    const estimatedCostAtCompletion = job?.closedOn
+    // isCompleted (computed above) already covers final billing / closed /
+    // closedOn. A manual 100% override also means the work is done.
+    const isComplete = isCompleted || (manualProgress != null && manualProgress >= 100);
+    const estimatedCostAtCompletion = isComplete
       ? totalCommitted
       : Math.max(totalCommitted, budgetCostAtCompletion);
     const costToComplete = Math.max(0, estimatedCostAtCompletion - totalCommitted);
@@ -824,6 +827,7 @@ export async function POST(req: Request) {
       pendingCost: Math.round(totalPendingCost * 100) / 100,
       totalCosts: Math.round(totalCommitted * 100) / 100,
       // Cost at completion (EAC): committed cost plus the cost still to come.
+      isComplete,
       budgetCostAtCompletion: Math.round(budgetCostAtCompletion * 100) / 100,
       estimatedCostAtCompletion: Math.round(estimatedCostAtCompletion * 100) / 100,
       costToComplete: Math.round(costToComplete * 100) / 100,

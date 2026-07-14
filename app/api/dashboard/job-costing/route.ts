@@ -7,7 +7,7 @@ import {
   getTimeEntriesForJob,
 } from '../../../lib/jobtread';
 import { getSupabase } from '../../lib/supabase';
-import { computeWip, computeSlippage, type WipStatus, type SlippageStatus } from '../../../lib/wip';
+import { computeWip, computeSlippage, isJobComplete, type WipStatus, type SlippageStatus } from '../../../lib/wip';
 
 export const maxDuration = 300;
 // Belt-and-suspenders: GET handlers without a Request param can be
@@ -41,6 +41,7 @@ interface JobCostSummary {
   pendingCost: number; // pending costs: draft/pending vendor bills/POs
   totalCosts: number; // actualCost + pendingCost (all committed costs)
   // Cost at completion (EAC) — committed costs plus the cost still to come.
+  isComplete: boolean;               // work finished: no further cost expected
   budgetCostAtCompletion: number;    // JT live budget cost (job.projectedCost)
   estimatedCostAtCompletion: number; // max(totalCosts, budgetCostAtCompletion)
   costToComplete: number;            // EAC - totalCosts (budgeted cost not yet booked)
@@ -238,7 +239,24 @@ async function mergeManualProgress(payload: any): Promise<any> {
           totalCosts,
           percentComplete: manualFraction,
         });
+        // A manual 100% override means the work is done, so no further cost
+        // can land: EAC collapses to what's been committed and the unspent
+        // budget becomes real margin. Recompute margin to match, otherwise a
+        // job Nathan has marked complete would still be projecting cost from
+        // a budget that will never be spent. (Cost-plus has no contract to
+        // project against, so it's left alone.)
+        const marginOverlay: Record<string, any> = {};
+        if (!isCostPlus && manualPct >= 100 && contractPrice > 0) {
+          const m = contractPrice - totalCosts;
+          marginOverlay.isComplete = true;
+          marginOverlay.estimatedCostAtCompletion = Math.round(totalCosts * 100) / 100;
+          marginOverlay.costToComplete = 0;
+          marginOverlay.margin = Math.round(m * 100) / 100;
+          marginOverlay.marginPct = Math.round((m / contractPrice) * 1000) / 10;
+        }
+
         overlays = {
+          ...marginOverlay,
           wipStatus: wip.status,
           costBasedPercent: wip.costBasedPercent,
           earnedRevenue: wip.earnedRevenue,
@@ -399,8 +417,15 @@ async function computeSummaries() {
             const budgetCostAtCompletion = Number(job.projectedCost) > 0
               ? Number(job.projectedCost)
               : estimatedCost;
-            const isClosed = !!job.closedOn;
-            const estimatedCostAtCompletion = isClosed
+            // Is the WORK done? If so no further cost can land, so unspent
+            // budget is real margin and EAC = what we've committed. If the job
+            // is still running, that budget WILL be spent, so EAC = budget.
+            // Trailing bills on a finished job arrive as PENDING vendor bills,
+            // which sit inside totalCosts either way.
+            // Per Nathan 2026-07-14: "7. Final Billing" and "11. Closed" both
+            // mean the work is complete (Puglia #190 is the worked example).
+            const isComplete = isJobComplete(job.closedOn, job.customStatus);
+            const estimatedCostAtCompletion = isComplete
               ? totalCosts
               : Math.max(totalCosts, budgetCostAtCompletion);
             const costToComplete = Math.max(0, estimatedCostAtCompletion - totalCosts);
@@ -536,6 +561,7 @@ async function computeSummaries() {
               actualCost: Math.round(actualCost * 100) / 100,
               pendingCost: Math.round(pendingCost * 100) / 100,
               totalCosts: Math.round(totalCosts * 100) / 100,
+              isComplete,
               budgetCostAtCompletion: Math.round(budgetCostAtCompletion * 100) / 100,
               estimatedCostAtCompletion: Math.round(estimatedCostAtCompletion * 100) / 100,
               costToComplete: Math.round(costToComplete * 100) / 100,

@@ -246,3 +246,36 @@ export function computeSlippage(input: SlippageInputs): SlippageResult {
     slippagePctOfContract,
   };
 }
+
+
+// ============================================================
+// COMPLETION — is the work finished?
+//
+// Matters for margin: on a FINISHED fixed-price job, budget that was
+// never spent is real margin. On a RUNNING job, that budget will be
+// spent, so it must be subtracted before quoting a final margin.
+//
+// BKB's JT status ladder (per Nathan, 2026-07-14):
+//   1. Lead ... 5. Design Phase ... 6. In Production
+//   6.5 Ongoing / Punch List      <- still incurring cost
+//   7. Final Billing              <- WORK DONE
+//   10. Ready / 11. Closed        <- WORK DONE
+//
+// "6.5 Ongoing / Punch List" is deliberately NOT complete: punch work
+// still burns labor and materials.
+// ============================================================
+const COMPLETE_STATUSES = ['final billing', 'closed', 'completed'];
+
+export function isJobComplete(
+  closedOn: string | null | undefined,
+  customStatus: string | null | undefined,
+  manualPercentComplete?: number | null,
+): boolean {
+  if (closedOn) return true;
+  if (manualPercentComplete != null && manualPercentComplete >= 100) return true;
+  const s = (customStatus || '').toLowerCase();
+  if (!s) return false;
+  // Guard: never let "6.5 Ongoing / Punch List" match on a substring.
+  if (s.includes('punch') || s.includes('ongoing')) return false;
+  return COMPLETE_STATUSES.some((c) => s.includes(c));
+}
