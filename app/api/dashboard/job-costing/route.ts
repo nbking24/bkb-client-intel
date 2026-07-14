@@ -40,9 +40,18 @@ interface JobCostSummary {
   actualCost: number; // paid costs: approved vendor bills/POs + time entry labor
   pendingCost: number; // pending costs: draft/pending vendor bills/POs
   totalCosts: number; // actualCost + pendingCost (all committed costs)
-  // Margin = contractPrice - totalCosts
+  // Cost at completion (EAC) — committed costs plus the cost still to come.
+  budgetCostAtCompletion: number;    // JT live budget cost (job.projectedCost)
+  estimatedCostAtCompletion: number; // max(totalCosts, budgetCostAtCompletion)
+  costToComplete: number;            // EAC - totalCosts (budgeted cost not yet booked)
+  // PROJECTED FINAL margin = contractPrice - estimatedCostAtCompletion
   margin: number;
   marginPct: number;
+  // Margin on costs booked SO FAR = contractPrice - totalCosts. This is what
+  // the dashboard used to (incorrectly) label "final margin". Kept so the UI
+  // can show both and the gap is explainable.
+  marginToDate: number;
+  marginToDatePct: number;
   // Revenue
   invoicedAmount: number;
   collectedAmount: number;
@@ -365,21 +374,62 @@ async function computeSummaries() {
               || (job.priceType || '').toLowerCase() === 'cost plus'
               || (estimatedPrice === 0 && estimatedCost > 0);
 
+            // ---- Estimated Cost at Completion (EAC) ----
+            // BUG FIX (2026-07-14): margin used to be `contractPrice - totalCosts`,
+            // i.e. contract price minus costs booked SO FAR. On an in-progress
+            // fixed-price job that is not the final margin — it silently ignores
+            // the cost still to come, and therefore OVERSTATES margin in direct
+            // proportion to how incomplete the job is. A job at 20% complete
+            // would report a margin close to the entire contract value.
+            //
+            // Puglia - Sunroom (#190) is the worked example:
+            //   contract price            68,900.00
+            //   costs booked to date      59,005.36   (approved + pending + labor)
+            //   JT live budget cost       68,184.21   <-- cost AT COMPLETION
+            //   old margin  = 68,900 - 59,005.36 = 9,894.64  (14.4%)  WRONG
+            //   true margin = 68,900 - 68,184.21 =   715.79  ( 1.0%)  matches JT
+            //
+            // Fix: project cost to completion before taking margin. The live JT
+            // job budget (job.projectedCost) is BKB's current best estimate of
+            // total cost and is what JobTread itself uses. Fall back to the
+            // approved-CO cost only when the budget is empty. Take the greater
+            // of budget and committed, so a job that has already blown past
+            // budget projects off actuals rather than pretending it will land
+            // on budget. A CLOSED job can't incur more cost, so EAC = committed.
+            const budgetCostAtCompletion = Number(job.projectedCost) > 0
+              ? Number(job.projectedCost)
+              : estimatedCost;
+            const isClosed = !!job.closedOn;
+            const estimatedCostAtCompletion = isClosed
+              ? totalCosts
+              : Math.max(totalCosts, budgetCostAtCompletion);
+            const costToComplete = Math.max(0, estimatedCostAtCompletion - totalCosts);
+
             // ---- Compute margin ----
-            // Margin = Contract Price - Total Costs (paid + pending)
-            // This reflects the real margin based on what we'll actually collect
-            // vs what we'll actually spend (including pending bills/POs).
+            // margin/marginPct   = PROJECTED FINAL margin (contract - cost at completion)
+            // marginToDate/Pct   = the old "costs booked so far" view, kept so the
+            //                      UI can show both and the delta is explainable.
             let margin: number;
             let marginPct: number;
+            let marginToDate: number;
+            let marginToDatePct: number;
 
             if (isCostPlus) {
-              // Cost-plus: profit = collected - total costs
+              // Cost-plus: the client is billed actual costs plus the fee, so
+              // there is no fixed contract to project against. Profit to date =
+              // invoiced - costs committed. Note this runs a billing-cycle behind:
+              // costs are committed now, the fee on them is invoiced later, so a
+              // healthy cost-plus job reads low between billing runs.
               margin = collectedAmount - totalCosts;
               marginPct = collectedAmount > 0 ? (margin / collectedAmount) * 100 : 0;
+              marginToDate = margin;
+              marginToDatePct = marginPct;
             } else {
-              // Fixed-price: margin = contract price - total costs (including pending)
-              margin = estimatedPrice - totalCosts;
+              // Fixed-price: margin = contract price - estimated cost AT COMPLETION
+              margin = estimatedPrice - estimatedCostAtCompletion;
               marginPct = estimatedPrice > 0 ? (margin / estimatedPrice) * 100 : 0;
+              marginToDate = estimatedPrice - totalCosts;
+              marginToDatePct = estimatedPrice > 0 ? (marginToDate / estimatedPrice) * 100 : 0;
             }
 
             const hoursVariance = estimatedHours - actualHours;
@@ -423,7 +473,14 @@ async function computeSummaries() {
               }
               if (margin < 0 && estimatedPrice > 0) {
                 if (health !== 'over-budget') health = 'over-budget';
-                alerts.push(`Negative margin: -$${fmt0(Math.abs(margin))}`);
+                alerts.push(`Projected negative margin: -$${fmt0(Math.abs(margin))}`);
+              }
+              // Thin-but-positive projected margin is the signal the old
+              // costs-to-date view was hiding (Puglia: reads 14.4% on costs
+              // booked, lands at 1.0% once the rest of the budget is spent).
+              if (margin >= 0 && estimatedPrice > 0 && marginPct < 10 && health === 'on-track') {
+                health = 'watch';
+                alerts.push(`Thin projected margin: ${marginPct.toFixed(1)}% at completion`);
               }
             }
 
@@ -479,8 +536,13 @@ async function computeSummaries() {
               actualCost: Math.round(actualCost * 100) / 100,
               pendingCost: Math.round(pendingCost * 100) / 100,
               totalCosts: Math.round(totalCosts * 100) / 100,
+              budgetCostAtCompletion: Math.round(budgetCostAtCompletion * 100) / 100,
+              estimatedCostAtCompletion: Math.round(estimatedCostAtCompletion * 100) / 100,
+              costToComplete: Math.round(costToComplete * 100) / 100,
               margin: Math.round(margin * 100) / 100,
               marginPct: Math.round(marginPct * 10) / 10,
+              marginToDate: Math.round(marginToDate * 100) / 100,
+              marginToDatePct: Math.round(marginToDatePct * 10) / 10,
               invoicedAmount: Math.round(invoicedAmount * 100) / 100,
               collectedAmount: Math.round(collectedAmount * 100) / 100,
               estimatedHours: Math.round(estimatedHours * 10) / 10,

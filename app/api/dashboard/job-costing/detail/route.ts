@@ -775,20 +775,40 @@ export async function POST(req: Request) {
     // Total committed = paid + pending (all costs, including time entry labor)
     const totalCommitted = totalActualCost + totalPendingCost;
 
-    // Margin = Contract Price - Total Costs (paid + pending)
-    // This is the real margin: what we'll collect vs what we'll actually spend.
-    // There is no "unused budget" — everything approved will be billed/spent.
+    // ---- Estimated Cost at Completion (EAC) ----
+    // BUG FIX (2026-07-14): margin was `contractPrice - totalCommitted`, i.e.
+    // contract minus costs booked SO FAR. That is not the final margin on an
+    // in-progress fixed-price job — it ignores the cost still to come and so
+    // overstates margin in proportion to how incomplete the job is.
+    // See app/api/dashboard/job-costing/route.ts for the Puglia worked example.
+    const budgetCostAtCompletion = Number(job?.projectedCost) > 0
+      ? Number(job?.projectedCost)
+      : totalEstimatedCost;
+    const estimatedCostAtCompletion = job?.closedOn
+      ? totalCommitted
+      : Math.max(totalCommitted, budgetCostAtCompletion);
+    const costToComplete = Math.max(0, estimatedCostAtCompletion - totalCommitted);
+
+    // margin/marginPct = PROJECTED FINAL margin (contract - cost at completion)
+    // marginToDate     = old costs-booked-so-far view, kept for transparency
     let margin: number;
     let marginPct: number;
+    let marginToDate: number;
+    let marginToDatePct: number;
 
     if (isCostPlus) {
-      // Cost-plus: profit = collected - total costs
+      // Cost-plus: profit to date = collected - costs committed. Runs one
+      // billing cycle behind (costs committed now, fee invoiced later).
       margin = collectedAmount - totalCommitted;
       marginPct = collectedAmount > 0 ? (margin / collectedAmount) * 100 : 0;
+      marginToDate = margin;
+      marginToDatePct = marginPct;
     } else {
-      // Fixed-price: margin = contract price - total costs (including pending)
-      margin = totalEstimatedPrice - totalCommitted;
+      // Fixed-price: margin = contract price - estimated cost AT COMPLETION
+      margin = totalEstimatedPrice - estimatedCostAtCompletion;
       marginPct = totalEstimatedPrice > 0 ? (margin / totalEstimatedPrice) * 100 : 0;
+      marginToDate = totalEstimatedPrice - totalCommitted;
+      marginToDatePct = totalEstimatedPrice > 0 ? (marginToDate / totalEstimatedPrice) * 100 : 0;
     }
 
     const financialSummary = {
@@ -803,9 +823,16 @@ export async function POST(req: Request) {
       actualCost: Math.round(totalActualCost * 100) / 100,
       pendingCost: Math.round(totalPendingCost * 100) / 100,
       totalCosts: Math.round(totalCommitted * 100) / 100,
-      // Margin = contractPrice - totalCosts
+      // Cost at completion (EAC): committed cost plus the cost still to come.
+      budgetCostAtCompletion: Math.round(budgetCostAtCompletion * 100) / 100,
+      estimatedCostAtCompletion: Math.round(estimatedCostAtCompletion * 100) / 100,
+      costToComplete: Math.round(costToComplete * 100) / 100,
+      // PROJECTED FINAL margin = contractPrice - estimatedCostAtCompletion
       margin: Math.round(margin * 100) / 100,
       marginPct: Math.round(marginPct * 10) / 10,
+      // Margin on costs booked so far (the old, overstated "final margin").
+      marginToDate: Math.round(marginToDate * 100) / 100,
+      marginToDatePct: Math.round(marginToDatePct * 10) / 10,
       // Keep old field names for backward compat
       projectedMargin: Math.round(margin * 100) / 100,
       projectedMarginPct: Math.round(marginPct * 10) / 10,

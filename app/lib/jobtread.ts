@@ -83,6 +83,10 @@ export interface JTJob {
   customStatus?: string | null;       // JT custom "Status" field value
   statusCategory?: StatusCategoryKey | null;  // Derived category for dashboard grouping
   priceType?: string | null;          // Native JT field: "fixed", "costPlus", etc.
+  /** JT live budget: total cost at completion (all budget line items). */
+  projectedCost?: number | null;
+  /** JT live budget: total price at completion. */
+  projectedPrice?: number | null;
 }
 
 /**
@@ -223,6 +227,8 @@ export async function getActiveJobs(limit = 500): Promise<JTJob[]> {
             createdAt: {},
             closedOn: {},
             priceType: {},
+            projectedCost: {},
+            projectedPrice: {},
             location: {
               id: {},
               name: {},
@@ -270,6 +276,8 @@ export async function getActiveJobs(limit = 500): Promise<JTJob[]> {
       projectManager,
       statusCategory: getStatusCategory(customStatus),
       priceType: j.priceType || null,
+      projectedCost: Number(j.projectedCost) || 0,
+      projectedPrice: Number(j.projectedPrice) || 0,
     };
   });
 }
@@ -283,6 +291,8 @@ export async function getJob(jobId: string) {
       number: {},
       status: {},
       priceType: {},
+      projectedCost: {},
+      projectedPrice: {},
       createdAt: {},
       closedOn: {},
       description: {},
