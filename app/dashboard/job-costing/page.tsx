@@ -1075,13 +1075,107 @@ export default function JobCostingDashboard() {
               })}
             </div>
 
+            {/* End of Project Review - shown ONCE A JOB IS COMPLETE.
+                Replaces the forward-looking WIP + Slippage panels (which are
+                hidden above via !isCompleted) with a plain actual-vs-actual
+                close-out: what we collected/contracted, what it actually cost,
+                and the final profit. No projections, no % complete, no
+                "still to come" - the job is done. Income is derived as
+                (profit + total costs) so Income - Costs = Profit reconciles
+                exactly on screen and matches the summary cards and banner. */}
+            {detail.job.isCompleted && (() => {
+              const fs = detail.financialSummary;
+              const profit = (fs.margin ?? fs.projectedMargin) || 0;
+              const profitPct = (fs.marginPct ?? fs.projectedMarginPct) || 0;
+              const totalCosts = fs.totalCosts || fs.committedCost || 0;
+              const income = profit + totalCosts;
+              const good = profit >= 0;
+              const incomeLabel = fs.isCostPlus ? 'Collected Income' : 'Contract Income';
+              const incomeSub = fs.isCostPlus
+                ? `$${fmt(fs.invoicedTotal)} invoiced`
+                : `$${fmt(fs.invoicedTotal)} invoiced to date`;
+              // Fixed-price only: how the final cost landed vs the internal
+              // cost budget. Positive = came in under budget.
+              const budgetCost = fs.estimatedCost || 0;
+              const vsBudget = budgetCost - totalCosts;
+              return (
+                <div className="rounded-lg p-4"
+                  style={{ background: good ? 'rgba(34,197,94,0.05)' : 'rgba(239,68,68,0.05)',
+                           border: `1px solid ${good ? 'rgba(34,197,94,0.25)' : 'rgba(239,68,68,0.25)'}` }}>
+                  <div className="flex items-center gap-2 mb-3 flex-wrap">
+                    <CheckCircle size={15} style={{ color: good ? '#15803d' : '#b91c1c' }} />
+                    <span className="text-sm font-semibold uppercase tracking-wide"
+                      style={{ color: good ? '#15803d' : '#b91c1c' }}>
+                      End of Project Review
+                    </span>
+                    <span className="text-xs" style={{ color: '#5a5550' }}>
+                      Final actuals - job complete, no further cost or income expected
+                    </span>
+                  </div>
+                  <div className="grid grid-cols-2 md:grid-cols-4 gap-3 text-sm">
+                    <div>
+                      <p className="text-xs" style={{ color: '#8a8078' }}>{incomeLabel}</p>
+                      <p className="text-lg font-bold" style={{ color: '#1a1a1a' }}>${fmt(income)}</p>
+                      <p className="text-[11px]" style={{ color: '#8a8078' }}>{incomeSub}</p>
+                    </div>
+                    <div>
+                      <p className="text-xs" style={{ color: '#8a8078' }}>Total Final Costs</p>
+                      <p className="text-lg font-bold" style={{ color: '#1a1a1a' }}>${fmt(totalCosts)}</p>
+                      <p className="text-[11px]" style={{ color: '#8a8078' }}>
+                        {fs.pendingCost > 0
+                          ? `$${fmt(fs.actualCost)} paid · $${fmt(fs.pendingCost)} pending`
+                          : 'all costs finalized'}
+                      </p>
+                    </div>
+                    <div>
+                      <p className="text-xs" style={{ color: '#8a8078' }}>Final Profit</p>
+                      <p className="text-lg font-bold" style={{ color: good ? '#15803d' : '#b91c1c' }}>
+                        {good ? '' : '−'}${fmt(Math.abs(profit))}
+                      </p>
+                      <p className="text-[11px]" style={{ color: good ? '#15803d' : '#b91c1c' }}>
+                        {profitPct.toFixed(1)}% of income
+                      </p>
+                    </div>
+                    <div>
+                      <p className="text-xs" style={{ color: '#8a8078' }}>
+                        {fs.isCostPlus ? 'Collected' : 'vs Cost Budget'}
+                      </p>
+                      {fs.isCostPlus ? (
+                        <>
+                          <p className="text-lg font-bold" style={{ color: '#1a1a1a' }}>${fmt(fs.collectedAmount)}</p>
+                          <p className="text-[11px]" style={{ color: '#8a8078' }}>
+                            {income > 0 ? `${Math.round((fs.collectedAmount / income) * 100)}% of invoiced collected` : ''}
+                          </p>
+                        </>
+                      ) : (
+                        <>
+                          <p className="text-lg font-bold" style={{ color: vsBudget >= 0 ? '#15803d' : '#b91c1c' }}>
+                            {vsBudget >= 0 ? 'under by ' : 'over by '}${fmt(Math.abs(vsBudget))}
+                          </p>
+                          <p className="text-[11px]" style={{ color: '#8a8078' }}>
+                            budget was ${fmt(budgetCost)}
+                          </p>
+                        </>
+                      )}
+                    </div>
+                  </div>
+                  <p className="text-xs mt-3" style={{ color: '#5a5550' }}>
+                    Income ${fmt(income)} − Costs ${fmt(totalCosts)} = <strong>${fmt(profit)} profit ({profitPct.toFixed(1)}%)</strong>.
+                    {fs.isCostPlus
+                      ? ' Cost-plus close-out: profit is collected income minus all actual costs.'
+                      : ' The job is marked complete, so remaining budget is realized margin, not cost still to come.'}
+                  </p>
+                </div>
+              );
+            })()}
+
             {/* WIP analysis panel - fixed-price only.
                 Renders the full earned-revenue breakdown so Nathan can
                 see why the kanban card's WIP chip says what it does:
                 Cost ÷ Budget = % complete, % complete × Contract =
                 Earned, Earned − Billed = Over/Under. Cost-plus is
                 excluded because the model doesn't apply. */}
-            {!detail.job.isCostPlus && (() => {
+            {!detail.job.isCostPlus && !detail.job.isCompleted && (() => {
               const fs = detail.financialSummary;
               const contractPrice = fs.contractPrice || fs.estimatedPrice || 0;
               const totalCosts = fs.totalCosts || fs.committedCost || 0;
@@ -1189,7 +1283,7 @@ export default function JobCostingDashboard() {
                 Formula: projected final cost = actualCost / % complete
                 (manual preferred, cost-based fallback). Slippage = bid
                 margin - projected margin. Hidden on cost-plus. */}
-            {!detail.job.isCostPlus && (() => {
+            {!detail.job.isCostPlus && !detail.job.isCompleted && (() => {
               const fs = detail.financialSummary;
               const contractPrice = fs.contractPrice || fs.estimatedPrice || 0;
               const estimatedCost = fs.estimatedCost || 0;
