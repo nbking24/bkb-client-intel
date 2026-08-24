@@ -8,6 +8,7 @@
  * Body: { question: string, jobId?: string, transcriptIds?: string[] }
  */
 import { NextRequest, NextResponse } from 'next/server';
+import { formatEasternDate } from '@/app/lib/eastern-time';
 import Anthropic from '@anthropic-ai/sdk';
 import { validateAuth } from '@/app/api/lib/auth';
 import { getSupabase } from '@/app/api/lib/supabase';
@@ -124,7 +125,7 @@ export async function POST(req: NextRequest) {
     const r = rows[i];
     if (used.length > TOTAL_BUDGET) break;
     const who = r.assigned_kind === 'job' ? r.assigned_job_name : r.assigned_kind === 'lead' ? `${r.assigned_lead_name} (lead)` : 'Unassigned';
-    const date = r.recorded_at ? new Date(r.recorded_at).toLocaleDateString('en-US') : '';
+    const date = r.recorded_at ? formatEasternDate(r.recorded_at) : '';
     const raw = r.raw_transcript || '';
     const text = raw.length > perDocBudget ? raw.slice(0, perDocBudget) + '\n[transcript truncated above this point for length]' : raw;
     const tag = i === 0 ? ' [MOST RECENT MEETING IN SCOPE]' : '';

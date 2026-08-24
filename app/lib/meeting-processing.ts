@@ -14,6 +14,7 @@
  */
 import Anthropic from '@anthropic-ai/sdk';
 import { pave, createDailyLog } from './jobtread';
+import { easternDateString } from '@/app/lib/eastern-time';
 import { NATHAN_BRAND_VOICE } from './nathan-voice';
 
 const anthropic = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY });
@@ -145,7 +146,9 @@ export async function processConfirmedTranscript(params: {
   } catch { transcriptUrl = null; }
 
   // 3. Daily log with the summary, linking the full transcript.
-  const date = (recordedAt ? new Date(recordedAt) : new Date()).toISOString().slice(0, 10);
+  // Daily-log date must be the meeting's Eastern calendar date, not UTC's
+  // (an 8 PM meeting is still 'today' in PA).
+  const date = easternDateString(recordedAt || null);
   const notes = transcriptUrl ? `${summary}\n\nFull meeting transcript: ${transcriptUrl}` : summary;
   const log = await createDailyLog({ jobId, date, notes, dailyLogType: process.env.MEETING_DAILY_LOG_TYPE || 'Other' });
 

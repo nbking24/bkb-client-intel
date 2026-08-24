@@ -7,9 +7,10 @@
  * filtered scope. The unassigned "needs categorizing" queue lives at the top.
  */
 import { useEffect, useState, useCallback, useMemo } from 'react';
-import { Mic, Search, Loader2, ChevronDown, ChevronRight, Sparkles, Briefcase, RefreshCw, Filter, AlertTriangle, Repeat } from 'lucide-react';
+import { Mic, Search, Loader2, ChevronDown, ChevronRight, Sparkles, Briefcase, RefreshCw, Filter, AlertTriangle, Repeat, Undo2 } from 'lucide-react';
 import TranscriptsToConfirm from '@/app/dashboard/components/TranscriptsToConfirm';
 import { formatContent } from '@/app/hooks/useAskAgent';
+import { formatEasternDateTime } from '@/app/lib/eastern-time';
 
 /**
  * Render an AI-generated answer as proper HTML elements instead of leaking
@@ -84,7 +85,7 @@ function assignedLabel(t: any): string {
 }
 function fmtDate(s: string | null): string {
   if (!s) return '';
-  try { return new Date(s).toLocaleDateString('en-US', { year: 'numeric', month: 'short', day: 'numeric' }); } catch { return s; }
+  return formatEasternDateTime(s);
 }
 function highlight(text: string, q: string) {
   if (!q) return text;
@@ -169,6 +170,40 @@ export default function TranscriptsDashboardPage() {
       }
     } catch (err: any) {
       setRetryError((m) => ({ ...m, [id]: `Network error: ${err?.message || 'unknown'}` }));
+    } finally {
+      setRetryingId(null);
+    }
+  }
+
+  /**
+   * "Wrong job" undo. Deletes the JT daily log + PML event for this
+   * transcript and sends it back to the "Transcripts to confirm" queue at the
+   * top of the page so the correct job can be picked from the dropdown.
+   */
+  async function unassignTranscript(t: any) {
+    const where = assignedLabel(t);
+    const ok = window.confirm(
+      `Move "${t.title || 'this meeting'}" back to the categorizing queue?\n\nThis deletes the daily log on ${where} in JobTread and lets you pick the correct job.`,
+    );
+    if (!ok) return;
+    setRetryingId(t.id);
+    setRetryError((m) => { const next = { ...m }; delete next[t.id]; return next; });
+    try {
+      const res = await fetch(`/api/transcripts/${t.id}/unassign`, {
+        method: 'POST',
+        headers: { authorization: `Bearer ${getToken()}` },
+      });
+      const json = await res.json().catch(() => ({} as any));
+      if (!res.ok) {
+        setRetryError((m) => ({ ...m, [t.id]: json?.error || `Failed (HTTP ${res.status})` }));
+      } else {
+        if (openId === t.id) setOpenId(null);
+        await load();
+        setReloadKey((k) => k + 1); // refresh the confirm queue so the card reappears
+        window.scrollTo({ top: 0, behavior: 'smooth' });
+      }
+    } catch (err: any) {
+      setRetryError((m) => ({ ...m, [t.id]: `Network error: ${err?.message || 'unknown'}` }));
     } finally {
       setRetryingId(null);
     }
@@ -434,6 +469,27 @@ export default function TranscriptsDashboardPage() {
                       >
                         {retryingId === t.id ? <Loader2 size={11} className="animate-spin" /> : <Repeat size={11} />}
                         {retryingId === t.id ? 'Working...' : 'Regenerate'}
+                      </button>
+                    )}
+                    {/* Wrong job: undo the assignment. Deletes the JT daily
+                        log (if one exists) and the PML event, then puts the
+                        transcript back in the confirm queue to re-pick. */}
+                    {t.assigned_kind && t.status !== 'processing' && (
+                      <button
+                        onClick={(e) => { e.stopPropagation(); unassignTranscript(t); }}
+                        disabled={retryingId === t.id}
+                        style={{
+                          display: 'inline-flex', alignItems: 'center', gap: 4,
+                          padding: '4px 8px', borderRadius: 5,
+                          border: '1px solid rgba(185,28,28,0.3)',
+                          background: '#fffafa', color: '#b91c1c',
+                          fontSize: 11, fontWeight: 600, cursor: retryingId === t.id ? 'default' : 'pointer',
+                          opacity: retryingId === t.id ? 0.5 : 1, flexShrink: 0,
+                        }}
+                        title="Filed under the wrong job? Deletes the JobTread daily log and moves this transcript back to the queue so you can pick the right job."
+                      >
+                        {retryingId === t.id ? <Loader2 size={11} className="animate-spin" /> : <Undo2 size={11} />}
+                        {retryingId === t.id ? 'Working...' : 'Wrong job'}
                       </button>
                     )}
                   </div>

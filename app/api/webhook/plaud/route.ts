@@ -15,6 +15,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { getSupabase } from '@/app/api/lib/supabase';
 import { matchTranscript } from '@/app/lib/transcript-matcher';
 import { searchContacts } from '@/app/api/lib/ghl';
+import { easternWallClockToIso } from '@/app/lib/eastern-time';
 
 export const dynamic = 'force-dynamic';
 
@@ -55,7 +56,17 @@ export async function POST(req: NextRequest) {
   const recordingId = pick(data, ['recording_id', 'recordingId', 'id', 'file_id', 'fileId']);
   const eventId = pick(body, ['id', 'event_id', 'eventId']) || pick(data, ['event_id']) || eventType;
   const title = pick(data, ['title', 'name', 'summary_title']) || 'Untitled meeting';
-  const recordedAt = pick(data, ['recorded_at', 'recordedAt', 'start_time', 'created_at', 'createdAt']);
+  const recordedAtRaw = pick(data, ['recorded_at', 'recordedAt', 'start_time', 'created_at', 'createdAt']);
+  // Plaud/Zapier's "Create Time" carries the recorder's Eastern wall-clock
+  // time with a bogus "Z" suffix (a 9:31 AM meeting arrives as
+  // "...T09:31:48Z"). Re-interpret the digits as America/New_York so the
+  // stored timestamptz is the true instant. Set PLAUD_TIMESTAMPS_ARE_UTC=1
+  // if Plaud ever starts sending real UTC.
+  const recordedAt = recordedAtRaw
+    ? (process.env.PLAUD_TIMESTAMPS_ARE_UTC === '1'
+        ? (isNaN(new Date(recordedAtRaw).getTime()) ? null : new Date(recordedAtRaw).toISOString())
+        : easternWallClockToIso(String(recordedAtRaw)))
+    : null;
 
   // Plaud duration. Their payload field name has shifted at least once
   // and isn't documented for every event type; cast a wide net. Also
@@ -137,7 +148,7 @@ export async function POST(req: NextRequest) {
       plaud_event_id: String(eventId),
       recorded_by_user: recordedByUser,
       title: String(title).slice(0, 300),
-      recorded_at: recordedAt ? new Date(recordedAt).toISOString() : null,
+      recorded_at: recordedAt,
       duration_seconds: durationSeconds,
       audio_url: audioUrl || null,
       raw_transcript: String(transcript),
@@ -155,7 +166,7 @@ export async function POST(req: NextRequest) {
   try {
     const match = await matchTranscript({
       transcript: String(transcript),
-      recordedAt: recordedAt ? new Date(recordedAt).toISOString() : null,
+      recordedAt: recordedAt,
       recorderUserId: recordedByUser,
     });
 

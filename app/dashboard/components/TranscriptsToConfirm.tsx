@@ -10,6 +10,7 @@
  */
 import { useEffect, useState, useCallback, useMemo } from 'react';
 import { FileText, Check, Loader2, Calendar, ChevronRight, Trash2, Clock } from 'lucide-react';
+import { formatEasternDateTime } from '@/app/lib/eastern-time';
 
 /**
  * Format a duration in seconds as a readable label.
@@ -151,7 +152,7 @@ export default function TranscriptsToConfirm({ scopeAll = false, reloadKey = 0 }
             <div key={t.id} style={{ padding: '8px 6px', borderBottom: '1px solid rgba(200,140,0,0.06)' }}>
               <div style={{ fontSize: 13, fontWeight: 600, color: '#2a2520', marginBottom: 2 }}>{t.title}</div>
               <div style={{ fontSize: 10, color: '#6a6058', marginBottom: 6, display: 'flex', gap: 10, flexWrap: 'wrap' }}>
-                {t.recorded_at && <span>{new Date(t.recorded_at).toLocaleString()}</span>}
+                {t.recorded_at && <span>{formatEasternDateTime(t.recorded_at)}</span>}
                 {/* Duration helps distinguish similar-titled meetings during
                     categorization (a 5-min site check vs a 45-min design review
                     look identical otherwise). Hidden when duration_seconds is
