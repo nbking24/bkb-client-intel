@@ -52,6 +52,9 @@
     },
     "app/api/cron/jt-loop-status-sync/route.ts": {
       "maxDuration": 120
+    },
+    "app/api/cron/jt-loop-handoff/route.ts": {
+      "maxDuration": 120
     }
   },
   "crons": [
@@ -106,6 +109,10 @@
     {
       "path": "/api/cron/jt-loop-status-sync",
       "schedule": "0 */2 * * *"
+    },
+    {
+      "path": "/api/cron/jt-loop-handoff",
+      "schedule": "30 */2 * * *"
     }
   ]
 }
