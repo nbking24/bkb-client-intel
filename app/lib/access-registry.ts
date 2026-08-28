@@ -40,7 +40,6 @@ export interface WidgetDef {
 
 export const DASHBOARDS: DashboardDef[] = [
   { id: 'overview',    label: 'Overview',         href: '/dashboard',             icon: 'LayoutDashboard', description: 'Personalized home: tasks, calendar, KPIs' },
-  { id: 'leads',       label: 'Leads',            href: '/dashboard/leads',       icon: 'Users',           description: 'Lead pipeline, briefings, scheduling' },
   { id: 'precon',      label: 'Pre-Construction', href: '/dashboard/precon',      icon: 'FolderKanban',    description: 'Schedule / phase tracker' },
   { id: 'estimate',    label: 'Estimating',       href: '/dashboard/estimate',    icon: 'Calculator',      description: 'Estimate tracker' },
   { id: 'invoicing',   label: 'Invoicing',        href: '/dashboard/invoicing',   icon: 'DollarSign',      description: 'Invoicing health + AR' },

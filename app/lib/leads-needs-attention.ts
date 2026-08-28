@@ -41,27 +41,51 @@ async function ghlPost(path: string, body: Record<string, unknown>) {
 }
 
 export const ACTIVE_STAGE_NAMES = new Set([
-  'New Inquiry',
-  'Initial Call Scheduled',
-  'Discovery Scheduled',
-  'No Show',
-  'Nurture',
-  'Estimating',
-  'In Design',
+  'New Lead',
+  'Working',
+  'Meeting Set',
 ]);
 
 export async function fetchAllActiveOpportunities(): Promise<any[]> {
+  // GHL /opportunities/search is a GET endpoint. A prior POST implementation
+  // began returning 422, which silently broke every consumer (the leads
+  // dashboard and the uncontacted-lead alert). GET with query-param pagination
+  // is the supported form.
   const all: any[] = [];
   let startAfterId = '';
+  let startAfter = '';
   for (let page = 0; page < 8; page++) {
-    const body: Record<string, unknown> = { locationId: GHL_LOC(), limit: 100 };
-    if (startAfterId) body.startAfterId = startAfterId;
-    const data = await ghlPost('/opportunities/search', body);
+    let path = `/opportunities/search?location_id=${GHL_LOC()}&limit=100`;
+    if (startAfterId) path += `&startAfterId=${startAfterId}`;
+    if (startAfter) path += `&startAfter=${startAfter}`;
+    const data = await ghlGet(path);
     const opps = data.opportunities || [];
     all.push(...opps);
     if (opps.length < 100) break;
-    startAfterId = opps[opps.length - 1].id;
+    const meta = data.meta || {};
+    startAfterId = meta.startAfterId || opps[opps.length - 1]?.id || '';
+    startAfter = meta.startAfter || '';
+    if (!startAfterId) break;
   }
+
+  // The GHL /opportunities/search response returns pipelineStageId but not the
+  // stage *name*. Downstream code (and ACTIVE_STAGE_NAMES filtering) reads
+  // o.pipelineStageName, so resolve names from the pipeline definition here.
+  try {
+    const pdata = await ghlGet(`/opportunities/pipelines?locationId=${GHL_LOC()}`);
+    const stageName: Record<string, string> = {};
+    for (const p of (pdata.pipelines || [])) {
+      for (const st of (p.stages || [])) stageName[st.id] = st.name || '';
+    }
+    for (const o of all) {
+      if (!o.pipelineStageName && o.pipelineStageId && stageName[o.pipelineStageId]) {
+        o.pipelineStageName = stageName[o.pipelineStageId];
+      }
+    }
+  } catch (e) {
+    console.warn('[fetchAllActiveOpportunities] stage-name resolve failed:', (e as any)?.message || e);
+  }
+
   return all;
 }
 
@@ -314,7 +338,7 @@ export async function computeLeadsNeedsAttention(opts?: {
     }
 
     const isNewish = leadAgeHours !== null && leadAgeHours <= staleDays * 24;
-    const firstTouchStage = stage === 'New Inquiry' || stage === 'No Show';
+    const firstTouchStage = stage === 'New Lead';
     if (!nextAppt && !recentOutbound && (isNewish || firstTouchStage)) {
       newUncontacted.push(base);
       continue;

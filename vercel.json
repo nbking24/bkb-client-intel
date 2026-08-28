@@ -49,6 +49,9 @@
     "app/api/cron/daily-briefing/route.ts": {
       "maxDuration": 300,
       "memory": 1024
+    },
+    "app/api/cron/jt-loop-status-sync/route.ts": {
+      "maxDuration": 120
     }
   },
   "crons": [
@@ -99,6 +102,10 @@
     {
       "path": "/api/cron/marketing-photo-detect",
       "schedule": "0 7 * * *"
+    },
+    {
+      "path": "/api/cron/jt-loop-status-sync",
+      "schedule": "0 */2 * * *"
     }
   ]
 }
