@@ -332,6 +332,8 @@ export default function JobCostingDashboard() {
   // Detail view: the analytical panels (WIP, slippage, secondary cards)
   // are collapsed by default so the four "basics" own the page.
   const [analysisOpen, setAnalysisOpen] = useState(false);
+  // Per-cost-code "Done" checkbox in-flight state, keyed by costCodeNumber.
+  const [codeDoneSaving, setCodeDoneSaving] = useState<Record<string, boolean>>({});
   const [progressInput, setProgressInput] = useState('');
   const [progressSaving, setProgressSaving] = useState(false);
   const [progressNotes, setProgressNotes] = useState('');
@@ -570,6 +572,52 @@ export default function JobCostingDashboard() {
       console.error('Failed to load job detail:', err);
     }
     setDetailLoading(false);
+  }
+
+
+  /**
+   * Mark a cost category complete (or un-mark it). A complete category will
+   * incur no further cost, so its unspent budget is released into projected
+   * profit. Persists to job_cost_code_progress (100 = complete), then
+   * re-reads the detail (cache hit + read-time overlay, so it's fast) to
+   * refresh the Basics band and breakdown rows.
+   */
+  async function toggleCodeComplete(cc: any, nextDone: boolean) {
+    if (!selectedJobId) return;
+    const codeKey = String(cc.costCodeNumber);
+    setCodeDoneSaving((m) => ({ ...m, [codeKey]: true }));
+    try {
+      if (nextDone) {
+        await fetch('/api/dashboard/job-costing/cost-code-progress', {
+          method: 'PUT',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            jobId: selectedJobId,
+            costCodeNumber: cc.costCodeNumber,
+            costCodeName: cc.costCodeName || null,
+            percentComplete: 100,
+            setBy: 'nathan',
+            notes: 'Marked complete from cost breakdown',
+          }),
+        });
+      } else {
+        await fetch(
+          `/api/dashboard/job-costing/cost-code-progress?jobId=${encodeURIComponent(selectedJobId)}&costCodeNumber=${encodeURIComponent(cc.costCodeNumber)}`,
+          { method: 'DELETE' },
+        );
+      }
+      const res = await fetch('/api/dashboard/job-costing/detail', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ jobId: selectedJobId }),
+      });
+      const data = await res.json();
+      if (!data.error) setDetail(data);
+    } catch (err) {
+      console.error('Failed to toggle category completion:', err);
+    } finally {
+      setCodeDoneSaving((m) => { const n = { ...m }; delete n[codeKey]; return n; });
+    }
   }
 
   // ---- Stage bucketing ----
@@ -1064,6 +1112,11 @@ export default function JobCostingDashboard() {
                       {fs.marginToDate != null && (
                         <p style={{ color: '#8a8078' }}>
                           If no more costs landed: ${fmt(fs.marginToDate)} ({(fs.marginToDatePct ?? 0).toFixed(1)}%) — but ${fmt(toCome)} of budgeted cost is still expected.
+                        </p>
+                      )}
+                      {(fs.completedSavings ?? 0) > 0 && (
+                        <p style={{ color: '#15803d' }}>
+                          {fs.completedCodesCount} {fs.completedCodesCount === 1 ? 'category' : 'categories'} marked complete in the breakdown below — ${fmt(fs.completedSavings)} of unspent budget released into projected profit.
                         </p>
                       )}
                       <p>
@@ -1650,7 +1703,7 @@ export default function JobCostingDashboard() {
                 const cp = detail.financialSummary.isCostPlus;
                 const gridCols = cp
                   ? '2.5fr 1fr 1fr 1fr 80px'
-                  : '2.5fr 1fr 1fr 1fr 1fr 80px';
+                  : '2.5fr 1fr 1fr 1fr 1fr 80px 44px';
                 return (
                   <div
                     className="grid gap-2 px-4 py-2 text-xs font-medium"
@@ -1666,6 +1719,11 @@ export default function JobCostingDashboard() {
                     <div className="text-right">Pending</div>
                     <div className="text-right">{cp ? 'Total' : 'Remaining'}</div>
                     <div className="text-right">{cp ? '% of spend' : 'Status'}</div>
+                    {!cp && (
+                      <div className="text-center" title="Check when this category's work is finished. Its unspent budget is released into projected profit.">
+                        Done
+                      </div>
+                    )}
                   </div>
                 );
               })()}
@@ -1690,22 +1748,32 @@ export default function JobCostingDashboard() {
                   const shareOfSpend = totalJobSpend > 0 ? (codeTotal / totalJobSpend) * 100 : 0;
                   const gridCols = cp
                     ? '2.5fr 1fr 1fr 1fr 80px'
-                    : '2.5fr 1fr 1fr 1fr 1fr 80px';
+                    : '2.5fr 1fr 1fr 1fr 1fr 80px 44px';
+                  const toggleExpand = () => {
+                    setExpandedCodes((prev) => {
+                      const next = new Set(prev);
+                      if (next.has(key)) next.delete(key);
+                      else next.add(key);
+                      return next;
+                    });
+                  };
                   return (
                     <div key={key}>
-                      <button
-                        onClick={() => {
-                          setExpandedCodes((prev) => {
-                            const next = new Set(prev);
-                            if (next.has(key)) next.delete(key);
-                            else next.add(key);
-                            return next;
-                          });
+                      {/* Row is a div (not a <button>) so the Done checkbox can
+                          live inside it without nesting interactive elements. */}
+                      <div
+                        role="button"
+                        tabIndex={0}
+                        onClick={toggleExpand}
+                        onKeyDown={(e) => {
+                          if (e.target !== e.currentTarget) return;
+                          if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); toggleExpand(); }
                         }}
-                        className="w-full grid gap-2 px-4 py-2.5 text-sm hover:bg-white/[0.02] transition-colors items-center"
+                        className="w-full grid gap-2 px-4 py-2.5 text-sm hover:bg-white/[0.02] transition-colors items-center cursor-pointer"
                         style={{
                           borderBottom: '1px solid rgba(200,140,0,0.04)',
                           gridTemplateColumns: gridCols,
+                          background: cc.isMarkedComplete ? 'rgba(34,197,94,0.05)' : undefined,
                         }}
                       >
                         <div className="flex items-center gap-2 text-left min-w-0">
@@ -1760,7 +1828,9 @@ export default function JobCostingDashboard() {
                                   ? '—'
                                   : isOver
                                     ? `−$${fmt(overAmount)} over`
-                                    : `$${fmt(cc.remaining)}`}
+                                    : cc.isMarkedComplete && cc.remaining > 0
+                                      ? `✓ $${fmt(cc.remaining)} released`
+                                      : `$${fmt(cc.remaining)}`}
                               </div>
                             );
                           })()
@@ -1808,7 +1878,24 @@ export default function JobCostingDashboard() {
                             </span>
                           </div>
                         )}
-                      </button>
+                        {!cp && (
+                          <div className="flex items-center justify-center" onClick={(e) => e.stopPropagation()}>
+                            {codeDoneSaving[String(cc.costCodeNumber)] ? (
+                              <Loader2 size={13} className="animate-spin" style={{ color: '#15803d' }} />
+                            ) : (
+                              <input
+                                type="checkbox"
+                                checked={!!cc.isMarkedComplete}
+                                onChange={(e) => toggleCodeComplete(cc, e.target.checked)}
+                                title={cc.isMarkedComplete
+                                  ? 'Marked complete — uncheck if more costs are expected in this category.'
+                                  : 'Mark this category complete. No further costs expected; unspent budget is released into projected profit.'}
+                                style={{ accentColor: '#15803d', cursor: 'pointer', width: 14, height: 14 }}
+                              />
+                            )}
+                          </div>
+                        )}
+                      </div>
 
                       {/* Expanded drawer: budget line items + actual + pending breakdowns */}
                       {isExpanded && (
@@ -1985,7 +2072,7 @@ export default function JobCostingDashboard() {
                 const totSpend = totActual + totPending;
                 const gridCols = cp
                   ? '2.5fr 1fr 1fr 1fr 80px'
-                  : '2.5fr 1fr 1fr 1fr 1fr 80px';
+                  : '2.5fr 1fr 1fr 1fr 1fr 80px 44px';
                 return (
                   <div
                     className="grid gap-2 px-4 py-3 text-sm font-bold"

@@ -110,13 +110,14 @@ export async function GET() {
     if (cached?.payload) {
       // Patch in the latest manual progress so a freshly-saved % shows
       // up immediately on the row without forcing a full refresh.
-      const withProgress = await mergeManualProgress(cached.payload);
+      const withProgress = await mergeCompletionSavings(await mergeManualProgress(cached.payload));
       return NextResponse.json({ ...withProgress, cachedAt: cached.computed_at });
     }
     // Cold start: compute once so the user has something to look at.
     const fresh = await computeSummaries();
     await writeCache(fresh);
-    return NextResponse.json({ ...fresh, cachedAt: new Date().toISOString() });
+    const adjusted = await mergeCompletionSavings(fresh);
+    return NextResponse.json({ ...adjusted, cachedAt: new Date().toISOString() });
   } catch (err: any) {
     console.error('Job costing GET error:', err);
     return NextResponse.json({ error: err.message }, { status: 500 });
@@ -144,17 +145,84 @@ export async function POST(req: NextRequest) {
         .eq('key', 'summary')
         .maybeSingle();
       if (cached?.payload) {
-        const withProgress = await mergeManualProgress(cached.payload);
+        const withProgress = await mergeCompletionSavings(await mergeManualProgress(cached.payload));
         return NextResponse.json({ ...withProgress, cachedAt: cached.computed_at });
       }
     }
     const startedAt = Date.now();
     const fresh = await computeSummaries();
     await writeCache(fresh, Date.now() - startedAt);
-    return NextResponse.json({ ...fresh, cachedAt: new Date().toISOString() });
+    const adjusted = await mergeCompletionSavings(fresh);
+    return NextResponse.json({ ...adjusted, cachedAt: new Date().toISOString() });
   } catch (err: any) {
     console.error('Job costing summary error:', err);
     return NextResponse.json({ error: err.message }, { status: 500 });
+  }
+}
+
+
+/**
+ * Overlay per-cost-code completion onto the summary rows so the list cards'
+ * projected profit matches the detail view. For each job with categories
+ * marked complete (job_cost_code_progress.percent_complete >= 100), compute
+ * the released budget (budget - committed on those codes, from the job's
+ * detail cache breakdown) and subtract it from the projected cost at
+ * completion. Fixed-price, still-running jobs only. Read-time overlay —
+ * the cached summary always stores base numbers.
+ */
+async function mergeCompletionSavings(payload: any): Promise<any> {
+  if (!payload?.summaries || !Array.isArray(payload.summaries)) return payload;
+  try {
+    const sb = getSupabase();
+    const { data: rows, error } = await sb
+      .from('job_cost_code_progress')
+      .select('job_id, cost_code_number, percent_complete')
+      .gte('percent_complete', 100);
+    if (error || !rows || rows.length === 0) return payload;
+
+    const jobIds = [...new Set(rows.map((r: any) => r.job_id))];
+    const { data: caches } = await sb
+      .from('job_costing_cache')
+      .select('job_id, payload')
+      .in('job_id', jobIds);
+
+    const savingsByJob: Record<string, number> = {};
+    for (const c of caches || []) {
+      const completed = new Set(
+        rows.filter((r: any) => r.job_id === c.job_id).map((r: any) => String(r.cost_code_number)),
+      );
+      let s = 0;
+      for (const row of c.payload?.costCodeBreakdown || []) {
+        if (completed.has(String(row.costCodeNumber))) {
+          s += Math.max(0, (row.estimatedCost || 0) - (row.committedCost || 0));
+        }
+      }
+      if (s > 0) savingsByJob[c.job_id] = Math.round(s * 100) / 100;
+    }
+
+    const summaries = payload.summaries.map((s0: any) => {
+      const savings = savingsByJob[s0.jobId];
+      if (!savings || s0.isCostPlus || s0.isComplete) return s0;
+      const totalCosts = s0.totalCosts ?? s0.actualCost ?? 0;
+      const baseEac = s0.estimatedCostAtCompletion || 0;
+      if (baseEac <= 0) return s0;
+      const adjEac = Math.max(totalCosts, Math.round((baseEac - savings) * 100) / 100);
+      const contract = s0.contractPrice || 0;
+      const margin = Math.round((contract - adjEac) * 100) / 100;
+      const marginPct = contract > 0 ? Math.round((margin / contract) * 1000) / 10 : 0;
+      return {
+        ...s0,
+        estimatedCostAtCompletion: adjEac,
+        costToComplete: Math.round(Math.max(0, adjEac - totalCosts) * 100) / 100,
+        margin,
+        marginPct,
+        completedSavings: savings,
+      };
+    });
+    return { ...payload, summaries };
+  } catch (err: any) {
+    console.warn('[job-costing summary] mergeCompletionSavings failed:', err?.message || err);
+    return payload;
   }
 }
 

@@ -28,6 +28,81 @@ function computeHours(startedAt: string, endedAt: string): number {
   return Math.max(0, ms / (1000 * 60 * 60));
 }
 
+
+// ============================================================
+// Per-cost-code completion overlay.
+//
+// Nathan marks categories "done" from the Cost Breakdown table (stored in
+// job_cost_code_progress; percent_complete >= 100 means complete). A complete
+// category will incur NO further cost, so whatever is left of its budget is
+// not "cost still to come" — it is released into projected profit.
+//
+// Applied at READ time, on both the cache-hit and fresh-compute paths, so a
+// checkbox toggle updates projected profit instantly without waiting for a
+// slow full JobTread refresh. The cached payload always stores the
+// UN-adjusted base numbers; this derives the adjusted view from them
+// idempotently on every request.
+// ============================================================
+async function applyCostCodeCompletion(sb: any, jobId: string, payload: any): Promise<any> {
+  try {
+    const { data: rows } = await sb
+      .from('job_cost_code_progress')
+      .select('cost_code_number, percent_complete, set_at, set_by, notes')
+      .eq('job_id', jobId);
+    if (!rows || rows.length === 0) return payload;
+
+    const byCode = new Map(rows.map((r: any) => [String(r.cost_code_number), r]));
+    const breakdown = (payload.costCodeBreakdown || []).map((row: any) => {
+      const pr = byCode.get(String(row.costCodeNumber));
+      const pct = pr != null ? Number(pr.percent_complete) : null;
+      const isMarkedComplete = pct != null && pct >= 100;
+      return {
+        ...row,
+        manualPercentComplete: pct,
+        isMarkedComplete,
+        markedCompleteAt: isMarkedComplete ? pr?.set_at || null : null,
+      };
+    });
+
+    let completedSavings = 0;
+    let completedCodesCount = 0;
+    for (const row of breakdown) {
+      if (!row.isMarkedComplete) continue;
+      completedCodesCount++;
+      completedSavings += Math.max(0, (row.estimatedCost || 0) - (row.committedCost || 0));
+    }
+    completedSavings = Math.round(completedSavings * 100) / 100;
+
+    const fs = payload.financialSummary || {};
+    let newFs: any = { ...fs, completedCodesCount, completedSavings };
+
+    // Only fixed-price, still-running jobs get a margin adjustment. Completed
+    // jobs already project off committed costs, and cost-plus has no budget.
+    if (!fs.isCostPlus && !fs.isComplete && completedSavings > 0) {
+      const totalCosts = fs.totalCosts || fs.committedCost || 0;
+      const baseEac = fs.estimatedCostAtCompletion || 0;
+      const adjEac = Math.max(totalCosts, Math.round((baseEac - completedSavings) * 100) / 100);
+      const contract = fs.contractPrice || fs.estimatedPrice || 0;
+      const margin = Math.round((contract - adjEac) * 100) / 100;
+      const marginPct = contract > 0 ? Math.round((margin / contract) * 1000) / 10 : 0;
+      newFs = {
+        ...newFs,
+        estimatedCostAtCompletion: adjEac,
+        costToComplete: Math.round(Math.max(0, adjEac - totalCosts) * 100) / 100,
+        margin,
+        marginPct,
+        projectedMargin: margin,
+        projectedMarginPct: marginPct,
+      };
+    }
+
+    return { ...payload, costCodeBreakdown: breakdown, financialSummary: newFs };
+  } catch (err: any) {
+    console.warn('[job-costing/detail] completion overlay failed:', err?.message || err);
+    return payload;
+  }
+}
+
 export async function POST(req: Request) {
   try {
     const url = new URL(req.url);
@@ -52,8 +127,9 @@ export async function POST(req: Request) {
         if (cached?.payload && cached?.computed_at) {
           const ageMs = Date.now() - new Date(cached.computed_at).getTime();
           if (ageMs < CACHE_TTL_MS) {
+            const adjusted = await applyCostCodeCompletion(sb, jobId, cached.payload);
             return NextResponse.json({
-              ...cached.payload,
+              ...adjusted,
               cachedAt: cached.computed_at,
               cacheAgeMs: ageMs,
               cacheHit: true,
@@ -1026,8 +1102,9 @@ export async function POST(req: Request) {
       console.warn('[job-costing/detail] cache write failed:', err?.message || err);
     }
 
+    const adjustedPayload = await applyCostCodeCompletion(sb, jobId, payload);
     return NextResponse.json({
-      ...payload,
+      ...adjustedPayload,
       cachedAt: computedAtIso,
       cacheAgeMs: 0,
       cacheHit: false,

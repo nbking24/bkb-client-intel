@@ -84,8 +84,10 @@ export async function PUT(req: NextRequest) {
   if (error) {
     return NextResponse.json({ error: error.message }, { status: 500 });
   }
-  // Bust the detail cache so the next load picks up the new override.
-  await supabase.from('job_costing_cache').delete().eq('job_id', jobId);
+  // NOTE: we intentionally do NOT bust the detail cache here. The detail
+  // and summary endpoints apply completion as a read-time overlay, so the
+  // next read reflects the change instantly against the cached snapshot —
+  // no slow full JobTread recompute needed.
   return NextResponse.json({ ok: true, ...shapeRow(payload) });
 }
 
@@ -104,7 +106,6 @@ export async function DELETE(req: NextRequest) {
   if (error) {
     return NextResponse.json({ error: error.message }, { status: 500 });
   }
-  // Bust the detail cache so the cleared override is reflected immediately.
-  await supabase.from('job_costing_cache').delete().eq('job_id', jobId);
+  // No cache bust needed — completion is applied as a read-time overlay.
   return NextResponse.json({ ok: true });
 }
