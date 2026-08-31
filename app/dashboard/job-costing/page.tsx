@@ -329,6 +329,9 @@ export default function JobCostingDashboard() {
   // Manual % complete override editor state. Open/closed, current input
   // value, and whether a save is in flight.
   const [progressEditOpen, setProgressEditOpen] = useState(false);
+  // Detail view: the analytical panels (WIP, slippage, secondary cards)
+  // are collapsed by default so the four "basics" own the page.
+  const [analysisOpen, setAnalysisOpen] = useState(false);
   const [progressInput, setProgressInput] = useState('');
   const [progressSaving, setProgressSaving] = useState(false);
   const [progressNotes, setProgressNotes] = useState('');
@@ -545,6 +548,7 @@ export default function JobCostingDashboard() {
     setAskInput('');
     setAskError(null);
     setProgressEditOpen(false);
+    setAnalysisOpen(false);
     setProgressInput('');
     setProgressNotes('');
     setAiAnalysis('');
@@ -963,117 +967,115 @@ export default function JobCostingDashboard() {
               </div>
             )}
 
-            {/* Financial Summary Cards - Row 1
-                Layout swaps based on price type. Fixed-price jobs track
-                budget vs contract; cost-plus jobs don't have a budget, so
-                we show how spend, invoicing, collections, and profit are
-                tracking against each other instead. */}
-            <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
-              {(detail.financialSummary.isCostPlus
+            {/* THE BASICS — the four questions the operator actually asks:
+                what's approved, what have we spent (paid out), what's our true
+                cost so far (paid + pending), and what profit are we projecting.
+                Everything analytical (WIP, slippage, secondary cards) lives
+                behind the "Show detailed analysis" toggle below so these
+                numbers own the page. Added 2026-08-31 per Nathan. */}
+            {(() => {
+              const fs = detail.financialSummary;
+              const completed = detail.job.isCompleted;
+              const contract = fs.contractPrice || fs.estimatedPrice || 0;
+              const spent = fs.actualCost || 0;
+              const trueCost = fs.totalCosts || fs.committedCost || 0;
+              const pending = fs.pendingCost || 0;
+              const profit = fs.margin ?? fs.projectedMargin ?? 0;
+              const profitPct = fs.marginPct ?? fs.projectedMarginPct ?? 0;
+              const toCome = fs.costToComplete || 0;
+              const good = profit >= 0;
+              const profitColor = good ? '#15803d' : '#b91c1c';
+              const tiles = fs.isCostPlus
                 ? [
                     {
-                      label: 'Total Costs',
-                      value: '$' + fmt(detail.financialSummary.totalCosts || detail.financialSummary.committedCost),
-                      sub: detail.financialSummary.pendingCost > 0
-                        ? `$${fmt(detail.financialSummary.actualCost)} paid · $${fmt(detail.financialSummary.pendingCost)} pending`
-                        : `$${fmt(detail.financialSummary.actualCost)} paid`,
+                      label: 'Invoiced to Client',
+                      value: '$' + fmt(fs.invoicedTotal || 0),
+                      sub: `$${fmt(fs.collectedAmount || 0)} collected`,
+                      color: '#c88c00',
+                    },
+                    {
+                      label: 'Spent to Date',
+                      value: '$' + fmt(spent),
+                      sub: 'paid out — vendor bills, POs & labor',
                       color: '#1a1a1a',
                     },
                     {
-                      label: 'Invoiced',
-                      value: '$' + fmt(detail.financialSummary.invoicedTotal),
-                      sub: (() => {
-                        const tc = detail.financialSummary.totalCosts || detail.financialSummary.committedCost || 0;
-                        if (tc <= 0) return 'No costs yet';
-                        return `${Math.round((detail.financialSummary.invoicedTotal / tc) * 100)}% of costs billed`
-                          + (detail.financialSummary.draftInvoiceTotal > 0
-                            ? ` · $${fmt(detail.financialSummary.draftInvoiceTotal)} in draft`
-                            : '');
-                      })(),
-                      color: '#c88c00',
+                      label: 'True Cost to Date',
+                      value: '$' + fmt(trueCost),
+                      sub: pending > 0 ? `spent + $${fmt(pending)} pending bills/POs` : 'no pending bills — same as spent',
+                      color: '#1a1a1a',
                     },
                     {
-                      label: 'Collected',
-                      value: '$' + fmt(detail.financialSummary.collectedAmount),
-                      sub: detail.financialSummary.invoicedTotal > 0
-                        ? `${Math.round((detail.financialSummary.collectedAmount / detail.financialSummary.invoicedTotal) * 100)}% of invoiced`
-                        : 'Nothing invoiced',
-                      color: '#c88c00',
-                    },
-                    {
-                      label: detail.job.isCompleted ? 'Final Profit' : 'Profit',
-                      value: '$' + fmt(detail.financialSummary.margin ?? detail.financialSummary.projectedMargin),
-                      sub: `${(detail.financialSummary.marginPct ?? detail.financialSummary.projectedMarginPct ?? 0).toFixed(1)}% of collected`,
-                      color: (detail.financialSummary.margin ?? detail.financialSummary.projectedMargin) >= 0 ? '#22c55e' : '#ef4444',
+                      label: completed ? 'Final Profit' : 'Profit to Date',
+                      value: '$' + fmt(profit),
+                      sub: `${profitPct.toFixed(1)}% of collected` + (completed ? '' : ' — runs a billing cycle behind costs'),
+                      color: profitColor,
                     },
                   ]
                 : [
                     {
-                      label: 'Contract Price',
-                      value: '$' + fmt(detail.financialSummary.contractPrice || detail.financialSummary.estimatedPrice),
-                      sub: `$${fmt(detail.financialSummary.estimatedCost)} internal cost budget`,
+                      label: 'Approved Contract',
+                      value: '$' + fmt(contract),
+                      sub: 'original contract + approved change orders',
                       color: '#c88c00',
                     },
                     {
-                      label: 'Total Costs',
-                      value: '$' + fmt(detail.financialSummary.totalCosts || detail.financialSummary.committedCost),
-                      sub: detail.financialSummary.pendingCost > 0
-                        ? `$${fmt(detail.financialSummary.actualCost)} paid · $${fmt(detail.financialSummary.pendingCost)} pending`
-                        : `$${fmt(detail.financialSummary.actualCost)} paid`,
-                      color: (detail.financialSummary.totalCosts || detail.financialSummary.committedCost) > detail.financialSummary.estimatedCost && detail.financialSummary.estimatedCost > 0
-                        ? '#ef4444' : '#1a1a1a',
+                      label: 'Spent to Date',
+                      value: '$' + fmt(spent),
+                      sub: 'paid out — vendor bills, POs & labor',
+                      color: '#1a1a1a',
                     },
                     {
-                      label: detail.job.isCompleted ? 'Final Margin' : 'Margin',
-                      value: '$' + fmt(detail.financialSummary.margin ?? detail.financialSummary.projectedMargin),
-                      sub: (detail.financialSummary.marginPct ?? detail.financialSummary.projectedMarginPct) !== undefined
-                        ? `${(detail.financialSummary.marginPct ?? detail.financialSummary.projectedMarginPct).toFixed(1)}% of contract`
-                        : '',
-                      color: (detail.financialSummary.margin ?? detail.financialSummary.projectedMargin) >= 0 ? '#22c55e' : '#ef4444',
+                      label: 'True Cost to Date',
+                      value: '$' + fmt(trueCost),
+                      sub: pending > 0 ? `spent + $${fmt(pending)} pending bills/POs` : 'no pending bills — same as spent',
+                      color: pending > 0 ? '#b45309' : '#1a1a1a',
                     },
                     {
-                      label: 'Invoiced',
-                      value: '$' + fmt(detail.financialSummary.invoicedTotal),
-                      sub: detail.financialSummary.contractValue > 0
-                        ? `${Math.round((detail.financialSummary.invoicedTotal / detail.financialSummary.contractValue) * 100)}% of contract`
-                        + (detail.financialSummary.draftInvoiceTotal > 0
-                          ? ` · $${fmt(detail.financialSummary.draftInvoiceTotal)} in draft`
-                          : '')
-                        : 'No contract',
-                      color: '#c88c00',
+                      label: completed ? 'Final Profit' : 'Projected Profit',
+                      value: '$' + fmt(profit),
+                      sub: `${profitPct.toFixed(1)}% of contract` + (completed ? ' — job complete' : ''),
+                      color: profitColor,
                     },
-                  ]
-              ).map((card: any, i) => {
-                // The Progress card is clickable — opens an inline editor to
-                // set/clear the manual override. All other cards stay static.
-                const isProgress = !!card.isProgress;
-                return (
-                  <div
-                    key={i}
-                    onClick={isProgress
-                      ? () => {
-                          setProgressInput(detail.financialSummary.effectiveProgress != null
-                            ? String(detail.financialSummary.effectiveProgress)
-                            : '');
-                          setProgressNotes(detail.financialSummary.manualNotes || '');
-                          setProgressEditOpen(true);
-                        }
-                      : undefined}
-                    className={`rounded-lg p-3 ${isProgress ? 'cursor-pointer hover:bg-stone-50 transition-colors' : ''}`}
-                    style={{
-                      background: '#ffffff',
-                      border: isProgress
-                        ? '1px solid rgba(79,70,229,0.30)'
-                        : '1px solid rgba(200,140,0,0.1)',
-                    }}
-                  >
-                    <p className="text-xs mb-1" style={{ color: '#8a8078' }}>{card.label}</p>
-                    <p className="text-xl font-bold" style={{ color: card.color }}>{card.value}</p>
-                    <p className="text-xs mt-1" style={{ color: card.color }}>{card.sub}</p>
+                  ];
+              return (
+                <div className="rounded-xl p-4" style={{ background: '#ffffff', border: '2px solid rgba(200,140,0,0.30)' }}>
+                  <p className="text-[11px] font-bold uppercase tracking-widest mb-3" style={{ color: '#a06f00' }}>
+                    The Basics
+                  </p>
+                  <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+                    {tiles.map((t, i) => (
+                      <div key={i}>
+                        <p className="text-xs mb-1" style={{ color: '#8a8078' }}>{t.label}</p>
+                        <p className="text-2xl font-bold leading-tight" style={{ color: t.color }}>{t.value}</p>
+                        <p className="text-[11px] mt-1" style={{ color: '#8a8078' }}>{t.sub}</p>
+                      </div>
+                    ))}
                   </div>
-                );
-              })}
-            </div>
+                  {/* Plain-English math + billing lines (fixed-price, in progress). */}
+                  {!fs.isCostPlus && !completed && (
+                    <div className="mt-3 pt-3 space-y-1 text-xs" style={{ borderTop: '1px solid rgba(200,140,0,0.15)', color: '#5a5550' }}>
+                      <p>
+                        Contract <strong style={{ color: '#1a1a1a' }}>${fmt(contract)}</strong>
+                        {' '}− cost to date <strong style={{ color: '#1a1a1a' }}>${fmt(trueCost)}</strong>
+                        {' '}− cost still to come <strong style={{ color: '#1a1a1a' }}>${fmt(toCome)}</strong>
+                        {' '}= projected profit <strong style={{ color: profitColor }}>${fmt(profit)} ({profitPct.toFixed(1)}%)</strong>
+                      </p>
+                      {fs.marginToDate != null && (
+                        <p style={{ color: '#8a8078' }}>
+                          If no more costs landed: ${fmt(fs.marginToDate)} ({(fs.marginToDatePct ?? 0).toFixed(1)}%) — but ${fmt(toCome)} of budgeted cost is still expected.
+                        </p>
+                      )}
+                      <p>
+                        Invoiced <strong style={{ color: '#1a1a1a' }}>${fmt(fs.invoicedTotal || 0)}</strong>
+                        {contract > 0 ? ` (${Math.round(((fs.invoicedTotal || 0) / contract) * 100)}% of contract)` : ''}
+                        {' '}· Collected <strong style={{ color: '#1a1a1a' }}>${fmt(fs.collectedAmount || 0)}</strong>
+                      </p>
+                    </div>
+                  )}
+                </div>
+              );
+            })()}
 
             {/* End of Project Review - shown ONCE A JOB IS COMPLETE.
                 Replaces the forward-looking WIP + Slippage panels (which are
@@ -1169,6 +1171,23 @@ export default function JobCostingDashboard() {
               );
             })()}
 
+            {/* Detailed analysis toggle. WIP, slippage, the manual %
+                editor and the secondary card row are useful but noisy —
+                collapsed by default per Nathan (2026-08-31). */}
+            <button
+              type="button"
+              onClick={() => setAnalysisOpen((v) => !v)}
+              className="w-full flex items-center gap-2 rounded-lg px-3 py-2 text-sm font-medium"
+              style={{ background: 'rgba(200,140,0,0.05)', border: '1px solid rgba(200,140,0,0.20)', color: '#a06f00', cursor: 'pointer' }}
+            >
+              {analysisOpen ? <ChevronDown size={14} /> : <ChevronRight size={14} />}
+              {analysisOpen ? 'Hide detailed analysis' : 'Show detailed analysis'}
+              <span className="text-xs font-normal" style={{ color: '#8a8078' }}>
+                WIP · margin slippage · % complete · billing & budget cards
+              </span>
+            </button>
+
+            {analysisOpen && (<>
             {/* WIP analysis panel - fixed-price only.
                 Renders the full earned-revenue breakdown so Nathan can
                 see why the kanban card's WIP chip says what it does:
@@ -1606,6 +1625,8 @@ export default function JobCostingDashboard() {
                 );
               })}
             </div>
+
+            </>)}
 
             {/* Cost Code Breakdown */}
             <div
@@ -2864,158 +2885,64 @@ export default function JobCostingDashboard() {
                                 </span>
                               </div>
 
-                              {/* Single-line metric: margin% (or collected/costs for cost-plus) plus
-                                  over-budget call-out when applicable. */}
-                              <div className="flex items-center justify-between text-[11px]">
-                                {job.isCostPlus ? (
-                                  <span style={{ color: job.collectedAmount >= jobTotalCosts ? '#22c55e' : '#ef4444', fontWeight: 600 }}>
-                                    ${fmt(job.collectedAmount)} / ${fmt(jobTotalCosts)}
+                              {/* The basics — contract, true cost to date,
+                                  projected profit. Plain-language, one glance.
+                                  Cost-plus swaps contract for collected. */}
+                              <div className="rounded px-1.5 py-1 mb-1 text-[10px]" style={{ background: 'rgba(255,255,255,0.55)', border: '1px solid rgba(200,140,0,0.12)' }}>
+                                <div className="flex items-center justify-between">
+                                  <span style={{ color: '#8a8078' }}>{job.isCostPlus ? 'Collected' : 'Contract'}</span>
+                                  <span style={{ color: '#1a1a1a', fontWeight: 600 }}>
+                                    ${fmt(job.isCostPlus ? job.collectedAmount : (job.contractPrice ?? job.estimatedPrice ?? 0))}
                                   </span>
-                                ) : (
-                                  <span
-                                    style={{
-                                      color: marginPct > 15 ? '#22c55e' : marginPct > 5 ? '#eab308' : '#ef4444',
-                                      fontWeight: 600,
-                                    }}
-                                  >
-                                    {fmtPct(marginPct)} margin
+                                </div>
+                                <div className="flex items-center justify-between" title={`$${fmt(job.actualCost)} paid` + ((job.pendingCost ?? 0) > 0 ? ` + $${fmt(job.pendingCost)} pending bills/POs` : '')}>
+                                  <span style={{ color: '#8a8078' }}>Cost to date</span>
+                                  <span style={{ color: '#1a1a1a', fontWeight: 600 }}>${fmt(jobTotalCosts)}</span>
+                                </div>
+                                <div className="flex items-center justify-between">
+                                  <span style={{ color: '#8a8078' }}>{job.isCostPlus ? 'Profit to date' : 'Proj. profit'}</span>
+                                  <span style={{ fontWeight: 700, color: (job.margin ?? 0) >= 0 ? '#15803d' : '#b91c1c' }}>
+                                    ${fmt(job.margin ?? 0)} ({fmtPct(marginPct)})
                                   </span>
-                                )}
+                                </div>
                                 {isOverBudget && (
-                                  <span style={{ color: '#ef4444', fontWeight: 600 }}>
-                                    −${fmt(overAmount)} over
-                                  </span>
+                                  <div className="flex items-center justify-between">
+                                    <span style={{ color: '#8a8078' }}>vs budget</span>
+                                    <span style={{ color: '#ef4444', fontWeight: 600 }}>−${fmt(overAmount)} over</span>
+                                  </div>
                                 )}
                               </div>
 
-                              {/* WIP block - fixed-price only.
-                                  Shows the cost-based earned-revenue
-                                  picture: cost %, earned $, billed $,
-                                  and the over/under amount with a
-                                  status chip (Ahead / On track /
-                                  Behind). Hidden on cost-plus because
-                                  the contract earned-revenue model
-                                  doesn't apply. */}
-                              {job.wipStatus && job.wipStatus !== 'na' && (
-                                <div
-                                  className="mt-1.5 rounded px-1.5 py-1 text-[10px]"
-                                  style={{
-                                    background:
-                                      job.wipStatus === 'behind'
-                                        ? 'rgba(239,68,68,0.08)'
-                                        : job.wipStatus === 'ahead'
-                                          ? 'rgba(59,130,246,0.08)'
-                                          : 'rgba(34,197,94,0.06)',
-                                    border: `1px solid ${
-                                      job.wipStatus === 'behind'
-                                        ? 'rgba(239,68,68,0.22)'
-                                        : job.wipStatus === 'ahead'
-                                          ? 'rgba(59,130,246,0.22)'
-                                          : 'rgba(34,197,94,0.22)'
-                                    }`,
-                                  }}
-                                >
-                                  <div className="flex items-center gap-1.5">
+                              {/* Compact status chips replace the old WIP +
+                                  slippage blocks — full breakdowns live on the
+                                  detail view under "Show detailed analysis".
+                                  Tooltips carry the numbers for a quick hover. */}
+                              {((job.wipStatus && job.wipStatus !== 'na') || (job.slippageStatus && job.slippageStatus !== 'na')) && (
+                                <div className="flex items-center gap-1 flex-wrap">
+                                  {job.wipStatus && job.wipStatus !== 'na' && (
                                     <span
-                                      className="font-semibold uppercase tracking-wide text-[9px]"
+                                      className="text-[9px] font-semibold uppercase tracking-wide px-1.5 py-0.5 rounded"
+                                      title={`Earned $${fmt(job.earnedRevenue ?? 0)} · Billed $${fmt(job.invoicedAmount)} · ${(job.overUnderBilled ?? 0) >= 0 ? 'over' : 'under'}-billed $${fmt(Math.abs(job.overUnderBilled ?? 0))}`}
                                       style={{
-                                        color:
-                                          job.wipStatus === 'behind' ? '#b91c1c'
-                                          : job.wipStatus === 'ahead' ? '#1e40af'
-                                          : '#15803d',
+                                        background: job.wipStatus === 'behind' ? 'rgba(239,68,68,0.10)' : job.wipStatus === 'ahead' ? 'rgba(59,130,246,0.10)' : 'rgba(34,197,94,0.10)',
+                                        color: job.wipStatus === 'behind' ? '#b91c1c' : job.wipStatus === 'ahead' ? '#1e40af' : '#15803d',
                                       }}
                                     >
-                                      WIP {job.wipStatus === 'behind' ? '↓ Behind' : job.wipStatus === 'ahead' ? '↑ Ahead' : '= On track'}
+                                      {job.wipStatus === 'behind' ? '↓ Behind on invoicing' : job.wipStatus === 'ahead' ? '↑ Ahead on invoicing' : '✓ Invoicing on track'}
                                     </span>
-                                    {job.costBasedPercent != null && (
-                                      <span style={{ color: '#5a5550' }}>
-                                        · {Math.round((job.costBasedPercent || 0) * 100)}% by cost
-                                      </span>
-                                    )}
-                                  </div>
-                                  <div className="flex items-center gap-2 mt-0.5" style={{ color: '#5a5550' }}>
-                                    <span>
-                                      Earned <strong style={{ color: '#1a1a1a' }}>${fmt(job.earnedRevenue ?? 0)}</strong>
-                                    </span>
-                                    <span>
-                                      Billed <strong style={{ color: '#1a1a1a' }}>${fmt(job.invoicedAmount)}</strong>
-                                    </span>
+                                  )}
+                                  {job.slippageStatus && job.slippageStatus !== 'na' && (
                                     <span
+                                      className="text-[9px] font-semibold uppercase tracking-wide px-1.5 py-0.5 rounded"
+                                      title={`Bid margin ${((job.originalMarginPct ?? 0) * 100).toFixed(1)}% → projected ${((job.projectedMarginPct ?? 0) * 100).toFixed(1)}% · projected final cost $${fmt(job.projectedFinalCost ?? 0)}`}
                                       style={{
-                                        fontWeight: 600,
-                                        color:
-                                          job.wipStatus === 'behind' ? '#b91c1c'
-                                          : job.wipStatus === 'ahead' ? '#1e40af'
-                                          : '#15803d',
-                                        marginLeft: 'auto',
+                                        background: job.slippageStatus === 'slipping' ? 'rgba(239,68,68,0.10)' : job.slippageStatus === 'gained' ? 'rgba(34,197,94,0.10)' : 'rgba(107,114,128,0.10)',
+                                        color: job.slippageStatus === 'slipping' ? '#b91c1c' : job.slippageStatus === 'gained' ? '#15803d' : '#4b5563',
                                       }}
                                     >
-                                      {(job.overUnderBilled ?? 0) >= 0 ? '+' : '−'}${fmt(Math.abs(job.overUnderBilled ?? 0))}
+                                      {job.slippageStatus === 'slipping' ? '↓ Margin slipping' : job.slippageStatus === 'gained' ? '↑ Margin ahead of bid' : '✓ Margin on track'}
                                     </span>
-                                  </div>
-                                </div>
-                              )}
-
-                              {/* Slippage chip - margin erosion vs bid.
-                                  Positive slippage = margin eroding (bad);
-                                  negative = gained back (good). Same
-                                  visibility rules as WIP: hidden on
-                                  cost-plus, hidden when no % complete
-                                  can be projected. */}
-                              {job.slippageStatus && job.slippageStatus !== 'na' && (
-                                <div
-                                  className="mt-1 rounded px-1.5 py-1 text-[10px]"
-                                  style={{
-                                    background:
-                                      job.slippageStatus === 'slipping'
-                                        ? 'rgba(239,68,68,0.08)'
-                                        : job.slippageStatus === 'gained'
-                                          ? 'rgba(34,197,94,0.08)'
-                                          : 'rgba(107,114,128,0.06)',
-                                    border: `1px solid ${
-                                      job.slippageStatus === 'slipping'
-                                        ? 'rgba(239,68,68,0.22)'
-                                        : job.slippageStatus === 'gained'
-                                          ? 'rgba(34,197,94,0.22)'
-                                          : 'rgba(107,114,128,0.22)'
-                                    }`,
-                                  }}
-                                >
-                                  <div className="flex items-center gap-1.5">
-                                    <span
-                                      className="font-semibold uppercase tracking-wide text-[9px]"
-                                      style={{
-                                        color:
-                                          job.slippageStatus === 'slipping' ? '#b91c1c'
-                                          : job.slippageStatus === 'gained' ? '#15803d'
-                                          : '#4b5563',
-                                      }}
-                                    >
-                                      Slippage {job.slippageStatus === 'slipping' ? '↓ Eroding' : job.slippageStatus === 'gained' ? '↑ Ahead of bid' : '= On track'}
-                                    </span>
-                                    {job.projectedMarginPct != null && job.originalMarginPct != null && (
-                                      <span style={{ color: '#5a5550' }}>
-                                        · {(job.originalMarginPct * 100).toFixed(1)}% → {(job.projectedMarginPct * 100).toFixed(1)}%
-                                      </span>
-                                    )}
-                                  </div>
-                                  <div className="flex items-center gap-2 mt-0.5" style={{ color: '#5a5550' }}>
-                                    <span>
-                                      Projected final cost <strong style={{ color: '#1a1a1a' }}>${fmt(job.projectedFinalCost ?? 0)}</strong>
-                                    </span>
-                                    <span
-                                      style={{
-                                        fontWeight: 700,
-                                        color:
-                                          job.slippageStatus === 'slipping' ? '#b91c1c'
-                                          : job.slippageStatus === 'gained' ? '#15803d'
-                                          : '#4b5563',
-                                        marginLeft: 'auto',
-                                      }}
-                                    >
-                                      {(job.slippageDollars ?? 0) > 0 ? '−' : (job.slippageDollars ?? 0) < 0 ? '+' : ''}${fmt(Math.abs(job.slippageDollars ?? 0))} margin ({(job.slippagePoints ?? 0) > 0 ? '−' : '+'}{Math.abs(job.slippagePoints ?? 0).toFixed(1)} pts)
-                                    </span>
-                                  </div>
+                                  )}
                                 </div>
                               )}
 
