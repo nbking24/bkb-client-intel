@@ -2714,6 +2714,16 @@ Mac Messages DB ÃÂ¢ÃÂÃÂ sync-messages.py (filter junk) ÃÂ¢
 
 ---
 
+### 2026-09-08 — Pre-Con Selections Overview v2 (register-aware) + Selections Sheet folded in
+
+**What:** The Pre-Construction tab is now the centralized selections overview across every active job (In Design / Ready / In Production), aligned with the 📜 Selections register conventions.
+
+- `/api/dashboard/precon/selections` is register-aware: it fetches each job's cost groups, detects the `📜 Selections` subtree, uses the `Selection` custom field (22PBByMRR2XS) as the identity marker, and adds `0. Not Started` as a first-class status bucket. Blank statuses surface under Not Started with a flag (spec: Status is never blank). Legacy status-tagged lines outside the register still show, flagged `stray`.
+- Per-job register health: `hasRegister`, name-variant detection, stray / missing-marker / blank-status counts — rendered as a header chip + expanded "Register housekeeping" callout on the precon page.
+- `needsSetup`: active jobs with no register (or an empty one) are listed on the page so untracked projects can't hide.
+- Client Selections Sheet folded into the tracker: each job card carries "Client Sheet" (opens the tokened public /s/… page) and a copy-link button; `sheetPath` comes from `makeSheetToken`. The standalone `/dashboard/selections-sheet` tab is retired — registry entry removed, route redirects to `/dashboard/precon`. Public /s/[token] links and the API are unchanged.
+- See `claude/BKB-Selections-System-Spec.md` in the JobTread Assistant Claude project for the register conventions.
+
 ### 2026-09-08 — Client Selections Sheet (branded print/PDF + public share link)
 
 **What:** New tool that generates a client-facing version of a job's 📜 Selections register — branded, printable, and shareable — because the JobTread Specifications tab prints Internal Notes and is reserved for the internal team and trade partners.

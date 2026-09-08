@@ -4,7 +4,15 @@
 /**
  * Pre-Construction Dashboard
  *
- * Selections Tracker, version 1.
+ * Selections Overview, version 2 (register-aware, 2026-09-08).
+ *
+ * Reads the 📜 Selections decision register on every active job per
+ * claude/BKB-Selections-System-Spec.md (JobTread Assistant project):
+ * one line per decision, Status never blank, statuses 0-4 are open work
+ * and 5 is done. Register-health flags (strays, missing markers, blank
+ * statuses, no register at all) surface here so the registers stay
+ * clean. The Client Selections Sheet (branded print/PDF + public share
+ * link) is folded into each job card - the standalone tab is retired.
  *
  * The pre-con coordinator (currently Allison) lives in this page when
  * working through pending selections. Every active job (In Design,
@@ -36,6 +44,7 @@ import {
   ChevronRight,
   ClipboardList,
   ExternalLink,
+  Link as LinkIcon,
   Loader2,
   RefreshCw,
   Search,
@@ -64,6 +73,12 @@ interface SelectionItem {
   costGroupName: string;
   parentGroupName: string;
   status: string;
+  // Register-health flags (see the selections system spec).
+  inRegister?: boolean;
+  stray?: boolean;          // selection-marked/statused but OUTSIDE the register
+  missingMarker?: boolean;  // in register but Selection custom field not set
+  blankStatus?: boolean;    // Status was blank (shown under Not Started)
+  supportLine?: boolean;    // isSpecification=false (Shipping, Templating, ...)
   // Free-form "Internal Notes" custom field from JT. Used by the
   // coordinator to log the latest update on the selection (e.g.
   // "vendor confirmed 6-week lead time", "waiting on Kim's pick").
@@ -79,6 +94,7 @@ interface JobBlock {
   customStatus: string | null;
   statusCategory: 'IN_DESIGN' | 'READY' | 'IN_PRODUCTION' | string | null;
   counts: {
+    notStarted: number;
     clientSelectionNeeded: number;
     internalSelectionNeeded: number;
     pricingPending: number;
@@ -87,11 +103,33 @@ interface JobBlock {
   };
   actionableCount: number;
   items: SelectionItem[];
+  // Register health + sheet link.
+  hasRegister?: boolean;
+  registerName?: string | null;
+  registerNameVariant?: boolean;
+  strayCount?: number;
+  missingMarkerCount?: number;
+  blankStatusCount?: number;
+  sheetPath?: string | null;
+}
+
+interface NeedsSetupJob {
+  jobId: string;
+  jobName: string;
+  jobNumber: string;
+  clientName: string;
+  statusCategory: string | null;
+  customStatus: string | null;
+  reason: 'no-register' | 'empty-register';
 }
 
 interface Totals {
   jobCount: number;
   actionable: number;
+  strays: number;
+  blankStatuses: number;
+  needsSetupCount: number;
+  notStarted: number;
   clientSelectionNeeded: number;
   internalSelectionNeeded: number;
   pricingPending: number;
@@ -116,6 +154,18 @@ const STATUS_CONFIG: Array<{
   border: string;
   actionable: boolean;
 }> = [
+  {
+    key: 'notStarted',
+    jtValue: '0. Not Started',
+    label: 'Not Started',
+    shortLabel: 'Not Started',
+    // Neutral stone - a decision that exists on the register but nobody
+    // has picked up yet. Open work per the spec (statuses 0-3 = open).
+    color: '#57534e',
+    bg: 'rgba(120,113,108,0.08)',
+    border: 'rgba(120,113,108,0.25)',
+    actionable: true,
+  },
   {
     key: 'clientSelectionNeeded',
     jtValue: '1. Client Selection Needed',
@@ -198,6 +248,7 @@ export default function PreconDashboard() {
   const [error, setError] = useState<string | null>(null);
   const [jobs, setJobs] = useState<JobBlock[]>([]);
   const [totals, setTotals] = useState<Totals | null>(null);
+  const [needsSetup, setNeedsSetup] = useState<NeedsSetupJob[]>([]);
   const [computedAt, setComputedAt] = useState<string | null>(null);
 
   // UI filters and expanded state.
@@ -217,6 +268,7 @@ export default function PreconDashboard() {
       const data = await res.json();
       if (!res.ok || data?.error) throw new Error(data?.error || `Load failed (${res.status})`);
       setJobs(data.jobs || []);
+      setNeedsSetup(data.needsSetup || []);
       setTotals(data.totals || null);
       setComputedAt(data.computedAt || null);
     } catch (err: any) {
@@ -304,7 +356,7 @@ export default function PreconDashboard() {
             Pre-Construction
           </h1>
           <p className="text-sm mt-1" style={{ color: '#8a8078' }}>
-            In-design schedule calendar and selections tracker. Refresh + Analyze flags projects with stale schedules.
+            In-design schedule calendar plus the selections overview: every active project's 📜 Selections register, its status funnel, register health, and the client sheet - all in one place.
           </p>
         </div>
         <div className="flex items-center gap-3">
@@ -350,7 +402,7 @@ export default function PreconDashboard() {
         <>
           {/* Portfolio KPI strip */}
           {totals && (
-            <div className="grid grid-cols-2 md:grid-cols-3 xl:grid-cols-6 gap-3">
+            <div className="grid grid-cols-2 md:grid-cols-4 xl:grid-cols-7 gap-3">
               <div className="rounded-lg p-3" style={{ background: '#ffffff', border: '1px solid rgba(200,140,0,0.10)' }}>
                 <div className="flex items-center gap-1.5 text-xs" style={{ color: '#8a8078' }}>
                   <Users size={12} /> Active jobs
@@ -426,6 +478,47 @@ export default function PreconDashboard() {
             </div>
           </div>
 
+          {/* Projects with no selections tracking yet. Kept separate from
+              the cards so the main list stays a working queue, but visible
+              enough that a design/production job with no register can't
+              hide. */}
+          {needsSetup.length > 0 && (
+            <div className="rounded-xl p-3" style={{ background: '#fdfcfa', border: '1px dashed rgba(200,140,0,0.35)' }}>
+              <div className="flex items-center gap-2 text-xs font-semibold mb-2" style={{ color: '#a06f00' }}>
+                <AlertCircle size={13} />
+                No selections register yet ({needsSetup.length})
+                <span className="font-normal" style={{ color: '#8a8078' }}>
+                  - active projects with nothing tracked. Ask Claude to build the 📜 Selections register.
+                </span>
+              </div>
+              <div className="flex flex-wrap gap-1.5">
+                {needsSetup.map((j) => (
+                  <span
+                    key={j.jobId}
+                    className="text-[11px] px-2 py-1 rounded inline-flex items-center gap-1.5"
+                    style={{ background: '#ffffff', border: '1px solid rgba(200,140,0,0.18)', color: '#3d3a36' }}
+                    title={`${j.jobName}${j.reason === 'empty-register' ? ' - has a 📜 Selections group but no lines in it' : ' - no 📜 Selections group on the budget'}`}
+                  >
+                    <span className="font-mono" style={{ color: '#a06f00' }}>#{j.jobNumber || '—'}</span>
+                    {j.clientName || j.jobName}
+                    <span
+                      className="text-[9px] px-1 py-px rounded"
+                      style={{
+                        background: STAGE_BG[j.statusCategory || ''] || 'rgba(200,140,0,0.10)',
+                        color: STAGE_COLOR[j.statusCategory || ''] || '#c88c00',
+                      }}
+                    >
+                      {STAGE_LABEL[j.statusCategory || ''] || j.customStatus || ''}
+                    </span>
+                    {j.reason === 'empty-register' && (
+                      <span className="text-[9px]" style={{ color: '#8a8078' }}>empty register</span>
+                    )}
+                  </span>
+                ))}
+              </div>
+            </div>
+          )}
+
           {/* Job cards */}
           {filteredJobs.length === 0 ? (
             <div
@@ -433,7 +526,7 @@ export default function PreconDashboard() {
               style={{ background: '#fdfcfa', border: '1px solid rgba(200,140,0,0.12)', color: '#8a8078' }}
             >
               {jobs.length === 0
-                ? 'No active jobs have any Status-tagged selections yet.'
+                ? 'No active jobs have any register selections yet.'
                 : 'No jobs match the current filters.'}
             </div>
           ) : (
@@ -493,11 +586,17 @@ function JobCard({
         border: '1px solid rgba(200,140,0,0.15)',
       }}
     >
-      {/* Header row - always visible */}
-      <button
-        type="button"
+      {/* Header row - always visible. A div (not <button>) so the Client
+          Sheet link + copy control can nest inside without invalid HTML. */}
+      <div
+        role="button"
+        tabIndex={0}
         onClick={onToggle}
-        className="w-full flex items-center gap-3 px-4 py-3 text-left hover:bg-stone-50 rounded-xl"
+        onKeyDown={(e) => {
+          if (e.target !== e.currentTarget) return;
+          if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); onToggle(); }
+        }}
+        className="w-full flex items-center gap-3 px-4 py-3 text-left hover:bg-stone-50 rounded-xl cursor-pointer"
       >
         {expanded ? (
           <ChevronDown size={16} style={{ color: '#8a8078' }} />
@@ -556,13 +655,33 @@ function JobCard({
           })}
         </div>
 
+        {/* Register-health warning chip - only when something is off. */}
+        {(() => {
+          const problems: string[] = [];
+          if (!job.hasRegister) problems.push('no 📜 Selections register - lines tracked outside it');
+          if (job.registerNameVariant && job.registerName) problems.push(`register named "${job.registerName}" - rename to 📜 Selections`);
+          if ((job.strayCount || 0) > 0) problems.push(`${job.strayCount} selection line${job.strayCount === 1 ? '' : 's'} outside the register (invisible to the Design Board)`);
+          if ((job.blankStatusCount || 0) > 0) problems.push(`${job.blankStatusCount} line${job.blankStatusCount === 1 ? '' : 's'} with blank Status`);
+          if ((job.missingMarkerCount || 0) > 0) problems.push(`${job.missingMarkerCount} register line${job.missingMarkerCount === 1 ? '' : 's'} missing the Selection marker`);
+          if (problems.length === 0) return null;
+          return (
+            <span
+              className="text-[10px] font-semibold px-1.5 py-0.5 rounded shrink-0 hidden sm:inline-flex items-center gap-1"
+              style={{ background: 'rgba(239,68,68,0.08)', color: '#b91c1c', border: '1px solid rgba(239,68,68,0.25)' }}
+              title={'Register health:\n- ' + problems.join('\n- ')}
+            >
+              <AlertCircle size={10} /> register
+            </span>
+          );
+        })()}
+
         {job.actionableCount > 0 ? (
           <span
             className="text-xs font-semibold shrink-0 hidden sm:inline-flex items-center gap-1"
             style={{ color: '#b91c1c' }}
           >
             <AlertCircle size={12} />
-            {job.actionableCount} to finalize
+            {job.actionableCount} open
           </span>
         ) : (
           <span
@@ -573,11 +692,47 @@ function JobCard({
             All ordered
           </span>
         )}
-      </button>
+
+        {/* Client Selections Sheet - branded, client-safe print/PDF page.
+            Opens the tokened public link; the copy control puts the same
+            link on the clipboard for texting/emailing the client. */}
+        {job.sheetPath && (
+          <span className="shrink-0 hidden sm:inline-flex items-center gap-1" onClick={(e) => e.stopPropagation()}>
+            <a
+              href={job.sheetPath}
+              target="_blank"
+              rel="noreferrer"
+              className="text-[10px] font-semibold px-2 py-1 rounded inline-flex items-center gap-1 hover:opacity-80"
+              style={{ background: 'rgba(200,140,0,0.10)', color: '#a06f00', border: '1px solid rgba(200,140,0,0.25)' }}
+              title="Open the client-facing Selections Sheet (print / save as PDF from there)"
+            >
+              <ClipboardList size={10} /> Client Sheet
+            </a>
+            <CopySheetLinkButton sheetPath={job.sheetPath} />
+          </span>
+        )}
+      </div>
 
       {/* Expanded body */}
       {expanded && (
         <div className="px-4 pb-4 pt-1 space-y-3 border-t" style={{ borderColor: 'rgba(200,140,0,0.10)' }}>
+          {/* Register health callout - expanded view spells out what the
+              header chip summarized, so the fix is obvious. */}
+          {(!job.hasRegister || job.registerNameVariant || (job.strayCount || 0) > 0 || (job.blankStatusCount || 0) > 0 || (job.missingMarkerCount || 0) > 0) && (
+            <div
+              className="rounded-lg px-3 py-2 text-[11px] space-y-0.5"
+              style={{ background: 'rgba(239,68,68,0.05)', border: '1px solid rgba(239,68,68,0.18)', color: '#7f1d1d' }}
+            >
+              <div className="font-semibold text-xs flex items-center gap-1.5" style={{ color: '#b91c1c' }}>
+                <AlertCircle size={12} /> Register housekeeping
+              </div>
+              {!job.hasRegister && <div>No 📜 Selections group on this budget - the lines below are tracked loose. Ask Claude to build the register.</div>}
+              {job.registerNameVariant && job.registerName && <div>Register group is named "{job.registerName}" - should be exactly 📜 Selections.</div>}
+              {(job.strayCount || 0) > 0 && <div>{job.strayCount} selection line{(job.strayCount || 0) === 1 ? ' sits' : 's sit'} outside the register (rows marked "stray" below) - invisible to the Design Board.</div>}
+              {(job.blankStatusCount || 0) > 0 && <div>{job.blankStatusCount} line{(job.blankStatusCount || 0) === 1 ? ' has' : 's have'} a blank Status (shown under Not Started) - Status should never be blank.</div>}
+              {(job.missingMarkerCount || 0) > 0 && <div>{job.missingMarkerCount} register line{(job.missingMarkerCount || 0) === 1 ? ' is' : 's are'} missing the Selection custom-field marker.</div>}
+            </div>
+          )}
           {STATUS_CONFIG.map((s) => {
             const items = itemsByStatus[s.jtValue] || [];
             if (items.length === 0) return null;
@@ -652,8 +807,20 @@ function SelectionRow({ item, jobId }: { item: SelectionItem; jobId: string }) {
           </span>
         )}
         <div className="flex-1 min-w-0">
-          <div className="font-medium truncate" style={{ color: '#1a1a1a' }}>
-            {item.name || '(unnamed)'}
+          <div className="font-medium truncate flex items-center gap-1.5" style={{ color: '#1a1a1a' }}>
+            <span className="truncate">{item.name || '(unnamed)'}</span>
+            {item.stray && (
+              <span className="text-[9px] font-semibold px-1 py-px rounded shrink-0" title="Outside the 📜 Selections register - invisible to the Design Board. Move it into the register." style={{ background: 'rgba(239,68,68,0.10)', color: '#b91c1c' }}>stray</span>
+            )}
+            {item.blankStatus && (
+              <span className="text-[9px] font-semibold px-1 py-px rounded shrink-0" title="Status field is blank in JobTread - set it (0. Not Started at minimum)." style={{ background: 'rgba(234,179,8,0.15)', color: '#a16207' }}>no status</span>
+            )}
+            {item.missingMarker && (
+              <span className="text-[9px] font-semibold px-1 py-px rounded shrink-0" title="In the register but the Selection custom field is not set to true." style={{ background: 'rgba(234,179,8,0.15)', color: '#a16207' }}>no marker</span>
+            )}
+            {item.supportLine && (
+              <span className="text-[9px] px-1 py-px rounded shrink-0" title="Support line (isSpecification = false) - shipping, templating, install, allowance credit. Not a client-facing decision." style={{ background: 'rgba(120,113,108,0.10)', color: '#57534e' }}>support</span>
+            )}
           </div>
           {groupLabel && (
             <div className="text-[10px] truncate" style={{ color: '#8a8078' }}>
@@ -697,5 +864,36 @@ function SelectionRow({ item, jobId }: { item: SelectionItem; jobId: string }) {
         </div>
       )}
     </div>
+  );
+}
+
+
+// ============================================================
+// Copy-share-link button for a job's Client Selections Sheet.
+// Small, self-contained so each card header can drop one in.
+// ============================================================
+
+function CopySheetLinkButton({ sheetPath }: { sheetPath: string }) {
+  const [copied, setCopied] = useState(false);
+  return (
+    <button
+      type="button"
+      onClick={() => {
+        const url = window.location.origin + sheetPath;
+        navigator.clipboard.writeText(url).then(() => {
+          setCopied(true);
+          setTimeout(() => setCopied(false), 2000);
+        });
+      }}
+      className="text-[10px] px-1.5 py-1 rounded inline-flex items-center hover:opacity-80"
+      style={{
+        background: copied ? 'rgba(34,197,94,0.10)' : 'rgba(200,140,0,0.06)',
+        color: copied ? '#15803d' : '#8a8078',
+        border: `1px solid ${copied ? 'rgba(34,197,94,0.30)' : 'rgba(200,140,0,0.20)'}`,
+      }}
+      title="Copy the client share link (no login needed)"
+    >
+      {copied ? <CheckCircle2 size={11} /> : <LinkIcon size={11} />}
+    </button>
   );
 }
