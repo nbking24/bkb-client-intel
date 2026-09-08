@@ -5,6 +5,8 @@
  * Pre-Construction Dashboard
  *
  * Selections Overview, version 2 (register-aware, 2026-09-08).
+ * Selections lead the page; the In-Design Gantt is collapsed at the
+ * bottom (Nathan, 2026-09-08).
  *
  * Reads the 📜 Selections decision register on every active job per
  * claude/BKB-Selections-System-Spec.md (JobTread Assistant project):
@@ -249,6 +251,10 @@ export default function PreconDashboard() {
   const [jobs, setJobs] = useState<JobBlock[]>([]);
   const [totals, setTotals] = useState<Totals | null>(null);
   const [needsSetup, setNeedsSetup] = useState<NeedsSetupJob[]>([]);
+  // The In-Design Gantt is secondary on this page (Nathan, 2026-09-08:
+  // "we are looking at the selections, not the schedule"). Collapsed by
+  // default; the component only mounts when opened.
+  const [scheduleOpen, setScheduleOpen] = useState(false);
   const [computedAt, setComputedAt] = useState<string | null>(null);
 
   // UI filters and expanded state.
@@ -356,7 +362,7 @@ export default function PreconDashboard() {
             Pre-Construction
           </h1>
           <p className="text-sm mt-1" style={{ color: '#8a8078' }}>
-            In-design schedule calendar plus the selections overview: every active project's 📜 Selections register, its status funnel, register health, and the client sheet - all in one place.
+            Every active project's selections, pulled from the 📜 Selections register in each job's budget: what's open, what needs to be worked, register health, and the client sheet. The in-design schedule calendar is tucked at the bottom.
           </p>
         </div>
         <div className="flex items-center gap-3">
@@ -377,13 +383,6 @@ export default function PreconDashboard() {
           </button>
         </div>
       </div>
-
-      {/* In-Design schedule calendar - the master view across every
-          design-phase project, color-coded by job. Lives ABOVE the
-          selections tracker so the precon coordinator sees the
-          calendar first, then the selection backlog second. The
-          component manages its own data + AI staleness check. */}
-      <SchedulesCalendar />
 
       {/* Initial load + error */}
       {loading && (
@@ -543,6 +542,36 @@ export default function PreconDashboard() {
           )}
         </>
       )}
+
+      {/* In-Design Schedule - moved BELOW the selections overview and
+          collapsed by default (Nathan, 2026-09-08: this page is about the
+          selections pulled from the job budgets; the schedule is secondary).
+          The Gantt component only mounts when the section is opened, so the
+          selections view is what loads first. */}
+      <div className="rounded-xl" style={{ background: '#ffffff', border: '1px solid rgba(200,140,0,0.12)' }}>
+        <button
+          type="button"
+          onClick={() => setScheduleOpen((v) => !v)}
+          className="w-full flex items-center gap-2 px-4 py-3 text-left hover:bg-stone-50 rounded-xl"
+        >
+          {scheduleOpen ? (
+            <ChevronDown size={16} style={{ color: '#8a8078' }} />
+          ) : (
+            <ChevronRight size={16} style={{ color: '#8a8078' }} />
+          )}
+          <span className="text-sm font-semibold" style={{ color: '#1a1a1a' }}>
+            In-Design Schedule Gantt
+          </span>
+          <span className="text-xs" style={{ color: '#8a8078' }}>
+            {scheduleOpen ? 'design-phase schedule calendar' : 'click to open the design-phase schedule calendar'}
+          </span>
+        </button>
+        {scheduleOpen && (
+          <div className="px-2 pb-2">
+            <SchedulesCalendar />
+          </div>
+        )}
+      </div>
     </div>
   );
 }
