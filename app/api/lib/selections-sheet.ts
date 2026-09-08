@@ -106,7 +106,7 @@ export function verifySheetToken(token) {
 // ------------------------------------------------------------
 
 export async function fetchSelectionsSheet(jobId) {
-  // 1. Job header info + all cost groups (for the path map)
+  // 1. Job header info
   const jobData = await jtQuery({
     job: {
       $: { id: jobId },
@@ -119,22 +119,32 @@ export async function fetchSelectionsSheet(jobId) {
         address: {},
         account: { id: {}, name: {} },
       },
-      costGroups: {
-        $: { size: 500 },
-        nodes: {
-          id: {},
-          name: {},
-          position: {},
-          parentCostGroup: { id: {} },
-        },
-      },
     },
   });
 
   const job = jobData?.job;
   if (!job?.id) throw new Error('Job not found');
 
-  const groups = job.costGroups?.nodes || [];
+  // 1b. All cost groups (for the path map) — PAVE caps size at 100, paginate.
+  const groups = [];
+  let groupPage = undefined;
+  for (let i = 0; i < 10; i++) {
+    const params = {
+      $: { size: 100 },
+      nextPage: {},
+      nodes: {
+        id: {},
+        name: {},
+        position: {},
+        parentCostGroup: { id: {} },
+      },
+    };
+    if (groupPage) params.$.page = groupPage;
+    const gd = await jtQuery({ job: { $: { id: jobId }, costGroups: params } });
+    groups.push(...(gd?.job?.costGroups?.nodes || []));
+    groupPage = gd?.job?.costGroups?.nextPage || null;
+    if (!groupPage) break;
+  }
   const groupById = {};
   for (const g of groups) groupById[g.id] = g;
 
