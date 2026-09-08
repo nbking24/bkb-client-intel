@@ -2714,4 +2714,25 @@ Mac Messages DB ÃÂ¢ÃÂÃÂ sync-messages.py (filter junk) ÃÂ¢
 
 ---
 
+### 2026-09-08 — Client Selections Sheet (branded print/PDF + public share link)
+
+**What:** New tool that generates a client-facing version of a job's 📜 Selections register — branded, printable, and shareable — because the JobTread Specifications tab prints Internal Notes and is reserved for the internal team and trade partners.
+
+**Changes:**
+- `app/api/lib/selections-sheet.ts` — **NEW** Fetches a job's register via PAVE (Selection custom field `22PBByMRR2XS` = true AND `isSpecification` = true, paginated at 50), walks each item's cost-group chain to the `📜` root for trade/area grouping, buckets by Status custom field (`22P5WiHgkzx9`) into client-friendly sections, and returns ONLY client-safe fields — Internal Notes (`22P5WiMpe6AM`) and all pricing are never fetched. Also HMAC share-token helpers (`makeSheetToken`/`verifySheetToken`, secret = `SELECTIONS_LINK_SECRET` falling back to `APP_PIN`).
+- `app/api/dashboard/selections-sheet/route.ts` — **NEW** Auth'd endpoint: no `jobId` → active-jobs list for the picker; with `jobId` → sheet data + tokened share URL.
+- `app/api/public/selections-sheet/route.ts` — **NEW** Public endpoint for share links; invalid HMAC → 404 (no job-id enumeration).
+- `app/dashboard/components/SelectionsSheetView.tsx` — **NEW** Shared branded sheet renderer (charcoal header band + white BKB logo, warm-neutral palette matching the review gateway, status pills, print CSS with `print-color-adjust: exact` and `break-inside: avoid`).
+- `app/dashboard/selections-sheet/page.tsx` — **NEW** Internal tool: job picker → live preview → Print/Save PDF (opens the public link with `?print=1` for a chrome-free print) → Copy client link.
+- `app/s/layout.tsx` + `app/s/[token]/page.tsx` — **NEW** Public no-login share page; `?print=1` auto-opens the print dialog.
+- `app/lib/access-registry.ts` — Registered `selections-sheet` dashboard (icon `ClipboardCheck`); `app/dashboard/layout.tsx` icon map updated. **Assign the dashboard to users in /dashboard/admin before it appears in their nav.**
+
+**Key design decisions:**
+- Client-safe by construction: the API never fetches internal notes or costs, so no rendering mistake can leak them.
+- Share links are stable per job (`/s/{jobId}~{hmac16}`) and always render the LIVE register — no stale PDFs floating around unless deliberately printed.
+- Status buckets: Your Decisions Needed (1) / Coming Up (0) / In Progress with Our Team (2, 3) / Selected, Being Ordered (4) / Finalized (5).
+- See `claude/BKB-Selections-System-Spec.md` in the JobTread Assistant Claude project for the register conventions this reads from.
+
+---
+
 *End of document. Keep this updated after every session.*

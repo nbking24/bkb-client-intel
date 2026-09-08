@@ -50,6 +50,7 @@ export const DASHBOARDS: DashboardDef[] = [
   { id: 'tickets',     label: 'Tickets',          href: '/dashboard/tickets',     icon: 'Bug',             description: 'Support / bug queue' },
   { id: 'transcripts', label: 'Transcripts',      href: '/dashboard/transcripts', icon: 'Mic',             description: 'Meeting transcripts by job, searchable + AI query' },
   { id: 'message-formatter', label: 'Message Formatter', href: '/dashboard/message-formatter', icon: 'Type', description: 'Word-like editor that outputs JobTread-ready markdown' },
+  { id: 'selections-sheet', label: 'Selections Sheet', href: '/dashboard/selections-sheet', icon: 'ClipboardCheck', description: 'Client-facing selections sheet: branded print/PDF + shareable client link (no internal notes or costs)' },
   { id: 'scripture',   label: 'Daily Scripture',   href: '/dashboard/scripture',   icon: 'BookOpen',        description: '15-minute Bible reading & Scripture memory (ESV)' },
   { id: 'field',       label: 'My Tasks (Field)', href: '/dashboard/field',       icon: 'ClipboardList',   description: 'Simplified field-staff task view' },
   { id: 'pm-portfolio', label: 'My PM Portfolio',  href: '/dashboard/pm-portfolio', icon: 'Briefcase',       description: 'Your in-production jobs with editable overall % complete per job' },
