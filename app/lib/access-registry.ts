@@ -38,22 +38,21 @@ export interface WidgetDef {
 
 // ---- Dashboards (top-level nav pages) -------------------------------------
 
+// Retired tabs (Nathan, 2026-09-09): Estimating, Spec Writer, Marketing,
+// Message Formatter, Daily Scripture. Registry entries removed so they no
+// longer appear in anyone's nav; the pages themselves still exist at their
+// old URLs and in git history if any need to come back.
 export const DASHBOARDS: DashboardDef[] = [
   { id: 'overview',    label: 'Overview',         href: '/dashboard',             icon: 'LayoutDashboard', description: 'Personalized home: tasks, calendar, KPIs' },
   { id: 'precon',      label: 'Pre-Construction', href: '/dashboard/precon',      icon: 'FolderKanban',    description: 'Schedule / phase tracker' },
-  { id: 'estimate',    label: 'Estimating',       href: '/dashboard/estimate',    icon: 'Calculator',      description: 'Estimate tracker' },
   { id: 'invoicing',   label: 'Invoicing',        href: '/dashboard/invoicing',   icon: 'DollarSign',      description: 'Invoicing health + AR' },
   { id: 'job-costing', label: 'Job Costing',      href: '/dashboard/job-costing', icon: 'BarChart3',       description: 'Per-job cost analysis' },
   { id: 'bill-review', label: 'Bill Review',      href: '/dashboard/bill-review', icon: 'Receipt',         description: 'Bill categorization queue' },
-  { id: 'spec-writer', label: 'Spec Writer',      href: '/dashboard/spec-writer', icon: 'FileText',        description: 'Specification writing' },
-  { id: 'marketing',   label: 'Marketing',        href: '/dashboard/marketing',   icon: 'Megaphone',       description: 'Marketing tools' },
   { id: 'tickets',     label: 'Tickets',          href: '/dashboard/tickets',     icon: 'Bug',             description: 'Support / bug queue' },
   { id: 'transcripts', label: 'Transcripts',      href: '/dashboard/transcripts', icon: 'Mic',             description: 'Meeting transcripts by job, searchable + AI query' },
-  { id: 'message-formatter', label: 'Message Formatter', href: '/dashboard/message-formatter', icon: 'Type', description: 'Word-like editor that outputs JobTread-ready markdown' },
   // 'selections-sheet' retired 2026-09-08: the Client Selections Sheet is
   // reached from the Pre-Construction selections overview (per-job Client
   // Sheet button). /dashboard/selections-sheet now redirects to /dashboard/precon.
-  { id: 'scripture',   label: 'Daily Scripture',   href: '/dashboard/scripture',   icon: 'BookOpen',        description: '15-minute Bible reading & Scripture memory (ESV)' },
   { id: 'field',       label: 'My Tasks (Field)', href: '/dashboard/field',       icon: 'ClipboardList',   description: 'Simplified field-staff task view' },
   { id: 'pm-portfolio', label: 'My PM Portfolio',  href: '/dashboard/pm-portfolio', icon: 'Briefcase',       description: 'Your in-production jobs with editable overall % complete per job' },
   { id: 'admin',       label: 'Admin',            href: '/dashboard/admin',       icon: 'Shield', ownerOnly: true, description: 'User & access management' },
