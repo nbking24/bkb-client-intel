@@ -303,14 +303,32 @@ export default function CompanyFinancialsPage() {
           </p>
         </div>
         <div className="flex items-center gap-3">
-          {qb?.asOf && (
-            <span className="text-xs text-right hidden sm:block" style={{ color: MUTED }}>
-              QuickBooks as of <b style={{ color: INK }}>{qb.asOf}</b>
-              {data?.jobsComputedAt && (
-                <><br />JobTread jobs as of {new Date(data.jobsComputedAt).toLocaleDateString('en-US')}</>
-              )}
-            </span>
-          )}
+          {qb?.asOf && (() => {
+            // Flag either source going stale. The JobTread figures come from
+            // the job-costing snapshot, which is recomputed nightly by
+            // /api/cron/job-costing-refresh — if this ever reads old, that
+            // cron is failing rather than the page being wrong.
+            const ageDays = (iso) => (iso ? (Date.now() - new Date(iso).getTime()) / 86400000 : null);
+            const qbAge = ageDays(qb.asOf + 'T12:00:00Z');
+            const jtAge = ageDays(data?.jobsComputedAt);
+            const stale = (a) => a != null && a > 3;
+            return (
+              <span className="text-xs text-right hidden sm:block" style={{ color: MUTED }}>
+                QuickBooks as of{' '}
+                <b style={{ color: stale(qbAge) ? AMBER : INK }}>{qb.asOf}</b>
+                {stale(qbAge) && <b style={{ color: AMBER }}> · {Math.floor(qbAge)}d old</b>}
+                {data?.jobsComputedAt && (
+                  <>
+                    <br />JobTread jobs as of{' '}
+                    <b style={{ color: stale(jtAge) ? AMBER : INK }}>
+                      {new Date(data.jobsComputedAt).toLocaleDateString('en-US')}
+                    </b>
+                    {stale(jtAge) && <b style={{ color: AMBER }}> · {Math.floor(jtAge)}d old</b>}
+                  </>
+                )}
+              </span>
+            );
+          })()}
           <button onClick={load} disabled={loading}
             className="flex items-center gap-2 px-3 py-1.5 rounded-lg text-sm disabled:opacity-50"
             style={{ border: `1px solid ${LINE}`, color: MUTED }}>
@@ -477,8 +495,10 @@ export default function CompanyFinancialsPage() {
 
           <p className="text-[11px] pt-1" style={{ color: MUTED }}>
             QuickBooks figures are a snapshot pushed in by a scheduled task (the Hub has no direct QuickBooks
-            connection) — as of {qb.asOf}. Job figures come from the Job Costing cache, so they match that page.
-            COGS = 4000 Direct Job Costs + 4500 Indirect Job Costs; overhead = all other expenses.
+            connection), refreshed nightly at 4 AM — as of {qb.asOf}. Job figures come from the Job Costing
+            snapshot, recomputed nightly at 5 AM, so they always match that page. A date shown in amber means
+            that refresh has not run recently. COGS = 4000 Direct Job Costs + 4500 Indirect Job Costs;
+            overhead = all other expenses.
           </p>
         </>
       )}

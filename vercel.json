@@ -59,6 +59,10 @@
   },
   "crons": [
     {
+      "path": "/api/cron/job-costing-refresh",
+      "schedule": "0 9 * * *"
+    },
+    {
       "path": "/api/cron/design-agent",
       "schedule": "0 6 * * *"
     },
