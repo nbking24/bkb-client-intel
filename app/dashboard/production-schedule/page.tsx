@@ -161,7 +161,18 @@ export default function ProductionSchedulePage() {
     finally { setLoading(false); setRefreshing(false); }
   }
 
-  const jobs = data?.jobs || [];
+  // Jobs A-Z by name (Nathan, 2026-09-09). The API returns them ordered by
+  // start date; alphabetical is what you want when scanning for a specific
+  // project. This single sort drives the filter chips, the Gantt rows, and
+  // the month-view band stacking, since all three read this array's order.
+  // Colors are assigned server-side by job number, so they stay stable.
+  const jobs = useMemo(
+    () => [...(data?.jobs || [])].sort((a, b) =>
+      (a.name || '').localeCompare(b.name || '', 'en', { sensitivity: 'base' }) ||
+      (a.number || '').localeCompare(b.number || '', 'en', { numeric: true }),
+    ),
+    [data],
+  );
   const isSelected = (id: string) => selected === null || selected.has(id);
   const shown = useMemo(() => jobs.filter((j) => isSelected(j.id)), [jobs, selected]);
 
