@@ -23,8 +23,9 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import {
   Loader2, RefreshCw, ExternalLink, CalendarDays, GanttChartSquare, ChevronLeft, ChevronRight,
-  AlertTriangle, X, Crosshair, Maximize2,
+  AlertTriangle, X, Crosshair, Maximize2, Lock, LockOpen, Eraser, Check,
 } from 'lucide-react';
+import { useAccess } from '../../hooks/useAccess';
 
 // ============================================================
 // Types
@@ -133,6 +134,9 @@ export default function ProductionSchedulePage() {
   const [capacity, setCapacity] = useState<number>(3);
   const [showBaseline, setShowBaseline] = useState(true);
   const [popup, setPopup] = useState<{ job: Job; m: Milestone } | null>(null);
+  const [baselineJob, setBaselineJob] = useState<Job | null>(null);
+  const { access } = useAccess();
+  const canWrite = !!access && (access.role === 'owner' || (access.features || []).includes('jt_write'));
   const [monthCursor, setMonthCursor] = useState<number>(() => { const t = todayIdx(); const d = idxToDate(t); return Math.floor(Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), 1) / DAY_MS); });
 
   useEffect(() => {
@@ -237,6 +241,12 @@ export default function ProductionSchedulePage() {
                         {j.slipDays > 0 ? `+${j.slipDays}d` : `${j.slipDays}d`}
                       </span>
                     )}
+                    {canWrite && (
+                      <span role="button" onClick={(e) => { e.stopPropagation(); setBaselineJob(j); }} title={j.hasBaseline ? 'Baseline locked — click to re-baseline or clear' : 'No baseline — click to lock one in'}
+                        style={{ display: 'inline-flex', alignItems: 'center', opacity: j.hasBaseline ? 0.95 : 0.55, marginLeft: 2 }}>
+                        {j.hasBaseline ? <Lock size={11} /> : <LockOpen size={11} />}
+                      </span>
+                    )}
                     {j.tentative && <span title={`Start anchor ${j.anchorDate ? fmtShort(j.anchorDate) : ''} is tentative`} style={{ fontSize: 10, fontWeight: 700, padding: '1px 5px', borderRadius: 999, background: on ? 'rgba(255,255,255,0.25)' : '#f3efe8', color: on ? '#fff' : MUTED, letterSpacing: 0.3 }}>TENTATIVE</span>}
                   </button>
                 );
@@ -245,7 +255,7 @@ export default function ProductionSchedulePage() {
           </div>
 
           {view === 'gantt' ? (
-            <Gantt jobs={shown} zoom={zoom} setZoom={setZoomP} capacity={capacity} setCapacity={setCapP} showBaseline={showBaseline} setShowBaseline={setShowBaseline} onPick={(job, m) => setPopup({ job, m })} />
+            <Gantt jobs={shown} zoom={zoom} setZoom={setZoomP} capacity={capacity} setCapacity={setCapP} showBaseline={showBaseline} setShowBaseline={setShowBaseline} onPick={(job, m) => setPopup({ job, m })} onBaseline={canWrite ? (job) => setBaselineJob(job) : null} />
           ) : (
             <MonthGrid jobs={shown} cursor={monthCursor} setCursor={setMonthCursor} capacity={capacity} onPick={(job, m) => setPopup({ job, m })} />
           )}
@@ -256,7 +266,8 @@ export default function ProductionSchedulePage() {
         </>
       )}
 
-      {popup && <MilestonePopup job={popup.job} m={popup.m} onClose={() => setPopup(null)} />}
+      {popup && <MilestonePopup job={popup.job} m={popup.m} onClose={() => setPopup(null)} onBaseline={canWrite ? () => { const j = popup.job; setPopup(null); setBaselineJob(j); } : null} />}
+      {baselineJob && <BaselineModal job={baselineJob} onClose={() => setBaselineJob(null)} onDone={() => { setBaselineJob(null); load(true); }} />}
       <style>{`@keyframes spin { to { transform: rotate(360deg); } }`}</style>
     </div>
   );
@@ -266,7 +277,7 @@ export default function ProductionSchedulePage() {
 // Gantt
 // ============================================================
 
-function Gantt({ jobs, zoom, setZoom, capacity, setCapacity, showBaseline, setShowBaseline, onPick }: any) {
+function Gantt({ jobs, zoom, setZoom, capacity, setCapacity, showBaseline, setShowBaseline, onPick, onBaseline }: any) {
   const px = ZOOMS[zoom as Zoom].px;
   const today = todayIdx();
   const scrollRef = useRef<HTMLDivElement>(null);
@@ -361,6 +372,11 @@ function Gantt({ jobs, zoom, setZoom, capacity, setCapacity, showBaseline, setSh
                   <span style={{ width: 10, height: 10, borderRadius: 3, background: job.color, flexShrink: 0 }} />
                   <span style={{ fontSize: 13, fontWeight: 700, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{job.number} · {job.name}</span>
                   <a href={job.jtUrl} target="_blank" rel="noopener noreferrer" title="Open schedule in JobTread" style={{ color: MUTED, lineHeight: 0, flexShrink: 0 }}><ExternalLink size={12} /></a>
+                  {onBaseline && (
+                    <button onClick={() => onBaseline(job)} title={job.hasBaseline ? 'Baseline locked — re-baseline or clear' : 'Lock in a baseline'} style={{ marginLeft: 'auto', border: `1px solid ${LINE}`, background: job.hasBaseline ? '#f3efe8' : '#fff', color: job.hasBaseline ? INK : MUTED, borderRadius: 6, padding: '1px 5px', fontSize: 10, cursor: 'pointer', display: 'inline-flex', alignItems: 'center', gap: 3, flexShrink: 0 }}>
+                      {job.hasBaseline ? <Lock size={10} /> : <LockOpen size={10} />}{job.hasBaseline ? 'Baseline' : 'No baseline'}
+                    </button>
+                  )}
                 </div>
                 <div style={{ fontSize: 11, color: MUTED, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
                   {fmtShort(job.start)} → {fmtShort(job.end)} · {job.milestoneCount} ms{job.projectManager ? ` · ${job.projectManager}` : ''}
@@ -528,7 +544,7 @@ function MonthGrid({ jobs, cursor, setCursor, capacity, onPick }: any) {
 // Popup
 // ============================================================
 
-function MilestonePopup({ job, m, onClose }: { job: Job; m: Milestone; onClose: () => void }) {
+function MilestonePopup({ job, m, onClose, onBaseline }: { job: Job; m: Milestone; onClose: () => void; onBaseline?: (() => void) | null }) {
   const s = dayIdx(m.start), e = dayIdx(m.end);
   const dur = s !== null && e !== null ? e - s + 1 : null;
   const slipEnd = m.baselineEnd && m.end ? (dayIdx(m.end)! - dayIdx(m.baselineEnd)!) : null;
@@ -553,7 +569,86 @@ function MilestonePopup({ job, m, onClose }: { job: Job; m: Milestone; onClose: 
           <div style={{ color: MUTED }}>Job window</div><div>{fmtShort(job.start)} → {fmtShort(job.end)}{job.tentative ? <span style={{ color: MUTED }}> · start tentative</span> : ''} · {job.completedMilestones}/{job.milestoneCount} milestones done{job.contractValue ? ` · ${money(job.contractValue)}` : ''}</div>
         </div>
         <div style={{ padding: '0 16px 16px', display: 'flex', gap: 8, justifyContent: 'flex-end' }}>
+          {onBaseline && <button onClick={onBaseline} style={btn()}>{job.hasBaseline ? <Lock size={13} /> : <LockOpen size={13} />} {job.hasBaseline ? 'Re-baseline / clear…' : 'Lock in baseline…'}</button>}
           <a href={job.jtUrl} target="_blank" rel="noopener noreferrer" style={{ ...btn(), textDecoration: 'none', color: INK }}><ExternalLink size={13} /> Open in JobTread</a>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ============================================================
+// Baseline modal — lock / re-baseline / clear via JobTread API
+// ============================================================
+
+function BaselineModal({ job, onClose, onDone }: { job: Job; onClose: () => void; onDone: () => void }) {
+  const [busy, setBusy] = useState<'capture' | 'clear' | null>(null);
+  const [result, setResult] = useState<{ ok: boolean; text: string } | null>(null);
+  const [confirmClear, setConfirmClear] = useState(false);
+
+  async function run(action: 'capture' | 'clear') {
+    setBusy(action); setResult(null);
+    try {
+      const res = await fetch('/api/dashboard/production-schedule/baseline', {
+        method: 'POST', headers: { 'Content-Type': 'application/json', Authorization: getAuthToken() },
+        body: JSON.stringify({ jobId: job.id, action }),
+      });
+      const json = await res.json();
+      if (!res.ok) throw new Error(json.error || `HTTP ${res.status}`);
+      setResult({ ok: true, text: action === 'capture'
+        ? `Baseline locked on ${json.milestones} milestone${json.milestones === 1 ? '' : 's'} (${json.stamp}).${json.skipped?.length ? ` Skipped undated: ${json.skipped.join(', ')}.` : ''}`
+        : `Baseline cleared (${json.stamp}).` });
+      setTimeout(onDone, 900);
+    } catch (e: any) {
+      setResult({ ok: false, text: e.message || 'Failed' });
+    } finally { setBusy(null); }
+  }
+
+  const slipTxt = job.slipDays === null ? null : job.slipDays === 0 ? 'currently on baseline' : job.slipDays > 0 ? `currently ${job.slipDays}d behind baseline` : `currently ${-job.slipDays}d ahead of baseline`;
+
+  return (
+    <div onClick={onClose} style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.35)', zIndex: 60, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 16 }}>
+      <div onClick={(ev) => ev.stopPropagation()} style={{ background: '#fff', borderRadius: 12, width: 'min(520px, 100%)', boxShadow: '0 20px 60px rgba(0,0,0,0.25)', overflow: 'hidden' }}>
+        <div style={{ background: job.color, color: '#fff', padding: '12px 16px', display: 'flex', alignItems: 'center', gap: 10 }}>
+          <div style={{ flex: 1, minWidth: 0 }}>
+            <div style={{ fontSize: 11, opacity: 0.85 }}>Production milestone baseline</div>
+            <div style={{ fontSize: 16, fontWeight: 700 }}>{job.number} · {job.name}</div>
+          </div>
+          <button onClick={onClose} style={{ background: 'rgba(255,255,255,0.2)', border: 0, color: '#fff', borderRadius: 6, padding: 4, cursor: 'pointer', lineHeight: 0 }}><X size={16} /></button>
+        </div>
+        <div style={{ padding: 16, fontSize: 13, display: 'grid', gap: 12 }}>
+          <div style={{ color: MUTED }}>
+            {job.hasBaseline
+              ? <>Baseline is <b style={{ color: INK }}>locked</b> ({fmtShort(job.baselineStart)} → {fmtShort(job.baselineEnd)}){slipTxt ? `, ${slipTxt}` : ''}. Current projection is {fmtShort(job.start)} → {fmtShort(job.end)}.</>
+              : <>No baseline captured yet. Current projection is {fmtShort(job.start)} → {fmtShort(job.end)} across {job.milestoneCount} milestones.</>}
+          </div>
+          <div style={{ display: 'grid', gap: 8 }}>
+            <button disabled={!!busy} onClick={() => run('capture')} style={{ ...btn(), justifyContent: 'flex-start', padding: '10px 12px', borderColor: MAROON, background: '#fff' }}>
+              {busy === 'capture' ? <Loader2 size={14} style={{ animation: 'spin 1s linear infinite' }} /> : <Lock size={14} />}
+              <span style={{ display: 'grid', textAlign: 'left' }}>
+                <b>{job.hasBaseline ? 'Re-baseline to current dates' : 'Lock in baseline'}</b>
+                <span style={{ fontSize: 11, color: MUTED }}>Copies each milestone's current start/end into its JobTread baseline. {job.hasBaseline ? 'Replaces the existing baseline — prior slip history is lost.' : ''}</span>
+              </span>
+            </button>
+            {job.hasBaseline && !confirmClear && (
+              <button disabled={!!busy} onClick={() => setConfirmClear(true)} style={{ ...btn(), justifyContent: 'flex-start', padding: '10px 12px' }}>
+                <Eraser size={14} />
+                <span style={{ display: 'grid', textAlign: 'left' }}>
+                  <b>Clear baseline</b>
+                  <span style={{ fontSize: 11, color: MUTED }}>Removes baseline dates from every milestone in this job's group.</span>
+                </span>
+              </button>
+            )}
+            {confirmClear && (
+              <div style={{ display: 'flex', gap: 8, alignItems: 'center', padding: '8px 12px', background: '#fdecec', border: '1px solid #f3b4b4', borderRadius: 7 }}>
+                <span style={{ flex: 1, fontSize: 12, color: '#8a1c1c' }}>Clear the baseline on {job.milestoneCount} milestones?</span>
+                <button disabled={!!busy} onClick={() => run('clear')} style={{ ...btn(true), background: '#a11', color: '#fff', borderColor: '#a11' }}>{busy === 'clear' ? <Loader2 size={12} style={{ animation: 'spin 1s linear infinite' }} /> : <Check size={12} />} Yes, clear</button>
+                <button disabled={!!busy} onClick={() => setConfirmClear(false)} style={btn(true)}>Cancel</button>
+              </div>
+            )}
+          </div>
+          {result && <div style={{ padding: '8px 10px', borderRadius: 7, fontSize: 12, background: result.ok ? '#e7f6ec' : '#fdecec', color: result.ok ? '#176b3a' : '#8a1c1c' }}>{result.text}</div>}
+          <div style={{ fontSize: 11, color: MUTED }}>Writes go straight to JobTread (baseline fields on each milestone task, a stamp in the group note, and a job comment). Only the 🤖 milestone group is touched.</div>
         </div>
       </div>
     </div>
