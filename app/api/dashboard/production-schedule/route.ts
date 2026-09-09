@@ -20,7 +20,11 @@
  *   2. org.tasks where parentTask.id in [...groupIds]  (paginated)
  *   (+ getActiveJobs() for Status / PM / contract value, run in parallel)
  *
- * Auth: validateAuth (Bearer user token). Read-only.
+ * Auth: validateAuth (Bearer user token). Read-only, with one
+ * self-healing exception: if a group note's "START ANCHOR: ..." line has
+ * drifted from the actual first-milestone start (milestones were moved),
+ * the route rewrites the note to match instead of nagging the operator
+ * with a warning. The milestones are the truth; the note is metadata.
  */
 
 import { NextRequest, NextResponse } from 'next/server';
@@ -44,6 +48,31 @@ const PALETTE = [
   '#68050a', '#1d4ed8', '#047857', '#b45309', '#6d28d9', '#be185d',
   '#0e7490', '#4d7c0f', '#9a3412', '#374151', '#7c2d12', '#0f766e',
 ];
+
+const WEEKDAYS = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
+
+/**
+ * Re-sync a group note's "START ANCHOR: <date> (<flags>)" line to the
+ * actual first-milestone start, preserving the parenthetical flags
+ * (TENTATIVE/FIRM + any trailing context). Same stamp format the
+ * reschedule endpoint writes. Returns true when an update was sent.
+ */
+async function resyncAnchorNote(groupId: string, desc: string, newStart: string): Promise<boolean> {
+  const re = /START ANCHOR:\s*(?:\w{3}\s+)?\d{4}-\d{2}-\d{2}\s*(?:\(([^)]*)\))?/i;
+  const m = re.exec(desc || '');
+  if (!m) return false;
+  const flags = (m[1] || '').trim();
+  const wd = WEEKDAYS[new Date(newStart + 'T12:00:00Z').getUTCDay()];
+  const next = (desc || '').replace(re, `START ANCHOR: ${wd} ${newStart}${flags ? ` (${flags})` : ''}`);
+  if (next === desc) return false;
+  await pave({
+    updateTask: {
+      $: { id: groupId, description: next.slice(0, 4096), notify: false },
+      task: { $: { id: groupId }, id: {} },
+    },
+  });
+  return true;
+}
 
 async function fetchGroups() {
   const data = await pave({
@@ -136,6 +165,7 @@ export async function GET(req: NextRequest) {
     // and flag it so the Claude task can clean it up.
     const jobsById: Record<string, any> = {};
     const warnings: string[] = [];
+    const anchorResyncs: { groupId: string; desc: string; newStart: string; jobId: string }[] = [];
     for (const g of groups) {
       const j = g.job;
       const existing = jobsById[j.id];
@@ -193,7 +223,12 @@ export async function GET(req: NextRequest) {
       job.baselineEnd = bEnds[bEnds.length - 1] || null;
       job.hasBaseline = job.milestones.some((m: any) => m.baselineStart && m.baselineEnd);
       if (job.anchorDate && job.start && job.anchorDate !== job.start) {
-        warnings.push(`${job.number} ${job.name}: group note says start anchor ${job.anchorDate} but first milestone starts ${job.start} — the Claude task should re-sync the note.`);
+        // Note drifted from reality (milestones were moved). Self-heal the
+        // note rather than surfacing a warning nobody can act on from the
+        // dashboard. Queued and awaited below so serverless doesn't kill
+        // the write mid-flight; failures are silent — worst case the note
+        // stays stale and gets retried on the next load.
+        anchorResyncs.push({ groupId: job.groupId, desc: job.groupNote || '', newStart: job.start, jobId: job.id });
       }
       const done = job.milestones.filter((m: any) => m.progress >= 1).length;
       job.completedMilestones = done;
@@ -218,6 +253,22 @@ export async function GET(req: NextRequest) {
     byNumber.forEach((j, i) => (j.color = PALETTE[i % PALETTE.length]));
 
     for (const j of jobs) j.jtUrl = `https://app.jobtread.com/jobs/${j.id}/schedule`;
+
+    // Self-heal drifted START ANCHOR notes (see comment above). Awaited so
+    // the writes complete before the function returns.
+    if (anchorResyncs.length) {
+      await Promise.allSettled(
+        anchorResyncs.map(async (r) => {
+          try {
+            await resyncAnchorNote(r.groupId, r.desc, r.newStart);
+            const j = jobs.find((x: any) => x.id === r.jobId);
+            if (j) j.anchorDate = r.newStart;
+          } catch (err: any) {
+            console.warn('[production-schedule] anchor note resync failed:', r.groupId, err?.message || err);
+          }
+        }),
+      );
+    }
 
     return NextResponse.json({
       generatedAt: new Date().toISOString(),
