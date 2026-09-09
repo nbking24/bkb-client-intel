@@ -30,6 +30,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { validateAuth } from '@/app/api/lib/auth';
 import { pave, getActiveJobs } from '@/app/lib/jobtread';
+import { getSupabase } from '@/app/api/lib/supabase';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -186,10 +187,15 @@ export async function GET(req: NextRequest) {
     const groups = rawGroups.filter((g: any) => g.job && !g.job.closedOn);
     const groupIds = groups.map((g: any) => g.id);
     const jobIdsForOrders = [...new Set(groups.map((g: any) => g.job.id))] as string[];
-    const [children, approvedByJob] = await Promise.all([
+    const [children, approvedByJob, manualRows] = await Promise.all([
       groupIds.length ? fetchChildren(groupIds) : Promise.resolve([]),
       fetchApprovedOrders(jobIdsForOrders).catch((e) => { console.warn('[production-schedule] approved orders failed', e); return {}; }),
+      jobIdsForOrders.length
+        ? getSupabase().from('production_sales_projections').select('job_id, projected_total, note, set_by, set_at').in('job_id', jobIdsForOrders).then((r) => r.data || []).catch(() => [])
+        : Promise.resolve([]),
     ]);
+    const manualByJob: Record<string, any> = {};
+    for (const r of manualRows as any[]) manualByJob[r.job_id] = r;
     const meta: Record<string, any> = {};
     for (const aj of activeJobs as any[]) meta[aj.id] = aj;
 
@@ -247,6 +253,10 @@ export async function GET(req: NextRequest) {
         contractName: approvedByJob[j.id]?.contractName || null,
         approvedDocs: approvedByJob[j.id]?.docs || 0,
         hasContract: !!approvedByJob[j.id]?.contract,
+        manualProjected: manualByJob[j.id] ? Number(manualByJob[j.id].projected_total) : null,
+        manualNote: manualByJob[j.id]?.note || null,
+        manualSetBy: manualByJob[j.id]?.set_by || null,
+        manualSetAt: manualByJob[j.id]?.set_at || null,
         groupId: g.id,
         groupName: g.name,
         groupNote: g.description || null,
@@ -271,12 +281,15 @@ export async function GET(req: NextRequest) {
       // contract exists. Otherwise projected. Sales value for BOTH classes is
       // the JobTread budget total (projectedPrice) — the current price of the
       // job including design fees, contract, approved COs and selections.
+      // A manual projected contract total (entered in the hub) is used only
+      // while there is no approved contract; once a contract exists the JT
+      // budget total takes over and the manual entry is shown as superseded.
       job.salesClass = job.hasContract ? 'approved' : 'projected';
-      job.salesValue = job.budgetTotal;
-      job.budgetNotBuilt = !job.hasContract && job.budgetTotal < 25000;
-      if (job.budgetNotBuilt) {
-        warnings.push(`${job.number} ${job.name}: no contract and the budget total is only $${Math.round(job.budgetTotal).toLocaleString()} — budget not built yet, so its projected sales are understated.`);
-      }
+      if (job.hasContract) { job.salesValue = job.budgetTotal; job.salesSource = 'contract'; }
+      else if (job.manualProjected !== null && job.manualProjected > 0) { job.salesValue = job.manualProjected; job.salesSource = 'manual'; }
+      else { job.salesValue = job.budgetTotal; job.salesSource = 'budget'; }
+      job.manualSuperseded = job.hasContract && job.manualProjected !== null;
+      job.budgetNotBuilt = !job.hasContract && job.salesSource === 'budget' && job.budgetTotal < 25000;
       if (job.anchorDate && job.start && job.anchorDate !== job.start) {
         // Note drifted from reality (milestones were moved). Self-heal the
         // note rather than surfacing a warning nobody can act on from the

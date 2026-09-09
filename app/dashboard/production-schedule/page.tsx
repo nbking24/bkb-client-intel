@@ -23,7 +23,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import {
   Loader2, RefreshCw, ExternalLink, CalendarDays, GanttChartSquare, ChevronLeft, ChevronRight,
-  AlertTriangle, X, Crosshair, Maximize2, Lock, LockOpen, Eraser, Check, CalendarClock, Link2, Link2Off, TrendingUp, ChevronDown, ChevronUp,
+  AlertTriangle, X, Crosshair, Maximize2, Lock, LockOpen, Eraser, Check, CalendarClock, Link2, Link2Off, TrendingUp, ChevronDown, ChevronUp, Pencil, DollarSign,
 } from 'lucide-react';
 import { useAccess } from '../../hooks/useAccess';
 
@@ -44,6 +44,7 @@ type Job = {
   hasBaseline: boolean; slipDays: number | null; tentative: boolean; anchorDate: string | null;
   linkedCount: number; linkableCount: number; fullyLinked: boolean;
   budgetTotal: number; contractPrice: number; contractName: string | null; hasContract: boolean; salesClass: 'approved' | 'projected'; salesValue: number; budgetNotBuilt: boolean;
+  salesSource: 'contract' | 'manual' | 'budget'; manualProjected: number | null; manualNote: string | null; manualSetBy: string | null; manualSetAt: string | null; manualSuperseded: boolean;
   milestoneCount: number; completedMilestones: number; milestones: Milestone[];
 };
 type Payload = {
@@ -268,7 +269,7 @@ export default function ProductionSchedulePage() {
             </div>
           </div>
 
-          <SalesOutlook allJobs={jobs} shownJobs={shown} />
+          <SalesOutlook allJobs={jobs} shownJobs={shown} canEdit={canWrite || access?.role === 'admin'} onChanged={() => load(true)} />
 
           {view === 'gantt' ? (
             <Gantt jobs={shown} zoom={zoom} setZoom={setZoomP} capacity={capacity} setCapacity={setCapP} showBaseline={showBaseline} setShowBaseline={setShowBaseline} onPick={(job, m) => setPopup({ job, m })} onBaseline={canWrite ? (job) => setBaselineJob(job) : null} />
@@ -327,7 +328,63 @@ function buildOutlook(jobs: Job[], today: number) {
   return { months, tot, rows, h6, h12 };
 }
 
-function SalesOutlook({ allJobs, shownJobs }: { allJobs: Job[]; shownJobs: Job[] }) {
+
+function ProjectionEditor({ job, canEdit, onChanged, wide }: { job: Job; canEdit: boolean; onChanged: () => void; wide?: boolean }) {
+  const [editing, setEditing] = useState(false);
+  const [val, setVal] = useState<string>(job.manualProjected ? String(Math.round(job.manualProjected)) : '');
+  const [busy, setBusy] = useState(false);
+  const [err, setErr] = useState<string | null>(null);
+  const BASE = '/api/dashboard/production-schedule/projection';
+
+  async function save() {
+    const n = Number(String(val).replace(/[^0-9.]/g, ''));
+    if (!Number.isFinite(n) || n <= 0) { setErr('Enter a dollar amount'); return; }
+    setBusy(true); setErr(null);
+    try {
+      const res = await fetch(BASE, { method: 'PUT', headers: { 'Content-Type': 'application/json', Authorization: getAuthToken() }, body: JSON.stringify({ jobId: job.id, projectedTotal: n }) });
+      const json = await res.json(); if (!res.ok) throw new Error(json.error || `HTTP ${res.status}`);
+      setEditing(false); onChanged();
+    } catch (e: any) { setErr(e.message); } finally { setBusy(false); }
+  }
+  async function clear() {
+    setBusy(true); setErr(null);
+    try {
+      const res = await fetch(`${BASE}?jobId=${encodeURIComponent(job.id)}`, { method: 'DELETE', headers: { Authorization: getAuthToken() } });
+      const json = await res.json(); if (!res.ok) throw new Error(json.error || `HTTP ${res.status}`);
+      setEditing(false); setVal(''); onChanged();
+    } catch (e: any) { setErr(e.message); } finally { setBusy(false); }
+  }
+
+  if (job.hasContract) {
+    return (
+      <span title={job.manualSuperseded ? `Your projection of ${moneyFull(job.manualProjected!)} was superseded by the approved contract` : 'JobTread budget total (contract approved)'}>
+        {moneyFull(job.salesValue)}
+        {job.manualSuperseded && <span style={{ fontSize: 10, color: MUTED, fontWeight: 500, marginLeft: 4, textDecoration: 'line-through' }}>{money(job.manualProjected!)}</span>}
+      </span>
+    );
+  }
+  if (editing) {
+    return (
+      <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4 }}>
+        <span style={{ color: MUTED, fontWeight: 500 }}>$</span>
+        <input autoFocus value={val} onChange={(e) => setVal(e.target.value)} onKeyDown={(e) => { if (e.key === 'Enter') save(); if (e.key === 'Escape') setEditing(false); }} placeholder={String(Math.round(job.budgetTotal))}
+          style={{ width: wide ? 140 : 96, padding: '3px 6px', border: `1px solid ${GOLD}`, borderRadius: 6, fontSize: 12, textAlign: 'right', fontVariantNumeric: 'tabular-nums' }} />
+        <button disabled={busy} onClick={save} title="Save" style={{ ...btn(true), padding: '3px 6px', background: MAROON, color: '#fff', borderColor: MAROON }}>{busy ? <Loader2 size={11} style={{ animation: 'spin 1s linear infinite' }} /> : <Check size={11} />}</button>
+        {job.manualProjected ? <button disabled={busy} onClick={clear} title="Clear entered projection (fall back to JobTread budget)" style={{ ...btn(true), padding: '3px 6px' }}><Eraser size={11} /></button> : null}
+        <button disabled={busy} onClick={() => setEditing(false)} title="Cancel" style={{ ...btn(true), padding: '3px 6px' }}><X size={11} /></button>
+        {err && <span style={{ color: '#a11', fontSize: 10, fontWeight: 500 }}>{err}</span>}
+      </span>
+    );
+  }
+  return (
+    <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }} title={job.salesSource === 'manual' ? `Entered by ${job.manualSetBy || '—'}${job.manualSetAt ? ' on ' + new Date(job.manualSetAt).toLocaleDateString() : ''} — replaced automatically when a contract is approved` : job.budgetNotBuilt ? 'No contract and the JobTread budget is only the design fee — enter a projected contract total' : 'JobTread budget total (no contract yet)'}>
+      <span style={{ color: job.salesSource === 'manual' ? '#8a6100' : job.budgetNotBuilt ? MUTED : INK }}>{moneyFull(job.salesValue)}</span>
+      {canEdit && <button onClick={() => { setVal(job.manualProjected ? String(Math.round(job.manualProjected)) : ''); setEditing(true); }} title="Enter / edit projected contract total" style={{ border: 0, background: job.budgetNotBuilt ? hexA(GOLD, 0.18) : 'transparent', color: job.budgetNotBuilt ? '#8a6100' : MUTED, borderRadius: 5, padding: '2px 5px', cursor: 'pointer', lineHeight: 0, display: 'inline-flex', alignItems: 'center', gap: 3, fontSize: 10, fontWeight: 700 }}><Pencil size={11} />{job.budgetNotBuilt ? 'enter' : ''}</button>}
+    </span>
+  );
+}
+
+function SalesOutlook({ allJobs, shownJobs, canEdit, onChanged }: { allJobs: Job[]; shownJobs: Job[]; canEdit: boolean; onChanged: () => void }) {
   const [open, setOpen] = useState(true);
   const [scope, setScope] = useState<'all' | 'selected'>('all');
   const [showJobs, setShowJobs] = useState(false);
@@ -356,7 +413,7 @@ function SalesOutlook({ allJobs, shownJobs }: { allJobs: Job[]; shownJobs: Job[]
       {open && (
         <div style={{ padding: 12, display: 'grid', gap: 14 }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap', fontSize: 12, color: MUTED }}>
-            <span>Each job's JobTread budget total is spread evenly across its production window. <b style={{ color: APPROVED }}>Approved</b> = a construction contract is approved. <b style={{ color: '#8a6100' }}>Projected</b> = no contract yet (conceptual / in-budget number).</span>
+            <span>Each job's value is spread evenly across its production window. <b style={{ color: APPROVED }}>Approved</b> = a construction contract is approved (value = JobTread budget total). <b style={{ color: '#8a6100' }}>Projected</b> = no contract yet — value is your entered projected contract total, or the JobTread budget if none entered. Entered projections retire automatically once a contract is approved.</span>
             <span style={{ flex: 1 }} />
             <Seg small options={[{ v: 'all', label: `All scheduled (${allJobs.length})` }, { v: 'selected', label: `Selected (${shownJobs.length})` }]} value={scope} onChange={(v: any) => { setScope(v); lsSet(LS_OUTLOOK_SCOPE, v); }} />
           </div>
@@ -433,8 +490,8 @@ function SalesOutlook({ allJobs, shownJobs }: { allJobs: Job[]; shownJobs: Job[]
                     {o.rows.sort((a: any, b: any) => (a.job.start || '').localeCompare(b.job.start || '')).map(({ job: j, m6, m12 }: any) => (
                       <tr key={j.id} style={{ borderTop: `1px solid ${LINE}` }}>
                         <td style={{ padding: '6px 8px', whiteSpace: 'nowrap' }}><span style={{ display: 'inline-block', width: 8, height: 8, borderRadius: 2, background: j.color, marginRight: 6 }} /><b>{j.number}</b> {j.name}</td>
-                        <td style={{ padding: '6px 8px' }}><span style={{ fontSize: 10, fontWeight: 700, padding: '2px 7px', borderRadius: 999, background: j.salesClass === 'approved' ? hexA(APPROVED, 0.1) : hexA(PROJECTED, 0.15), color: j.salesClass === 'approved' ? APPROVED : '#8a6100' }}>{j.salesClass === 'approved' ? 'CONTRACT' : j.budgetNotBuilt ? 'NO BUDGET' : 'PROJECTED'}</span></td>
-                        <td style={{ padding: '6px 8px', textAlign: 'right', fontWeight: 700, fontVariantNumeric: 'tabular-nums' }}>{moneyFull(j.salesValue)}{j.budgetNotBuilt && <span title="No contract and budget total is tiny — budget not built yet" style={{ color: '#a11', marginLeft: 4 }}>⚠</span>}</td>
+                        <td style={{ padding: '6px 8px' }}><span style={{ fontSize: 10, fontWeight: 700, padding: '2px 7px', borderRadius: 999, background: j.salesClass === 'approved' ? hexA(APPROVED, 0.1) : hexA(PROJECTED, 0.15), color: j.salesClass === 'approved' ? APPROVED : '#8a6100' }}>{j.salesClass === 'approved' ? 'CONTRACT' : j.salesSource === 'manual' ? 'PROJECTED · ENTERED' : j.budgetNotBuilt ? 'PROJECTED · NO BUDGET' : 'PROJECTED · BUDGET'}</span></td>
+                        <td style={{ padding: '6px 8px', textAlign: 'right', fontWeight: 700, fontVariantNumeric: 'tabular-nums', whiteSpace: 'nowrap' }}><ProjectionEditor job={j} canEdit={canEdit} onChanged={onChanged} /></td>
                         <td style={{ padding: '6px 8px', textAlign: 'right', color: MUTED, fontVariantNumeric: 'tabular-nums' }} title={j.contractName || ''}>{j.hasContract ? moneyFull(j.contractPrice) : '—'}</td>
                         <td style={{ padding: '6px 8px', whiteSpace: 'nowrap', color: MUTED }}>{fmtShort(j.start)} → {fmtShort(j.end)}</td>
                         <td style={{ padding: '6px 8px', textAlign: 'right', fontVariantNumeric: 'tabular-nums' }}>{moneyFull(m6)}</td>
@@ -831,6 +888,17 @@ function BaselineModal({ job, onClose, onDone }: { job: Job; onClose: () => void
               </div>
             )}
           </Card>
+
+          {/* PROJECTED CONTRACT TOTAL (no contract yet) */}
+          {!job.hasContract && (
+            <Card>
+              <H><DollarSign size={11} style={{ verticalAlign: -1 }} /> Projected contract total</H>
+              <div style={{ color: MUTED, marginBottom: 8 }}>
+                No approved contract yet. The Sales Outlook counts this job at {job.salesSource === 'manual' ? <>your entered projection</> : <>its JobTread budget total ({moneyFull(job.budgetTotal)}){job.budgetNotBuilt ? ' — which is just the design fee' : ''}</>}. Enter the expected contract value; it is replaced automatically the day a contract is approved in JobTread.
+              </div>
+              <div style={{ fontSize: 14 }}><ProjectionEditor job={job} canEdit={true} onChanged={onDone} wide /></div>
+            </Card>
+          )}
 
           {/* LINKS */}
           <Card>
