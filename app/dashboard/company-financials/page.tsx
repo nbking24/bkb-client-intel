@@ -80,77 +80,90 @@ function Delta({ current, prior, goodWhenUp = true, asPct = false, suffix = '' }
 // Monthly revenue + profit chart (inline SVG)
 // Bars = revenue, stacked cost/overhead shading, line = net margin %.
 // ============================================================
-function MonthlyChart({ months }) {
+function MonthlyChart({ months, asOf }) {
   if (!months || months.length === 0) return null;
-  const W = 900, H = 260, PADL = 58, PADR = 44, PADT = 18, PADB = 34;
+
+  // The current month is almost always partial (e.g. Sep 1-9), which makes
+  // its margin meaningless — a 9-day stub with one bad week reads as -880%
+  // and flattens every other month on the line. Mark it, keep its bar (the
+  // revenue is real), but leave it out of the margin line and the scale.
+  const asOfMonth = (asOf || '').slice(0, 7);
+  const rows = months.map((m) => ({ ...m, partial: m.month === asOfMonth }));
+  const full = rows.filter((m) => !m.partial);
+
+  const W = 900, H = 268, PADL = 58, PADR = 52, PADT = 18, PADB = 40;
   const plotW = W - PADL - PADR, plotH = H - PADT - PADB;
-  const maxRev = Math.max(...months.map((m) => m.revenue), 1);
-  const yMax = Math.ceil(maxRev / 100000) * 100000;
-  const bw = plotW / months.length;
+  const maxRev = Math.max(...rows.map((m) => m.revenue), 1);
+  const yMax = Math.ceil(maxRev / 100000) * 100000 || 100000;
+  const bw = plotW / rows.length;
   const barW = Math.min(46, bw * 0.6);
   const y = (v) => PADT + plotH - (v / yMax) * plotH;
 
-  // Net margin % line, clamped to a sensible band so one bad month doesn't
-  // flatten the rest of the series.
-  const margins = months.map((m) => (m.revenue > 0 ? (m.net / m.revenue) * 100 : 0));
-  const mMin = Math.min(-10, Math.floor(Math.min(...margins) / 10) * 10);
-  const mMax = Math.max(50, Math.ceil(Math.max(...margins) / 10) * 10);
-  const my = (v) => PADT + plotH - ((v - mMin) / (mMax - mMin)) * plotH;
+  // Margin axis scaled to the full months only, padded to a round band.
+  const marginOf = (m) => (m.revenue > 0 ? (m.net / m.revenue) * 100 : 0);
+  const fullMargins = full.map(marginOf);
+  const rawMin = fullMargins.length ? Math.min(...fullMargins) : 0;
+  const rawMax = fullMargins.length ? Math.max(...fullMargins) : 40;
+  const mMin = Math.min(0, Math.floor(rawMin / 10) * 10);
+  const mMax = Math.max(20, Math.ceil(rawMax / 10) * 10);
+  const my = (v) => PADT + plotH - ((Math.max(mMin, Math.min(mMax, v)) - mMin) / (mMax - mMin)) * plotH;
 
-  const label = (m) => {
-    const [yy, mm] = m.split('-');
-    return ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'][Number(mm) - 1];
-  };
+  // Four evenly spaced, de-duplicated ticks so labels never collide.
+  const ticks = Array.from(new Set([0, 1, 2, 3].map((i) => Math.round(mMin + ((mMax - mMin) * i) / 3))));
 
-  const linePts = months.map((m, i) => `${PADL + i * bw + bw / 2},${my(margins[i])}`).join(' ');
+  const MON = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+  const label = (mm) => MON[Number(mm.split('-')[1]) - 1];
+
+  // Line spans the full months only (contiguous from January).
+  const linePts = rows
+    .map((m, i) => (m.partial ? null : `${PADL + i * bw + bw / 2},${my(marginOf(m))}`))
+    .filter(Boolean)
+    .join(' ');
 
   return (
     <div style={{ overflowX: 'auto' }}>
       <svg viewBox={`0 0 ${W} ${H}`} style={{ width: '100%', minWidth: 620, height: 'auto', display: 'block' }} role="img"
-        aria-label="Monthly revenue with cost of goods and net margin">
-        {/* horizontal gridlines + revenue axis */}
+        aria-label="Monthly revenue with job costs, overhead and net margin">
         {[0, 0.25, 0.5, 0.75, 1].map((f) => (
           <g key={f}>
             <line x1={PADL} x2={W - PADR} y1={y(yMax * f)} y2={y(yMax * f)} stroke={LINE} strokeWidth="1" />
-            <text x={PADL - 8} y={y(yMax * f) + 4} textAnchor="end" fontSize="10" fill={MUTED}>
-              {moneyK(yMax * f)}
-            </text>
+            <text x={PADL - 8} y={y(yMax * f) + 4} textAnchor="end" fontSize="10" fill={MUTED}>{moneyK(yMax * f)}</text>
           </g>
         ))}
-        {/* zero line for the margin axis when it dips negative */}
         {mMin < 0 && (
-          <line x1={PADL} x2={W - PADR} y1={my(0)} y2={my(0)} stroke="rgba(185,28,28,0.25)" strokeWidth="1" strokeDasharray="3 3" />
+          <line x1={PADL} x2={W - PADR} y1={my(0)} y2={my(0)} stroke="rgba(185,28,28,0.22)" strokeWidth="1" strokeDasharray="3 3" />
         )}
 
-        {months.map((m, i) => {
+        {rows.map((m, i) => {
           const cx = PADL + i * bw + bw / 2;
-          const cogsH = m.revenue > 0 ? (m.cogs / yMax) * plotH : 0;
-          const ohH = m.revenue > 0 ? (m.overhead / yMax) * plotH : 0;
+          const cogsH = (m.cogs / yMax) * plotH;
+          const ohH = (m.overhead / yMax) * plotH;
           const revH = (m.revenue / yMax) * plotH;
           return (
-            <g key={m.month}>
-              {/* revenue bar outline */}
+            <g key={m.month} opacity={m.partial ? 0.55 : 1}>
               <rect x={cx - barW / 2} y={y(m.revenue)} width={barW} height={Math.max(0, revH)}
-                fill="rgba(200,140,0,0.14)" stroke="rgba(200,140,0,0.45)" strokeWidth="1" rx="2" />
-              {/* cost stack from the bottom: COGS then overhead */}
+                fill="rgba(200,140,0,0.14)" stroke="rgba(200,140,0,0.45)" strokeWidth="1"
+                strokeDasharray={m.partial ? '3 2' : undefined} rx="2" />
               <rect x={cx - barW / 2} y={PADT + plotH - cogsH} width={barW} height={Math.max(0, cogsH)}
                 fill="rgba(29,78,216,0.55)" rx="1" />
               <rect x={cx - barW / 2} y={PADT + plotH - cogsH - ohH} width={barW} height={Math.max(0, ohH)}
                 fill="rgba(161,98,7,0.55)" rx="1" />
               <text x={cx} y={H - PADB + 14} textAnchor="middle" fontSize="10" fill={MUTED}>{label(m.month)}</text>
-              <title>{`${m.month}\nRevenue ${money(m.revenue)}\nCOGS ${money(m.cogs)}\nOverhead ${money(m.overhead)}\nNet ${money(m.net)} (${pct(m.revenue > 0 ? (m.net / m.revenue) * 100 : 0)})`}</title>
+              {m.partial && (
+                <text x={cx} y={H - PADB + 25} textAnchor="middle" fontSize="8" fill={MUTED}>partial</text>
+              )}
+              <title>{`${m.month}${m.partial ? ' (month in progress)' : ''}\nRevenue ${money(m.revenue)}\nJob costs ${money(m.cogs)}\nOverhead ${money(m.overhead)}\nNet ${money(m.net)}${m.partial ? '' : ` (${pct(marginOf(m))})`}`}</title>
             </g>
           );
         })}
 
-        {/* net margin line */}
-        <polyline points={linePts} fill="none" stroke={GREEN} strokeWidth="2" />
-        {months.map((m, i) => (
-          <circle key={m.month} cx={PADL + i * bw + bw / 2} cy={my(margins[i])} r="3" fill="#fff" stroke={GREEN} strokeWidth="2" />
-        ))}
-        {/* right axis for margin */}
-        {[mMin, 0, mMax / 2, mMax].filter((v, i, a) => a.indexOf(v) === i).map((v) => (
-          <text key={v} x={W - PADR + 8} y={my(v) + 4} fontSize="10" fill={GREEN}>{v.toFixed(0)}%</text>
+        {linePts && <polyline points={linePts} fill="none" stroke={GREEN} strokeWidth="2" />}
+        {rows.map((m, i) => (m.partial ? null : (
+          <circle key={m.month} cx={PADL + i * bw + bw / 2} cy={my(marginOf(m))} r="3"
+            fill="#fff" stroke={GREEN} strokeWidth="2" />
+        )))}
+        {ticks.map((v) => (
+          <text key={v} x={W - PADR + 8} y={my(v) + 4} fontSize="10" fill={GREEN}>{v}%</text>
         ))}
       </svg>
       <div style={{ display: 'flex', gap: 14, flexWrap: 'wrap', fontSize: 11, color: MUTED, paddingLeft: 6, marginTop: 2 }}>
@@ -158,6 +171,7 @@ function MonthlyChart({ months }) {
         <Legend color="rgba(29,78,216,0.55)" label="Job costs (COGS)" />
         <Legend color="rgba(161,98,7,0.55)" label="Overhead" />
         <Legend color={GREEN} label="Net margin % (right axis)" line />
+        {rows.some((m) => m.partial) && <span>Faded bar = month still in progress, left out of the margin line.</span>}
       </div>
     </div>
   );
@@ -375,7 +389,7 @@ export default function CompanyFinancialsPage() {
           {/* ---------- monthly trend ---------- */}
           {qb.months?.length > 0 && (
             <Section title="Revenue and profit by month" note="Bars are revenue with job costs and overhead stacked inside; the green line is net margin.">
-              <MonthlyChart months={qb.months} />
+              <MonthlyChart months={qb.months} asOf={qb.asOf} />
             </Section>
           )}
 
