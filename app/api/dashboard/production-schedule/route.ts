@@ -99,6 +99,7 @@ async function fetchChildren(groupIds: string[]) {
             progress: {},
             taskType: { id: {}, name: {}, color: {} },
             parentTask: { id: {} },
+            taskDependencies: { nodes: { dependsOnTask: { id: {} } } },
           },
         },
       },
@@ -151,6 +152,7 @@ export async function GET(req: NextRequest) {
         baselineEnd: c.baselineEndDate || null,
         progress: typeof c.progress === 'number' ? c.progress : 0,
         taskType: c.taskType?.name || null,
+        dependsOn: (c.taskDependencies?.nodes || []).map((d: any) => d.dependsOnTask?.id).filter(Boolean),
       }));
       if (existing) {
         warnings.push(`${j.number} ${j.name}: more than one milestone group found — merged.`);
@@ -196,6 +198,12 @@ export async function GET(req: NextRequest) {
       const done = job.milestones.filter((m: any) => m.progress >= 1).length;
       job.completedMilestones = done;
       job.milestoneCount = job.milestones.length;
+      // Dependency links inside the group: every milestone but the anchor should have one.
+      const idSet = new Set(job.milestones.map((m: any) => m.id));
+      const dated = job.milestones.filter((m: any) => m.start && m.end);
+      job.linkedCount = dated.filter((m: any, i: number) => i > 0 && (m.dependsOn || []).some((d: string) => idSet.has(d))).length;
+      job.linkableCount = Math.max(0, dated.length - 1);
+      job.fullyLinked = job.linkableCount > 0 && job.linkedCount === job.linkableCount;
       // Slip in days of the projected completion vs baseline completion (positive = late).
       job.slipDays =
         job.hasBaseline && job.end && job.baselineEnd
