@@ -46,6 +46,7 @@ export const DASHBOARDS: DashboardDef[] = [
   { id: 'overview',    label: 'Overview',         href: '/dashboard',             icon: 'LayoutDashboard', description: 'Personalized home: tasks, calendar, KPIs' },
   { id: 'precon',      label: 'Pre-Construction', href: '/dashboard/precon',      icon: 'FolderKanban',    description: 'Schedule / phase tracker' },
   { id: 'production-schedule', label: 'Production Schedule', href: '/dashboard/production-schedule', icon: 'GanttChartSquare', description: 'Cross-job milestone timeline + workload from the Claude-managed production milestones' },
+  { id: 'company-financials', label: 'Company Financials', href: '/dashboard/company-financials', icon: 'Landmark', ownerOnly: true, description: 'Whole-company P&L: YTD vs prior years + goal, profitability, overhead tracking, cash position, and per-job profitability (QuickBooks snapshot + JobTread)' },
   { id: 'invoicing',   label: 'Invoicing',        href: '/dashboard/invoicing',   icon: 'DollarSign',      description: 'Invoicing health + AR' },
   { id: 'job-costing', label: 'Job Costing',      href: '/dashboard/job-costing', icon: 'BarChart3',       description: 'Per-job cost analysis' },
   { id: 'bill-review', label: 'Bill Review',      href: '/dashboard/bill-review', icon: 'Receipt',         description: 'Bill categorization queue' },

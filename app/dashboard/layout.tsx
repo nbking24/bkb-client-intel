@@ -8,6 +8,7 @@ import {
   LayoutDashboard, FolderKanban, Menu, X, ChevronRight,
   DollarSign, Calculator, MessageSquare, ClipboardList, LogOut, Users, FileText, BarChart3,
   Megaphone, Bug, Receipt, Shield, Mic, Type, BookOpen, ClipboardCheck, GanttChartSquare, Briefcase,
+  Landmark,
 } from 'lucide-react';
 import { useAuth } from '../hooks/useAuth';
 import { useAccess, clearAccessCache } from '../hooks/useAccess';
@@ -19,6 +20,7 @@ import TicketReporter from './components/TicketReporter';
 const ICON_MAP: Record<string, any> = {
   LayoutDashboard, Users, FolderKanban, Calculator, DollarSign, BarChart3,
   Receipt, FileText, Megaphone, Bug, ClipboardList, Shield, Mic, Type, BookOpen, ClipboardCheck, GanttChartSquare, Briefcase,
+  Landmark,
 };
 
 // Build the nav from a user's allowed dashboard ids, in registry order.
