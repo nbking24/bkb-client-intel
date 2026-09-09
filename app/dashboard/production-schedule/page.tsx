@@ -115,7 +115,7 @@ const MAROON = '#68050a', GOLD = '#c88c00', BG = '#faf8f5', INK = '#1f1a17', MUT
 const ZOOMS = { day: { px: 22, label: 'Day' }, week: { px: 9, label: 'Week' }, month: { px: 3.2, label: 'Month' } } as const;
 type Zoom = keyof typeof ZOOMS;
 const NAME_COL = 230;
-const LANE_PX = 18, LANE_GAP = 3, ROW_PAD = 8, MIN_ROW = 46;
+const LANE_PX = 18, LANE_GAP = 3, ROW_PAD = 8, MIN_ROW = 52;
 const LS_JOBS = 'bkb-prodsched-jobs', LS_CAP = 'bkb-prodsched-capacity', LS_VIEW = 'bkb-prodsched-view', LS_ZOOM = 'bkb-prodsched-zoom';
 
 // ============================================================
