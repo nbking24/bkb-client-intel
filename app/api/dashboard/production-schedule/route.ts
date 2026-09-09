@@ -138,6 +138,9 @@ export async function GET(req: NextRequest) {
     for (const g of groups) {
       const j = g.job;
       const existing = jobsById[j.id];
+      // "START ANCHOR: Mon 2026-09-28 (TENTATIVE ...)" written by the Claude task.
+      const am = /START ANCHOR:\s*(?:\w{3}\s+)?(\d{4}-\d{2}-\d{2})\s*(?:\(([^)]*)\))?/i.exec(g.description || '');
+      const anchor = am ? { date: am[1], tentative: /tentative/i.test(am[2] || '') } : null;
       const milestones = (byGroup[g.id] || []).map((c: any) => ({
         id: c.id,
         name: c.name,
@@ -170,7 +173,8 @@ export async function GET(req: NextRequest) {
         groupId: g.id,
         groupName: g.name,
         groupNote: g.description || null,
-        tentative: /tentative/i.test(`${g.description || ''} ${milestones.map((m) => m.description || '').join(' ')}`),
+        anchorDate: anchor?.date || null,
+        tentative: anchor ? anchor.tentative : /tentative/i.test(g.description || ''),
         milestones,
       };
     }
@@ -186,6 +190,9 @@ export async function GET(req: NextRequest) {
       job.baselineStart = bStarts[0] || null;
       job.baselineEnd = bEnds[bEnds.length - 1] || null;
       job.hasBaseline = job.milestones.some((m: any) => m.baselineStart && m.baselineEnd);
+      if (job.anchorDate && job.start && job.anchorDate !== job.start) {
+        warnings.push(`${job.number} ${job.name}: group note says start anchor ${job.anchorDate} but first milestone starts ${job.start} — the Claude task should re-sync the note.`);
+      }
       const done = job.milestones.filter((m: any) => m.progress >= 1).length;
       job.completedMilestones = done;
       job.milestoneCount = job.milestones.length;

@@ -40,7 +40,7 @@ type Job = {
   id: string; number: string; name: string; clientName: string; status: string | null;
   projectManager: string | null; contractValue: number; color: string; jtUrl: string;
   start: string | null; end: string | null; baselineStart: string | null; baselineEnd: string | null;
-  hasBaseline: boolean; slipDays: number | null; tentative: boolean;
+  hasBaseline: boolean; slipDays: number | null; tentative: boolean; anchorDate: string | null;
   milestoneCount: number; completedMilestones: number; milestones: Milestone[];
 };
 type Payload = {
@@ -115,7 +115,7 @@ const MAROON = '#68050a', GOLD = '#c88c00', BG = '#faf8f5', INK = '#1f1a17', MUT
 const ZOOMS = { day: { px: 22, label: 'Day' }, week: { px: 9, label: 'Week' }, month: { px: 3.2, label: 'Month' } } as const;
 type Zoom = keyof typeof ZOOMS;
 const NAME_COL = 230;
-const LANE_PX = 18, LANE_GAP = 3, ROW_PAD = 8;
+const LANE_PX = 18, LANE_GAP = 3, ROW_PAD = 8, MIN_ROW = 46;
 const LS_JOBS = 'bkb-prodsched-jobs', LS_CAP = 'bkb-prodsched-capacity', LS_VIEW = 'bkb-prodsched-view', LS_ZOOM = 'bkb-prodsched-zoom';
 
 // ============================================================
@@ -237,7 +237,7 @@ export default function ProductionSchedulePage() {
                         {j.slipDays > 0 ? `+${j.slipDays}d` : `${j.slipDays}d`}
                       </span>
                     )}
-                    {j.tentative && <span style={{ fontSize: 10, opacity: 0.8 }}>(tent.)</span>}
+                    {j.tentative && <span title={`Start anchor ${j.anchorDate ? fmtShort(j.anchorDate) : ''} is tentative`} style={{ fontSize: 10, fontWeight: 700, padding: '1px 5px', borderRadius: 999, background: on ? 'rgba(255,255,255,0.25)' : '#f3efe8', color: on ? '#fff' : MUTED, letterSpacing: 0.3 }}>TENTATIVE</span>}
                   </button>
                 );
               })}
@@ -309,7 +309,7 @@ function Gantt({ jobs, zoom, setZoom, capacity, setCapacity, showBaseline, setSh
     const items = j.milestones.map((m) => ({ m, s: dayIdx(m.start) ?? 0, e: dayIdx(m.end) ?? dayIdx(m.start) ?? 0 })).filter((it) => it.s);
     const laned = assignLanes(items);
     const lanes = Math.max(1, ...laned.map((l) => l.lane + 1));
-    return { job: j, laned, lanes, height: lanes * (LANE_PX + LANE_GAP) - LANE_GAP + ROW_PAD * 2 + (showBaseline && j.hasBaseline ? 6 : 0) };
+    return { job: j, laned, lanes, height: Math.max(MIN_ROW, lanes * (LANE_PX + LANE_GAP) - LANE_GAP + ROW_PAD * 2 + (showBaseline && j.hasBaseline ? 6 : 0)) };
   }), [jobs, showBaseline]);
 
   const scrollToToday = () => { const el = scrollRef.current; if (el) el.scrollLeft = Math.max(0, x(today) - el.clientWidth * 0.3); };
@@ -550,7 +550,7 @@ function MilestonePopup({ job, m, onClose }: { job: Job; m: Milestone; onClose: 
           {slipEnd !== null && (<><div style={{ color: MUTED }}>Slip</div><div style={{ fontWeight: 700, color: slipEnd > 0 ? '#a11' : slipEnd < 0 ? '#176b3a' : INK }}>{slipEnd === 0 && slipStart === 0 ? 'On baseline' : `Start ${slipStart! > 0 ? '+' : ''}${slipStart}d · Finish ${slipEnd > 0 ? '+' : ''}${slipEnd}d`}</div></>)}
           <div style={{ color: MUTED }}>Progress</div><div>{Math.round((m.progress || 0) * 100)}%{m.taskType ? <span style={{ color: MUTED }}> · {m.taskType}</span> : null}</div>
           {m.description && (<><div style={{ color: MUTED }}>Notes</div><div style={{ whiteSpace: 'pre-wrap' }}>{m.description}</div></>)}
-          <div style={{ color: MUTED }}>Job window</div><div>{fmtShort(job.start)} → {fmtShort(job.end)} · {job.completedMilestones}/{job.milestoneCount} milestones done{job.contractValue ? ` · ${money(job.contractValue)}` : ''}</div>
+          <div style={{ color: MUTED }}>Job window</div><div>{fmtShort(job.start)} → {fmtShort(job.end)}{job.tentative ? <span style={{ color: MUTED }}> · start tentative</span> : ''} · {job.completedMilestones}/{job.milestoneCount} milestones done{job.contractValue ? ` · ${money(job.contractValue)}` : ''}</div>
         </div>
         <div style={{ padding: '0 16px 16px', display: 'flex', gap: 8, justifyContent: 'flex-end' }}>
           <a href={job.jtUrl} target="_blank" rel="noopener noreferrer" style={{ ...btn(), textDecoration: 'none', color: INK }}><ExternalLink size={13} /> Open in JobTread</a>
