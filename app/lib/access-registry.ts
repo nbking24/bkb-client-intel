@@ -45,6 +45,7 @@ export interface WidgetDef {
 export const DASHBOARDS: DashboardDef[] = [
   { id: 'overview',    label: 'Overview',         href: '/dashboard',             icon: 'LayoutDashboard', description: 'Personalized home: tasks, calendar, KPIs' },
   { id: 'precon',      label: 'Pre-Construction', href: '/dashboard/precon',      icon: 'FolderKanban',    description: 'Schedule / phase tracker' },
+  { id: 'production-schedule', label: 'Production Schedule', href: '/dashboard/production-schedule', icon: 'GanttChartSquare', description: 'Cross-job milestone timeline + workload from the Claude-managed production milestones' },
   { id: 'invoicing',   label: 'Invoicing',        href: '/dashboard/invoicing',   icon: 'DollarSign',      description: 'Invoicing health + AR' },
   { id: 'job-costing', label: 'Job Costing',      href: '/dashboard/job-costing', icon: 'BarChart3',       description: 'Per-job cost analysis' },
   { id: 'bill-review', label: 'Bill Review',      href: '/dashboard/bill-review', icon: 'Receipt',         description: 'Bill categorization queue' },
