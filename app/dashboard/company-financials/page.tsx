@@ -235,8 +235,36 @@ export default function CompanyFinancialsPage() {
     const elapsed = (asOf.getTime() - yearStart) / (yearEnd - yearStart);
     const runRate = elapsed > 0 ? y.revenue / elapsed : null;
     const goal = qb.goal || null;
+
+    // Year-end projection. Straight-line from COMPLETE months only: the
+    // current month is partial (e.g. Sep 1-9 is 9 days of revenue against a
+    // full month of overhead), and including it drags the estimate down by
+    // ~$159K on the 2026-09-09 data. Falls back to the day-based run rate
+    // in early January when no month has closed yet.
+    const asOfMonth = (qb.asOf || '').slice(0, 7);
+    const fullMonths = (qb.months || []).filter((m) => m.month !== asOfMonth);
+    let projected = null;
+    if (fullMonths.length > 0) {
+      const f = 12 / fullMonths.length;
+      const sum = (k) => fullMonths.reduce((a, m) => a + (Number(m[k]) || 0), 0);
+      projected = {
+        basis: 'months',
+        monthsComplete: fullMonths.length,
+        revenue: sum('revenue') * f,
+        cogs: sum('cogs') * f,
+        overhead: sum('overhead') * f,
+        netIncome: sum('net') * f,
+      };
+    } else if (runRate) {
+      projected = {
+        basis: 'days', monthsComplete: 0,
+        revenue: runRate,
+        cogs: y.cogs / elapsed, overhead: y.overhead / elapsed, netIncome: y.netIncome / elapsed,
+      };
+    }
+
     return {
-      y, p, gp, pgp, draws, elapsed, runRate, goal,
+      y, p, gp, pgp, draws, elapsed, runRate, goal, projected,
       gpPct: ratioPct(gp, y.revenue),
       pgpPct: p ? ratioPct(pgp, p.revenue) : null,
       cogsPct: ratioPct(y.cogs, y.revenue),
@@ -368,21 +396,34 @@ export default function CompanyFinancialsPage() {
                   </span>
                 </p>
               )}
-              {d.runRate && d.goal?.revenue ? (
+              {d.projected ? (
                 <p>
-                  Pace: {(d.elapsed * 100).toFixed(0)}% through the year, revenue run-rate{' '}
-                  <b style={{ color: INK }}>{moneyK(d.runRate)}</b> vs goal{' '}
-                  <b style={{ color: INK }}>{moneyK(d.goal.revenue)}</b>{' '}
-                  <b style={{ color: d.runRate >= d.goal.revenue ? GREEN : RED }}>
-                    ({d.runRate >= d.goal.revenue ? '+' : ''}{moneyK(d.runRate - d.goal.revenue)})
-                  </b>
+                  Pace: {(d.elapsed * 100).toFixed(0)}% through the year. At this rate the year ends near{' '}
+                  <b style={{ color: INK }}>{moneyK(d.projected.revenue)}</b> revenue and{' '}
+                  <b style={{ color: d.projected.netIncome >= 0 ? GREEN : RED }}>{moneyK(d.projected.netIncome)}</b> net
+                  {d.goal?.revenue ? (
+                    <>
+                      {' '}vs goal <b style={{ color: INK }}>{moneyK(d.goal.revenue)}</b>{' '}
+                      <b style={{ color: d.projected.revenue >= d.goal.revenue ? GREEN : RED }}>
+                        ({d.projected.revenue >= d.goal.revenue ? '+' : ''}{moneyK(d.projected.revenue - d.goal.revenue)})
+                      </b>
+                    </>
+                  ) : null}
+                  <span style={{ color: MUTED }}>
+                    {' '}Straight-line from {d.projected.basis === 'months'
+                      ? `${d.projected.monthsComplete} complete month${d.projected.monthsComplete === 1 ? '' : 's'}`
+                      : 'days elapsed'}.
+                  </span>
                 </p>
               ) : null}
             </div>
           </div>
 
           {/* ---------- year over year ---------- */}
-          <Section title="Year over year" note="Full prior years from QuickBooks, this year to date, and the 2026 goal.">
+          <Section
+            title="Year over year"
+            note={`Full prior years from QuickBooks, this year to date, the year-end projection${d.projected ? ` (straight-line from ${d.projected.monthsComplete} complete month${d.projected.monthsComplete === 1 ? '' : 's'}, so the part-finished month does not drag it down)` : ''}, and the ${qb.goal?.year || ''} goal.`}
+          >
             <YoyTable qb={qb} d={d} />
           </Section>
 
@@ -478,6 +519,15 @@ function YoyTable({ qb, d }) {
   }
   if (d.p) cols.push({ key: 'pytd', label: `${new Date(d.p.periodEnd).getUTCFullYear()} YTD`, sub: 'same window', data: d.p, dim: true });
   cols.push({ key: 'ytd', label: `${qb.fiscalYear} YTD`, sub: 'current', data: d.y, highlight: true });
+  if (d.projected) {
+    cols.push({
+      key: 'proj',
+      label: `${qb.fiscalYear} projected`,
+      sub: d.projected.basis === 'months' ? `${d.projected.monthsComplete} mo run rate` : 'run rate',
+      data: d.projected,
+      projected: true,
+    });
+  }
   if (qb.goal) cols.push({ key: 'goal', label: `${qb.goal.year} goal`, sub: 'target', data: qb.goal, goal: true });
 
   const rows = [
@@ -497,9 +547,9 @@ function YoyTable({ qb, d }) {
             {cols.map((c) => (
               <th key={c.key} className="text-right" style={{
                 padding: '6px 8px', fontSize: 11, fontWeight: 700,
-                color: c.highlight ? GOLD_DK : c.goal ? BLUE : c.dim ? MUTED : INK,
+                color: c.highlight ? GOLD_DK : c.goal ? BLUE : c.projected ? '#6d28d9' : c.dim ? MUTED : INK,
                 borderBottom: `1px solid ${LINE}`,
-                background: c.highlight ? 'rgba(200,140,0,0.05)' : undefined,
+                background: c.highlight ? 'rgba(200,140,0,0.05)' : c.projected ? 'rgba(124,58,237,0.05)' : undefined,
               }}>
                 {c.label}
                 <div style={{ fontWeight: 400, color: MUTED, fontSize: 10 }}>{c.sub}</div>
@@ -516,17 +566,27 @@ function YoyTable({ qb, d }) {
               {cols.map((c) => {
                 const v = r.get(c.data);
                 const p = r.pctOf ? ratioPct(v, c.data.revenue) : null;
+                // On the projected column, flag the gap to goal for the two
+                // rows that drive the conversation: revenue and net profit.
+                const gap = c.projected && qb.goal && (r.label === 'Revenue' || r.strong)
+                  ? v - r.get(qb.goal) : null;
                 return (
                   <td key={c.key} className="text-right" style={{
                     padding: '7px 8px', borderBottom: `1px solid rgba(200,140,0,0.06)`,
-                    background: c.highlight ? 'rgba(200,140,0,0.05)' : undefined,
+                    background: c.highlight ? 'rgba(200,140,0,0.05)' : c.projected ? 'rgba(124,58,237,0.05)' : undefined,
                     color: c.dim ? MUTED : INK, fontWeight: r.strong ? 700 : 400,
-                  }}>
+                  }}
+                    title={gap != null ? `${money(gap)} vs goal` : undefined}>
                     <span style={{ fontVariantNumeric: 'tabular-nums' }}>{moneyK(v)}</span>
                     {p != null && (
                       <span style={{ color: MUTED, fontSize: 11, marginLeft: 5, fontVariantNumeric: 'tabular-nums' }}>
                         {pct(p, 0)}
                       </span>
+                    )}
+                    {gap != null && (
+                      <div style={{ fontSize: 10, fontWeight: 600, color: gap >= 0 ? GREEN : RED, fontVariantNumeric: 'tabular-nums' }}>
+                        {gap >= 0 ? '+' : ''}{moneyK(gap)} vs goal
+                      </div>
                     )}
                   </td>
                 );
