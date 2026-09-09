@@ -17,15 +17,15 @@
  *
  * Only two PAVE round-trips regardless of job count:
  *   1. org.tasks where isGroup = true AND name like '%PRODUCTION MILESTONES%'
- *      (with job metadata + custom fields inline)
  *   2. org.tasks where parentTask.id in [...groupIds]  (paginated)
+ *   (+ getActiveJobs() for Status / PM / contract value, run in parallel)
  *
  * Auth: validateAuth (Bearer user token). Read-only.
  */
 
 import { NextRequest, NextResponse } from 'next/server';
 import { validateAuth } from '@/app/api/lib/auth';
-import { pave } from '@/app/lib/jobtread';
+import { pave, getActiveJobs } from '@/app/lib/jobtread';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -45,13 +45,6 @@ const PALETTE = [
   '#0e7490', '#4d7c0f', '#9a3412', '#374151', '#7c2d12', '#0f766e',
 ];
 
-function cf(job: any, name: string): string | null {
-  const hit = (job?.customFieldValues?.nodes || []).find(
-    (n: any) => (n.customField?.name || '').toLowerCase() === name.toLowerCase()
-  );
-  return hit?.value ?? null;
-}
-
 async function fetchGroups() {
   const data = await pave({
     organization: {
@@ -70,16 +63,9 @@ async function fetchGroups() {
           baselineEndDate: {},
           progress: {},
           description: {},
-          job: {
-            id: {},
-            name: {},
-            number: {},
-            closedOn: {},
-            priceType: {},
-            projectedPrice: {},
-            location: { name: {}, account: { name: {} } },
-            customFieldValues: { nodes: { value: {}, customField: { name: {} } } },
-          },
+          // Keep this slim — PAVE returns 413 if each task row drags in job
+          // custom fields. Job metadata is joined from getActiveJobs() below.
+          job: { id: {}, name: {}, number: {}, closedOn: {} },
         },
       },
     },
@@ -131,9 +117,12 @@ export async function GET(req: NextRequest) {
   if (!auth.valid) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
 
   try {
-    const groups = (await fetchGroups()).filter((g: any) => g.job && !g.job.closedOn);
+    const [rawGroups, activeJobs] = await Promise.all([fetchGroups(), getActiveJobs().catch(() => [])]);
+    const groups = rawGroups.filter((g: any) => g.job && !g.job.closedOn);
     const groupIds = groups.map((g: any) => g.id);
     const children = groupIds.length ? await fetchChildren(groupIds) : [];
+    const meta: Record<string, any> = {};
+    for (const aj of activeJobs as any[]) meta[aj.id] = aj;
 
     const byGroup: Record<string, any[]> = {};
     for (const c of children) {
@@ -172,12 +161,12 @@ export async function GET(req: NextRequest) {
         id: j.id,
         number: String(j.number || ''),
         name: j.name,
-        clientName: j.location?.account?.name || '',
-        locationName: j.location?.name || '',
-        status: cf(j, 'Status'),
-        projectManager: cf(j, 'Project Manager'),
-        priceType: j.priceType || null,
-        contractValue: Number(j.projectedPrice) || 0,
+        clientName: meta[j.id]?.clientName || '',
+        locationName: meta[j.id]?.locationName || '',
+        status: meta[j.id]?.customStatus || null,
+        projectManager: meta[j.id]?.projectManager || null,
+        priceType: meta[j.id]?.priceType || null,
+        contractValue: Number(meta[j.id]?.projectedPrice) || 0,
         groupId: g.id,
         groupName: g.name,
         groupNote: g.description || null,
