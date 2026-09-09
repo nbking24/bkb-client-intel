@@ -23,7 +23,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import {
   Loader2, RefreshCw, ExternalLink, CalendarDays, GanttChartSquare, ChevronLeft, ChevronRight,
-  AlertTriangle, X, Crosshair, Maximize2, Lock, LockOpen, Eraser, Check, CalendarClock, Link2, Link2Off,
+  AlertTriangle, X, Crosshair, Maximize2, Lock, LockOpen, Eraser, Check, CalendarClock, Link2, Link2Off, TrendingUp, ChevronDown, ChevronUp,
 } from 'lucide-react';
 import { useAccess } from '../../hooks/useAccess';
 
@@ -43,6 +43,7 @@ type Job = {
   start: string | null; end: string | null; baselineStart: string | null; baselineEnd: string | null;
   hasBaseline: boolean; slipDays: number | null; tentative: boolean; anchorDate: string | null;
   linkedCount: number; linkableCount: number; fullyLinked: boolean;
+  budgetTotal: number; approvedTotal: number; hasContract: boolean; salesClass: 'approved' | 'projected'; salesValue: number; unapprovedRemainder: number;
   milestoneCount: number; completedMilestones: number; milestones: Milestone[];
 };
 type Payload = {
@@ -267,6 +268,8 @@ export default function ProductionSchedulePage() {
             </div>
           </div>
 
+          <SalesOutlook allJobs={jobs} shownJobs={shown} />
+
           {view === 'gantt' ? (
             <Gantt jobs={shown} zoom={zoom} setZoom={setZoomP} capacity={capacity} setCapacity={setCapP} showBaseline={showBaseline} setShowBaseline={setShowBaseline} onPick={(job, m) => setPopup({ job, m })} onBaseline={canWrite ? (job) => setBaselineJob(job) : null} />
           ) : (
@@ -282,6 +285,170 @@ export default function ProductionSchedulePage() {
       {popup && <MilestonePopup job={popup.job} m={popup.m} onClose={() => setPopup(null)} onBaseline={canWrite ? () => { const j = popup.job; setPopup(null); setBaselineJob(j); } : null} />}
       {baselineJob && <BaselineModal job={baselineJob} onClose={() => setBaselineJob(null)} onDone={() => { setBaselineJob(null); load(true); }} />}
       <style>{`@keyframes spin { to { transform: rotate(360deg); } }`}</style>
+    </div>
+  );
+}
+
+
+// ============================================================
+// Sales outlook — approved vs projected revenue over 6 / 12 months
+// ============================================================
+
+const LS_OUTLOOK_OPEN = 'bkb-prodsched-outlook-open', LS_OUTLOOK_SCOPE = 'bkb-prodsched-outlook-scope';
+
+function moneyFull(n: number): string { return `$${Math.round(n).toLocaleString()}`; }
+
+/** Spread each job's sales value evenly across its production window (calendar days). */
+function buildOutlook(jobs: Job[], today: number) {
+  const h6 = today + 182, h12 = today + 365;
+  const months: { key: string; label: string; s: number; e: number; approved: number; projected: number }[] = [];
+  {
+    let d = idxToDate(today);
+    for (let k = 0; k < 12; k++) {
+      const ms = Math.floor(Date.UTC(d.getUTCFullYear(), d.getUTCMonth() + k, 1) / DAY_MS);
+      const me = Math.floor(Date.UTC(d.getUTCFullYear(), d.getUTCMonth() + k + 1, 1) / DAY_MS) - 1;
+      months.push({ key: `${ms}`, label: idxToDate(ms).toLocaleDateString('en-US', { month: 'short', timeZone: 'UTC' }) + (idxToDate(ms).getUTCMonth() === 0 || k === 0 ? ` '${String(idxToDate(ms).getUTCFullYear()).slice(2)}` : ''), s: ms, e: me, approved: 0, projected: 0 });
+    }
+  }
+  const tot = { approved: { past: 0, m6: 0, m12: 0, beyond: 0, all: 0 }, projected: { past: 0, m6: 0, m12: 0, beyond: 0, all: 0 } };
+  const rows: any[] = [];
+  for (const j of jobs) {
+    const s = dayIdx(j.start), e = dayIdx(j.end);
+    const v = j.salesValue || 0;
+    if (s === null || e === null || v <= 0) { rows.push({ job: j, past: 0, m6: 0, m12: 0, beyond: 0, perDay: 0 }); continue; }
+    const days = e - s + 1, perDay = v / days;
+    const overlap = (a: number, b: number) => Math.max(0, Math.min(e, b) - Math.max(s, a) + 1) * perDay;
+    const past = overlap(-1e9, today - 1), m6 = overlap(today, h6), m12 = overlap(today, h12), beyond = overlap(h12 + 1, 1e9);
+    const t = tot[j.salesClass];
+    t.past += past; t.m6 += m6; t.m12 += m12; t.beyond += beyond; t.all += v;
+    for (const mo of months) mo[j.salesClass] += overlap(mo.s, mo.e);
+    rows.push({ job: j, past, m6, m12, beyond, perDay });
+  }
+  return { months, tot, rows, h6, h12 };
+}
+
+function SalesOutlook({ allJobs, shownJobs }: { allJobs: Job[]; shownJobs: Job[] }) {
+  const [open, setOpen] = useState(true);
+  const [scope, setScope] = useState<'all' | 'selected'>('all');
+  const [showJobs, setShowJobs] = useState(false);
+  useEffect(() => { setOpen(lsGet(LS_OUTLOOK_OPEN, true)); setScope(lsGet(LS_OUTLOOK_SCOPE, 'all')); }, []);
+  const today = todayIdx();
+  const jobs = scope === 'all' ? allJobs : shownJobs;
+  const o = useMemo(() => buildOutlook(jobs, today), [jobs, today]);
+  const peak = Math.max(1, ...o.months.map((m) => m.approved + m.projected));
+  const nApproved = jobs.filter((j) => j.salesClass === 'approved').length, nProjected = jobs.length - nApproved;
+  const APPROVED = MAROON, PROJECTED = GOLD;
+
+  const Cell = ({ v, bold, color }: any) => <td style={{ padding: '6px 10px', textAlign: 'right', fontVariantNumeric: 'tabular-nums', fontWeight: bold ? 800 : 500, color: color || INK }}>{moneyFull(v)}</td>;
+
+  return (
+    <div style={{ background: '#fff', border: `1px solid ${LINE}`, borderRadius: 10, marginBottom: 12, overflow: 'hidden' }}>
+      <div onClick={() => { setOpen(!open); lsSet(LS_OUTLOOK_OPEN, !open); }} style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '10px 12px', cursor: 'pointer', borderBottom: open ? `1px solid ${LINE}` : 'none' }}>
+        <TrendingUp size={16} color={MAROON} />
+        <span style={{ fontSize: 13, fontWeight: 700, color: MAROON }}>Sales Outlook</span>
+        <span style={{ fontSize: 12, color: MUTED }}>
+          Next 6 mo <b style={{ color: INK }}>{moneyFull(o.tot.approved.m6 + o.tot.projected.m6)}</b> · Next 12 mo <b style={{ color: INK }}>{moneyFull(o.tot.approved.m12 + o.tot.projected.m12)}</b>
+          <span style={{ marginLeft: 8 }}>({nApproved} approved · {nProjected} projected)</span>
+        </span>
+        <span style={{ flex: 1 }} />
+        {open ? <ChevronUp size={16} color={MUTED} /> : <ChevronDown size={16} color={MUTED} />}
+      </div>
+      {open && (
+        <div style={{ padding: 12, display: 'grid', gap: 14 }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap', fontSize: 12, color: MUTED }}>
+            <span>Revenue is spread evenly across each job's production window. <b style={{ color: APPROVED }}>Approved</b> = approved customer orders on contracted jobs. <b style={{ color: '#8a6100' }}>Projected</b> = budget total on jobs without a contract yet.</span>
+            <span style={{ flex: 1 }} />
+            <Seg small options={[{ v: 'all', label: `All scheduled (${allJobs.length})` }, { v: 'selected', label: `Selected (${shownJobs.length})` }]} value={scope} onChange={(v: any) => { setScope(v); lsSet(LS_OUTLOOK_SCOPE, v); }} />
+          </div>
+
+          <div style={{ display: 'grid', gridTemplateColumns: 'minmax(320px, 1fr) minmax(360px, 1.4fr)', gap: 16, alignItems: 'start' }}>
+            {/* Totals table */}
+            <div style={{ overflowX: 'auto' }}>
+              <table style={{ borderCollapse: 'collapse', width: '100%', fontSize: 13 }}>
+                <thead>
+                  <tr style={{ color: MUTED, fontSize: 11, textTransform: 'uppercase', letterSpacing: 0.5 }}>
+                    <th style={{ textAlign: 'left', padding: '6px 10px', fontWeight: 700 }}></th>
+                    <th style={{ textAlign: 'right', padding: '6px 10px', fontWeight: 700 }}>Next 6 mo</th>
+                    <th style={{ textAlign: 'right', padding: '6px 10px', fontWeight: 700 }}>Next 12 mo</th>
+                    <th style={{ textAlign: 'right', padding: '6px 10px', fontWeight: 700 }}>Beyond 12</th>
+                    <th style={{ textAlign: 'right', padding: '6px 10px', fontWeight: 700 }}>Pipeline</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  <tr style={{ borderTop: `1px solid ${LINE}` }}>
+                    <td style={{ padding: '6px 10px', fontWeight: 700, color: APPROVED }}><span style={{ display: 'inline-block', width: 10, height: 10, borderRadius: 2, background: APPROVED, marginRight: 6, verticalAlign: -1 }} />Approved</td>
+                    <Cell v={o.tot.approved.m6} /><Cell v={o.tot.approved.m12} /><Cell v={o.tot.approved.beyond} color={MUTED} /><Cell v={o.tot.approved.all} color={MUTED} />
+                  </tr>
+                  <tr style={{ borderTop: `1px solid ${LINE}` }}>
+                    <td style={{ padding: '6px 10px', fontWeight: 700, color: '#8a6100' }}><span style={{ display: 'inline-block', width: 10, height: 10, borderRadius: 2, background: PROJECTED, marginRight: 6, verticalAlign: -1 }} />Projected</td>
+                    <Cell v={o.tot.projected.m6} /><Cell v={o.tot.projected.m12} /><Cell v={o.tot.projected.beyond} color={MUTED} /><Cell v={o.tot.projected.all} color={MUTED} />
+                  </tr>
+                  <tr style={{ borderTop: `2px solid ${INK}`, background: '#faf8f5' }}>
+                    <td style={{ padding: '8px 10px', fontWeight: 800 }}>Total</td>
+                    <Cell bold v={o.tot.approved.m6 + o.tot.projected.m6} /><Cell bold v={o.tot.approved.m12 + o.tot.projected.m12} /><Cell bold v={o.tot.approved.beyond + o.tot.projected.beyond} color={MUTED} /><Cell bold v={o.tot.approved.all + o.tot.projected.all} color={MUTED} />
+                  </tr>
+                </tbody>
+              </table>
+              <div style={{ fontSize: 11, color: MUTED, padding: '6px 10px' }}>
+                Windows run from today ({fmtShort(idxToDate(today).toISOString())}) to {fmtShort(idxToDate(o.h6).toISOString())} and {fmtShort(idxToDate(o.h12).toISOString())}.
+                {o.tot.approved.past + o.tot.projected.past > 0 && <> {moneyFull(o.tot.approved.past + o.tot.projected.past)} of scheduled value falls before today (already in production).</>}
+              </div>
+            </div>
+
+            {/* Monthly stacked bars */}
+            <div>
+              <div style={{ display: 'grid', gridTemplateColumns: `repeat(12, 1fr)`, gap: 4, alignItems: 'end', height: 130, padding: '0 4px' }}>
+                {o.months.map((m, i) => {
+                  const total = m.approved + m.projected;
+                  const hA = Math.round((m.approved / peak) * 110), hP = Math.round((m.projected / peak) * 110);
+                  const in6 = m.s <= o.h6;
+                  return (
+                    <div key={m.key} title={`${m.label}: ${moneyFull(total)}\nApproved ${moneyFull(m.approved)}\nProjected ${moneyFull(m.projected)}`} style={{ display: 'flex', flexDirection: 'column', justifyContent: 'flex-end', height: '100%', opacity: in6 ? 1 : 0.7 }}>
+                      <div style={{ fontSize: 10, textAlign: 'center', color: MUTED, marginBottom: 2, whiteSpace: 'nowrap' }}>{total > 0 ? money(total) : ''}</div>
+                      <div style={{ height: hP, background: PROJECTED, borderRadius: '3px 3px 0 0', opacity: 0.9 }} />
+                      <div style={{ height: hA, background: APPROVED, borderRadius: hP ? 0 : '3px 3px 0 0' }} />
+                    </div>
+                  );
+                })}
+              </div>
+              <div style={{ display: 'grid', gridTemplateColumns: `repeat(12, 1fr)`, gap: 4, padding: '4px 4px 0', borderTop: `1px solid ${LINE}` }}>
+                {o.months.map((m, i) => <div key={m.key} style={{ fontSize: 10, textAlign: 'center', color: i === 5 || i === 6 ? INK : MUTED, fontWeight: i === 5 ? 700 : 500, whiteSpace: 'nowrap' }}>{m.label}</div>)}
+              </div>
+              <div style={{ fontSize: 11, color: MUTED, marginTop: 4, textAlign: 'center' }}>Monthly revenue by production window · first 6 months at full opacity</div>
+            </div>
+          </div>
+
+          {/* Per-job rows */}
+          <div>
+            <button onClick={() => setShowJobs(!showJobs)} style={{ ...btn(true), border: 0, paddingLeft: 0, color: MUTED }}>{showJobs ? <ChevronUp size={12} /> : <ChevronDown size={12} />} {showJobs ? 'Hide' : 'Show'} per-job breakdown</button>
+            {showJobs && (
+              <div style={{ overflowX: 'auto', marginTop: 6 }}>
+                <table style={{ borderCollapse: 'collapse', width: '100%', fontSize: 12 }}>
+                  <thead>
+                    <tr style={{ color: MUTED, fontSize: 11, textTransform: 'uppercase', letterSpacing: 0.5 }}>
+                      {['Job', 'Class', 'Sales value', 'Approved orders', 'Budget total', 'Window', 'Next 6 mo', 'Next 12 mo'].map((h, i) => <th key={h} style={{ textAlign: i >= 2 && i !== 5 ? 'right' : 'left', padding: '6px 8px', fontWeight: 700, whiteSpace: 'nowrap' }}>{h}</th>)}
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {o.rows.sort((a: any, b: any) => (a.job.start || '').localeCompare(b.job.start || '')).map(({ job: j, m6, m12 }: any) => (
+                      <tr key={j.id} style={{ borderTop: `1px solid ${LINE}` }}>
+                        <td style={{ padding: '6px 8px', whiteSpace: 'nowrap' }}><span style={{ display: 'inline-block', width: 8, height: 8, borderRadius: 2, background: j.color, marginRight: 6 }} /><b>{j.number}</b> {j.name}</td>
+                        <td style={{ padding: '6px 8px' }}><span style={{ fontSize: 10, fontWeight: 700, padding: '2px 7px', borderRadius: 999, background: j.salesClass === 'approved' ? hexA(APPROVED, 0.1) : hexA(PROJECTED, 0.15), color: j.salesClass === 'approved' ? APPROVED : '#8a6100' }}>{j.salesClass === 'approved' ? (j.hasContract ? 'CONTRACT' : 'APPROVED') : 'PROJECTED'}</span></td>
+                        <td style={{ padding: '6px 8px', textAlign: 'right', fontWeight: 700, fontVariantNumeric: 'tabular-nums' }}>{moneyFull(j.salesValue)}</td>
+                        <td style={{ padding: '6px 8px', textAlign: 'right', color: MUTED, fontVariantNumeric: 'tabular-nums' }}>{moneyFull(j.approvedTotal)}</td>
+                        <td style={{ padding: '6px 8px', textAlign: 'right', color: MUTED, fontVariantNumeric: 'tabular-nums' }}>{moneyFull(j.budgetTotal)}{j.unapprovedRemainder > 1000 ? <span title="Budget above approved orders (pending selections / change orders)" style={{ color: '#8a6100' }}> (+{money(j.unapprovedRemainder)} open)</span> : null}</td>
+                        <td style={{ padding: '6px 8px', whiteSpace: 'nowrap', color: MUTED }}>{fmtShort(j.start)} → {fmtShort(j.end)}</td>
+                        <td style={{ padding: '6px 8px', textAlign: 'right', fontVariantNumeric: 'tabular-nums' }}>{moneyFull(m6)}</td>
+                        <td style={{ padding: '6px 8px', textAlign: 'right', fontVariantNumeric: 'tabular-nums' }}>{moneyFull(m12)}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            )}
+          </div>
+        </div>
+      )}
     </div>
   );
 }

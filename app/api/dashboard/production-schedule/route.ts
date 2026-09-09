@@ -142,6 +142,33 @@ async function fetchChildren(groupIds: string[]) {
   return out;
 }
 
+/** Approved customer-order totals (contract + design agreements + approved COs/selections) per job. */
+async function fetchApprovedOrders(jobIds: string[]): Promise<Record<string, { total: number; contract: boolean; docs: number }>> {
+  const out: Record<string, { total: number; contract: boolean; docs: number }> = {};
+  if (!jobIds.length) return out;
+  // Chunk to stay well under PAVE's request-size limit.
+  for (let i = 0; i < jobIds.length; i += 25) {
+    const chunk = jobIds.slice(i, i + 25);
+    const data = await pave({
+      organization: {
+        $: { id: ORG_ID() },
+        documents: {
+          $: { size: 100, where: { and: [['type', '=', 'customerOrder'], ['status', '=', 'approved'], [['job', 'id'], 'in', chunk]] } },
+          nodes: { name: {}, price: {}, job: { id: {} } },
+        },
+      },
+    });
+    for (const d of (data as any)?.organization?.documents?.nodes || []) {
+      const jid = d.job?.id; if (!jid) continue;
+      const row = (out[jid] ||= { total: 0, contract: false, docs: 0 });
+      row.total += Number(d.price) || 0;
+      row.docs++;
+      if (/contract/i.test(d.name || '')) row.contract = true;
+    }
+  }
+  return out;
+}
+
 export async function GET(req: NextRequest) {
   const auth = validateAuth(req.headers.get('authorization'));
   if (!auth.valid) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
@@ -150,7 +177,11 @@ export async function GET(req: NextRequest) {
     const [rawGroups, activeJobs] = await Promise.all([fetchGroups(), getActiveJobs().catch(() => [])]);
     const groups = rawGroups.filter((g: any) => g.job && !g.job.closedOn);
     const groupIds = groups.map((g: any) => g.id);
-    const children = groupIds.length ? await fetchChildren(groupIds) : [];
+    const jobIdsForOrders = [...new Set(groups.map((g: any) => g.job.id))] as string[];
+    const [children, approvedByJob] = await Promise.all([
+      groupIds.length ? fetchChildren(groupIds) : Promise.resolve([]),
+      fetchApprovedOrders(jobIdsForOrders).catch((e) => { console.warn('[production-schedule] approved orders failed', e); return {}; }),
+    ]);
     const meta: Record<string, any> = {};
     for (const aj of activeJobs as any[]) meta[aj.id] = aj;
 
@@ -202,6 +233,11 @@ export async function GET(req: NextRequest) {
         projectManager: meta[j.id]?.projectManager || null,
         priceType: meta[j.id]?.priceType || null,
         contractValue: Number(meta[j.id]?.projectedPrice) || 0,
+        // Sales classification for the outlook panel
+        budgetTotal: Number(meta[j.id]?.projectedPrice) || 0,
+        approvedTotal: Math.round((approvedByJob[j.id]?.total || 0) * 100) / 100,
+        approvedDocs: approvedByJob[j.id]?.docs || 0,
+        hasContract: !!approvedByJob[j.id]?.contract,
         groupId: g.id,
         groupName: g.name,
         groupNote: g.description || null,
@@ -222,6 +258,17 @@ export async function GET(req: NextRequest) {
       job.baselineStart = bStarts[0] || null;
       job.baselineEnd = bEnds[bEnds.length - 1] || null;
       job.hasBaseline = job.milestones.some((m: any) => m.baselineStart && m.baselineEnd);
+      // Approved (on the books) when a construction contract is approved, or when
+      // approved orders cover at least half the budget. Otherwise the job is a
+      // projection valued at its budget total. Sales value used by the outlook:
+      //   approved → approved order total; projected → budget total.
+      const covered = job.budgetTotal > 0 ? job.approvedTotal / job.budgetTotal : 0;
+      job.salesClass = job.hasContract || covered >= 0.5 ? 'approved' : 'projected';
+      job.salesValue = job.salesClass === 'approved' ? job.approvedTotal : job.budgetTotal;
+      job.unapprovedRemainder = job.salesClass === 'approved' ? Math.max(0, job.budgetTotal - job.approvedTotal) : 0;
+      if (job.budgetTotal > 0 && job.budgetTotal < 25000 && job.milestoneCount >= 6) {
+        warnings.push(`${job.number} ${job.name}: budget total is only $${Math.round(job.budgetTotal).toLocaleString()} — budget not built yet, so its sales projection is understated.`);
+      }
       if (job.anchorDate && job.start && job.anchorDate !== job.start) {
         // Note drifted from reality (milestones were moved). Self-heal the
         // note rather than surfacing a warning nobody can act on from the
