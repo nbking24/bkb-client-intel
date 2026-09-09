@@ -142,9 +142,14 @@ async function fetchChildren(groupIds: string[]) {
   return out;
 }
 
-/** Approved customer-order totals (contract + design agreements + approved COs/selections) per job. */
-async function fetchApprovedOrders(jobIds: string[]): Promise<Record<string, { total: number; contract: boolean; docs: number }>> {
-  const out: Record<string, { total: number; contract: boolean; docs: number }> = {};
+/**
+ * Approved customer orders per job — used to CLASSIFY (contract signed or
+ * not), never to value. Approved documents re-price budget items (a Pricing
+ * Review and the later Construction Contract can both be approved), so
+ * summing them double-counts; the job's budget total is the sales value.
+ */
+async function fetchApprovedOrders(jobIds: string[]): Promise<Record<string, { contractPrice: number; contract: boolean; docs: number; contractName: string | null }>> {
+  const out: Record<string, { contractPrice: number; contract: boolean; docs: number; contractName: string | null }> = {};
   if (!jobIds.length) return out;
   // Chunk to stay well under PAVE's request-size limit.
   for (let i = 0; i < jobIds.length; i += 25) {
@@ -160,10 +165,13 @@ async function fetchApprovedOrders(jobIds: string[]): Promise<Record<string, { t
     });
     for (const d of (data as any)?.organization?.documents?.nodes || []) {
       const jid = d.job?.id; if (!jid) continue;
-      const row = (out[jid] ||= { total: 0, contract: false, docs: 0 });
-      row.total += Number(d.price) || 0;
+      const row = (out[jid] ||= { contractPrice: 0, contract: false, docs: 0, contractName: null });
       row.docs++;
-      if (/contract/i.test(d.name || '')) row.contract = true;
+      if (/contract/i.test(d.name || '') && !/change order/i.test(d.name || '')) {
+        row.contract = true;
+        row.contractPrice += Number(d.price) || 0;
+        row.contractName = d.name || row.contractName;
+      }
     }
   }
   return out;
@@ -235,7 +243,8 @@ export async function GET(req: NextRequest) {
         contractValue: Number(meta[j.id]?.projectedPrice) || 0,
         // Sales classification for the outlook panel
         budgetTotal: Number(meta[j.id]?.projectedPrice) || 0,
-        approvedTotal: Math.round((approvedByJob[j.id]?.total || 0) * 100) / 100,
+        contractPrice: Math.round((approvedByJob[j.id]?.contractPrice || 0) * 100) / 100,
+        contractName: approvedByJob[j.id]?.contractName || null,
         approvedDocs: approvedByJob[j.id]?.docs || 0,
         hasContract: !!approvedByJob[j.id]?.contract,
         groupId: g.id,
@@ -258,16 +267,15 @@ export async function GET(req: NextRequest) {
       job.baselineStart = bStarts[0] || null;
       job.baselineEnd = bEnds[bEnds.length - 1] || null;
       job.hasBaseline = job.milestones.some((m: any) => m.baselineStart && m.baselineEnd);
-      // Approved (on the books) when a construction contract is approved, or when
-      // approved orders cover at least half the budget. Otherwise the job is a
-      // projection valued at its budget total. Sales value used by the outlook:
-      //   approved → approved order total; projected → budget total.
-      const covered = job.budgetTotal > 0 ? job.approvedTotal / job.budgetTotal : 0;
-      job.salesClass = job.hasContract || covered >= 0.5 ? 'approved' : 'projected';
-      job.salesValue = job.salesClass === 'approved' ? job.approvedTotal : job.budgetTotal;
-      job.unapprovedRemainder = job.salesClass === 'approved' ? Math.max(0, job.budgetTotal - job.approvedTotal) : 0;
-      if (job.budgetTotal > 0 && job.budgetTotal < 25000 && job.milestoneCount >= 6) {
-        warnings.push(`${job.number} ${job.name}: budget total is only $${Math.round(job.budgetTotal).toLocaleString()} — budget not built yet, so its sales projection is understated.`);
+      // Approved (on the books) = an approved customer order named like a
+      // contract exists. Otherwise projected. Sales value for BOTH classes is
+      // the JobTread budget total (projectedPrice) — the current price of the
+      // job including design fees, contract, approved COs and selections.
+      job.salesClass = job.hasContract ? 'approved' : 'projected';
+      job.salesValue = job.budgetTotal;
+      job.budgetNotBuilt = !job.hasContract && job.budgetTotal < 25000;
+      if (job.budgetNotBuilt) {
+        warnings.push(`${job.number} ${job.name}: no contract and the budget total is only $${Math.round(job.budgetTotal).toLocaleString()} — budget not built yet, so its projected sales are understated.`);
       }
       if (job.anchorDate && job.start && job.anchorDate !== job.start) {
         // Note drifted from reality (milestones were moved). Self-heal the

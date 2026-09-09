@@ -43,7 +43,7 @@ type Job = {
   start: string | null; end: string | null; baselineStart: string | null; baselineEnd: string | null;
   hasBaseline: boolean; slipDays: number | null; tentative: boolean; anchorDate: string | null;
   linkedCount: number; linkableCount: number; fullyLinked: boolean;
-  budgetTotal: number; approvedTotal: number; hasContract: boolean; salesClass: 'approved' | 'projected'; salesValue: number; unapprovedRemainder: number;
+  budgetTotal: number; contractPrice: number; contractName: string | null; hasContract: boolean; salesClass: 'approved' | 'projected'; salesValue: number; budgetNotBuilt: boolean;
   milestoneCount: number; completedMilestones: number; milestones: Milestone[];
 };
 type Payload = {
@@ -356,7 +356,7 @@ function SalesOutlook({ allJobs, shownJobs }: { allJobs: Job[]; shownJobs: Job[]
       {open && (
         <div style={{ padding: 12, display: 'grid', gap: 14 }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap', fontSize: 12, color: MUTED }}>
-            <span>Revenue is spread evenly across each job's production window. <b style={{ color: APPROVED }}>Approved</b> = approved customer orders on contracted jobs. <b style={{ color: '#8a6100' }}>Projected</b> = budget total on jobs without a contract yet.</span>
+            <span>Each job's JobTread budget total is spread evenly across its production window. <b style={{ color: APPROVED }}>Approved</b> = a construction contract is approved. <b style={{ color: '#8a6100' }}>Projected</b> = no contract yet (conceptual / in-budget number).</span>
             <span style={{ flex: 1 }} />
             <Seg small options={[{ v: 'all', label: `All scheduled (${allJobs.length})` }, { v: 'selected', label: `Selected (${shownJobs.length})` }]} value={scope} onChange={(v: any) => { setScope(v); lsSet(LS_OUTLOOK_SCOPE, v); }} />
           </div>
@@ -426,17 +426,16 @@ function SalesOutlook({ allJobs, shownJobs }: { allJobs: Job[]; shownJobs: Job[]
                 <table style={{ borderCollapse: 'collapse', width: '100%', fontSize: 12 }}>
                   <thead>
                     <tr style={{ color: MUTED, fontSize: 11, textTransform: 'uppercase', letterSpacing: 0.5 }}>
-                      {['Job', 'Class', 'Sales value', 'Approved orders', 'Budget total', 'Window', 'Next 6 mo', 'Next 12 mo'].map((h, i) => <th key={h} style={{ textAlign: i >= 2 && i !== 5 ? 'right' : 'left', padding: '6px 8px', fontWeight: 700, whiteSpace: 'nowrap' }}>{h}</th>)}
+                      {['Job', 'Class', 'Sales value (budget)', 'Contract', 'Window', 'Next 6 mo', 'Next 12 mo'].map((h, i) => <th key={h} style={{ textAlign: i === 2 || i === 3 || i >= 5 ? 'right' : 'left', padding: '6px 8px', fontWeight: 700, whiteSpace: 'nowrap' }}>{h}</th>)}
                     </tr>
                   </thead>
                   <tbody>
                     {o.rows.sort((a: any, b: any) => (a.job.start || '').localeCompare(b.job.start || '')).map(({ job: j, m6, m12 }: any) => (
                       <tr key={j.id} style={{ borderTop: `1px solid ${LINE}` }}>
                         <td style={{ padding: '6px 8px', whiteSpace: 'nowrap' }}><span style={{ display: 'inline-block', width: 8, height: 8, borderRadius: 2, background: j.color, marginRight: 6 }} /><b>{j.number}</b> {j.name}</td>
-                        <td style={{ padding: '6px 8px' }}><span style={{ fontSize: 10, fontWeight: 700, padding: '2px 7px', borderRadius: 999, background: j.salesClass === 'approved' ? hexA(APPROVED, 0.1) : hexA(PROJECTED, 0.15), color: j.salesClass === 'approved' ? APPROVED : '#8a6100' }}>{j.salesClass === 'approved' ? (j.hasContract ? 'CONTRACT' : 'APPROVED') : 'PROJECTED'}</span></td>
-                        <td style={{ padding: '6px 8px', textAlign: 'right', fontWeight: 700, fontVariantNumeric: 'tabular-nums' }}>{moneyFull(j.salesValue)}</td>
-                        <td style={{ padding: '6px 8px', textAlign: 'right', color: MUTED, fontVariantNumeric: 'tabular-nums' }}>{moneyFull(j.approvedTotal)}</td>
-                        <td style={{ padding: '6px 8px', textAlign: 'right', color: MUTED, fontVariantNumeric: 'tabular-nums' }}>{moneyFull(j.budgetTotal)}{j.unapprovedRemainder > 1000 ? <span title="Budget above approved orders (pending selections / change orders)" style={{ color: '#8a6100' }}> (+{money(j.unapprovedRemainder)} open)</span> : null}</td>
+                        <td style={{ padding: '6px 8px' }}><span style={{ fontSize: 10, fontWeight: 700, padding: '2px 7px', borderRadius: 999, background: j.salesClass === 'approved' ? hexA(APPROVED, 0.1) : hexA(PROJECTED, 0.15), color: j.salesClass === 'approved' ? APPROVED : '#8a6100' }}>{j.salesClass === 'approved' ? 'CONTRACT' : j.budgetNotBuilt ? 'NO BUDGET' : 'PROJECTED'}</span></td>
+                        <td style={{ padding: '6px 8px', textAlign: 'right', fontWeight: 700, fontVariantNumeric: 'tabular-nums' }}>{moneyFull(j.salesValue)}{j.budgetNotBuilt && <span title="No contract and budget total is tiny — budget not built yet" style={{ color: '#a11', marginLeft: 4 }}>⚠</span>}</td>
+                        <td style={{ padding: '6px 8px', textAlign: 'right', color: MUTED, fontVariantNumeric: 'tabular-nums' }} title={j.contractName || ''}>{j.hasContract ? moneyFull(j.contractPrice) : '—'}</td>
                         <td style={{ padding: '6px 8px', whiteSpace: 'nowrap', color: MUTED }}>{fmtShort(j.start)} → {fmtShort(j.end)}</td>
                         <td style={{ padding: '6px 8px', textAlign: 'right', fontVariantNumeric: 'tabular-nums' }}>{moneyFull(m6)}</td>
                         <td style={{ padding: '6px 8px', textAlign: 'right', fontVariantNumeric: 'tabular-nums' }}>{moneyFull(m12)}</td>
