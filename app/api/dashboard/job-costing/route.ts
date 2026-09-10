@@ -683,6 +683,7 @@ async function computeSummaries() {
               actualCost: Math.round(actualCost * 100) / 100,
               pendingCost: Math.round(pendingCost * 100) / 100,
               totalCosts: Math.round(totalCosts * 100) / 100,
+              costSourceDelta,
               isComplete,
               budgetCostAtCompletion: Math.round(budgetCostAtCompletion * 100) / 100,
               estimatedCostAtCompletion: Math.round(estimatedCostAtCompletion * 100) / 100,
