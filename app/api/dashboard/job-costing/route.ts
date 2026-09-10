@@ -236,6 +236,28 @@ async function mergeCompletionSavings(payload: any): Promise<any> {
 async function writeCache(payload: any, computeMs?: number) {
   try {
     const sb = getSupabase();
+
+    // Guard: never replace a populated cache with an empty one. Each job is
+    // computed inside its own try/catch that returns null on failure, so a
+    // bug affecting every job (or a JT outage) yields zero summaries and a
+    // 200 response — which used to overwrite good data with nothing. Learned
+    // the hard way on 2026-09-10.
+    const incoming = Array.isArray(payload?.summaries) ? payload.summaries.length : 0;
+    if (incoming === 0) {
+      const { data: prev } = await sb
+        .from('job_costing_summary_cache')
+        .select('payload')
+        .eq('key', 'summary')
+        .maybeSingle();
+      const had = Array.isArray(prev?.payload?.summaries) ? prev.payload.summaries.length : 0;
+      if (had > 0) {
+        console.error(
+          `[job-costing summary] refusing to overwrite ${had} cached jobs with an empty result — every job failed to compute.`,
+        );
+        return;
+      }
+    }
+
     await sb
       .from('job_costing_summary_cache')
       .upsert({
@@ -474,7 +496,7 @@ async function computeSummaries() {
             // So take it as authoritative and derive our paid/pending split
             // from it, instead of re-deriving the total ourselves.
             const derivedTotal = docActualCost + pendingCost + timeEntryCost;
-            const jtActualCost = Number(meta[job.id]?.actualCost ?? job.actualCost) || 0;
+            const jtActualCost = Number(job.actualCost) || 0;
             const totalCosts = jtActualCost > 0 ? jtActualCost : derivedTotal;
             // Keep the split informative but always reconciling to the
             // authoritative total: pending is what we can see is unpaid,
