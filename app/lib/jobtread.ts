@@ -87,6 +87,15 @@ export interface JTJob {
   projectedCost?: number | null;
   /** JT live budget: total price at completion. */
   projectedPrice?: number | null;
+  /**
+   * JT's own actual cost to date — the "Actual Cost" figure shown on the
+   * job's budget in JobTread. Verified 2026-09-10 against 49 open jobs:
+   * this equals approved + pending + draft vendor bills PLUS time-entry
+   * labor, and it honours "Exclude from Budget" and any manually-set
+   * actual costs on budget lines. Treat it as authoritative rather than
+   * re-deriving cost by summing documents.
+   */
+  actualCost?: number | null;
 }
 
 /**
@@ -229,6 +238,7 @@ export async function getActiveJobs(limit = 500): Promise<JTJob[]> {
             priceType: {},
             projectedCost: {},
             projectedPrice: {},
+            actualCost: {},
             location: {
               id: {},
               name: {},
@@ -278,6 +288,7 @@ export async function getActiveJobs(limit = 500): Promise<JTJob[]> {
       priceType: j.priceType || null,
       projectedCost: Number(j.projectedCost) || 0,
       projectedPrice: Number(j.projectedPrice) || 0,
+      actualCost: Number(j.actualCost) || 0,
     };
   });
 }
@@ -293,6 +304,7 @@ export async function getJob(jobId: string) {
       priceType: {},
       projectedCost: {},
       projectedPrice: {},
+      actualCost: {},
       createdAt: {},
       closedOn: {},
       description: {},

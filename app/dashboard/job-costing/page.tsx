@@ -1695,6 +1695,21 @@ export default function JobCostingDashboard() {
                     ? 'Actual from approved bills/POs · Pending from draft/pending bills/POs'
                     : 'Budget from approved proposals · Actual from approved bills/POs · Pending from draft/pending bills/POs'}
                 </p>
+                {/* When JobTread's own actual cost exceeds what we can see in
+                    documents, the rows below cannot add up to the header
+                    total. Say so plainly instead of leaving a silent gap —
+                    the usual causes are a bill marked "Exclude from Budget"
+                    or an actual cost typed straight onto a budget line. */}
+                {Math.abs(detail.financialSummary.costSourceDelta || 0) >= 1 && (
+                  <p className="text-xs mt-1.5 rounded px-2 py-1.5"
+                    style={{ background: 'rgba(234,179,8,0.10)', border: '1px solid rgba(234,179,8,0.28)', color: '#a16207' }}>
+                    <strong>${fmt(Math.abs(detail.financialSummary.costSourceDelta))}</strong>
+                    {(detail.financialSummary.costSourceDelta || 0) > 0
+                      ? ' of JobTread\'s actual cost is not attached to any bill or PO we can read, so the categories below add up to less than the job total.'
+                      : ' of the bills below are excluded from the JobTread budget, so the categories add up to more than the job total.'}
+                    {' '}The job total matches JobTread; this line explains the difference.
+                  </p>
+                )}
               </div>
 
               {/* Table header. Cost-plus drops Budgeted + Remaining since

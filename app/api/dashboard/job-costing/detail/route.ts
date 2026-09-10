@@ -849,7 +849,21 @@ export async function POST(req: Request) {
     }
 
     // Total committed = paid + pending (all costs, including time entry labor)
-    const totalCommitted = totalActualCost + totalPendingCost;
+    // Cost to date. Same fix as the summary route (2026-09-10): JobTread's
+    // own job.actualCost is authoritative — it is the "Actual Cost" shown on
+    // the job budget, already includes pending/draft bills and time-entry
+    // labor, and honours "Exclude from Budget" plus any actual cost typed
+    // straight onto a budget line. Our document sum drifted from it on 9 of
+    // 49 open jobs. Derive the paid/pending split from JT's total so the
+    // parts always reconcile to the number Nathan sees in JobTread.
+    const derivedCommitted = totalActualCost + totalPendingCost;
+    const jtActualCost = Number((job as any)?.actualCost) || 0;
+    const totalCommitted = jtActualCost > 0 ? jtActualCost : derivedCommitted;
+    const costSourceDelta = Math.round((totalCommitted - derivedCommitted) * 100) / 100;
+    if (jtActualCost > 0) {
+      totalPendingCost = Math.min(totalPendingCost, totalCommitted);
+      totalActualCost = totalCommitted - totalPendingCost;
+    }
 
     // ---- Estimated Cost at Completion (EAC) ----
     // BUG FIX (2026-07-14): margin was `contractPrice - totalCommitted`, i.e.
@@ -902,6 +916,7 @@ export async function POST(req: Request) {
       actualCost: Math.round(totalActualCost * 100) / 100,
       pendingCost: Math.round(totalPendingCost * 100) / 100,
       totalCosts: Math.round(totalCommitted * 100) / 100,
+      costSourceDelta,
       // Cost at completion (EAC): committed cost plus the cost still to come.
       isComplete,
       budgetCostAtCompletion: Math.round(budgetCostAtCompletion * 100) / 100,

@@ -39,7 +39,14 @@ interface JobCostSummary {
   // Costs
   actualCost: number; // paid costs: approved vendor bills/POs + time entry labor
   pendingCost: number; // pending costs: draft/pending vendor bills/POs
-  totalCosts: number; // actualCost + pendingCost (all committed costs)
+  totalCosts: number; // JT's own job.actualCost — the figure JobTread shows
+                      // on the job budget (includes pending/draft bills and
+                      // time-entry labor). actualCost + pendingCost reconcile
+                      // to this.
+  /** totalCosts - (our document-derived total). Non-zero means JT counts
+   *  something our document sum does not (a bill excluded from budget, or
+   *  an actual cost typed straight onto a budget line). Diagnostic only. */
+  costSourceDelta?: number;
   // Cost at completion (EAC) — committed costs plus the cost still to come.
   isComplete: boolean;               // work finished: no further cost expected
   budgetCostAtCompletion: number;    // JT live budget cost (job.projectedCost)
@@ -415,7 +422,7 @@ async function computeSummaries() {
             // ---- Costs from vendor bills/POs + time entry labor ----
             // Actual = paid (approved vendor bills/POs + time costs)
             // Pending = not yet paid (draft/pending vendor bills/POs)
-            let actualCost = 0;
+            let docActualCost = 0;
             let pendingCost = 0;
             let invoicedAmount = 0;
             let collectedAmount = 0;
@@ -426,7 +433,7 @@ async function computeSummaries() {
 
               if (doc.type === 'vendorBill' || doc.type === 'vendorOrder') {
                 if (doc.status === 'approved') {
-                  actualCost += docCost;
+                  docActualCost += docCost;
                 } else if (doc.status === 'draft' || doc.status === 'pending') {
                   pendingCost += docCost;
                 }
@@ -443,16 +450,41 @@ async function computeSummaries() {
               }
             }
 
-            // ---- Time entries: hours AND labor costs ----
+            // ---- Time entries: hours (cost handled below) ----
             let actualHours = 0;
+            let timeEntryCost = 0;
             for (const te of timeEntries) {
-              const hours = computeHours(te.startedAt, te.endedAt);
-              actualHours += hours;
-              actualCost += Number(te.cost) || 0;
+              actualHours += computeHours(te.startedAt, te.endedAt);
+              timeEntryCost += Number(te.cost) || 0;
             }
 
-            // Total costs = paid + pending (everything committed)
-            const totalCosts = actualCost + pendingCost;
+            // ---- Total cost to date ----
+            // BUG FIX 2026-09-10 (Nathan: "Zajick costs don't match JobTread").
+            // We used to derive cost by summing document totals + time
+            // entries. That drifts from what JobTread itself reports on the
+            // job, because JT's own actualCost additionally honours
+            // "Exclude from Budget" on vendor bills and any actual cost set
+            // manually on a budget line. Comparing all 49 open jobs, 40
+            // matched exactly and 9 did not — Zajick was $8,317 light,
+            // Henschel $21,435 light, and Bartholomew $12,475 heavy.
+            //
+            // JT's `job.actualCost` IS the number on the job's budget in
+            // JobTread, and it already includes pending/draft bills and
+            // time-entry labor (verified against the 40 jobs that agreed).
+            // So take it as authoritative and derive our paid/pending split
+            // from it, instead of re-deriving the total ourselves.
+            const derivedTotal = docActualCost + pendingCost + timeEntryCost;
+            const jtActualCost = Number(meta[job.id]?.actualCost ?? job.actualCost) || 0;
+            const totalCosts = jtActualCost > 0 ? jtActualCost : derivedTotal;
+            // Keep the split informative but always reconciling to the
+            // authoritative total: pending is what we can see is unpaid,
+            // clamped so "paid" can never go negative.
+            const pendingPortion = Math.min(pendingCost, totalCosts);
+            const actualCost = Math.round((totalCosts - pendingPortion) * 100) / 100;
+            pendingCost = pendingPortion;
+            // Surfaced so the UI/diagnostics can show when our document view
+            // disagrees with JobTread (excluded bills, manual actual costs).
+            const costSourceDelta = Math.round((totalCosts - derivedTotal) * 100) / 100;
 
             // ---- Determine if cost-plus ----
             const isCostPlus = (job.priceType || '').toLowerCase() === 'costplus'
