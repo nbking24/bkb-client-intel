@@ -223,8 +223,9 @@ export async function GET() {
             const hasRegister = register.ids.size > 0;
 
             // Shape every line that belongs on the tracker:
-            //   - inside the 📜 Selections register subtree, OR
-            //   - carrying the Selection custom field, OR
+            //   - carrying the Selection custom field (v4: the only test
+            //     that matters — a decision may sit anywhere in the budget), OR
+            //   - inside a legacy 📜 Selections register subtree, OR
             //   - legacy: any job-level item with a Status set (kept so
             //     nothing Nathan/Allison already track disappears; flagged
             //     as outside the register).
@@ -247,8 +248,20 @@ export async function GET() {
               // Started (flagged) instead of hiding them like the old
               // tracker did.
               const status = statusSet ? String(rawStatus).trim() : '0. Not Started';
-              const stray = !inRegister && (selectionMarked || statusSet);
-              const missingMarker = inRegister && !selectionMarked;
+
+              // Spec v4 (2026-09-14): the register is a view, not a place.
+              // A flagged line sitting in 🔨 Scope of Work is CORRECT, not a
+              // stray, so these two flags are defined structure-agnostically:
+              //
+              //   stray         — flagged but outside the register on a job
+              //                   that still HAS one. A genuine v3.3 defect,
+              //                   and always false on a converted job.
+              //   missingMarker — looks like a decision (has a Status) but
+              //                   carries no Selection flag. The real defect in
+              //                   both structures, and what surfaces the ~65
+              //                   known stray-flag items org-wide.
+              const stray = hasRegister && selectionMarked && !inRegister;
+              const missingMarker = statusSet && !selectionMarked;
               if (stray) strayCount++;
               if (missingMarker) missingMarkerCount++;
               if (blankStatus) blankStatusCount++;

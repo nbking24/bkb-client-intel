@@ -3,8 +3,11 @@
 // Client Selections Sheet — data + token helpers
 //
 // Builds a CLIENT-SAFE view of a job's 📜 Selections register:
-//   - only register lines (Selection custom field = true)
+//   - only flagged decisions (Selection custom field = true)
 //   - only real decisions (isSpecification = true)
+//   - structure-agnostic: works with the legacy 📜 Selections root AND
+//     the v4 in-place structure, so it is safe to deploy before, during
+//     and after the job-by-job conversion
 //   - name, description, status, trade/area grouping
 //   - NO internal notes, NO costs, NO vendor chatter
 //
@@ -191,25 +194,62 @@ export async function fetchSelectionsSheet(jobId) {
     if (!page) break;
   }
 
-  // 3. Walk each item's group chain up to the 📜 Selections root.
-  //    trade = first level under the register, area = the rest.
+  // 3. Walk each item's group chain to a recognised root, then derive
+  //    trade and area from the path. Handles BOTH budget structures:
+  //
+  //    v3.3 (legacy)  📜 Selections › <NN Trade> › <Area> › line
+  //                   chain after the root = [trade, ...area]
+  //
+  //    v4 (current)   🔨 Scope of Work › 🏠 <Area> › <NN Trade> › 🔹 <Decision> › line
+  //                   chain after the root = [area, trade, ...rest]
+  //
+  //    Per claude/BKB-Selections-System-Spec.md v4, the register is a view
+  //    rather than a place, so a flagged line may sit anywhere in the budget.
+  //    Anything flagged is included; the path only affects how it is grouped.
+  const TRADE_RE = /^\s*\d{1,2}[\s.\-]/; // "17 Tile", "05 Windows-Doors"
+  const stripNum = (n) => (n || '').replace(/^\s*\d{1,2}[\s.\-]*/, '').trim();
+  const stripEmoji = (n) =>
+    (n || '').replace(/[\u{1F300}-\u{1FAFF}\u{2600}-\u{27BF}\u{FE0F}]/gu, '').trim();
+
   const shaped = [];
   for (const it of items) {
     const chain = [];
     let gid = it.costGroup?.id;
-    let inRegister = false;
+    let rootKind = null; // 'register' | 'scope' | null
     let guard = 0;
     while (gid && guard++ < 15) {
       const g = groupById[gid];
       if (!g) break;
-      if ((g.name || '').includes('📜')) {
-        inRegister = true;
-        break;
-      }
-      chain.unshift(g.name || '');
+      const nm = g.name || '';
+      if (nm.includes('📜')) { rootKind = 'register'; break; }
+      if (nm.includes('🔨')) { rootKind = 'scope'; break; }
+      chain.unshift(nm);
       gid = g.parentCostGroup?.id;
     }
-    if (!inRegister) continue; // stray Selection-flagged item outside the register
+
+    let trade = '';
+    let tradeSort = '';
+    let area = '';
+
+    if (rootKind === 'register') {
+      // legacy: trade first, then area
+      trade = stripNum(chain[0]) || 'General';
+      tradeSort = chain[0] || 'zzz';
+      area = chain.slice(1).map(stripEmoji).filter(Boolean).join(' — ');
+    } else {
+      // v4, or a flagged line sitting loose: find the numbered trade group
+      // anywhere in the path; everything before it is area, after it is detail.
+      const tradeIdx = chain.findIndex((n) => TRADE_RE.test(n));
+      if (tradeIdx >= 0) {
+        trade = stripNum(chain[tradeIdx]) || 'General';
+        tradeSort = chain[tradeIdx];
+        area = chain.slice(0, tradeIdx).map(stripEmoji).filter(Boolean).join(' — ');
+      } else {
+        trade = 'General';
+        tradeSort = 'zzz';
+        area = chain.map(stripEmoji).filter(Boolean).join(' — ');
+      }
+    }
 
     let status = '';
     for (const v of it.customFieldValues?.nodes || []) {
@@ -221,9 +261,9 @@ export async function fetchSelectionsSheet(jobId) {
       name: it.name,
       description: it.description || '',
       status,
-      trade: (chain[0] || 'General').replace(/^\d+\s*/, '').trim() || 'General',
-      tradeSort: chain[0] || 'zzz',
-      area: chain.slice(1).join(' — '),
+      trade: trade || 'General',
+      tradeSort: tradeSort || 'zzz',
+      area,
       position: it.position || '',
     });
   }
