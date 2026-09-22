@@ -2214,6 +2214,8 @@ export async function updateJob(jobId: string, fields: {
  */
 export const JT_CUSTOM_FIELD_IDS = {
   JOB_STATUS: '22P5SRxYPb7Q',
+  /** Option field: Brett King | Evan Harrington | Joshua Hodnett | Nathan King */
+  JOB_PROJECT_MANAGER: '22P5TA732Mu9',
 } as const;
 
 /**
@@ -2295,6 +2297,20 @@ export async function setJobStatus(jobId: string, statusValue: string) {
     targetType: 'job',
     customFieldId: JT_CUSTOM_FIELD_IDS.JOB_STATUS,
     value: statusValue,
+  });
+}
+
+/**
+ * Set (or clear, with '') the job's Project Manager custom field.
+ * `pmValue` must be one of the field's option strings — see
+ * app/lib/project-managers.ts, which is the Hub's copy of that roster.
+ */
+export async function setJobProjectManager(jobId: string, pmValue: string) {
+  return setCustomFieldValue({
+    targetId: jobId,
+    targetType: 'job',
+    customFieldId: JT_CUSTOM_FIELD_IDS.JOB_PROJECT_MANAGER,
+    value: pmValue,
   });
 }
 

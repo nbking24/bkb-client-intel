@@ -31,6 +31,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { validateAuth } from '@/app/api/lib/auth';
 import { pave, getActiveJobs } from '@/app/lib/jobtread';
 import { getSupabase } from '@/app/api/lib/supabase';
+import { resolvePm } from '@/app/lib/project-managers';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -43,12 +44,10 @@ const MILESTONE_GROUP_NAME = '🤖 PRODUCTION MILESTONES — Claude Managed (Do 
 /** Loose match so a hand-renamed variant (different dash, trailing text) still qualifies. */
 const GROUP_LIKE = '%PRODUCTION MILESTONES%';
 
-// Stable, distinguishable palette (12) — deterministic by sorted job number so
-// a job keeps its color between loads and across users.
-const PALETTE = [
-  '#68050a', '#1d4ed8', '#047857', '#b45309', '#6d28d9', '#be185d',
-  '#0e7490', '#4d7c0f', '#9a3412', '#374151', '#7c2d12', '#0f766e',
-];
+// Color is owned by the project manager, not the job — see
+// app/lib/project-managers.ts. Every bar on a PM's jobs is that PM's color,
+// so the Gantt reads as "whose work is this" at a glance and the workload
+// strip can stack by person.
 
 const WEEKDAYS = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
 
@@ -316,9 +315,15 @@ export async function GET(req: NextRequest) {
     });
 
     jobs.sort((a: any, b: any) => (a.start || '9999').localeCompare(b.start || '9999') || a.number.localeCompare(b.number));
-    // Color by job number order so colors are stable regardless of dates.
-    const byNumber = [...jobs].sort((a, b) => Number(a.number) - Number(b.number));
-    byNumber.forEach((j, i) => (j.color = PALETTE[i % PALETTE.length]));
+    // Color by project manager (JobTread "Project Manager" custom field).
+    // Jobs with no PM set fall into the neutral Unassigned lane.
+    for (const j of jobs) {
+      const pm = resolvePm(j.projectManager);
+      j.pmKey = pm.key;
+      j.pmLabel = pm.label;
+      j.pmValue = pm.value;
+      j.color = pm.color;
+    }
 
     for (const j of jobs) j.jtUrl = `https://app.jobtread.com/jobs/${j.id}/schedule`;
 

@@ -9,23 +9,30 @@
  * milestones out two ways:
  *
  *   • Gantt   — one lane-stacked row per job across a zoomable timeline,
- *               with a per-week workload strip underneath (how many jobs
- *               are active that week vs. a capacity target).
+ *               with a per-PM workload strip underneath (how many jobs each
+ *               project manager is running that week vs. his capacity target).
  *   • Month   — a month-grid calendar with each job's milestones drawn as
  *               colored bands across the days, Google-Calendar style.
  *
  * Baseline (JobTread Schedule Settings > Baseline) renders as a ghost bar
  * beneath the current bar where it exists, so slip is visible at a glance.
  *
- * Job selection and the capacity target persist per browser in localStorage.
+ * Bars are colored by PROJECT MANAGER, not by job — the color comes from the
+ * job's JobTread "Project Manager" custom field via app/lib/project-managers.ts.
+ * The picker on each row writes that field straight back to JobTread, so
+ * JobTread stays the system of record and the Hub just re-reads it.
+ *
+ * Job selection, the PM filter and the capacity target persist per browser
+ * in localStorage.
  */
 
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { Fragment, useEffect, useMemo, useRef, useState } from 'react';
 import {
   Loader2, RefreshCw, ExternalLink, CalendarDays, GanttChartSquare, ChevronLeft, ChevronRight,
   AlertTriangle, X, Crosshair, Maximize2, Lock, LockOpen, Eraser, Check, CalendarClock, Link2, Link2Off, TrendingUp, ChevronDown, ChevronUp, Pencil, DollarSign,
 } from 'lucide-react';
 import { useAccess } from '../../hooks/useAccess';
+import { PM_LANES, pmByKey } from '../../lib/project-managers';
 
 // ============================================================
 // Types
@@ -39,7 +46,8 @@ type Milestone = {
 };
 type Job = {
   id: string; number: string; name: string; clientName: string; status: string | null;
-  projectManager: string | null; contractValue: number; color: string; jtUrl: string;
+  projectManager: string | null; pmKey: string; pmLabel: string; pmValue: string;
+  contractValue: number; color: string; jtUrl: string;
   start: string | null; end: string | null; baselineStart: string | null; baselineEnd: string | null;
   hasBaseline: boolean; slipDays: number | null; tentative: boolean; anchorDate: string | null;
   linkedCount: number; linkableCount: number; fullyLinked: boolean;
@@ -120,7 +128,9 @@ const ZOOMS = { day: { px: 22, label: 'Day' }, week: { px: 9, label: 'Week' }, m
 type Zoom = keyof typeof ZOOMS;
 const NAME_COL = 230;
 const LANE_PX = 18, LANE_GAP = 3, ROW_PAD = 8, MIN_ROW = 52;
-const LS_JOBS = 'bkb-prodsched-jobs', LS_CAP = 'bkb-prodsched-capacity', LS_VIEW = 'bkb-prodsched-view', LS_ZOOM = 'bkb-prodsched-zoom';
+/** Height of one project-manager workload lane under the Gantt. */
+const PM_LANE_H = 30;
+const LS_JOBS = 'bkb-prodsched-jobs', LS_CAP = 'bkb-prodsched-capacity', LS_VIEW = 'bkb-prodsched-view', LS_ZOOM = 'bkb-prodsched-zoom', LS_PMS = 'bkb-prodsched-pms';
 
 // ============================================================
 // Page
@@ -135,6 +145,9 @@ export default function ProductionSchedulePage() {
   const [view, setView] = useState<'gantt' | 'month'>('gantt');
   const [zoom, setZoom] = useState<Zoom>('week');
   const [capacity, setCapacity] = useState<number>(3);
+  const [pmFilter, setPmFilter] = useState<Set<string> | null>(null); // null = all PMs
+  const [savingPm, setSavingPm] = useState<string | null>(null);
+  const [pmError, setPmError] = useState<string | null>(null);
   const [showBaseline, setShowBaseline] = useState(true);
   const [popup, setPopup] = useState<{ job: Job; m: Milestone } | null>(null);
   const [baselineJob, setBaselineJob] = useState<Job | null>(null);
@@ -146,6 +159,8 @@ export default function ProductionSchedulePage() {
     const savedJobs = lsGet<string[] | null>(LS_JOBS, null);
     if (savedJobs) setSelected(new Set(savedJobs));
     setCapacity(lsGet<number>(LS_CAP, 3));
+    const savedPms = lsGet<string[] | null>(LS_PMS, null);
+    if (savedPms) setPmFilter(new Set(savedPms));
     setView(lsGet<'gantt' | 'month'>(LS_VIEW, 'gantt'));
     setZoom(lsGet<Zoom>(LS_ZOOM, 'week'));
     load();
@@ -176,7 +191,55 @@ export default function ProductionSchedulePage() {
     [data],
   );
   const isSelected = (id: string) => selected === null || selected.has(id);
-  const shown = useMemo(() => jobs.filter((j) => isSelected(j.id)), [jobs, selected]);
+  const pmOn = (key: string) => pmFilter === null || pmFilter.has(key);
+  const shown = useMemo(() => jobs.filter((j) => isSelected(j.id) && pmOn(j.pmKey)), [jobs, selected, pmFilter]);
+
+  // Which PM lanes actually have work here, in roster order. Unassigned only
+  // shows up when something is genuinely unassigned, so it isn't permanent
+  // clutter once every job has an owner.
+  const pmLanes = useMemo(() => {
+    const counts: Record<string, number> = {};
+    for (const j of jobs) counts[j.pmKey] = (counts[j.pmKey] || 0) + 1;
+    return PM_LANES.filter((p) => p.key !== 'unassigned' || (counts[p.key] || 0) > 0)
+      .map((p) => ({ ...p, total: counts[p.key] || 0 }));
+  }, [jobs]);
+
+  function togglePm(key: string) {
+    const all = pmLanes.map((p) => p.key);
+    const next = new Set(pmFilter === null ? all : pmFilter);
+    if (next.has(key)) next.delete(key); else next.add(key);
+    const isAll = next.size === all.length;
+    setPmFilter(isAll ? null : next);
+    lsSet(LS_PMS, isAll ? null : [...next]);
+  }
+  function onlyPm(key: string) { setPmFilter(new Set([key])); lsSet(LS_PMS, [key]); }
+  function allPms() { setPmFilter(null); lsSet(LS_PMS, null); }
+
+  /**
+   * Assign a job's project manager. Writes JobTread's Project Manager custom
+   * field, then patches the row in place so the color flips immediately
+   * instead of waiting on a full reload.
+   */
+  async function assignPm(jobId: string, key: string) {
+    setSavingPm(jobId); setPmError(null);
+    try {
+      const res = await fetch('/api/dashboard/production-schedule/pm', {
+        method: 'POST',
+        headers: { Authorization: getAuthToken(), 'Content-Type': 'application/json' },
+        body: JSON.stringify({ jobId, pm: key }),
+      });
+      const json = await res.json();
+      if (!res.ok) throw new Error(json.error || `HTTP ${res.status}`);
+      setData((prev) => prev && ({
+        ...prev,
+        jobs: prev.jobs.map((j) => j.id === jobId
+          ? { ...j, projectManager: json.projectManager, pmKey: json.pmKey, pmLabel: json.pmLabel, color: json.color }
+          : j),
+      }));
+    } catch (e: any) {
+      setPmError(e.message || 'Could not set the project manager');
+    } finally { setSavingPm(null); }
+  }
 
   function toggleJob(id: string) {
     const next = new Set(selected === null ? jobs.map((j) => j.id) : selected);
@@ -229,6 +292,31 @@ export default function ProductionSchedulePage() {
         <div style={{ padding: 40, textAlign: 'center', color: MUTED }}>No open jobs carry a 🤖 PRODUCTION MILESTONES group yet. Run the production-schedule task on a job and it will appear here.</div>
       ) : (
         <>
+          {/* Project-manager legend + filter. Color on this page belongs to the
+              PM, so this band doubles as the key for every bar below. */}
+          <div style={{ background: '#fff', border: `1px solid ${LINE}`, borderRadius: 10, padding: '10px 12px', marginBottom: 12 }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
+              <span style={{ fontSize: 12, fontWeight: 700, color: MUTED, textTransform: 'uppercase', letterSpacing: 0.5 }}>Project Managers</span>
+              <button onClick={allPms} style={chip(pmFilter === null, MAROON)}>All</button>
+              {pmLanes.map((p) => {
+                const on = pmOn(p.key);
+                const live = shown.filter((j) => j.pmKey === p.key).length;
+                return (
+                  <button key={p.key} onClick={() => togglePm(p.key)} onDoubleClick={() => onlyPm(p.key)}
+                    title={`${p.total} job${p.total === 1 ? '' : 's'} on the schedule${p.key === 'unassigned' ? ' with no project manager set in JobTread' : ''}\nDouble-click to show only ${p.label}`}
+                    style={{ ...chip(on, p.color), display: 'flex', alignItems: 'center', gap: 6 }}>
+                    <span style={{ width: 10, height: 10, borderRadius: 3, background: on ? '#fff' : p.color, opacity: on ? 0.9 : 1, flexShrink: 0 }} />
+                    <span style={{ fontWeight: 700 }}>{p.label}</span>
+                    <span style={{ opacity: 0.8 }}>{live}{live !== p.total ? ` / ${p.total}` : ''}</span>
+                  </button>
+                );
+              })}
+              <span style={{ flex: 1 }} />
+              {pmError && <span style={{ fontSize: 12, color: '#a11', fontWeight: 600 }}>{pmError}</span>}
+              {!canWrite && <span style={{ fontSize: 11, color: MUTED }}>Read-only — ask Nathan for JobTread write access to reassign.</span>}
+            </div>
+          </div>
+
           {/* Job picker */}
           <div style={{ background: '#fff', border: `1px solid ${LINE}`, borderRadius: 10, padding: '10px 12px', marginBottom: 12 }}>
             <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap', marginBottom: 8 }}>
@@ -249,6 +337,7 @@ export default function ProductionSchedulePage() {
                     <span style={{ width: 10, height: 10, borderRadius: 3, background: on ? '#fff' : j.color, opacity: on ? 0.9 : 1, flexShrink: 0 }} />
                     <span style={{ fontWeight: 600 }}>{j.number}</span>
                     <span>{j.name}</span>
+                    <span style={{ fontSize: 10, fontWeight: 700, padding: '1px 5px', borderRadius: 999, background: on ? 'rgba(255,255,255,0.25)' : hexA(j.color, 0.12), color: on ? '#fff' : j.color, letterSpacing: 0.2 }}>{j.pmLabel}</span>
                     <span style={{ opacity: 0.75, fontSize: 11 }}>{fmtShort(j.start)}–{fmtShort(j.end)}</span>
                     {j.slipDays !== null && j.slipDays !== 0 && (
                       <span style={{ fontSize: 10, fontWeight: 700, padding: '1px 5px', borderRadius: 999, background: on ? 'rgba(255,255,255,0.25)' : j.slipDays > 0 ? '#fdecec' : '#e7f6ec', color: on ? '#fff' : j.slipDays > 0 ? '#a11' : '#176b3a' }}>
@@ -272,7 +361,7 @@ export default function ProductionSchedulePage() {
           <SalesOutlook allJobs={jobs} shownJobs={shown} canEdit={canWrite || access?.role === 'admin'} onChanged={() => load(true)} />
 
           {view === 'gantt' ? (
-            <Gantt jobs={shown} zoom={zoom} setZoom={setZoomP} capacity={capacity} setCapacity={setCapP} showBaseline={showBaseline} setShowBaseline={setShowBaseline} onPick={(job, m) => setPopup({ job, m })} onBaseline={canWrite ? (job) => setBaselineJob(job) : null} />
+            <Gantt jobs={shown} zoom={zoom} setZoom={setZoomP} capacity={capacity} setCapacity={setCapP} showBaseline={showBaseline} setShowBaseline={setShowBaseline} onPick={(job, m) => setPopup({ job, m })} onBaseline={canWrite ? (job) => setBaselineJob(job) : null} pmLanes={pmLanes} onAssignPm={canWrite ? assignPm : null} savingPm={savingPm} />
           ) : (
             <MonthGrid jobs={shown} cursor={monthCursor} setCursor={setMonthCursor} capacity={capacity} onPick={(job, m) => setPopup({ job, m })} />
           )}
@@ -513,7 +602,7 @@ function SalesOutlook({ allJobs, shownJobs, canEdit, onChanged }: { allJobs: Job
 // Gantt
 // ============================================================
 
-function Gantt({ jobs, zoom, setZoom, capacity, setCapacity, showBaseline, setShowBaseline, onPick, onBaseline }: any) {
+function Gantt({ jobs, zoom, setZoom, capacity, setCapacity, showBaseline, setShowBaseline, onPick, onBaseline, pmLanes, onAssignPm, savingPm }: any) {
   const px = ZOOMS[zoom as Zoom].px;
   const today = todayIdx();
   const scrollRef = useRef<HTMLDivElement>(null);
@@ -543,12 +632,33 @@ function Gantt({ jobs, zoom, setZoom, capacity, setCapacity, showBaseline, setSh
   }, [start, end, zoom]);
   const weeks = useMemo(() => { const out: number[] = []; for (let i = mondayOf(start); i <= end; i += 7) out.push(i); return out; }, [start, end]);
 
-  // Workload per week: count jobs with any milestone intersecting the week; sum contract value.
-  const workload = useMemo(() => weeks.map((ws) => {
+  // Workload per week, split by project manager. "Active" = the job has at
+  // least one milestone overlapping that week, which is the same rule the
+  // old company-wide strip used — just bucketed per person now, so you can
+  // see who is carrying how many jobs at once.
+  const activeInWeek = (j: Job, ws: number) => {
     const we = ws + 6;
-    const active = jobs.filter((j: Job) => j.milestones.some((m) => { const s = dayIdx(m.start), e = dayIdx(m.end); return s !== null && e !== null && s <= we && e >= ws; }));
-    return { ws, count: active.length, value: active.reduce((s: number, j: Job) => s + (j.contractValue || 0), 0), names: active.map((j: Job) => `${j.number} ${j.name}`) };
+    return j.milestones.some((m) => { const s = dayIdx(m.start), e = dayIdx(m.end); return s !== null && e !== null && s <= we && e >= ws; });
+  };
+  const workload = useMemo(() => weeks.map((ws) => {
+    const active = (jobs as Job[]).filter((j) => activeInWeek(j, ws));
+    const byPm: Record<string, Job[]> = {};
+    for (const j of active) (byPm[j.pmKey] ||= []).push(j);
+    return {
+      ws,
+      count: active.length,
+      value: active.reduce((s: number, j: Job) => s + (j.contractValue || 0), 0),
+      names: active.map((j: Job) => `${j.number} ${j.name}`),
+      byPm,
+    };
   }), [weeks, jobs]);
+  // Only draw lanes for PMs who actually have a job in view.
+  const lanesShown = useMemo(() => {
+    const present = new Set((jobs as Job[]).map((j) => j.pmKey));
+    return (pmLanes || []).filter((p: any) => present.has(p.key));
+  }, [pmLanes, jobs]);
+  // One shared vertical scale so lanes are comparable to each other.
+  const peakPm = Math.max(1, capacity, ...workload.flatMap((w) => lanesShown.map((p: any) => (w.byPm[p.key] || []).length)));
   const peak = Math.max(1, ...workload.map((w) => w.count));
 
   // Rows: per job, milestones lane-packed.
@@ -579,7 +689,7 @@ function Gantt({ jobs, zoom, setZoom, capacity, setCapacity, showBaseline, setSh
         <label style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 12, color: MUTED }}>
           Capacity target
           <input type="number" min={1} max={20} value={capacity} onChange={(e) => setCapacity(Number(e.target.value))} style={{ width: 48, padding: '3px 6px', border: `1px solid ${LINE}`, borderRadius: 6, fontSize: 12 }} />
-          concurrent jobs
+          jobs per PM at once
         </label>
       </div>
 
@@ -614,9 +724,12 @@ function Gantt({ jobs, zoom, setZoom, capacity, setCapacity, showBaseline, setSh
                     </button>
                   )}
                 </div>
-                <div style={{ fontSize: 11, color: MUTED, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
-                  {fmtShort(job.start)} → {fmtShort(job.end)} · {job.milestoneCount} ms{job.projectManager ? ` · ${job.projectManager}` : ''}
-                  {job.slipDays !== null && job.slipDays !== 0 && <span style={{ color: job.slipDays > 0 ? '#a11' : '#176b3a', fontWeight: 700 }}> · {job.slipDays > 0 ? `+${job.slipDays}d late` : `${-job.slipDays}d early`}</span>}
+                <div style={{ fontSize: 11, color: MUTED, display: 'flex', alignItems: 'center', gap: 5, minWidth: 0 }}>
+                  <PmPicker job={job} onAssign={onAssignPm} saving={savingPm === job.id} />
+                  <span style={{ whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                    {fmtShort(job.start)} → {fmtShort(job.end)} · {job.milestoneCount} ms
+                    {job.slipDays !== null && job.slipDays !== 0 && <span style={{ color: job.slipDays > 0 ? '#a11' : '#176b3a', fontWeight: 700 }}> · {job.slipDays > 0 ? `+${job.slipDays}d late` : `${-job.slipDays}d early`}</span>}
+                  </span>
                 </div>
               </div>
             }>
@@ -650,30 +763,98 @@ function Gantt({ jobs, zoom, setZoom, capacity, setCapacity, showBaseline, setSh
             </RowPair>
           ))}
 
-          {/* workload strip */}
-          <div style={{ position: 'sticky', left: 0, zIndex: 3, background: '#fff', borderRight: `1px solid ${LINE}`, borderTop: `2px solid ${LINE}`, padding: '8px 12px', fontSize: 12, boxSizing: 'border-box' }}>
-            <div style={{ fontWeight: 700, color: MAROON }}>Workload</div>
-            <div style={{ color: MUTED, fontSize: 11 }}>Jobs active per week · peak {peak} · target {capacity}</div>
+          {/* Workload — one lane per project manager. Bar height is that PM's
+              concurrent job count for the week; the dashed line is his target,
+              and anything above it turns red. */}
+          <div style={{ position: 'sticky', left: 0, zIndex: 3, background: '#fff', borderRight: `1px solid ${LINE}`, borderTop: `2px solid ${LINE}`, padding: '8px 12px 2px', fontSize: 12, boxSizing: 'border-box' }}>
+            <div style={{ fontWeight: 700, color: MAROON }}>Workload by PM</div>
+            <div style={{ color: MUTED, fontSize: 11 }}>Jobs running at once · target {capacity} each</div>
           </div>
-          <div style={{ position: 'relative', height: 58, borderTop: `2px solid ${LINE}` }}>
+          <div style={{ position: 'relative', height: 34, borderTop: `2px solid ${LINE}` }}>
+            {today >= start && today <= end && <div style={{ position: 'absolute', left: x(today) + px / 2, top: 0, bottom: 0, borderLeft: `2px solid ${GOLD}`, pointerEvents: 'none' }} />}
+          </div>
+
+          {lanesShown.map((p: any) => {
+            const counts = workload.map((w) => (w.byPm[p.key] || []).length);
+            const laneMax = Math.max(...counts, 0);
+            const over = counts.some((c) => c > capacity);
+            return (
+              <Fragment key={p.key}>
+                <div style={{ position: 'sticky', left: 0, zIndex: 3, background: '#fff', borderRight: `1px solid ${LINE}`, borderBottom: `1px solid ${LINE}`, padding: '4px 12px', fontSize: 12, boxSizing: 'border-box', display: 'flex', alignItems: 'center', gap: 6, height: PM_LANE_H }}>
+                  <span style={{ width: 10, height: 10, borderRadius: 3, background: p.color, flexShrink: 0 }} />
+                  <span style={{ fontWeight: 700, color: INK }}>{p.label}</span>
+                  <span style={{ color: over ? '#d33' : MUTED, fontSize: 11, marginLeft: 'auto', fontWeight: over ? 700 : 500 }}>peak {laneMax}</span>
+                </div>
+                <div style={{ position: 'relative', height: PM_LANE_H, borderBottom: `1px solid ${LINE}`, boxSizing: 'border-box' }}>
+                  {weeks.map((w) => <div key={w} style={{ position: 'absolute', left: x(w), top: 0, bottom: 0, borderLeft: `1px solid ${LINE}`, opacity: 0.5 }} />)}
+                  {workload.map((w, i) => {
+                    const c = counts[i];
+                    if (c === 0) return null;
+                    const isOver = c > capacity;
+                    const h = Math.max(3, Math.round((c / peakPm) * (PM_LANE_H - 10)));
+                    const names = (w.byPm[p.key] || []).map((j: Job) => `${j.number} ${j.name}`);
+                    return (
+                      <div key={w.ws} title={`${p.label} · week of ${fmtShort(idxToDate(w.ws).toISOString())}\n${c} job${c === 1 ? '' : 's'} running${isOver ? ` (over target of ${capacity})` : ''}\n${names.join('\n')}`}
+                        style={{ position: 'absolute', left: x(w.ws) + 1, width: Math.max(2, 7 * px - 2), bottom: 3, height: h, background: isOver ? '#d33' : p.color, opacity: isOver ? 1 : 0.85, borderRadius: 2 }}>
+                        {7 * px > 20 && h > 11 && <span style={{ position: 'absolute', left: 0, right: 0, top: 1, textAlign: 'center', fontSize: 9, fontWeight: 700, color: '#fff' }}>{c}</span>}
+                      </div>
+                    );
+                  })}
+                  {/* capacity target */}
+                  <div style={{ position: 'absolute', left: 0, right: 0, bottom: 3 + Math.round((capacity / peakPm) * (PM_LANE_H - 10)), borderTop: `1px dashed ${hexA(GOLD, 0.9)}`, pointerEvents: 'none' }} />
+                  {today >= start && today <= end && <div style={{ position: 'absolute', left: x(today) + px / 2, top: 0, bottom: 0, borderLeft: `2px solid ${GOLD}`, pointerEvents: 'none' }} />}
+                </div>
+              </Fragment>
+            );
+          })}
+
+          {/* company total, for the old at-a-glance read */}
+          <div style={{ position: 'sticky', left: 0, zIndex: 3, background: '#fff', borderRight: `1px solid ${LINE}`, padding: '6px 12px 10px', fontSize: 11, color: MUTED, boxSizing: 'border-box' }}>
+            All jobs · peak {peak}
+          </div>
+          <div style={{ position: 'relative', height: 30 }}>
             {workload.map((w) => {
-              const over = w.count > capacity;
-              const h = Math.max(3, Math.round((w.count / Math.max(peak, capacity)) * 36));
-              const bg = w.count === 0 ? 'transparent' : over ? '#d33' : w.count === capacity ? GOLD : hexA(MAROON, 0.35 + 0.5 * (w.count / Math.max(peak, capacity)));
+              const h = Math.max(2, Math.round((w.count / Math.max(peak, 1)) * 18));
               return (
                 <div key={w.ws} title={`Week of ${fmtShort(idxToDate(w.ws).toISOString())}: ${w.count} active job${w.count === 1 ? '' : 's'} (${money(w.value)})\n${w.names.join('\n')}`}
-                  style={{ position: 'absolute', left: x(w.ws) + 1, width: 7 * px - 2, bottom: 16, height: h, background: bg, borderRadius: 2 }}>
-                  {w.count > 0 && 7 * px > 18 && <span style={{ position: 'absolute', top: -14, left: 0, right: 0, textAlign: 'center', fontSize: 10, fontWeight: 700, color: over ? '#d33' : INK }}>{w.count}</span>}
-                </div>
+                  style={{ position: 'absolute', left: x(w.ws) + 1, width: Math.max(2, 7 * px - 2), bottom: 8, height: h, background: hexA(MAROON, 0.3), borderRadius: 2 }} />
               );
             })}
-            {/* capacity line */}
-            <div style={{ position: 'absolute', left: 0, right: 0, bottom: 16 + Math.round((capacity / Math.max(peak, capacity)) * 36), borderTop: `1px dashed ${hexA(GOLD, 0.9)}`, pointerEvents: 'none' }} />
             {today >= start && today <= end && <div style={{ position: 'absolute', left: x(today) + px / 2, top: 0, bottom: 0, borderLeft: `2px solid ${GOLD}`, pointerEvents: 'none' }} />}
           </div>
         </div>
       </div>
     </div>
+  );
+}
+
+/**
+ * Project-manager picker on a Gantt row. Reads as a plain colored badge until
+ * you click it; writes the job's JobTread "Project Manager" field on change.
+ * Renders as a static badge for anyone without JobTread write access.
+ */
+function PmPicker({ job, onAssign, saving }: any) {
+  const color = job.color;
+  const badge = (
+    <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4, fontSize: 10, fontWeight: 700, padding: '1px 6px', borderRadius: 999, background: hexA(color, 0.12), color, letterSpacing: 0.2, whiteSpace: 'nowrap' }}>
+      <span style={{ width: 7, height: 7, borderRadius: 2, background: color }} />
+      {saving ? '…' : job.pmLabel}
+    </span>
+  );
+  if (!onAssign) return badge;
+  return (
+    <span style={{ position: 'relative', display: 'inline-flex', alignItems: 'center', flexShrink: 0 }} title={`Project manager${job.projectManager ? `: ${job.projectManager}` : ' not set'} — change it here and it saves to JobTread`}>
+      {badge}
+      <select
+        value={job.pmKey}
+        disabled={saving}
+        onChange={(e) => onAssign(job.id, e.target.value)}
+        aria-label={`Project manager for ${job.number} ${job.name}`}
+        style={{ position: 'absolute', inset: 0, width: '100%', height: '100%', opacity: 0, cursor: 'pointer' }}
+      >
+        {PM_LANES.map((p) => <option key={p.key} value={p.key}>{p.label}</option>)}
+      </select>
+    </span>
   );
 }
 
