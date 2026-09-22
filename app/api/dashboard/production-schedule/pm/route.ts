@@ -48,12 +48,13 @@ export async function POST(req: NextRequest) {
   }
 
   try {
-    await setJobProjectManager(jobId, value);
-    const pm = resolvePm(value);
+    const saved = await setJobProjectManager(jobId, value);
+    // Trust what JobTread echoed back, not what we sent.
+    const pm = resolvePm(saved.value ?? value);
     return NextResponse.json({
       ok: true,
       jobId,
-      projectManager: value || null,
+      projectManager: saved.value ?? null,
       pmKey: pm.key,
       pmLabel: pm.label,
       color: pm.color,

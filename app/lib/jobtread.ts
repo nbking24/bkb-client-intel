@@ -2304,14 +2304,31 @@ export async function setJobStatus(jobId: string, statusValue: string) {
  * Set (or clear, with '') the job's Project Manager custom field.
  * `pmValue` must be one of the field's option strings — see
  * app/lib/project-managers.ts, which is the Hub's copy of that roster.
+ *
+ * NB: this deliberately does NOT go through setCustomFieldValue() above.
+ * Pave has no createCustomFieldValue/updateCustomFieldValue root mutation
+ * (verified against the live schema 2026-09-22 — that helper 400s), so
+ * custom fields are written as a `customFieldValues` map on the entity's own
+ * update mutation, keyed by field id. Same shape the GHL webhook uses on
+ * createContact.
  */
 export async function setJobProjectManager(jobId: string, pmValue: string) {
-  return setCustomFieldValue({
-    targetId: jobId,
-    targetType: 'job',
-    customFieldId: JT_CUSTOM_FIELD_IDS.JOB_PROJECT_MANAGER,
-    value: pmValue,
+  const value = pmValue ? pmValue : null;
+  const data = await pave({
+    updateJob: {
+      $: { id: jobId, customFieldValues: { [JT_CUSTOM_FIELD_IDS.JOB_PROJECT_MANAGER]: value } },
+      job: {
+        $: { id: jobId },
+        id: {},
+        customFieldValues: {
+          $: { where: [['customField', 'id'], '=', JT_CUSTOM_FIELD_IDS.JOB_PROJECT_MANAGER] },
+          nodes: { value: {} },
+        },
+      },
+    },
   });
+  const saved = (data as any)?.updateJob?.job?.customFieldValues?.nodes?.[0]?.value ?? null;
+  return { success: true as const, jobId, value: saved };
 }
 
 // ============================================================
