@@ -2218,117 +2218,116 @@ export const JT_CUSTOM_FIELD_IDS = {
   JOB_PROJECT_MANAGER: '22P5TA732Mu9',
 } as const;
 
+/** Entity type -> the Pave mutation that writes its fields. */
+const CFV_UPDATE_MUTATION: Record<string, { mutation: string; result: string }> = {
+  job: { mutation: 'updateJob', result: 'job' },
+  task: { mutation: 'updateTask', result: 'task' },
+  account: { mutation: 'updateAccount', result: 'account' },
+  contact: { mutation: 'updateContact', result: 'contact' },
+  costItem: { mutation: 'updateCostItem', result: 'costItem' },
+  document: { mutation: 'updateDocument', result: 'document' },
+};
+
 /**
- * Set (upsert) a custom field value on an entity (job/task/account/etc).
+ * Set (upsert) a custom field value on an entity (job/task/account/costItem/...).
  *
- * If a customFieldValue already exists for (targetId, customFieldId), updates it.
- * Otherwise creates a new one.
+ * HOW PAVE ACTUALLY DOES THIS (verified against the live schema 2026-09-22):
+ * there is no createCustomFieldValue or updateCustomFieldValue root mutation —
+ * neither name exists. This function used to call both and therefore failed
+ * 100% of the time with
+ *   `The field "updateCustomFieldValue" does not exist at the query root`
+ * which silently broke every caller, setJobStatus() included.
+ *
+ * Custom fields are written as a `customFieldValues` map on the ENTITY's own
+ * update mutation, keyed by custom-field id. Upsert is handled server-side, so
+ * there is no create-vs-update branch and no pre-read: sending the map creates
+ * the value when absent and overwrites it when present. Passing an empty string
+ * clears the field (sent as null).
+ *
+ * The write is read back and the stored value returned, so callers can tell a
+ * silent JobTread-side coercion (option not on the list, value truncated) from
+ * a clean save instead of trusting what they sent.
  *
  * @param targetId - The entity ID (e.g. jobId)
- * @param targetType - 'job' | 'task' | 'account' | 'contact' | 'costItem'
+ * @param targetType - 'job' | 'task' | 'account' | 'contact' | 'costItem' | 'document'
  * @param customFieldId - The custom field definition ID
- * @param value - The value to set (string for option/text fields)
+ * @param value - The value to set; '' clears it
  */
 export async function setCustomFieldValue(params: {
   targetId: string;
   targetType: string;
   customFieldId: string;
   value: string;
-}): Promise<{ success: true; cfvId: string; created: boolean }> {
+}): Promise<{ success: true; targetId: string; customFieldId: string; value: string | null }> {
   const { targetId, targetType, customFieldId, value } = params;
 
-  // Look up existing CFV by querying the entity's customFieldValues
-  // (PAVE exposes customFieldValues as a sub-collection on most entities)
-  const entityKey =
-    targetType === 'job' ? 'job' :
-    targetType === 'task' ? 'task' :
-    targetType === 'account' ? 'account' :
-    targetType === 'contact' ? 'contact' :
-    targetType === 'costItem' ? 'costItem' :
-    'job';
+  const spec = CFV_UPDATE_MUTATION[targetType];
+  if (!spec) {
+    throw new Error(
+      `setCustomFieldValue: unsupported targetType "${targetType}". ` +
+        `Supported: ${Object.keys(CFV_UPDATE_MUTATION).join(', ')}.`,
+    );
+  }
 
-  const lookup = await pave({
-    [entityKey]: {
-      $: { id: targetId },
-      customFieldValues: {
-        nodes: {
-          id: {},
-          customField: { id: {} },
+  const data = await pave({
+    [spec.mutation]: {
+      $: { id: targetId, customFieldValues: { [customFieldId]: value === '' ? null : value } },
+      [spec.result]: {
+        $: { id: targetId },
+        id: {},
+        customFieldValues: {
+          $: { size: 1, where: [['customField', 'id'], '=', customFieldId] },
+          nodes: { value: {} },
         },
       },
     },
   });
 
-  const existingNodes = (lookup as any)?.[entityKey]?.customFieldValues?.nodes || [];
-  const existing = existingNodes.find((n: any) => n.customField?.id === customFieldId);
-
-  if (existing?.id) {
-    // Update existing CFV
-    await pave({
-      updateCustomFieldValue: {
-        $: { id: existing.id, value },
-      },
-    });
-    return { success: true, cfvId: existing.id, created: false };
-  }
-
-  // Create new CFV
-  const createData = await pave({
-    createCustomFieldValue: {
-      $: { customFieldId, targetId, targetType, value },
-      createdCustomFieldValue: { id: {} },
-    },
-  });
-  const created = (createData as any)?.createCustomFieldValue?.createdCustomFieldValue;
-  if (!created?.id) {
-    throw new Error('createCustomFieldValue returned no id: ' + JSON.stringify(createData).slice(0, 300));
-  }
-  return { success: true, cfvId: created.id, created: true };
+  const saved = (data as any)?.[spec.mutation]?.[spec.result]?.customFieldValues?.nodes?.[0]?.value ?? null;
+  return { success: true, targetId, customFieldId, value: saved };
 }
 
 /**
  * Convenience: set the "Status" custom field on a job.
  * Use the canonical STATUS_VALUES strings from constants.ts
  * (e.g. '5. Design Phase', '10. Ready', '6. In Production').
+ *
+ * Throws if JobTread did not store what we sent. Status is an option field:
+ * a string that is not on the option list is dropped rather than rejected, so
+ * without this check a typo'd or renamed status would look like a clean save
+ * and the job would quietly sit on its old status. Both callers already treat
+ * a throw as non-fatal and record the message.
  */
 export async function setJobStatus(jobId: string, statusValue: string) {
-  return setCustomFieldValue({
+  const res = await setCustomFieldValue({
     targetId: jobId,
     targetType: 'job',
     customFieldId: JT_CUSTOM_FIELD_IDS.JOB_STATUS,
     value: statusValue,
   });
+  if ((res.value || '') !== statusValue) {
+    throw new Error(
+      `JobTread did not store Status "${statusValue}" on job ${jobId} (it now reads ` +
+        `${res.value === null ? 'empty' : `"${res.value}"`}). Check that the value is on the ` +
+        `Status field's option list.`,
+    );
+  }
+  return res;
 }
 
 /**
  * Set (or clear, with '') the job's Project Manager custom field.
  * `pmValue` must be one of the field's option strings — see
  * app/lib/project-managers.ts, which is the Hub's copy of that roster.
- *
- * NB: this deliberately does NOT go through setCustomFieldValue() above.
- * Pave has no createCustomFieldValue/updateCustomFieldValue root mutation
- * (verified against the live schema 2026-09-22 — that helper 400s), so
- * custom fields are written as a `customFieldValues` map on the entity's own
- * update mutation, keyed by field id. Same shape the GHL webhook uses on
- * createContact.
  */
 export async function setJobProjectManager(jobId: string, pmValue: string) {
-  const value = pmValue ? pmValue : null;
-  const data = await pave({
-    updateJob: {
-      $: { id: jobId, customFieldValues: { [JT_CUSTOM_FIELD_IDS.JOB_PROJECT_MANAGER]: value } },
-      job: {
-        $: { id: jobId },
-        id: {},
-        customFieldValues: {
-          $: { where: [['customField', 'id'], '=', JT_CUSTOM_FIELD_IDS.JOB_PROJECT_MANAGER] },
-          nodes: { value: {} },
-        },
-      },
-    },
+  const res = await setCustomFieldValue({
+    targetId: jobId,
+    targetType: 'job',
+    customFieldId: JT_CUSTOM_FIELD_IDS.JOB_PROJECT_MANAGER,
+    value: pmValue,
   });
-  const saved = (data as any)?.updateJob?.job?.customFieldValues?.nodes?.[0]?.value ?? null;
-  return { success: true as const, jobId, value: saved };
+  return { success: true as const, jobId, value: res.value };
 }
 
 // ============================================================
