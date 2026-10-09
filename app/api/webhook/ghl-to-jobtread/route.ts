@@ -83,7 +83,21 @@ async function findGhlOpportunityId(contactId: string): Promise<string | null> {
 }
 
 // ── Main handler ──
+// ── Kill switch (2026-10-09) ──
+// Leads are now tracked in JobTread from day one via the JobTread Intake Form.
+// The Loop workflows that call this endpoint ("Pipeline - Move to JT" and
+// "Pipeline - Move to JobTread (All Other Stages)") are agency-locked in Loop
+// and cannot be unpublished from the BKB sub-account, so this endpoint now
+// acknowledges and ignores every call. Set GHL_TO_JT_ENABLED=true in Vercel
+// to bring the old behaviour back.
+const GHL_TO_JT_ENABLED = process.env.GHL_TO_JT_ENABLED === 'true';
+
 export async function POST(request: NextRequest) {
+  if (!GHL_TO_JT_ENABLED) {
+    console.log('[WEBHOOK] ghl-to-jobtread is disabled (leads live in JobTread via the Intake Form); ignoring call');
+    return NextResponse.json({ ok: true, ignored: true, reason: 'ghl-to-jobtread disabled 2026-10-09' });
+  }
+
   // Top-level debug: log raw request info
   const contentType = request.headers.get('content-type') || 'none';
   console.log('[WEBHOOK] Incoming request — Content-Type:', contentType);
