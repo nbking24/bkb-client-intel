@@ -13,7 +13,7 @@ import { getOrCreateDraft, refreshBrief } from '@/app/lib/planning-meeting/store
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
-export const maxDuration = 120;
+export const maxDuration = 300;
 
 function authorized(req: NextRequest): boolean {
   const expected = process.env.CRON_SECRET;
