@@ -130,7 +130,7 @@ export async function applyTranscript(meeting: any, result: any, members: { id: 
         lines.push(`- ${t.kind === 'roadblock' ? 'Roadblock' : 'Commitment'}: ${t.what.trim()} (${t.who || 'no owner'}${t.due ? ', due ' + fmtDay(t.due) : ''})`);
       }
     }
-    const section = ['', 'From the recording', ...notes.map((n) => '- ' + n.text.trim()), ...(lines.length ? ['New tasks from the recording', ...lines] : [])].join('\n');
+    const section = ['', ...(notes.length ? ['From the recording', ...notes.map((n) => '- ' + n.text.trim())] : []), ...(lines.length ? [...(notes.length ? [''] : []), 'New tasks from the recording', ...lines] : [])].join('\n');
     const logEntry = prior.find((l) => l.ok && l.key === `log:${j.jobId}`) || log.find((l) => l.ok && l.key === `log:${j.jobId}`);
     await step(`tx:log:${j.jobId}`, async () => {
       if (logEntry?.id) {

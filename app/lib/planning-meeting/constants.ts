@@ -100,6 +100,21 @@ export function shortJobName(name: string, number?: string | number | null): str
   return number ? `${first} ${number}` : first;
 }
 
+/**
+ * What a hold change during the meeting means for the daily log.
+ * Put on hold and woken again within the same meeting logs nothing.
+ */
+export function holdLogLine(h: any, meetingCreatedAt: string): string | null {
+  if (!h || !meetingCreatedAt) return null;
+  const since = h.held_since ? new Date(h.held_since).getTime() : null;
+  const start = new Date(meetingCreatedAt).getTime();
+  const detail = `${h.next_touch ? ', wake-up ' + fmtDay(h.next_touch) : ''}${h.reason ? '. Reason: ' + h.reason : ''}`;
+  if (h.on_hold && since !== null && since >= start) return `Put on hold${detail}.`;
+  if (h.on_hold && since !== null && since < start) return `Still on hold${detail}.`;
+  if (!h.on_hold && since !== null && since < start) return 'Taken off hold.';
+  return null;
+}
+
 /** The four questions asked for every job. Keys match state.jobs[jobId].q */
 export const QUESTIONS = [
   { key: 'q1', label: 'Are we on track for the next gate date?' },
