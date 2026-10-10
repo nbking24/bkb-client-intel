@@ -423,7 +423,7 @@ export async function buildBrief(opts: { lastTasks?: LastMeetingTask[]; today?: 
   if (opts.insights !== false) {
     await inBatches(built, 4, async (j: any) => {
       try {
-        const ctx = await fetchJobContext(j.id);
+        const ctx = await fetchJobContext(j.id, today);
         j.insight = await jobInsight(j, ctx, j._planText, today);
       } catch (e: any) {
         j.insight = null;
