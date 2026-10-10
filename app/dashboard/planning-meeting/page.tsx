@@ -252,7 +252,7 @@ function SetupPanel({ jobs }) {
 
 const STEP_STYLE = (state) => ({
   done: { background: C.greenSoft, borderColor: C.green, color: C.green },
-  current: { background: '#f7ecec', borderColor: C.maroon, color: C.maroon },
+  current: { background: C.blueSoft, borderColor: C.blue, color: C.blue },
   late: { background: C.redSoft, borderColor: C.red, color: C.red },
   todo: { background: '#fff', borderColor: C.line, color: C.muted },
 }[state]);
@@ -444,7 +444,11 @@ export default function PlanningMeetingPage() {
       if (t.act === 'drop') add(t.jobId, 'Update', `Drop: tick complete and add "Dropped at the ${fd(meetingDate)} meeting${t.why ? ': ' + t.why : ''}" to its description. Not deleted: ${t.name}`);
     }
     for (const h of allHoldRows) {
-      if (meeting?.created_at && h.set_at && h.set_at >= meeting.created_at && jobs.some((j) => j.id === h.job_id)) add(h.job_id, 'Hub only', h.on_hold ? `On hold${h.next_touch ? ', wake-up ' + fd(h.next_touch) : ''}${h.reason ? ' · reason: ' + h.reason : ''}. Noted in the daily log.` : 'Taken off hold. Noted in the daily log.');
+      if (!meeting?.created_at || !h.set_at || h.set_at < meeting.created_at || !jobs.some((j) => j.id === h.job_id)) continue;
+      const since = h.held_since ? new Date(h.held_since).getTime() : null, start = new Date(meeting.created_at).getTime();
+      const det = `${h.next_touch ? ', wake-up ' + fd(h.next_touch) : ''}${h.reason ? ' · reason: ' + h.reason : ''}`;
+      const line = h.on_hold && since !== null && since >= start ? `Put on hold${det}.` : h.on_hold && since !== null ? `Still on hold${det}.` : !h.on_hold && since !== null && since < start ? 'Taken off hold.' : null;
+      if (line) add(h.job_id, 'Hub only', line + ' Noted in the daily log.');
     }
     for (const j of jobs) {
       const js = S.jobs[j.id];
@@ -558,7 +562,7 @@ export default function PlanningMeetingPage() {
             {/* 1. PROJECT REVIEW */}
             <h4>1. Project review: where it stands</h4>
             {j.gates.length ? <GateTrack j={j} js={js} today={today} /> : <p className="empty">No ✅ PROJECT GATES on this job. Set it up from the Set up a job tab.</p>}
-            <div className="small" style={{ margin: '4px 0 10px' }}>* date counted back from the production start (not set yet). Red means the gate date has passed with items still open.</div>
+            <div className="small" style={{ margin: '4px 0 10px' }}>Green is done, blue is the current gate, red means the gate date has passed with items still open. * date counted back from the production start (not set yet).</div>
             <div className="facts">
               <div><span className="small">Production start</span><b>{j.start ? `${fd(j.start, true)} (${daysToStart >= 0 ? daysToStart + ' days' : 'started'})` : 'Not on the schedule'}</b></div>
               <div><span className="small">Design lead / PM</span><b>{j.plan?.designLead || 'not named'} / {j.plan?.pm || 'not named'}</b></div>
@@ -631,7 +635,7 @@ export default function PlanningMeetingPage() {
             <h4>4. The four questions</h4>
             {(j.agenda || []).length ? <div className="small" style={{ margin: '0 0 8px' }}><b>Also cover:</b> {(j.agenda || []).map((p, i) => <label key={i} style={{ display: 'flex', gap: 6, cursor: 'pointer', marginTop: 3 }}><input type="checkbox" checked={!!js.agenda?.[i]} onChange={(e) => touch((s) => { const x = jsOf(s, j.id); x.agenda = x.agenda || {}; x.agenda[i] = e.target.checked; })} /><span>{p}</span></label>)}</div> : null}
             <div className="qbox"><div className="qhead">1. Are we on track for the next gate date?</div>
-              <div className="small" style={{ marginBottom: 6 }}>{nextGate > 0 && gateDue(nextGate) ? `Next: Gate ${nextGate + 1} ${j.gates[nextGate].name.replace(/^\d+\.\s*/, '')}, due ${fd(gateDue(nextGate))}${j.markers.find((m) => m.gate === nextGate + 1)?.date ? '' : ' (default date)'}.` : 'No next gate date yet. Set a production start or the gate dates.'}</div>
+              <div className="small" style={{ marginBottom: 6 }}>{nextGate > 0 && gateDue(nextGate) ? `Next: Gate ${nextGate + 1} ${j.gates[nextGate].name.replace(/^\d+\.\s*/, '')}, due ${fd(gateDue(nextGate))}${j.markers.find((m) => m.gate === nextGate + 1)?.date || js.markers?.[j.markers.find((m) => m.gate === nextGate + 1)?.id] ? '' : ' (default date)'}${gateDue(nextGate) < today ? ', already past' : ''}.` : 'No next gate date yet. Set a production start or the gate dates.'}</div>
               <div className="seg" style={{ marginBottom: 6 }}>{[['on', 'On track'], ['risk', 'At risk'], ['off', 'Off track']].map(([k, l]) => <button key={k} className={q.q1?.track === k ? 'on' : ''} onClick={() => setQ('q1', 'track', q.q1?.track === k ? '' : k)}>{l}</button>)}</div>
               <NoteBox value={q.q1?.note} placeholder="Why, and what changes the answer" minHeight={46} onSave={(v) => setQ('q1', 'note', v)} />
             </div>
