@@ -14,11 +14,12 @@
  */
 import { NextRequest, NextResponse } from 'next/server';
 import { getSupabase } from '@/app/api/lib/supabase';
+import { meetingNotesText } from '@/app/lib/planning-meeting/constants';
 import { authorize, getOrCreateDraft, refreshBrief, lastConfirmedMeeting, listHolds, listAllHolds, history } from '@/app/lib/planning-meeting/store';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
-export const maxDuration = 120;
+export const maxDuration = 300;
 
 export async function GET(req: NextRequest) {
   const who = await authorize(req);
@@ -31,7 +32,7 @@ export async function GET(req: NextRequest) {
     const [last, holds, holdsAll, hist] = await Promise.all([lastConfirmedMeeting(sb), listHolds(sb), listAllHolds(sb), history(sb)]);
     return NextResponse.json({
       meeting,
-      lastMeeting: last ? { id: last.id, meeting_date: last.meeting_date, plus: last.plus, delta: last.delta, transcript_result: last.transcript_result || null, has_transcript: !!last.transcript, jobNames: Object.fromEntries((last.brief?.jobs || []).map((j) => [j.id, j.short])), jobs: Object.fromEntries(Object.entries(last.state?.jobs || {}).map(([k, v]: any) => [k, { notes: v.notes || '' }])) } : null,
+      lastMeeting: last ? { id: last.id, meeting_date: last.meeting_date, plus: last.plus, delta: last.delta, transcript_result: last.transcript_result || null, has_transcript: !!last.transcript, jobNames: Object.fromEntries((last.brief?.jobs || []).map((j) => [j.id, j.short])), jobs: Object.fromEntries(Object.entries(last.state?.jobs || {}).map(([k, v]: any) => [k, { notes: meetingNotesText(v) }])) } : null,
       holds,
       holdsAll,
       history: hist,
