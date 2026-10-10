@@ -45,6 +45,7 @@ export interface WidgetDef {
 export const DASHBOARDS: DashboardDef[] = [
   { id: 'overview',    label: 'Overview',         href: '/dashboard',             icon: 'LayoutDashboard', description: 'Personalized home: tasks, calendar, KPIs' },
   { id: 'precon',      label: 'Pre-Construction', href: '/dashboard/precon',      icon: 'FolderKanban',    description: 'Schedule / phase tracker' },
+  { id: 'planning-meeting', label: 'Planning Meeting', href: '/dashboard/planning-meeting', icon: 'CalendarCheck', description: 'Tuesday planning meeting: Prep Brief, job by job review of design jobs, write-back to JobTread' },
   { id: 'production-schedule', label: 'Production Schedule', href: '/dashboard/production-schedule', icon: 'GanttChartSquare', description: 'Cross-job milestone timeline + workload from the Claude-managed production milestones' },
   { id: 'company-financials', label: 'Company Financials', href: '/dashboard/company-financials', icon: 'Landmark', ownerOnly: true, description: 'Whole-company P&L: YTD vs prior years + goal, profitability, overhead tracking, cash position, and per-job profitability (QuickBooks snapshot + JobTread)' },
   { id: 'invoicing',   label: 'Invoicing',        href: '/dashboard/invoicing',   icon: 'DollarSign',      description: 'Invoicing health + AR' },
