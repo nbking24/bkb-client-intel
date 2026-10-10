@@ -69,14 +69,19 @@ export async function POST(req: NextRequest) {
   const body = await req.json().catch(() => ({}));
   if (body.action !== 'hold' || !body.jobId) return NextResponse.json({ error: 'Unknown action' }, { status: 400 });
   const sb = getSupabase();
+  const { data: prev } = await sb.from('planning_job_holds').select('on_hold, held_since').eq('job_id', body.jobId).maybeSingle();
+  const now = new Date().toISOString();
+  // held_since marks when the current hold began; it is kept when a hold is edited or ended
+  const heldSince = body.onHold ? (prev?.on_hold ? prev.held_since || now : now) : prev?.held_since || null;
   const row = {
     job_id: body.jobId,
+    held_since: heldSince,
     job_name: body.jobName || null,
     on_hold: !!body.onHold,
     next_touch: /^\d{4}-\d{2}-\d{2}$/.test(body.nextTouch || '') ? body.nextTouch : null,
     reason: body.reason || null,
     set_by: who.userId,
-    set_at: new Date().toISOString(),
+    set_at: now,
   };
   const { error } = await sb.from('planning_job_holds').upsert(row, { onConflict: 'job_id' });
   if (error) return NextResponse.json({ error: error.message }, { status: 500 });

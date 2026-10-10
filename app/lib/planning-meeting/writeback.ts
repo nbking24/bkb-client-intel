@@ -18,7 +18,7 @@
  *   6. One internal daily log for the meeting with the notes and everything above
  */
 import { pave, createDailyLog } from '@/app/lib/jobtread';
-import { ROADBLOCK_TASK_TYPE_ID, ACTIVE_GROUP_NAME, isActiveGroup, fmtDay, meetingNotesText } from './constants';
+import { ROADBLOCK_TASK_TYPE_ID, ACTIVE_GROUP_NAME, isActiveGroup, fmtDay, meetingNotesText, holdLogLine } from './constants';
 
 type Log = { key: string; ok: boolean; id?: string; error?: string; at: string };
 
@@ -198,9 +198,8 @@ export async function writeMeetingToJobTread(meeting: any, holds: any[] = []): P
       if (lines[lines.length - 1] === 'Gate dates set') lines.pop(), lines.pop();
     }
 
-    if (hold) {
-      lines.push('', hold.on_hold ? `On hold${hold.next_touch ? ' until ' + fmtDay(hold.next_touch) : ''}${hold.reason ? '. Reason: ' + hold.reason : ''}.` : 'Taken off hold.');
-    }
+    const holdLine = holdLogLine(hold, meeting.created_at);
+    if (holdLine) lines.push('', holdLine);
 
     // 6. daily log
     if (notes || lines.length) {

@@ -8,7 +8,7 @@ import { validateAuth } from '@/app/api/lib/auth';
 import { getEffectiveAccess } from '@/app/lib/access';
 import { getSupabase } from '@/app/api/lib/supabase';
 import { buildBrief } from './brief';
-import { nextTuesday, todayEastern } from './constants';
+import { nextTuesday, todayEastern, addDays } from './constants';
 
 export const DASHBOARD_ID = 'planning-meeting';
 
@@ -48,7 +48,12 @@ export async function refreshBrief(meeting: any, sb = getSupabase()) {
 export async function getOrCreateDraft(userId: string | null, sb = getSupabase()) {
   const { data: drafts } = await sb.from('planning_meetings').select('*').eq('status', 'draft').limit(1);
   if (drafts?.[0]) return drafts[0];
-  const { data, error } = await sb.from('planning_meetings').insert({ meeting_date: nextTuesday(todayEastern()), status: 'draft', state: {}, created_by: userId }).select('*').single();
+  // The next Tuesday on or after today, but always after the last confirmed meeting
+  // (confirming Tuesday's meeting on Tuesday must open next week's, not the same day).
+  const last = await lastConfirmedMeeting(sb);
+  let base = todayEastern();
+  if (last?.meeting_date && last.meeting_date >= base) base = addDays(last.meeting_date, 1);
+  const { data, error } = await sb.from('planning_meetings').insert({ meeting_date: nextTuesday(base), status: 'draft', state: {}, created_by: userId }).select('*').single();
   if (error) {
     // Another request created it at the same moment.
     const { data: again } = await sb.from('planning_meetings').select('*').eq('status', 'draft').limit(1);
