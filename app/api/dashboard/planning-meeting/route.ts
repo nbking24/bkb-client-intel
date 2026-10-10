@@ -8,6 +8,10 @@
  *       ?refresh=1 rebuilds the brief from JobTread first.
  * PUT   Autosave: { meetingId, state, plus?, delta?, meetingDate? }
  * POST  { action: 'hold', jobId, jobName, onHold, nextTouch?, reason? }  on-hold switch (Hub only)
+ *       { action: 'context-add', jobId, kind: 'dismiss'|'context', target?, note?, meetingId? }
+ *             a correction to Claude's read, or standing context for the job
+ *       { action: 'context-remove', id }
+ *       { action: 'redo', meetingId, jobId }  rebuild Claude's read for one job
  *
  * Writes to JobTread happen only in ./confirm and ./transcript.
  * Design: JobTread Assistant project, claude/BKB-Meetings-and-Job-Setup-Game-Plan-2026-10-10.md
@@ -15,7 +19,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getSupabase } from '@/app/api/lib/supabase';
 import { meetingNotesText } from '@/app/lib/planning-meeting/constants';
-import { authorize, getOrCreateDraft, refreshBrief, lastConfirmedMeeting, listHolds, listAllHolds, history } from '@/app/lib/planning-meeting/store';
+import { authorize, getOrCreateDraft, refreshBrief, lastConfirmedMeeting, listHolds, listAllHolds, history, listContext, redoInsight } from '@/app/lib/planning-meeting/store';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -29,13 +33,14 @@ export async function GET(req: NextRequest) {
     let meeting = await getOrCreateDraft(who.userId, sb);
     const wantRefresh = req.nextUrl.searchParams.get('refresh') === '1';
     if (!meeting.brief || wantRefresh) meeting = await refreshBrief(meeting, sb);
-    const [last, holds, holdsAll, hist] = await Promise.all([lastConfirmedMeeting(sb), listHolds(sb), listAllHolds(sb), history(sb)]);
+    const [last, holds, holdsAll, hist, context] = await Promise.all([lastConfirmedMeeting(sb), listHolds(sb), listAllHolds(sb), history(sb), listContext(sb)]);
     return NextResponse.json({
       meeting,
       lastMeeting: last ? { id: last.id, meeting_date: last.meeting_date, plus: last.plus, delta: last.delta, transcript_result: last.transcript_result || null, has_transcript: !!last.transcript, jobNames: Object.fromEntries((last.brief?.jobs || []).map((j) => [j.id, j.short])), jobs: Object.fromEntries(Object.entries(last.state?.jobs || {}).map(([k, v]: any) => [k, { notes: meetingNotesText(v) }])) } : null,
       holds,
       holdsAll,
       history: hist,
+      context,
       user: { id: who.userId, name: who.name },
     });
   } catch (e: any) {
@@ -67,8 +72,37 @@ export async function POST(req: NextRequest) {
   const who = await authorize(req);
   if (!who.ok) return NextResponse.json({ error: who.error }, { status: who.status });
   const body = await req.json().catch(() => ({}));
-  if (body.action !== 'hold' || !body.jobId) return NextResponse.json({ error: 'Unknown action' }, { status: 400 });
   const sb = getSupabase();
+
+  if (body.action === 'context-add') {
+    const kind = body.kind === 'dismiss' ? 'dismiss' : 'context';
+    const target = String(body.target || '').trim().slice(0, 500);
+    const note = String(body.note || '').trim().slice(0, 1000);
+    if (!body.jobId || (kind === 'dismiss' ? !target : !note)) return NextResponse.json({ error: kind === 'dismiss' ? 'Nothing to correct' : 'Write the context first' }, { status: 400 });
+    const { error } = await sb.from('planning_job_context').insert({ job_id: body.jobId, kind, target: target || null, note: note || null, meeting_id: body.meetingId || null, created_by: who.userId, created_by_name: who.name || null });
+    if (error) return NextResponse.json({ error: error.message }, { status: 500 });
+    return NextResponse.json({ ok: true, context: await listContext(sb) });
+  }
+  if (body.action === 'context-remove') {
+    if (!body.id) return NextResponse.json({ error: 'id required' }, { status: 400 });
+    const { error } = await sb.from('planning_job_context').update({ removed_at: new Date().toISOString(), removed_by: who.name || who.userId }).eq('id', body.id);
+    if (error) return NextResponse.json({ error: error.message }, { status: 500 });
+    return NextResponse.json({ ok: true, context: await listContext(sb) });
+  }
+  if (body.action === 'redo') {
+    const { data: meeting } = await sb.from('planning_meetings').select('id, status, brief').eq('id', body.meetingId).single();
+    if (!meeting || !body.jobId) return NextResponse.json({ error: 'Meeting or job not found' }, { status: 404 });
+    if (meeting.status !== 'draft') return NextResponse.json({ error: 'This meeting is already confirmed' }, { status: 409 });
+    try {
+      const insight = await redoInsight(meeting, body.jobId, sb);
+      return NextResponse.json({ ok: true, insight });
+    } catch (e: any) {
+      console.error('[planning-meeting redo]', e);
+      return NextResponse.json({ error: String(e?.message || e) }, { status: 500 });
+    }
+  }
+
+  if (body.action !== 'hold' || !body.jobId) return NextResponse.json({ error: 'Unknown action' }, { status: 400 });
   const { data: prev } = await sb.from('planning_job_holds').select('on_hold, held_since').eq('job_id', body.jobId).maybeSingle();
   const now = new Date().toISOString();
   // held_since marks when the current hold began; it is kept when a hold is edited or ended
