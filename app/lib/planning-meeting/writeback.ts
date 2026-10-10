@@ -15,7 +15,8 @@
  *      "Dropped at the <date> meeting: reason" added to its description; never deleted)
  *   4. Gate checklist ticks (read live, change only the named items)
  *   5. Planning marker dates
- *   6. One internal daily log for the meeting with the notes and everything above
+ *   6. One internal daily log for the meeting with the notes, everything above,
+ *      and any corrections to Claude's read made during this meeting
  */
 import { pave, createDailyLog } from '@/app/lib/jobtread';
 import { ROADBLOCK_TASK_TYPE_ID, ACTIVE_GROUP_NAME, isActiveGroup, fmtDay, meetingNotesText, holdLogLine } from './constants';
@@ -52,8 +53,9 @@ export interface WriteResult { log: Log[]; written: number; failed: number; crea
 /**
  * @param meeting   planning_meetings row (state, brief, write_log, meeting_date)
  * @param holds     planning_job_holds rows changed during this meeting
+ * @param context   planning_job_context rows added during this meeting (still active)
  */
-export async function writeMeetingToJobTread(meeting: any, holds: any[] = []): Promise<WriteResult> {
+export async function writeMeetingToJobTread(meeting: any, holds: any[] = [], context: any[] = []): Promise<WriteResult> {
   const state = meeting.state || {};
   const brief = meeting.brief || { jobs: [] };
   const dateLabel = fmtDay(meeting.meeting_date, true);
@@ -201,9 +203,18 @@ export async function writeMeetingToJobTread(meeting: any, holds: any[] = []): P
     const holdLine = holdLogLine(hold, meeting.created_at);
     if (holdLine) lines.push('', holdLine);
 
+    const fixes = context.filter((r) => r.job_id === jid);
+    if (fixes.length) {
+      lines.push('', "Corrections to Claude's read");
+      for (const r of fixes) {
+        if (r.kind === 'dismiss') lines.push(`- Not right: "${r.target}"${r.note ? '. ' + r.note : ''}${r.created_by_name ? ' (' + r.created_by_name + ')' : ''}`);
+        else lines.push(`- Context: ${r.note}${r.created_by_name ? ' (' + r.created_by_name + ')' : ''}`);
+      }
+    }
+
     // 6. daily log
     if (notes || lines.length) {
-      const body = [`Planning meeting, ${dateLabel}`, '', ...(notes ? [notes, ''] : []), ...lines].join('\n').trim();
+      const body = [`Planning meeting, ${dateLabel}`, '', ...(notes ? [notes, ''] : []), ...(lines[0] === '' ? lines.slice(1) : lines)].join('\n').trim();
       await step(`log:${jid}`, async () => {
         const created = await createDailyLog({ jobId: jid, date: meeting.meeting_date, notes: clip(body, 9500), notify: false });
         return created.id;

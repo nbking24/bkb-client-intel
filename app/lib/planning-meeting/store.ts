@@ -7,8 +7,9 @@ import { NextRequest } from 'next/server';
 import { validateAuth } from '@/app/api/lib/auth';
 import { getEffectiveAccess } from '@/app/lib/access';
 import { getSupabase } from '@/app/api/lib/supabase';
-import { buildBrief } from './brief';
-import { nextTuesday, todayEastern, addDays } from './constants';
+import { buildBrief, buildJobById } from './brief';
+import { fetchJobContext, jobInsight } from './insight';
+import { nextTuesday, todayEastern, addDays, meetingNotesText } from './constants';
 
 export const DASHBOARD_ID = 'planning-meeting';
 
@@ -38,7 +39,8 @@ export async function meetingTasks(meetingId: string, sb = getSupabase()) {
 export async function refreshBrief(meeting: any, sb = getSupabase()) {
   const last = await lastConfirmedMeeting(sb);
   const lastTasks = last ? await meetingTasks(last.id, sb) : [];
-  const brief = await buildBrief({ lastTasks });
+  const team = await teamContextByJob(last, sb);
+  const brief = await buildBrief({ lastTasks, team });
   const { data, error } = await sb.from('planning_meetings').update({ brief, brief_at: new Date().toISOString() }).eq('id', meeting.id).select('*').single();
   if (error) throw new Error(error.message);
   return data;
@@ -88,4 +90,49 @@ export async function history(sb = getSupabase()) {
 export async function saveCreatedTasks(meetingId: string, rows: any[], sb = getSupabase()) {
   if (!rows.length) return;
   await sb.from('planning_meeting_tasks').upsert(rows.map((r) => ({ ...r, meeting_id: meetingId })), { onConflict: 'jt_task_id', ignoreDuplicates: true });
+}
+
+/* ---------------- what the team has told Claude (planning_job_context, migration 034) ---------------- */
+
+/** Active corrections and context rows, oldest first. */
+export async function listContext(sb = getSupabase()) {
+  const { data } = await sb.from('planning_job_context').select('*').is('removed_at', null).order('created_at', { ascending: true });
+  return data || [];
+}
+
+/**
+ * Per job: the corrections, standing context and last meeting's notes that go
+ * into Claude's read. `last` is the last confirmed meeting (looked up if omitted).
+ */
+export async function teamContextByJob(last?: any, sb = getSupabase()) {
+  if (last === undefined) last = await lastConfirmedMeeting(sb);
+  const rows = await listContext(sb);
+  const out: Record<string, any> = {};
+  const of = (jid: string) => (out[jid] = out[jid] || { corrections: [], context: [], lastMeeting: null });
+  for (const r of rows) {
+    const date = String(r.created_at || '').slice(0, 10);
+    if (r.kind === 'dismiss') of(r.job_id).corrections.push({ date, by: r.created_by_name || '', target: r.target || '', note: r.note || '' });
+    else if (r.note?.trim()) of(r.job_id).context.push({ date, by: r.created_by_name || '', note: r.note.trim() });
+  }
+  for (const [jid, js] of Object.entries(last?.state?.jobs || {})) {
+    const notes = meetingNotesText(js);
+    if (notes) of(jid).lastMeeting = { date: last.meeting_date, notes };
+  }
+  return out;
+}
+
+/** Rebuild Claude's read for one job (fresh from JobTread) and save it on the meeting's brief. */
+export async function redoInsight(meeting: any, jobId: string, sb = getSupabase()) {
+  const today = todayEastern();
+  const last = await lastConfirmedMeeting(sb);
+  const [built, ctx, team] = await Promise.all([buildJobById(jobId, { today }), fetchJobContext(jobId, today), teamContextByJob(last, sb)]);
+  const insight = await jobInsight(built.job, ctx, built.job._planText, today, team[jobId] || {});
+  if (!insight) throw new Error('Claude did not return a read');
+  // Re-read the brief so a parallel refresh is not overwritten with stale jobs.
+  const { data: cur } = await sb.from('planning_meetings').select('brief').eq('id', meeting.id).single();
+  const brief = cur?.brief || meeting.brief;
+  const jobs = (brief?.jobs || []).map((j) => (j.id === jobId ? { ...j, insight } : j));
+  const { error } = await sb.from('planning_meetings').update({ brief: { ...brief, jobs } }).eq('id', meeting.id);
+  if (error) throw new Error(error.message);
+  return insight;
 }
