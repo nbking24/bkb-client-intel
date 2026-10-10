@@ -26,7 +26,7 @@
  * are shown once at the top, not as flags.
  */
 import { pave, getActiveJobs } from '@/app/lib/jobtread';
-import { fetchJobContext, jobInsight } from './insight';
+import { fetchJobContext, jobInsight, TeamContext } from './insight';
 import {
   DESIGN_STATUS, SELECTION_STATUS_CF_ID, GATE_DEFAULT_WEEKS, RULES, DONE_LIKE_TYPES, ANCHOR_NAME, ROADBLOCK_TASK_TYPE_NAME,
   isActiveGroup, isGatesGroup, isPlanTodo, isMilestonesGroup, isProductionGroup, isFieldGroup, isCompletedGroup, isOldGatesGroup,
@@ -401,7 +401,7 @@ function agendaFor(j: any) {
 
 /* ---------------------------------------------------------------- the brief */
 
-export async function buildBrief(opts: { lastTasks?: LastMeetingTask[]; today?: string; insights?: boolean } = {}) {
+export async function buildBrief(opts: { lastTasks?: LastMeetingTask[]; today?: string; insights?: boolean; team?: Record<string, TeamContext> } = {}) {
   const today = opts.today || todayEastern();
   const [jobs, members] = await Promise.all([getActiveJobs(500), fetchMembers()]);
   const design = jobs.filter((j: any) => j.customStatus === DESIGN_STATUS);
@@ -424,7 +424,7 @@ export async function buildBrief(opts: { lastTasks?: LastMeetingTask[]; today?: 
     await inBatches(built, 4, async (j: any) => {
       try {
         const ctx = await fetchJobContext(j.id, today);
-        j.insight = await jobInsight(j, ctx, j._planText, today);
+        j.insight = await jobInsight(j, ctx, j._planText, today, opts.team?.[j.id] || {});
       } catch (e: any) {
         j.insight = null;
         errors.push(`${j.short} review: ${String(e?.message || e).slice(0, 120)}`);

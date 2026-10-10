@@ -127,6 +127,10 @@ const CSS = `
 .pm .read{margin-top:10px;border-left:3px solid ${C.blue};background:${C.blueSoft};border-radius:0 8px 8px 0;padding:9px 12px;font-size:14px}
 .pm .qbox{border:1px solid ${C.line};border-radius:10px;padding:10px 12px;margin-bottom:10px;background:#fff}
 .pm .qhead{font-weight:700;margin-bottom:4px}
+.pm .nr{border:0;background:none;color:${C.muted};font-size:12px;text-decoration:underline;cursor:pointer;padding:0 0 0 6px}
+.pm .nr:hover{color:${C.red}}
+.pm .ctx{margin-top:8px;border:1px dashed ${C.line};border-radius:8px;padding:8px 11px;font-size:13.5px;background:#fff}
+.pm .ctx ul{margin:4px 0 6px;padding-left:17px}
 .pm .msg{margin-top:10px;padding:10px 12px;border-radius:8px;font-size:14px}
 .pm .ok{background:${C.greenSoft};color:${C.green}}.pm .err{background:${C.redSoft};color:${C.red}}
 @media (max-width:760px){.pm .track{grid-template-columns:repeat(4,1fr)}.pm .facts{grid-template-columns:1fr 1fr}.pm .review{grid-template-columns:1fr}.pm .grid4{grid-template-columns:1fr 1fr}.pm .mk{grid-template-columns:1fr 1fr}.pm .mk .lab{grid-column:1/-1}}
@@ -213,6 +217,63 @@ function HoldRow({ job, hold, meetingDate, onSave, onWake }) {
       </div>
       {edit ? <HoldForm initialDate={hold.next_touch} initialReason={hold.reason} saveLabel="Save" onSave={async (d, r) => { await onSave(d, r); setEdit(false); }} onCancel={() => setEdit(false)} /> : null}
       {job.start ? <div className="small" style={{ color: C.red, marginTop: 4 }}>{job.startName} is still on the schedule for {fd(job.start)}. Move the start or take it off hold.</div> : null}
+    </div>
+  );
+}
+
+/**
+ * One line of Claude's read with a "Not right" button. Saving a correction hides
+ * the line and tells Claude, on every later read, not to raise it again.
+ */
+function ReadLine({ text, onDismiss, as = 'li', label = null }) {
+  const [open, setOpen] = useState(false);
+  const [why, setWhy] = useState('');
+  const [busy, setBusy] = useState(false);
+  const [err, setErr] = useState('');
+  const save = async () => {
+    setBusy(true); setErr('');
+    try { await onDismiss(text, why.trim()); setOpen(false); setWhy(''); } catch (e) { setErr(String(e.message || e)); }
+    setBusy(false);
+  };
+  const body = (
+    <>
+      {label ? <b>{label} </b> : null}{text}<button className="nr" onClick={() => setOpen(!open)}>{open ? 'cancel' : 'Not right'}</button>
+      {open ? (
+        <div className="row" style={{ margin: '4px 0 6px' }}>
+          <input type="text" className="grow" autoFocus placeholder="What is actually true (optional), e.g. received from Village 30 Sep" value={why} onChange={(e) => setWhy(e.target.value)} onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); save(); } }} />
+          <button className="btn sm pri" disabled={busy} onClick={save}>{busy ? 'Saving...' : 'Save correction'}</button>
+          {err ? <span className="small" style={{ color: C.red }}>{err}</span> : null}
+        </div>
+      ) : null}
+    </>
+  );
+  return as === 'li' ? <li>{body}</li> : <div style={{ marginTop: 4 }}>{body}</div>;
+}
+
+/** What the team has told Claude about one job: corrections, standing context, and a redo button. */
+function ContextPanel({ rows, onAdd, onRemove, onRedo, redoing, redoErr }) {
+  const [note, setNote] = useState('');
+  const [busy, setBusy] = useState(false);
+  const add = async () => { if (!note.trim()) return; setBusy(true); try { await onAdd(note.trim()); setNote(''); } finally { setBusy(false); } };
+  return (
+    <div className="ctx">
+      <div className="rhead" style={{ color: C.blue }}>What the team has told Claude</div>
+      {rows.length ? (
+        <ul>{rows.map((r) => (
+          <li key={r.id}>
+            {r.kind === 'dismiss' ? <>Not right: "{r.target}"{r.note ? <>. <b>{r.note}</b></> : null}</> : <>Context: <b>{r.note}</b></>}
+            <span className="small"> · {r.created_by_name || 'someone'}, {fd(String(r.created_at).slice(0, 10))}</span>
+            <button className="nr" onClick={() => onRemove(r.id)}>remove</button>
+          </li>
+        ))}</ul>
+      ) : <div className="small" style={{ margin: '2px 0 6px' }}>Nothing yet. Click Not right on any line Claude got wrong, or add context it cannot see in JobTread.</div>}
+      <div className="row">
+        <input type="text" className="grow" placeholder="Add context Claude cannot see in JobTread, e.g. client decides by email only" value={note} onChange={(e) => setNote(e.target.value)} onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); add(); } }} />
+        <button className="btn sm" disabled={busy || !note.trim()} onClick={add}>{busy ? 'Saving...' : 'Add context'}</button>
+        <button className="btn sm" disabled={!!redoing} onClick={onRedo}>{redoing ? 'Claude is rereading...' : "Redo Claude's read"}</button>
+      </div>
+      {redoErr ? <div className="small" style={{ color: C.red, marginTop: 4 }}>{redoErr}</div> : null}
+      <div className="small" style={{ marginTop: 4 }}>These carry forward every week until removed. Ones added in this meeting also go into the job's meeting daily log at Confirm.</div>
     </div>
   );
 }
@@ -343,6 +404,9 @@ export default function PlanningMeetingPage() {
   const [holdFormFor, setHoldFormFor] = useState(null);
   const [confirming, setConfirming] = useState(false);
   const [confirmMsg, setConfirmMsg] = useState(null);
+  const [ctxRows, setCtxRows] = useState([]);
+  const [redoing, setRedoing] = useState(null);
+  const [redoErr, setRedoErr] = useState({});
   const dirty = useRef(false);
   const loaded = useRef(false);
 
@@ -363,6 +427,7 @@ export default function PlanningMeetingPage() {
       }
       setHolds(json.holds || []);
       setAllHoldRows(json.holdsAll || json.holds || []);
+      setCtxRows(json.context || []);
       loaded.current = true;
     } catch (e) {
       setErr(String(e.message || e));
@@ -416,6 +481,26 @@ export default function PlanningMeetingPage() {
     if (res.ok) { setHolds(j.holds || []); setAllHoldRows(j.holdsAll || j.holds || []); }
   }
 
+  /* ------------------------------------------------ corrections and context for Claude's read */
+  async function ctxPost(body) {
+    const res = await fetch('/api/dashboard/planning-meeting', { method: 'POST', headers: { Authorization: token(), 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
+    const j = await res.json();
+    if (!res.ok) throw new Error(j.error || 'Not saved');
+    return j;
+  }
+  const addCtx = async (jobId, kind, target, note) => { const j = await ctxPost({ action: 'context-add', jobId, kind, target, note, meetingId: meeting?.id }); setCtxRows(j.context || []); };
+  const removeCtx = async (id) => { const j = await ctxPost({ action: 'context-remove', id }); setCtxRows(j.context || []); };
+  async function redoRead(jobId) {
+    setRedoing(jobId); setRedoErr((e) => ({ ...e, [jobId]: '' }));
+    try {
+      const j = await ctxPost({ action: 'redo', meetingId: meeting.id, jobId });
+      setData((d) => ({ ...d, meeting: { ...d.meeting, brief: { ...d.meeting.brief, jobs: d.meeting.brief.jobs.map((x) => (x.id === jobId ? { ...x, insight: j.insight } : x)) } } }));
+    } catch (e) { setRedoErr((x) => ({ ...x, [jobId]: 'Could not redo the read: ' + (e.message || e) })); }
+    setRedoing(null);
+  }
+  const ctxFor = (jid) => ctxRows.filter((r) => r.job_id === jid);
+  const dismissedFor = (jid) => new Set(ctxFor(jid).filter((r) => r.kind === 'dismiss').map((r) => r.target));
+
   /* ------------------------------------------------ queued changes (mirrors writeback.ts) */
   const changes = useMemo(() => {
     const out = {};
@@ -450,14 +535,18 @@ export default function PlanningMeetingPage() {
       const line = h.on_hold && since !== null && since >= start ? `Put on hold${det}.` : h.on_hold && since !== null ? `Still on hold${det}.` : !h.on_hold && since !== null && since < start ? 'Taken off hold.' : null;
       if (line) add(h.job_id, 'Hub only', line + ' Noted in the daily log.');
     }
+    for (const r of ctxRows) {
+      if (!meeting?.created_at || !r.created_at || r.created_at < meeting.created_at || !jobs.some((j) => j.id === r.job_id)) continue;
+      add(r.job_id, 'Claude', r.kind === 'dismiss' ? `Correction to Claude's read: not right, "${r.target}"${r.note ? '. ' + r.note : ''}. Noted in the daily log.` : `Context for Claude: ${r.note}. Noted in the daily log.`);
+    }
     for (const j of jobs) {
       const js = S.jobs[j.id];
       const nt = notesText(js);
       if (out[j.id] || nt) add(j.id, 'Daily log', `One internal daily log dated ${fd(meetingDate)}, "Planning meeting ${fd(meetingDate, true)}", with the four answers and notes${nt ? ` (${nt.split(/\s+/).length} words)` : ''} and the changes above`);
     }
     return out;
-  }, [S, jobs, meetingDate, allHoldRows]);
-  const changeCount = Object.values(changes).reduce((n, a) => n + a.filter((x) => x.kind !== 'Hub only').length, 0);
+  }, [S, jobs, meetingDate, allHoldRows, ctxRows]);
+  const changeCount = Object.values(changes).reduce((n, a) => n + a.filter((x) => x.kind !== 'Hub only' && x.kind !== 'Claude').length, 0);
 
   if (loading) return <div className="pm" style={{ padding: 24 }}><style>{CSS}</style><p className="empty">Reading JobTread for the Prep Brief. The first load of the week takes up to a minute.</p></div>;
   if (err && !data) return <div className="pm" style={{ padding: 24 }}><style>{CSS}</style><div className="msg err">{err}</div><button className="btn" onClick={() => load(false)}>Try again</button></div>;
@@ -529,6 +618,10 @@ export default function PlanningMeetingPage() {
     const cur = j.gates[c];
     const openItems = cur ? cur.items.map((it, i) => [it[0], tickVal(js, j, c, i)]).filter((x) => !x[1]).map((x) => x[0]) : [];
     const daysToStart = j.start ? daysBetween(today, j.start) : null;
+    // Claude's lines the team has marked Not right are hidden right away.
+    const gone = dismissedFor(j.id);
+    const vis = (a) => (Array.isArray(a) ? a.filter((x) => x && !gone.has(x)) : []);
+    const dismiss = (text, why) => addCtx(j.id, 'dismiss', text, why);
     // waiting on (from JobTread facts)
     const waiting = [
       ...j.tasks.filter((t) => t.type === 'Pending').map((t) => `${t.name} (${t.who.join(', ') || 'no owner'}${t.due ? ', since ' + fd(t.due) : ''})`),
@@ -576,19 +669,20 @@ export default function PlanningMeetingPage() {
                 {nextGate > 0 && gateDue(nextGate) ? <div className="small">Gate {nextGate + 1} due {fd(gateDue(nextGate))}{gateDue(nextGate) < today ? <b style={{ color: C.red }}> (past)</b> : ''}</div> : null}
               </div>
               <div className="rcol"><div className="rhead">Waiting on</div>{waiting.length ? <ul>{waiting.slice(0, 5).map((x, i) => <li key={i}>{x}</li>)}</ul> : <div className="small">Nothing recorded as waiting in JobTread.</div>}</div>
-              <div className="rcol"><div className="rhead">Focus next</div>{j.insight?.focus?.length ? <ul>{j.insight.focus.map((x, i) => <li key={i}>{x}</li>)}</ul> : openItems.length ? <ul>{openItems.slice(0, 3).map((x, i) => <li key={i}>{x}</li>)}</ul> : <div className="small">Current gate is complete.</div>}</div>
+              <div className="rcol"><div className="rhead">Focus next</div>{vis(j.insight?.focus).length ? <ul>{vis(j.insight.focus).map((x) => <ReadLine key={x} text={x} onDismiss={dismiss} />)}</ul> : openItems.length ? <ul>{openItems.slice(0, 3).map((x, i) => <li key={i}>{x}</li>)}</ul> : <div className="small">Current gate is complete.</div>}</div>
             </div>
-            {j.insight ? <div className="read"><div className="rhead">Claude's read from JobTread <span className="small" style={{ fontWeight: 400 }}>(check it, built {fd(String(j.insight.at || '').slice(0, 10))}{j.insight.read ? `, read ${j.insight.read.messages} message${j.insight.read.messages === 1 ? '' : 's'} and ${j.insight.read.logs} daily log${j.insight.read.logs === 1 ? '' : 's'} from the last ${j.insight.read.days} days` : ''})</span></div>
-              <div>{j.insight.stand}</div>
-              {j.insight.waiting?.length ? <div style={{ marginTop: 4 }}><b>Waiting on:</b> {j.insight.waiting.join(' · ')}</div> : null}
-              {j.insight.goal ? <div style={{ marginTop: 4 }}><b>Goals and start date:</b> {j.insight.goal}</div> : null}
-              {j.insight.gaps?.length ? <div style={{ marginTop: 4 }} className="small"><b>Missing from JobTread:</b> {j.insight.gaps.join(' · ')}</div> : null}
+            {j.insight ? <div className="read"><div className="rhead">Claude's read from JobTread <span className="small" style={{ fontWeight: 400 }}>(check it, built {fd(String(j.insight.at || '').slice(0, 10))}{j.insight.read ? `, read ${j.insight.read.messages} message${j.insight.read.messages === 1 ? '' : 's'} and ${j.insight.read.logs} daily log${j.insight.read.logs === 1 ? '' : 's'} from the last ${j.insight.read.days} days` : ''}{j.insight.read?.corrections || j.insight.read?.context ? `, plus ${(j.insight.read.corrections || 0) + (j.insight.read.context || 0)} from the team` : ''}{j.insight.read?.lastMeeting ? ' and last meeting\'s notes' : ''})</span></div>
+              {vis([j.insight.stand]).length ? <ReadLine as="div" text={j.insight.stand} onDismiss={dismiss} /> : null}
+              {vis(j.insight.waiting).length ? <div style={{ marginTop: 4 }}><b>Waiting on:</b><ul style={{ margin: '2px 0 0', paddingLeft: 17 }}>{vis(j.insight.waiting).map((x) => <ReadLine key={x} text={x} onDismiss={dismiss} />)}</ul></div> : null}
+              {vis([j.insight.goal]).length ? <ReadLine as="div" label="Goals and start date:" text={j.insight.goal} onDismiss={dismiss} /> : null}
+              {vis(j.insight.gaps).length ? <div style={{ marginTop: 4 }} className="small"><b>Missing from JobTread:</b><ul style={{ margin: '2px 0 0', paddingLeft: 17 }}>{vis(j.insight.gaps).map((x) => <ReadLine key={x} text={x} onDismiss={dismiss} />)}</ul></div> : null}
             </div> : <div className="small" style={{ marginBottom: 6 }}>Claude's written review appears here after the next Refresh from JobTread.</div>}
+            <ContextPanel rows={ctxFor(j.id)} onAdd={(note) => addCtx(j.id, 'context', null, note)} onRemove={removeCtx} onRedo={() => redoRead(j.id)} redoing={redoing === j.id} redoErr={redoErr[j.id]} />
             <div className="small" style={{ marginTop: 6 }}><a href={JT(j.id)} target="_blank" rel="noreferrer">Open in JobTread</a></div>
 
             {/* 2. SINCE LAST MEETING */}
             <h4>2. Since last meeting</h4>
-            {j.insight?.recent?.length ? <div className="note" style={{ marginBottom: 6 }}><b>From job messages and daily logs (Claude, check it):</b><ul style={{ margin: '4px 0 0' }}>{j.insight.recent.map((x, i) => <li key={i}>{x}</li>)}</ul></div> : null}
+            {vis(j.insight?.recent).length ? <div className="note" style={{ marginBottom: 6 }}><b>From job messages and daily logs (Claude, check it):</b><ul style={{ margin: '4px 0 0' }}>{vis(j.insight.recent).map((x) => <ReadLine key={x} text={x} onDismiss={dismiss} />)}</ul></div> : null}
             {last ? (
               <>
                 {lm?.notes ? <div className="note" style={{ whiteSpace: 'pre-wrap' }}><b>Notes from {fd(last.meeting_date)}:</b>{'\n'}{lm.notes}</div> : <p className="empty" style={{ margin: '0 0 6px' }}>No notes for this job at the {fd(last.meeting_date)} meeting.</p>}

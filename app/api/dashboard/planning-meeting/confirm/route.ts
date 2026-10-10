@@ -28,9 +28,11 @@ export async function POST(req: NextRequest) {
 
   // Holds switched since this meeting was opened go into that job's daily log.
   const { data: holds } = await sb.from('planning_job_holds').select('*').gte('set_at', meeting.created_at);
+  // Corrections to Claude's read made during this meeting go into the daily log too.
+  const { data: context } = await sb.from('planning_job_context').select('*').is('removed_at', null).gte('created_at', meeting.created_at).order('created_at', { ascending: true });
 
   try {
-    const res = await writeMeetingToJobTread(meeting, holds || []);
+    const res = await writeMeetingToJobTread(meeting, holds || [], context || []);
     await saveCreatedTasks(meeting.id, res.createdTasks, sb);
     const patch: any = { write_log: res.log, updated_at: new Date().toISOString(), updated_by: who.userId };
     const allOk = res.failed === 0;

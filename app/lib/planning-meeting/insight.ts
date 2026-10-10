@@ -6,6 +6,8 @@
  * read from JobTread for that job (Job Plan text, gate checklist, open tasks,
  * roadblocks, selections counts, documents, and the last 30 days of job
  * messages and daily logs including daily log custom fields)
+ * plus what the team has told it (corrections to earlier reads, standing
+ * context, last meeting's notes, all of which outrank JobTread messages)
  * and writes a short review: where the job actually stands, what we are
  * waiting on, what to focus on to keep it moving, and whether the start date
  * and client goals look realistic. It is told to use only the facts given and
@@ -113,7 +115,33 @@ export async function fetchJobContext(jobId: string, today?: string) {
   return { comments, logs, days: CONTEXT_DAYS };
 }
 
-export async function jobInsight(j: any, ctx: any, planText: string, today: string) {
+const STOP = new Set(['the', 'and', 'for', 'from', 'with', 'get', 'got', 'our', 'are', 'was', 'has', 'have', 'that', 'this', 'still', 'need', 'needs', 'next', 'week', 'job']);
+/** Rough word stems (first 5 letters, no filler words) for comparing two lines. */
+function stems(s: string) {
+  return new Set(String(s || '').toLowerCase().replace(/[^a-z0-9 ]/g, ' ').split(/\s+/).filter((w) => w.length > 2 && !STOP.has(w)).map((w) => w.slice(0, 5)));
+}
+/** True when two lines say nearly the same thing (Dice overlap of word stems). */
+export function sameLine(a: string, b: string, threshold = 0.6) {
+  const A = stems(a), B = stems(b);
+  if (A.size < 2 || B.size < 2) return false;
+  let both = 0;
+  for (const w of A) if (B.has(w)) both++;
+  return (2 * both) / (A.size + B.size) >= threshold;
+}
+
+/**
+ * What the team has told Claude about this job:
+ *   corrections  lines marked "Not right" (target) with the reason (note)
+ *   context      standing facts Claude cannot see in JobTread
+ *   lastMeeting  the notes typed for this job at the last confirmed meeting
+ */
+export type TeamContext = {
+  corrections?: { date: string; by: string; target: string; note: string }[];
+  context?: { date: string; by: string; note: string }[];
+  lastMeeting?: { date: string; notes: string } | null;
+};
+
+export async function jobInsight(j: any, ctx: any, planText: string, today: string, team: TeamContext = {}) {
   if (!process.env.ANTHROPIC_API_KEY) return null;
   const anthropic = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY });
   const gateLines = j.gates.map((g) => `${g.name}: ${g.items.filter((i) => i[1]).length}/${g.items.length} done. Open: ${g.items.filter((i) => !i[1]).map((i) => i[0]).join('; ')}`).join('\n');
@@ -130,11 +158,15 @@ export async function jobInsight(j: any, ctx: any, planText: string, today: stri
     draftOrPendingDocuments: j.docs.map((d) => `${d.name} (${d.type}, ${d.status}, created ${d.created})`),
     messagesLast30Days: ctx.comments,
     dailyLogsLast30Days: ctx.logs,
+    teamCorrections: (team.corrections || []).map((c) => ({ date: c.date, by: c.by, claudeSaid: c.target, whyItIsWrong: c.note || 'no reason given' })),
+    teamContext: (team.context || []).map((c) => ({ date: c.date, by: c.by, fact: c.note })),
+    lastMeetingNotes: team.lastMeeting?.notes ? { date: team.lastMeeting.date, notes: clip(team.lastMeeting.notes, 3000) } : null,
   };
   const system = `You prepare one job for Brett King Builder's weekly planning meeting (high-end residential renovation, jobs in design moving toward a build start).
 Write a short project review for the room from ONLY the facts given. Never invent dates, numbers, names, prices or decisions. Do not mention money amounts at all.
 Plain language, no jargon, no em dashes or en dashes (use commas or periods). Each line under 25 words.
 The messages and daily logs (newest first) are the team's, the client's and vendors' own words from the last ${ctx.days || 30} days. Use them to find decisions, open questions, who is waiting on whom and what changed. Newer outweighs older. If a message says something is done or decided that the tasks or gate checklist do not show, say so in "gaps". Daily logs may be meeting summaries or field reports; field reports describe build progress, not design.
+The team's own word outranks everything else. "teamContext" is standing facts from the team; treat them as true. "lastMeetingNotes" are what the team said at the last planning meeting; treat them as true as of that date. "teamCorrections" are lines you wrote before that the team marked wrong or already handled, with the reason. Never repeat or reword a corrected line, and never raise the same item again, unless a message or daily log dated AFTER the correction clearly reopens it; if so, say what reopened it and its date.
 Return JSON only:
 {"stand":"one or two sentences: where the job actually is in design and how sure we are of the start date",
  "waiting":["what or who we are waiting on, with owner if known (max 4)"],
@@ -148,10 +180,13 @@ Return JSON only:
   if (!m) return null;
   const p = JSON.parse(m[0]);
   const clean = (s: any) => String(s || '').replace(/[–—]/g, ',').trim();
-  const arr = (a: any, n: number) => (Array.isArray(a) ? a.map(clean).filter(Boolean).slice(0, n) : []);
+  // Safety net: drop any line that is nearly the same as one the team dismissed.
+  const dismissed = (team.corrections || []).map((c) => c.target).filter(Boolean);
+  const notDismissed = (x: string) => !dismissed.some((d) => sameLine(x, d));
+  const arr = (a: any, n: number) => (Array.isArray(a) ? a.map(clean).filter(Boolean).filter(notDismissed).slice(0, n) : []);
   return {
     stand: clean(p.stand), waiting: arr(p.waiting, 4), focus: arr(p.focus, 3), recent: arr(p.recent, 4), goal: clean(p.goal), gaps: arr(p.gaps, 3),
-    read: { messages: ctx.comments?.length || 0, logs: ctx.logs?.length || 0, days: ctx.days || 30 },
+    read: { messages: ctx.comments?.length || 0, logs: ctx.logs?.length || 0, days: ctx.days || 30, corrections: (team.corrections || []).length, context: (team.context || []).length, lastMeeting: !!team.lastMeeting?.notes },
     at: new Date().toISOString(),
   };
 }
