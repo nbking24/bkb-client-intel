@@ -26,6 +26,7 @@
  * are shown once at the top, not as flags.
  */
 import { pave, getActiveJobs } from '@/app/lib/jobtread';
+import { fetchJobContext, jobInsight } from './insight';
 import {
   DESIGN_STATUS, SELECTION_STATUS_CF_ID, GATE_DEFAULT_WEEKS, RULES, DONE_LIKE_TYPES, ANCHOR_NAME, ROADBLOCK_TASK_TYPE_NAME,
   isActiveGroup, isGatesGroup, isPlanTodo, isMilestonesGroup, isProductionGroup, isFieldGroup, isCompletedGroup, isOldGatesGroup,
@@ -266,12 +267,18 @@ async function buildJob(job: any, today: string, memberName: Record<string, stri
 
   // job plan blank?
   let jobPlanBlank = true;
+  let planText = '';
   if (planTodo) {
     try {
-      const desc = await fetchTaskDescription(planTodo.id);
-      jobPlanBlank = /DESIGN LEAD:[ \t]*\n[ \t]*PM:[ \t]*\n[ \t]*TARGET START:[ \t]*\n/.test(desc);
+      planText = await fetchTaskDescription(planTodo.id);
+      jobPlanBlank = /DESIGN LEAD:[ \t]*\n[ \t]*PM:[ \t]*\n[ \t]*TARGET START:[ \t]*\n/.test(planText);
     } catch { /* leave as blank */ }
   }
+  const planField = (label: string) => {
+    const m = planText.match(new RegExp('^' + label + ':[ \\t]*(.*)$', 'mi'));
+    return m && m[1].trim() ? m[1].trim() : null;
+  };
+  const plan = { designLead: planField('DESIGN LEAD'), pm: planField('PM'), targetStart: planField('TARGET START'), clientWindow: planField('CLIENT TARGET WINDOW') };
 
   const short = shortJobName(job.name, job.number);
   return {
@@ -283,7 +290,7 @@ async function buildJob(job: any, today: string, memberName: Record<string, stri
     tasks: openTasks, roadblocks, lastMeeting,
     sel, lastActivity,
     docs: extras.docs.map((d) => ({ name: d.name, type: d.type, status: d.status, created: easternDay(d.createdAt) })),
-    planTodoId: planTodo?.id || null, jobPlanBlank,
+    planTodoId: planTodo?.id || null, jobPlanBlank, plan, _planText: jobPlanBlank ? '' : planText,
     setup: {
       jobPlanBlank,
       leadNotNamed: gates[0] ? !gates[0].items[0]?.[1] : true,
@@ -374,7 +381,7 @@ function flagsFor(j: any, today: string) {
   }
   const loose = j.tasks.filter((t) => t.src !== 'ACTIVE');
   if (loose.length) {
-    add('house', 'Tasks outside ACTIVE', 'loose', `${loose.length} open task${loose.length > 1 ? 's' : ''} sit outside 🔵 ACTIVE: ${loose.slice(0, 3).map((t) => `"${t.name}"`).join(', ')}${loose.length > 3 ? ', ...' : ''}. Move them into the group.`, 'Heather');
+    add('house', 'Tasks outside ACTIVE', 'loose', `${loose.length === 1 ? 'This task is' : 'These tasks are'} on the schedule but not in 🔵 ACTIVE, so ${loose.length === 1 ? 'it is' : 'they are'} easy to miss and won't be swept when done: ${loose.slice(0, 3).map((t) => `"${t.name}"${t.due ? ' (' + fmtDay(t.due) + ')' : ''}`).join(', ')}${loose.length > 3 ? ', ...' : ''}. If it already happened, tick it complete. If not, use "Move to ACTIVE" on the job card.`, 'Heather');
   }
   return flags;
 }
@@ -394,7 +401,7 @@ function agendaFor(j: any) {
 
 /* ---------------------------------------------------------------- the brief */
 
-export async function buildBrief(opts: { lastTasks?: LastMeetingTask[]; today?: string } = {}) {
+export async function buildBrief(opts: { lastTasks?: LastMeetingTask[]; today?: string; insights?: boolean } = {}) {
   const today = opts.today || todayEastern();
   const [jobs, members] = await Promise.all([getActiveJobs(500), fetchMembers()]);
   const design = jobs.filter((j: any) => j.customStatus === DESIGN_STATUS);
@@ -412,6 +419,19 @@ export async function buildBrief(opts: { lastTasks?: LastMeetingTask[]; today?: 
     j.flags = flagsFor(j, today);
     j.agenda = agendaFor(j);
   }
+  // Claude's read of each job (best effort; the brief still works without it)
+  if (opts.insights !== false) {
+    await inBatches(built, 4, async (j: any) => {
+      try {
+        const ctx = await fetchJobContext(j.id);
+        j.insight = await jobInsight(j, ctx, j._planText, today);
+      } catch (e: any) {
+        j.insight = null;
+        errors.push(`${j.short} review: ${String(e?.message || e).slice(0, 120)}`);
+      }
+    });
+  }
+  for (const j of built) delete j._planText;
   built.sort((a, b) => (a.start && b.start ? (a.start < b.start ? -1 : a.start > b.start ? 1 : 0) : a.start ? -1 : b.start ? 1 : Number(a.number) - Number(b.number)));
   return { asOf: today, builtAt: new Date().toISOString(), jobs: built, members, errors };
 }

@@ -18,7 +18,7 @@
  *   6. One internal daily log for the meeting with the notes and everything above
  */
 import { pave, createDailyLog } from '@/app/lib/jobtread';
-import { ROADBLOCK_TASK_TYPE_ID, ACTIVE_GROUP_NAME, isActiveGroup, fmtDay } from './constants';
+import { ROADBLOCK_TASK_TYPE_ID, ACTIVE_GROUP_NAME, isActiveGroup, fmtDay, meetingNotesText } from './constants';
 
 type Log = { key: string; ok: boolean; id?: string; error?: string; at: string };
 
@@ -93,18 +93,19 @@ export async function writeMeetingToJobTread(meeting: any, holds: any[] = []): P
     const js: any = (state.jobs || {})[jid] || {};
     const items = (itemsByJob[jid] || []).filter((i) => i.what?.trim());
     const tri = Object.entries(state.triage || {}).filter(([, t]: any) => t?.jobId === jid && t?.act);
+    const needsGroup = items.length > 0 || tri.some(([, t]: any) => t.act === 'move');
+    let groupId = job.activeGroupId || null;
+    if (needsGroup && !groupId) {
+      groupId = await step(`group:${jid}`, async () => (await findActiveGroup(jid)) || (await createActiveGroup(jid)));
+    }
     const ticks = Object.entries(js.ticks || {});
     const markers = Object.entries(js.markers || {}).filter(([, d]) => !!d);
     const hold = holds.find((h) => h.job_id === jid);
-    const notes = (js.notes || '').trim();
+    const notes = meetingNotesText(js);
     const lines: string[] = [];
 
     // 1 + 2. tasks
     if (items.length) {
-      let groupId = job.activeGroupId || null;
-      if (!groupId) {
-        groupId = await step(`group:${jid}`, async () => (await findActiveGroup(jid)) || (await createActiveGroup(jid)));
-      }
       lines.push('New tasks');
       for (const it of items) {
         const isRb = it.kind === 'roadblock';
@@ -142,6 +143,9 @@ export async function writeMeetingToJobTread(meeting: any, holds: any[] = []): P
         } else if (t.act === 'date' && t.date) {
           await step(`tri:${taskId}:${t.date}`, async () => { await pave({ updateTask: { $: { id: taskId, startDate: t.date, endDate: t.date, notify: false, updateDependentTasks: false } } }); });
           lines.push(`- New date ${fmtDay(t.date)}: ${t.name}.${why}`);
+        } else if (t.act === 'move') {
+          if (groupId) await step(`tri:${taskId}:move`, async () => { await pave({ updateTask: { $: { id: taskId, parentTaskId: groupId, notify: false, updateDependentTasks: false } } }); });
+          lines.push(`- Moved into 🔵 ACTIVE: ${t.name}`);
         } else if (t.act === 'drop') {
           await step(`tri:${taskId}:drop`, async () => {
             const cur = await readTask(taskId);
@@ -200,7 +204,7 @@ export async function writeMeetingToJobTread(meeting: any, holds: any[] = []): P
 
     // 6. daily log
     if (notes || lines.length) {
-      const body = [`Planning meeting, ${dateLabel}`, '', ...(notes ? ['Notes and decisions', notes, ''] : []), ...lines].join('\n').trim();
+      const body = [`Planning meeting, ${dateLabel}`, '', ...(notes ? [notes, ''] : []), ...lines].join('\n').trim();
       await step(`log:${jid}`, async () => {
         const created = await createDailyLog({ jobId: jid, date: meeting.meeting_date, notes: clip(body, 9500), notify: false });
         return created.id;
