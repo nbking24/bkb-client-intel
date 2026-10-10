@@ -57,7 +57,7 @@
       "maxDuration": 120
     },
     "app/api/dashboard/planning-meeting/route.ts": {
-      "maxDuration": 120
+      "maxDuration": 300
     },
     "app/api/dashboard/planning-meeting/confirm/route.ts": {
       "maxDuration": 300
@@ -66,6 +66,9 @@
       "maxDuration": 300
     },
     "app/api/cron/planning-brief/route.ts": {
+      "maxDuration": 300
+    },
+    "app/api/dashboard/planning-meeting/setup/route.ts": {
       "maxDuration": 120
     }
   },
