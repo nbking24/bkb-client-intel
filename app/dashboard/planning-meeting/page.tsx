@@ -578,7 +578,7 @@ export default function PlanningMeetingPage() {
               <div className="rcol"><div className="rhead">Waiting on</div>{waiting.length ? <ul>{waiting.slice(0, 5).map((x, i) => <li key={i}>{x}</li>)}</ul> : <div className="small">Nothing recorded as waiting in JobTread.</div>}</div>
               <div className="rcol"><div className="rhead">Focus next</div>{j.insight?.focus?.length ? <ul>{j.insight.focus.map((x, i) => <li key={i}>{x}</li>)}</ul> : openItems.length ? <ul>{openItems.slice(0, 3).map((x, i) => <li key={i}>{x}</li>)}</ul> : <div className="small">Current gate is complete.</div>}</div>
             </div>
-            {j.insight ? <div className="read"><div className="rhead">Claude's read from JobTread <span className="small" style={{ fontWeight: 400 }}>(check it, built {fd(String(j.insight.at || '').slice(0, 10))})</span></div>
+            {j.insight ? <div className="read"><div className="rhead">Claude's read from JobTread <span className="small" style={{ fontWeight: 400 }}>(check it, built {fd(String(j.insight.at || '').slice(0, 10))}{j.insight.read ? `, read ${j.insight.read.messages} message${j.insight.read.messages === 1 ? '' : 's'} and ${j.insight.read.logs} daily log${j.insight.read.logs === 1 ? '' : 's'} from the last ${j.insight.read.days} days` : ''})</span></div>
               <div>{j.insight.stand}</div>
               {j.insight.waiting?.length ? <div style={{ marginTop: 4 }}><b>Waiting on:</b> {j.insight.waiting.join(' · ')}</div> : null}
               {j.insight.goal ? <div style={{ marginTop: 4 }}><b>Goals and start date:</b> {j.insight.goal}</div> : null}
@@ -588,6 +588,7 @@ export default function PlanningMeetingPage() {
 
             {/* 2. SINCE LAST MEETING */}
             <h4>2. Since last meeting</h4>
+            {j.insight?.recent?.length ? <div className="note" style={{ marginBottom: 6 }}><b>From job messages and daily logs (Claude, check it):</b><ul style={{ margin: '4px 0 0' }}>{j.insight.recent.map((x, i) => <li key={i}>{x}</li>)}</ul></div> : null}
             {last ? (
               <>
                 {lm?.notes ? <div className="note" style={{ whiteSpace: 'pre-wrap' }}><b>Notes from {fd(last.meeting_date)}:</b>{'\n'}{lm.notes}</div> : <p className="empty" style={{ margin: '0 0 6px' }}>No notes for this job at the {fd(last.meeting_date)} meeting.</p>}
