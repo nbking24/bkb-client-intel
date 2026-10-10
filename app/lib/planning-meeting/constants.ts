@@ -99,3 +99,28 @@ export function shortJobName(name: string, number?: string | number | null): str
   const first = String(name || '').split(/\s+-\s+|\s+/)[0].replace(/[^A-Za-z'-]/g, '') || String(name || '');
   return number ? `${first} ${number}` : first;
 }
+
+/** The four questions asked for every job. Keys match state.jobs[jobId].q */
+export const QUESTIONS = [
+  { key: 'q1', label: 'Are we on track for the next gate date?' },
+  { key: 'q2', label: 'What is in the way?' },
+  { key: 'q3', label: 'What has to be ready in the next 3 weeks?' },
+  { key: 'q4', label: 'Who owes what, by when?' },
+];
+export const TRACK_LABELS: Record<string, string> = { on: 'On track', risk: 'At risk', off: 'Off track' };
+
+/** One job's meeting notes as plain text: the four answers, then other notes. */
+export function meetingNotesText(js: any): string {
+  if (!js) return '';
+  const q = js.q || {};
+  const parts: string[] = [];
+  for (const { key, label } of QUESTIONS) {
+    const a = q[key] || {};
+    const track = key === 'q1' && a.track ? TRACK_LABELS[a.track] || '' : '';
+    const note = String(a.note || '').trim();
+    if (track || note) parts.push(`${label}\n${[track, note].filter(Boolean).join('. ')}`);
+  }
+  const other = String(js.notes || '').trim();
+  if (other) parts.push(`Other notes and decisions\n${other}`);
+  return parts.join('\n\n');
+}

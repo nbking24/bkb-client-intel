@@ -13,7 +13,7 @@
  */
 import Anthropic from '@anthropic-ai/sdk';
 import { pave, createDailyLog, updateDailyLog } from '@/app/lib/jobtread';
-import { ROADBLOCK_TASK_TYPE_ID, ACTIVE_GROUP_NAME, isActiveGroup, fmtDay } from './constants';
+import { ROADBLOCK_TASK_TYPE_ID, ACTIVE_GROUP_NAME, isActiveGroup, fmtDay, meetingNotesText } from './constants';
 
 const MODEL = 'claude-sonnet-4-6';
 
@@ -26,7 +26,7 @@ function capturedFor(meeting: any) {
       jobId: j.id,
       job: j.short,
       fullName: j.name,
-      notes: js.notes || '',
+      notes: meetingNotesText(js),
       tasks: [...(js.items || []).map((i) => ({ kind: i.kind, what: i.what, who: i.whoName, due: i.due })), ...flagRbs],
     };
   });
