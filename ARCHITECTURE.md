@@ -2746,3 +2746,14 @@ Mac Messages DB ÃÂ¢ÃÂÃÂ sync-messages.py (filter junk) ÃÂ¢
 ---
 
 *End of document. Keep this updated after every session.*
+
+## Planning Meeting (added 2026-10-10)
+
+Tuesday planning meeting for jobs at Status "5. Design Phase". Page `/dashboard/planning-meeting` (dashboard id `planning-meeting`).
+
+- **Design doc:** JobTread Assistant project, `claude/BKB-Meetings-and-Job-Setup-Game-Plan-2026-10-10.md`.
+- **Code:** `app/lib/planning-meeting/` (`brief.ts` reads JobTread and computes flags, `writeback.ts` writes on Confirm, `transcript.ts` Claude split and apply, `store.ts` Supabase and auth, `constants.ts`).
+- **Routes:** `GET/PUT/POST /api/dashboard/planning-meeting`, `POST .../confirm`, `POST .../transcript`, cron `GET /api/cron/planning-brief` (Tuesday 10:00 UTC).
+- **Tables (migration 031):** `planning_meetings` (brief snapshot, state, plus/delta, write_log), `planning_meeting_tasks` (JobTread tasks created per meeting), `planning_job_holds`.
+- **JobTread conventions it relies on:** `🔵 ACTIVE` group (created if missing), `✅ PROJECT GATES` (gate checklists as subtasks), `🎨 PLANNING MILESTONES` (gate due markers), `🤖 PRODUCTION MILESTONES` (start = earliest bar), task type `Roadblock` (id 22Pg3rvKW5tr).
+- **Confirm is idempotent:** each write is logged under a key in `write_log`; pressing Confirm again skips finished writes.
