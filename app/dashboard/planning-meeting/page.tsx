@@ -323,6 +323,7 @@ function BuildBlock({ check, post, onDone }) {
   const [start, setStart] = useState(b.suggest?.start || '');
   const [weeks, setWeeks] = useState(b.suggest?.weeks ? String(b.suggest.weeks) : '');
   const [markers, setMarkers] = useState(true);
+  const [replace, setReplace] = useState(false);
   const [busy, setBusy] = useState(false);
   const [msg, setMsg] = useState(null);
   const w = Number(weeks);
@@ -333,11 +334,29 @@ function BuildBlock({ check, post, onDone }) {
     catch (e) { setMsg({ ok: false, text: String(e.message || e) }); }
     setBusy(false);
   };
+  const dateMarkers = async () => {
+    if (replace && !confirm('Replace every gate marker date with the default count back from the build start?')) return;
+    setBusy(true); setMsg(null);
+    try { const j = await post({ jobId: check.job.id, action: 'markers', replace }); setMsg({ ok: true, text: `${j.done.join('; ')}.` }); setReplace(false); onDone(j.block); }
+    catch (e) { setMsg({ ok: false, text: String(e.message || e) }); }
+    setBusy(false);
+  };
   return (
     <div className="card pad" style={{ marginTop: 10 }}>
       <h3>Projected build block (Gate 1)</h3>
       {b.bars > 0 ? (
-        <div className="small">{b.isProjected ? 'Projected build block' : `Production milestones (${b.bars})`} on the schedule: <b style={{ color: C.ink }}>{fd(b.start, true)} to {fd(b.end, true)}</b>. To move it, use the Production Schedule page.{b.markersUndated ? ` ${b.markersUndated} gate marker${b.markersUndated === 1 ? ' is' : 's are'} still undated; set them on the job card in the meeting.` : ''}</div>
+        <>
+          <div className="small">{b.isProjected ? 'Projected build block' : `Production milestones (${b.bars})`} on the schedule: <b style={{ color: C.ink }}>{fd(b.start, true)} to {fd(b.end, true)}</b>. To move it, use the Production Schedule page.</div>
+          {b.markers ? (
+            <div style={{ marginTop: 8 }}>
+              <div className="small">Gate markers: {b.markersUndated ? <b style={{ color: C.ink }}>{b.markersUndated} of {b.markers} undated</b> : `all ${b.markers} dated`}. The button dates them 20, 16, 14, 12, 8, 4 and 1 weeks before {fd(b.start, true)} (Gates 2 to 8). Edit any date in JobTread after.</div>
+              <div className="row" style={{ marginTop: 6 }}>
+                <label className="small"><input type="checkbox" checked={replace} onChange={(e) => setReplace(e.target.checked)} /> Also replace dates already set</label>
+                <button className="btn sm" disabled={busy || (!b.markersUndated && !replace)} onClick={dateMarkers}>{busy ? 'Dating...' : 'Date the gate markers'}</button>
+              </div>
+            </div>
+          ) : null}
+        </>
       ) : (
         <>
           <p className="small" style={{ margin: '0 0 8px' }}>One bar in 🤖 PRODUCTION MILESTONES from the target start for the rough build length. It puts the job on the Production Schedule (start marked tentative) and lets the gate dates count back from it. The real milestones replace it at Gate 5.</p>
