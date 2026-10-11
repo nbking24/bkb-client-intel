@@ -153,22 +153,52 @@ export async function runBuildBlock(jobId: string, start: string, weeks: number,
   done.push(`Projected build block ${start} to ${end} (${weeks} weeks) in 🤖 PRODUCTION MILESTONES, start marked tentative`);
 
   if (dateMarkers) {
-    const milesG = tasks.find((t) => t.isGroup && isMilestonesGroup(t.name));
-    const markers = milesG ? tasks.filter((t) => t.parentTask?.id === milesG.id && !t.isGroup) : [];
-    let n = 0;
-    for (const m of markers) {
-      if (m.startDate) continue;
-      const g = Number(String(m.name).match(/Gate\s+(\d+)/i)?.[1] || 0);
-      const w = GATE_DEFAULT_WEEKS[g - 2];
-      if (!w) continue;
-      const d = addDays(start, -7 * w);
-      await pave({ updateTask: { $: { id: m.id, startDate: d, endDate: d, notify: false, updateDependentTasks: false } } });
-      n++;
-    }
-    if (n) done.push(`${n} gate marker${n === 1 ? '' : 's'} dated, counted back from ${start}`);
-    else if (markers.length) done.push('Gate markers already had dates, left as they were');
+    const r = await dateMarkersFrom(tasks, start, false);
+    if (r.dated) done.push(`${r.dated} gate marker${r.dated === 1 ? '' : 's'} dated, counted back from ${start}`);
+    else if (r.markers) done.push('Gate markers already had dates, left as they were');
   }
   return { done, start, end };
+}
+
+/**
+ * Date the gate markers counted back from the build start, using the default
+ * weeks before start for each gate (GATE_DEFAULT_WEEKS). Only undated markers
+ * unless `replace` is true. Dates are a starting point; edit them in JobTread.
+ */
+async function dateMarkersFrom(tasks: any[], start: string, replace: boolean) {
+  const milesG = tasks.find((t) => t.isGroup && isMilestonesGroup(t.name));
+  const markers = milesG ? tasks.filter((t) => t.parentTask?.id === milesG.id && !t.isGroup) : [];
+  let dated = 0;
+  const lines: string[] = [];
+  for (const m of markers) {
+    if (m.startDate && !replace) continue;
+    const g = Number(String(m.name).match(/Gate\s+(\d+)/i)?.[1] || 0);
+    const w = GATE_DEFAULT_WEEKS[g - 2];
+    if (!w) continue;
+    const d = addDays(start, -7 * w);
+    if (m.startDate && m.startDate.slice(0, 10) === d) continue;
+    await pave({ updateTask: { $: { id: m.id, startDate: d, endDate: d, notify: false, updateDependentTasks: false } } });
+    lines.push(`Gate ${g}: ${d}`);
+    dated++;
+  }
+  return { markers: markers.length, dated, lines };
+}
+
+/**
+ * "Date the gate markers" button: uses the start of the job's production
+ * milestones (projected block or real schedule), or a start passed in.
+ */
+export async function runDateMarkers(jobId: string, start: string | null, replace: boolean) {
+  const tasks = await allTasks(jobId);
+  const st = await blockStatus(tasks);
+  const from = start && /^\d{4}-\d{2}-\d{2}$/.test(start) ? start : st.start;
+  if (!from) throw new Error('This job has no build start on the schedule yet. Add the projected build block first.');
+  if (!st.markers) throw new Error('This job has no Planning Milestones group. Run the setup step first.');
+  const r = await dateMarkersFrom(tasks, from, replace);
+  const done = r.dated
+    ? [`${r.dated} gate marker${r.dated === 1 ? '' : 's'} dated, counted back from ${from}: ${r.lines.join(', ')}`]
+    : [replace ? 'Every gate marker already matched the default dates' : 'Every gate marker already had a date, left as it was'];
+  return { done, start: from };
 }
 
 async function create(args: any) {
