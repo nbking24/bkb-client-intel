@@ -317,6 +317,64 @@ function JobPlanBox({ planText, hasTodo, edited, base, onSave, onUndo }) {
   );
 }
 
+/** Projected build block for one job: start date + rough weeks -> one bar in 🤖 PRODUCTION MILESTONES. */
+function BuildBlock({ check, post, onDone }) {
+  const b = check.block || {};
+  const [start, setStart] = useState(b.suggest?.start || '');
+  const [weeks, setWeeks] = useState(b.suggest?.weeks ? String(b.suggest.weeks) : '');
+  const [markers, setMarkers] = useState(true);
+  const [replace, setReplace] = useState(false);
+  const [busy, setBusy] = useState(false);
+  const [msg, setMsg] = useState(null);
+  const w = Number(weeks);
+  const end = start && w > 0 ? (() => { const d = new Date(start + 'T00:00:00Z'); d.setUTCDate(d.getUTCDate() + Math.round(w * 7) - 1); const dow = d.getUTCDay(); if (dow === 6) d.setUTCDate(d.getUTCDate() - 1); if (dow === 0) d.setUTCDate(d.getUTCDate() - 2); return iso(d); })() : null;
+  const add = async () => {
+    setBusy(true); setMsg(null);
+    try { const j = await post({ jobId: check.job.id, action: 'block', start, weeks: w, dateMarkers: markers }); setMsg({ ok: true, text: `Added: ${j.done.join('; ')}.` }); onDone(j.block); }
+    catch (e) { setMsg({ ok: false, text: String(e.message || e) }); }
+    setBusy(false);
+  };
+  const dateMarkers = async () => {
+    if (replace && !confirm('Replace every gate marker date with the default count back from the build start?')) return;
+    setBusy(true); setMsg(null);
+    try { const j = await post({ jobId: check.job.id, action: 'markers', replace }); setMsg({ ok: true, text: `${j.done.join('; ')}.` }); setReplace(false); onDone(j.block); }
+    catch (e) { setMsg({ ok: false, text: String(e.message || e) }); }
+    setBusy(false);
+  };
+  return (
+    <div className="card pad" style={{ marginTop: 10 }}>
+      <h3>Projected build block (Gate 1)</h3>
+      {b.bars > 0 ? (
+        <>
+          <div className="small">{b.isProjected ? 'Projected build block' : `Production milestones (${b.bars})`} on the schedule: <b style={{ color: C.ink }}>{fd(b.start, true)} to {fd(b.end, true)}</b>. To move it, use the Production Schedule page.</div>
+          {b.markers ? (
+            <div style={{ marginTop: 8 }}>
+              <div className="small">Gate markers: {b.markersUndated ? <b style={{ color: C.ink }}>{b.markersUndated} of {b.markers} undated</b> : `all ${b.markers} dated`}. The button dates them 20, 16, 14, 12, 8, 4 and 1 weeks before {fd(b.start, true)} (Gates 2 to 8). Edit any date in JobTread after.</div>
+              <div className="row" style={{ marginTop: 6 }}>
+                <label className="small"><input type="checkbox" checked={replace} onChange={(e) => setReplace(e.target.checked)} /> Also replace dates already set</label>
+                <button className="btn sm" disabled={busy || (!b.markersUndated && !replace)} onClick={dateMarkers}>{busy ? 'Dating...' : 'Date the gate markers'}</button>
+              </div>
+            </div>
+          ) : null}
+        </>
+      ) : (
+        <>
+          <p className="small" style={{ margin: '0 0 8px' }}>One bar in 🤖 PRODUCTION MILESTONES from the target start for the rough build length. It puts the job on the Production Schedule (start marked tentative) and lets the gate dates count back from it. The real milestones replace it at Gate 5.</p>
+          {b.planStart || b.planWeeks ? <div className="small" style={{ marginBottom: 6 }}>Job Plan says: target start <b style={{ color: C.ink }}>{b.planStart || 'blank'}</b>, rough build length <b style={{ color: C.ink }}>{b.planWeeks || 'blank'}</b>.</div> : null}
+          <div className="row">
+            <label className="small">Start date <input type="date" value={start} onChange={(e) => setStart(e.target.value)} /></label>
+            <label className="small">Weeks <input type="text" inputMode="decimal" value={weeks} onChange={(e) => setWeeks(e.target.value.replace(/[^0-9.]/g, ''))} style={{ width: 70 }} /></label>
+            {b.markersUndated ? <label className="small"><input type="checkbox" checked={markers} onChange={(e) => setMarkers(e.target.checked)} /> Also date the {b.markersUndated} gate markers (20, 16, 14, 12, 8, 4 and 1 weeks before start)</label> : null}
+          </div>
+          {end ? <div className="small" style={{ marginTop: 6 }}>Bar: {fd(start, true)} to {fd(end, true)}.</div> : null}
+          <button className="btn pri sm" style={{ marginTop: 8 }} disabled={busy || !start || !(w > 0)} onClick={add}>{busy ? 'Adding...' : 'Add projected build block'}</button>
+        </>
+      )}
+      {msg ? <div className={`msg ${msg.ok ? 'ok' : 'err'}`}>{msg.text}</div> : null}
+    </div>
+  );
+}
+
 /** Set up a job from the A-TEST master copy. */
 function SetupPanel({ jobs }) {
   const [num, setNum] = useState('');
@@ -330,22 +388,26 @@ function SetupPanel({ jobs }) {
     return j;
   };
   const look = async (body) => { setBusy('Checking JobTread...'); setMsg(null); setCheck(null); try { setCheck(await post({ ...body, dryRun: true })); } catch (e) { setMsg({ ok: false, text: String(e.message || e) }); } setBusy(''); };
-  const run = async () => { setBusy('Setting up in JobTread. This takes about a minute...'); setMsg(null); try { const j = await post({ jobId: check.job.id }); setMsg({ ok: true, text: j.done.length ? `${j.job.name}: added ${j.done.join('; ')}.` : `${j.job.name} already had everything. Nothing added.` }); setCheck(null); } catch (e) { setMsg({ ok: false, text: String(e.message || e) }); } setBusy(''); };
+  const run = async () => { setBusy('Setting up in JobTread. This takes about a minute...'); setMsg(null); try { const j = await post({ jobId: check.job.id }); setMsg({ ok: true, text: j.done.length ? `${j.job.name}: added ${j.done.join('; ')}.` : `${j.job.name} already had everything. Nothing added.` }); setCheck(await post({ jobId: check.job.id, dryRun: true })); } catch (e) { setMsg({ ok: false, text: String(e.message || e) }); } setBusy(''); };
   const needs = jobs.filter((j) => j.setup?.noStructure);
+  const noBlock = jobs.filter((j) => !j.setup?.noStructure && !j.start);
   return (
     <div>
       <h2>Set up a job</h2>
-      <p className="lead">Gives a job the same structure as A-TEST PROJECT (#100), the master copy: the Job Plan to-do, the 8 Project Gates with their checklists (unticked), and the 7 Planning Milestones (undated). Only missing pieces are added, so it is safe to run twice. Change A-TEST and every new setup follows it.</p>
+      <p className="lead">Two steps. <b>1. Structure:</b> the Job Plan to-do, the 8 Project Gates with their checklists (unticked) and the 7 Planning Milestones (undated), copied from A-TEST PROJECT (#100). Only missing pieces are added, so it is safe to run twice. <b>2. Projected build block:</b> once you know a target start and a rough build length, add the bar that puts the job on the schedule.</p>
       {needs.length ? <div className="note"><b>Design jobs missing the structure:</b> {needs.map((j) => <button key={j.id} className="chip" style={{ marginLeft: 6 }} onClick={() => look({ jobId: j.id })}>{j.short}</button>)}</div> : <p className="small">Every job at 5. Design Phase already has the structure.</p>}
+      {noBlock.length ? <div className="note"><b>Design jobs with nothing on the production schedule yet:</b> {noBlock.map((j) => <button key={j.id} className="chip" style={{ marginLeft: 6 }} onClick={() => look({ jobId: j.id })}>{j.short}</button>)}</div> : null}
       <div className="card pad">
         <div className="row"><span className="small">Job number</span><input type="text" value={num} onChange={(e) => setNum(e.target.value)} placeholder="e.g. 261" style={{ width: 120 }} onKeyDown={(e) => { if (e.key === 'Enter') look({ jobNumber: num }); }} /><button className="btn sm" disabled={!num.trim() || !!busy} onClick={() => look({ jobNumber: num })}>Check</button>{busy ? <span className="small">{busy}</span> : null}</div>
         {check ? <div style={{ marginTop: 10 }}>
           <div><b>{check.job.name}</b> (#{check.job.number}) <a href={JT(check.job.id)} target="_blank" rel="noreferrer" className="small">Open in JobTread</a></div>
-          {check.missing.length ? <><div className="small" style={{ margin: '4px 0 8px' }}>Will add: {check.missing.join(', ')}.{check.oldGates?.length ? ` It also has an old gates group (${check.oldGates.join(', ')}); delete that in JobTread once you are happy.` : ''}</div><button className="btn pri sm" disabled={!!busy} onClick={run}>Set up {check.job.name}</button></> : <div className="small" style={{ marginTop: 4 }}>This job already has the Job Plan, Project Gates and Planning Milestones. Nothing to add.</div>}
+          <h3 style={{ marginTop: 8 }}>1. Structure</h3>
+          {check.missing.length ? <><div className="small" style={{ margin: '4px 0 8px' }}>Will add: {check.missing.join(', ')}.{check.oldGates?.length ? ` It also has an old gates group (${check.oldGates.join(', ')}); delete that in JobTread once you are happy.` : ''}</div><button className="btn pri sm" disabled={!!busy} onClick={run}>Set up {check.job.name}</button></> : <div className="small" style={{ marginTop: 4 }}>Done: the job has the Job Plan, Project Gates and Planning Milestones.</div>}
         </div> : null}
         {msg ? <div className={`msg ${msg.ok ? 'ok' : 'err'}`}>{msg.text}</div> : null}
       </div>
-      <p className="small" style={{ marginTop: 10 }}>After setup: fill in the Job Plan, then set the gate dates on the job card in the next meeting (one click from the production start).</p>
+      {check && !check.missing.length ? <BuildBlock key={check.job.id + (check.block?.bars || 0)} check={check} post={post} onDone={(block) => setCheck({ ...check, block })} /> : null}
+      <p className="small" style={{ marginTop: 10 }}>After both steps: fill in the Job Plan, and check the gate dates on the job card in the next meeting.</p>
     </div>
   );
 }
