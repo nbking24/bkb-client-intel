@@ -15,6 +15,8 @@
  *      "Dropped at the <date> meeting: reason" added to its description; never deleted)
  *   4. Gate checklist ticks (read live, change only the named items)
  *   5. Planning marker dates
+ *   5b. Job Plan text edited in the meeting (only if JobTread's copy has not
+ *       changed since the brief read it; otherwise the step fails and says why)
  *   6. One internal daily log for the meeting with the notes, everything above,
  *      and any corrections to Claude's read made during this meeting
  */
@@ -22,6 +24,19 @@ import { pave, createDailyLog } from '@/app/lib/jobtread';
 import { ROADBLOCK_TASK_TYPE_ID, ACTIVE_GROUP_NAME, isActiveGroup, fmtDay, meetingNotesText, holdLogLine } from './constants';
 
 type Log = { key: string; ok: boolean; id?: string; error?: string; at: string };
+
+const norm = (t: string) => String(t || '').replace(/\r\n/g, '\n').split('\n').map((l) => l.trimEnd()).join('\n').trim();
+/** Short stable hash so a re-edited Job Plan gets a new write key. */
+function hashText(t: string) {
+  let h = 0;
+  for (const ch of norm(t)) h = (h * 31 + ch.charCodeAt(0)) | 0;
+  return (h >>> 0).toString(36);
+}
+/** Lines that are new or changed in the edited Job Plan (for the daily log). */
+function changedLines(before: string, after: string) {
+  const old = new Set(norm(before).split('\n').map((l) => l.trim()));
+  return norm(after).split('\n').map((l) => l.trim()).filter((l) => l && !old.has(l) && !/^\d+\.$/.test(l) && !/:$/.test(l));
+}
 
 const MAX_DESC = 4000;
 const clip = (s: string, n: number) => (s.length > n ? s.slice(0, n - 3) + '...' : s);
@@ -200,6 +215,24 @@ export async function writeMeetingToJobTread(meeting: any, holds: any[] = [], co
       if (lines[lines.length - 1] === 'Gate dates set') lines.pop(), lines.pop();
     }
 
+    // 5b. Job Plan edited in the meeting
+    let holdLogForRetry = false;
+    if (typeof js.plan === 'string' && job.planTodoId && norm(js.plan) !== norm(js.planBase ?? job.planText ?? '')) {
+      const base = js.planBase ?? job.planText ?? '';
+      await step(`plan:${jid}:${hashText(js.plan)}`, async () => {
+        const cur = await readTask(job.planTodoId);
+        if (norm(cur?.description || '') !== norm(base)) throw new Error('The Job Plan was changed in JobTread after the meeting started. Refresh from JobTread, start the Job Plan edit again from the new version, then Confirm again.');
+        await pave({ updateTask: { $: { id: job.planTodoId, description: js.plan.slice(0, 9500), notify: false } } });
+      });
+      const changed = changedLines(base, js.plan);
+      // If the Job Plan could not be written, hold this job's daily log until the retry,
+      // so the log never says the plan was updated when it was not.
+      if (!doneKeys.has(`plan:${jid}:${hashText(js.plan)}`)) holdLogForRetry = true;
+      lines.push('', 'Job Plan updated');
+      for (const l of changed.slice(0, 10)) lines.push(`- ${l}`);
+      if (changed.length > 10) lines.push(`- and ${changed.length - 10} more lines`);
+    }
+
     const holdLine = holdLogLine(hold, meeting.created_at);
     if (holdLine) lines.push('', holdLine);
 
@@ -213,7 +246,7 @@ export async function writeMeetingToJobTread(meeting: any, holds: any[] = [], co
     }
 
     // 6. daily log
-    if (notes || lines.length) {
+    if ((notes || lines.length) && !holdLogForRetry) {
       const body = [`Planning meeting, ${dateLabel}`, '', ...(notes ? [notes, ''] : []), ...(lines[0] === '' ? lines.slice(1) : lines)].join('\n').trim();
       await step(`log:${jid}`, async () => {
         const created = await createDailyLog({ jobId: jid, date: meeting.meeting_date, notes: clip(body, 9500), notify: false });
