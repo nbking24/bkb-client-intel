@@ -4,12 +4,17 @@
  *   { jobId? , jobNumber?, dryRun?: true }
  * Sets a job up with the planning structure copied from A-TEST PROJECT (#100):
  * Job Plan, Project Gates (8 gates, unticked) and Planning Milestones (7 undated markers).
- * dryRun returns what the job has and what would be added, without writing.
+ * dryRun returns what the job has and what would be added, without writing,
+ * plus the projected build block status (and the Job Plan's target start and length).
+ *
+ *   { jobId, action: 'block', start: 'YYYY-MM-DD', weeks: number, dateMarkers?: boolean }
+ * Adds the projected build block to 🤖 PRODUCTION MILESTONES (refused if the job
+ * already has production milestones) and optionally dates the undated gate markers.
  */
 import { NextRequest, NextResponse } from 'next/server';
 import { pave } from '@/app/lib/jobtread';
 import { authorize } from '@/app/lib/planning-meeting/store';
-import { planSetup, runSetup } from '@/app/lib/planning-meeting/setup';
+import { planSetup, runSetup, runBuildBlock } from '@/app/lib/planning-meeting/setup';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -32,6 +37,11 @@ export async function POST(req: NextRequest) {
   try {
     const jobId = await resolveJob(body);
     if (!jobId) return NextResponse.json({ error: 'No job with that number' }, { status: 404 });
+    if (body.action === 'block') {
+      const res = await runBuildBlock(jobId, String(body.start || ''), Number(body.weeks), body.dateMarkers !== false);
+      const after = await planSetup(jobId);
+      return NextResponse.json({ ok: true, ...res, block: after.block });
+    }
     if (body.dryRun) {
       const plan = await planSetup(jobId);
       const missing = [!plan.has.plan && 'Job Plan', !plan.has.gates && 'Project Gates (8 gates)', !plan.has.markers && 'Planning Milestones (7 markers)'].filter(Boolean);
