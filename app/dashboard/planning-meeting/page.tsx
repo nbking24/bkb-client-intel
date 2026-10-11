@@ -129,6 +129,8 @@ const CSS = `
 .pm .qhead{font-weight:700;margin-bottom:4px}
 .pm .nr{border:0;background:none;color:${C.muted};font-size:12px;text-decoration:underline;cursor:pointer;padding:0 0 0 6px}
 .pm .nr:hover{color:${C.red}}
+.pm .plan{margin-top:8px;border:1px solid ${C.line};border-radius:8px;padding:8px 11px;font-size:13.5px;background:#fff}
+.pm .plan pre{white-space:pre-wrap;font:inherit;margin:4px 0 0;max-height:260px;overflow:auto;background:${C.soft};border-radius:6px;padding:8px 10px}
 .pm .ctx{margin-top:8px;border:1px dashed ${C.line};border-radius:8px;padding:8px 11px;font-size:13.5px;background:#fff}
 .pm .ctx ul{margin:4px 0 6px;padding-left:17px}
 .pm .msg{margin-top:10px;padding:10px 12px;border-radius:8px;font-size:14px}
@@ -274,6 +276,43 @@ function ContextPanel({ rows, onAdd, onRemove, onRedo, redoing, redoErr }) {
       </div>
       {redoErr ? <div className="small" style={{ color: C.red, marginTop: 4 }}>{redoErr}</div> : null}
       <div className="small" style={{ marginTop: 4 }}>These carry forward every week until removed. Ones added in this meeting also go into the job's meeting daily log at Confirm.</div>
+    </div>
+  );
+}
+
+/**
+ * The job's 📄 JOB PLAN, shown on the card and editable in the meeting.
+ * Saving keeps the edit with the meeting; Confirm writes it to JobTread
+ * (only if nobody changed the Job Plan in JobTread in the meantime).
+ */
+function JobPlanBox({ planText, hasTodo, edited, base, onSave, onUndo }) {
+  const [open, setOpen] = useState(false);
+  const [editing, setEditing] = useState(false);
+  const [text, setText] = useState('');
+  const shown = edited ?? planText ?? '';
+  const stale = edited != null && base != null && String(base).trim() !== String(planText || '').trim();
+  if (!hasTodo) return <div className="plan small">No 📄 JOB PLAN on this job. Add it from the Set up a job tab.</div>;
+  return (
+    <div className="plan">
+      <div className="row" style={{ justifyContent: 'space-between' }}>
+        <div className="rhead" style={{ margin: 0 }}>Job Plan {edited != null ? <span className="tag t-blue" style={{ marginLeft: 6 }}>edited, saves to JobTread at Confirm</span> : null}</div>
+        <div className="row">
+          {!editing ? <button className="btn sm" onClick={() => setOpen(!open)}>{open ? 'Hide' : 'Show'}</button> : null}
+          {!editing ? <button className="btn sm" onClick={() => { setText(shown); setEditing(true); setOpen(true); }}>Edit</button> : null}
+          {edited != null && !editing ? <button className="btn sm" onClick={onUndo}>Undo edit</button> : null}
+        </div>
+      </div>
+      {stale ? <div className="small" style={{ color: C.red, marginTop: 4 }}>The Job Plan was changed in JobTread after this edit was started. Undo edit, then edit again from the new version, or Confirm will stop on this job.</div> : null}
+      {editing ? (
+        <>
+          <textarea style={{ minHeight: 320, marginTop: 6, fontSize: 13 }} value={text} onChange={(e) => setText(e.target.value)} />
+          <div className="row" style={{ marginTop: 6 }}>
+            <button className="btn sm pri" onClick={() => { onSave(text); setEditing(false); }}>Save edit</button>
+            <button className="btn sm" onClick={() => setEditing(false)}>Cancel</button>
+            <span className="small">Facts only. Anything someone has to do or answer by a date is a task above, not a line here.</span>
+          </div>
+        </>
+      ) : open ? <pre>{shown || 'Empty'}</pre> : null}
     </div>
   );
 }
@@ -516,6 +555,7 @@ export default function PlanningMeetingPage() {
         const m = j.markers.find((x) => x.id === mid);
         if (d && m && m.date !== d) add(j.id, 'Gate date', `${m.name.split(' (')[0]} set to ${fd(d, true)}`);
       }
+      if (typeof js.plan === 'string') add(j.id, 'Job Plan', `Update the 📄 JOB PLAN in JobTread with the text edited in this meeting${js.planBase != null && String(js.planBase).trim() !== String(j.planText || '').trim() ? '. Warning: it was changed in JobTread since, so this will stop until the edit is redone' : ''}`);
       for (const it of js.items || []) add(j.id, it.kind === 'roadblock' ? 'Roadblock' : 'Commitment', `New task in 🔵 ACTIVE: ${it.what} · ${it.whoName || 'no owner'} · ${it.due ? 'due ' + fd(it.due) : 'no date'}${it.details ? ' · description: ' + it.details : ''}`);
     }
     for (const [fid, r] of Object.entries(S.rb || {})) {
@@ -537,7 +577,8 @@ export default function PlanningMeetingPage() {
     }
     for (const r of ctxRows) {
       if (!meeting?.created_at || !r.created_at || r.created_at < meeting.created_at || !jobs.some((j) => j.id === r.job_id)) continue;
-      add(r.job_id, 'Claude', r.kind === 'dismiss' ? `Correction to Claude's read: not right, "${r.target}"${r.note ? '. ' + r.note : ''}. Noted in the daily log.` : `Context for Claude: ${r.note}. Noted in the daily log.`);
+      const dot = (t) => String(t || '').trim().replace(/[.\s]+$/, '');
+      add(r.job_id, 'Claude', r.kind === 'dismiss' ? `Correction to Claude's read: not right, "${dot(r.target)}"${r.note ? '. ' + dot(r.note) : ''}. Noted in the daily log.` : `Context for Claude: ${dot(r.note)}. Noted in the daily log.`);
     }
     for (const j of jobs) {
       const js = S.jobs[j.id];
@@ -677,6 +718,9 @@ export default function PlanningMeetingPage() {
               {vis([j.insight.goal]).length ? <ReadLine as="div" label="Goals and start date:" text={j.insight.goal} onDismiss={dismiss} /> : null}
               {vis(j.insight.gaps).length ? <div style={{ marginTop: 4 }} className="small"><b>Missing from JobTread:</b><ul style={{ margin: '2px 0 0', paddingLeft: 17 }}>{vis(j.insight.gaps).map((x) => <ReadLine key={x} text={x} onDismiss={dismiss} />)}</ul></div> : null}
             </div> : <div className="small" style={{ marginBottom: 6 }}>Claude's written review appears here after the next Refresh from JobTread.</div>}
+            <JobPlanBox planText={j.planText} hasTodo={!!j.planTodoId} edited={typeof js.plan === 'string' ? js.plan : null} base={js.planBase ?? null}
+              onSave={(t) => touch((s) => { const x = jsOf(s, j.id); if (x.planBase == null) x.planBase = j.planText || ''; if (t.trim() === String(x.planBase).trim()) { delete x.plan; delete x.planBase; } else x.plan = t; })}
+              onUndo={() => touch((s) => { const x = jsOf(s, j.id); delete x.plan; delete x.planBase; })} />
             <ContextPanel rows={ctxFor(j.id)} onAdd={(note) => addCtx(j.id, 'context', null, note)} onRemove={removeCtx} onRedo={() => redoRead(j.id)} redoing={redoing === j.id} redoErr={redoErr[j.id]} />
             <div className="small" style={{ marginTop: 6 }}><a href={JT(j.id)} target="_blank" rel="noreferrer">Open in JobTread</a></div>
 
