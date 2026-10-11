@@ -90,7 +90,7 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ ok: true, context: await listContext(sb) });
   }
   if (body.action === 'redo') {
-    const { data: meeting } = await sb.from('planning_meetings').select('id, status, brief').eq('id', body.meetingId).single();
+    const { data: meeting } = await sb.from('planning_meetings').select('id, status, brief, state').eq('id', body.meetingId).single();
     if (!meeting || !body.jobId) return NextResponse.json({ error: 'Meeting or job not found' }, { status: 404 });
     if (meeting.status !== 'draft') return NextResponse.json({ error: 'This meeting is already confirmed' }, { status: 409 });
     try {

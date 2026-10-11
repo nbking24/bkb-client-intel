@@ -126,7 +126,10 @@ export async function redoInsight(meeting: any, jobId: string, sb = getSupabase(
   const today = todayEastern();
   const last = await lastConfirmedMeeting(sb);
   const [built, ctx, team] = await Promise.all([buildJobById(jobId, { today }), fetchJobContext(jobId, today), teamContextByJob(last, sb)]);
-  const insight = await jobInsight(built.job, ctx, built.job._planText, today, team[jobId] || {});
+  // A Job Plan edited in this meeting (not yet written to JobTread) is what Claude should read.
+  const pending = meeting.state?.jobs?.[jobId]?.plan;
+  const planText = typeof pending === 'string' && pending.trim() ? pending : built.job._planText;
+  const insight = await jobInsight(built.job, ctx, planText, today, team[jobId] || {});
   if (!insight) throw new Error('Claude did not return a read');
   // Re-read the brief so a parallel refresh is not overwritten with stale jobs.
   const { data: cur } = await sb.from('planning_meetings').select('brief').eq('id', meeting.id).single();

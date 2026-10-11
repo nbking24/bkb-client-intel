@@ -290,7 +290,7 @@ async function buildJob(job: any, today: string, memberName: Record<string, stri
     tasks: openTasks, roadblocks, lastMeeting,
     sel, lastActivity,
     docs: extras.docs.map((d) => ({ name: d.name, type: d.type, status: d.status, created: easternDay(d.createdAt) })),
-    planTodoId: planTodo?.id || null, jobPlanBlank, plan, _planText: jobPlanBlank ? '' : planText,
+    planTodoId: planTodo?.id || null, jobPlanBlank, plan, planText, _planText: jobPlanBlank ? '' : planText,
     setup: {
       jobPlanBlank,
       leadNotNamed: gates[0] ? !gates[0].items[0]?.[1] : true,
