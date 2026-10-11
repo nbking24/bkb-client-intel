@@ -10,11 +10,15 @@
  *   { jobId, action: 'block', start: 'YYYY-MM-DD', weeks: number, dateMarkers?: boolean }
  * Adds the projected build block to 🤖 PRODUCTION MILESTONES (refused if the job
  * already has production milestones) and optionally dates the undated gate markers.
+ *
+ *   { jobId, action: 'markers', start?: 'YYYY-MM-DD', replace?: boolean }
+ * Dates the gate markers counted back from the build start on the schedule
+ * (or `start`). Only undated markers unless replace is true.
  */
 import { NextRequest, NextResponse } from 'next/server';
 import { pave } from '@/app/lib/jobtread';
 import { authorize } from '@/app/lib/planning-meeting/store';
-import { planSetup, runSetup, runBuildBlock } from '@/app/lib/planning-meeting/setup';
+import { planSetup, runSetup, runBuildBlock, runDateMarkers } from '@/app/lib/planning-meeting/setup';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -39,6 +43,11 @@ export async function POST(req: NextRequest) {
     if (!jobId) return NextResponse.json({ error: 'No job with that number' }, { status: 404 });
     if (body.action === 'block') {
       const res = await runBuildBlock(jobId, String(body.start || ''), Number(body.weeks), body.dateMarkers !== false);
+      const after = await planSetup(jobId);
+      return NextResponse.json({ ok: true, ...res, block: after.block });
+    }
+    if (body.action === 'markers') {
+      const res = await runDateMarkers(jobId, body.start ? String(body.start) : null, body.replace === true);
       const after = await planSetup(jobId);
       return NextResponse.json({ ok: true, ...res, block: after.block });
     }
