@@ -14,6 +14,12 @@ export const ROADBLOCK_TASK_TYPE_NAME = 'Roadblock';
 
 /** Selection Status custom field on cost items. */
 export const SELECTION_STATUS_CF_ID = '22P5WiHgkzx9';
+/** Cost item custom fields on decision lines. */
+export const SELECTION_FLAG_CF_ID = '22PBByMRR2XS';   // boolean "Selection"
+export const PLAN_TAG_CF_ID = '22PfLUUCZbJF';         // text "Plan Tag"
+export const DECIDE_BY_CF_ID = '22Pg7NpFuTRq';        // date "Decide By" (created 2026-10-11)
+/** A decision still waiting on a choice: Status 0 to 3. 4 and up means decided. */
+export const isUndecided = (status: string | null | undefined) => !status || /^[0-3]\./.test(String(status));
 
 /** Group names. Matched loosely (emoji and punctuation stripped). */
 export const ACTIVE_GROUP_NAME = '🔵 ACTIVE';
@@ -30,6 +36,7 @@ export const RULES = {
   quietDays: 14,
   gateDueSoonDays: 14,
   oldDocumentDays: 14,
+  decisionsAheadDays: 21, // Q3 lists decisions due within this many days of the meeting
 };
 
 /** Task types that mean "this is done" even if the task is not ticked. */
@@ -119,7 +126,7 @@ export function holdLogLine(h: any, meetingCreatedAt: string): string | null {
 export const QUESTIONS = [
   { key: 'q1', label: 'Are we on track for the next gate date?' },
   { key: 'q2', label: 'What is in the way?' },
-  { key: 'q3', label: 'What has to be ready in the next 3 weeks?' },
+  { key: 'q3', label: 'What has to be decided, ordered or ready in the next 3 weeks?' },
   { key: 'q4', label: 'Who owes what, by when?' },
 ];
 export const TRACK_LABELS: Record<string, string> = { on: 'On track', risk: 'At risk', off: 'Off track' };

@@ -155,6 +155,8 @@ export async function jobInsight(j: any, ctx: any, planText: string, today: stri
     openTasks: j.tasks.map((t) => `${t.name} | ${t.who.join(', ') || 'no owner'} | due ${t.due || 'none'}${t.overdue ? ' | LATE ' + t.days + ' days' : ''}${t.type ? ' | type ' + t.type : ''}`),
     roadblocks: j.roadblocks.map((r) => `${r.name} | ${r.who.join(', ') || 'no owner'} | open ${r.daysOpen} days`),
     selectionsByStatus: j.sel,
+    decisionsByDecideBy: (j.decisions?.list || []).slice(0, 15).map((x) => `${x.name}${x.tag ? ' (' + x.tag + ')' : ''} | ${x.status || 'no status'} | decide by ${x.decideBy}${x.decideBy < today ? ' | PAST DUE' : ''}`),
+    decisionsWithNoDecideBy: j.decisions?.undated || 0,
     draftOrPendingDocuments: j.docs.map((d) => `${d.name} (${d.type}, ${d.status}, created ${d.created})`),
     messagesLast30Days: ctx.comments,
     dailyLogsLast30Days: ctx.logs,
