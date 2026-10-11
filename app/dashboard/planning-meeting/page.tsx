@@ -37,7 +37,7 @@ function fd(s, dow = false) {
 }
 function token() { try { return `Bearer ${localStorage.getItem('bkb-token') || ''}`; } catch { return ''; } }
 const JT = (id) => `https://app.jobtread.com/jobs/${id}`;
-const QLABELS = { q1: 'Are we on track for the next gate date?', q2: 'What is in the way?', q3: 'What has to be ready in the next 3 weeks?', q4: 'Who owes what, by when?' };
+const QLABELS = { q1: 'Are we on track for the next gate date?', q2: 'What is in the way?', q3: 'What has to be decided, ordered or ready in the next 3 weeks?', q4: 'Who owes what, by when?' };
 const TRACK = { on: 'On track', risk: 'At risk', off: 'Off track' };
 /** Mirrors meetingNotesText() in app/lib/planning-meeting/constants.ts */
 function notesText(js) {
@@ -739,6 +739,7 @@ export default function PlanningMeetingPage() {
       ...j.tasks.filter((t) => t.due && t.due <= soonEnd).map((t) => ({ d: t.due, t: `${t.name} (${t.who.join(', ') || 'no owner'})`, late: t.overdue })),
       ...j.gates.map((g, i) => ({ d: gateDue(i), t: `Gate ${i + 1} due: ${g.name.replace(/^\d+\.\s*/, '')}`, late: false, done: gateDoneLive(js, j, i) >= g.items.length })).filter((x) => x.d && x.d >= today && x.d <= soonEnd && !x.done),
       ...(j.start && j.start >= today && j.start <= soonEnd ? [{ d: j.start, t: `Production start: ${j.startName}`, late: false }] : []),
+      ...(j.decisions?.list || []).filter((x) => x.decideBy && x.decideBy <= soonEnd).map((x) => ({ d: x.decideBy, t: `Decide: ${x.name}${x.tag ? ' (' + x.tag + ')' : ''}, ${x.status || 'no status'}`, late: x.decideBy < today })),
     ].sort((a, b) => (a.d < b.d ? -1 : 1));
     const commitments = (js.items || []).map((it, i) => [it, i]).filter(([it]) => it.kind !== 'roadblock');
     const roadblocksNew = (js.items || []).map((it, i) => [it, i]).filter(([it]) => it.kind === 'roadblock');
@@ -846,9 +847,9 @@ export default function PlanningMeetingPage() {
               <NewItem members={members} kind="roadblock" label="Roadblock: what is in the way" onAdd={(it) => touch((s) => { jsOf(s, j.id).items.push(it); })} />
               <div style={{ marginTop: 6 }}><NoteBox value={q.q2?.note} placeholder="Notes" minHeight={40} onSave={(v) => setQ('q2', 'note', v)} /></div>
             </div>
-            <div className="qbox"><div className="qhead">3. What has to be ready in the next 3 weeks?</div>
+            <div className="qbox"><div className="qhead">3. What has to be decided, ordered or ready in the next 3 weeks?</div>
               {soon.length ? <ul className="tlist" style={{ marginBottom: 6 }}>{soon.map((x, i) => <li key={i}><span className={`dot ${x.late ? 'd-amber' : 'd-house'}`} /><span className="small"><b>{fd(x.d, true)}</b> · {x.t}{x.late ? ' · late' : ''}</span></li>)}</ul> : <div className="small" style={{ marginBottom: 6 }}>Nothing on this job's schedule in the next 3 weeks.</div>}
-              <NoteBox value={q.q3?.note} placeholder="What has to be ready, and anything missing from the list above" minHeight={46} onSave={(v) => setQ('q3', 'note', v)} />
+              <NoteBox value={q.q3?.note} placeholder="What has to be decided, ordered or ready, and anything missing from the list above" minHeight={46} onSave={(v) => setQ('q3', 'note', v)} />
             </div>
             <div className="qbox"><div className="qhead">4. Who owes what, by when?</div>
               <div className="small" style={{ marginBottom: 6 }}>Each commitment becomes its own task in 🔵 ACTIVE after Confirm, assigned to that person.</div>
