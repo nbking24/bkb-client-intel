@@ -20,6 +20,9 @@
  *   AMBER  Unsigned contract construction contract pending more than 14 days.
  *   AMBER  Quiet job        no comment, daily log or new task in 14 days.
  *   AMBER  Gate due soon    a gate due within 14 days with its checklist not done.
+ *   AMBER  Decision past due a decision line (Status 0 to 3) past its Decide By date.
+ *   HOUSE  No Decide By     open decision lines with no Decide By date, once the
+ *                           Gate 2 concept and budget approval is ticked (added 2026-10-11).
  *   HOUSE  Task type says done, old draft/pending documents, tasks outside 🔵 ACTIVE
  *          or no 🔵 ACTIVE group.
  * Setup gaps (Job Plan blank, design lead and PM not named, markers undated)
@@ -28,7 +31,7 @@
 import { pave, getActiveJobs } from '@/app/lib/jobtread';
 import { fetchJobContext, jobInsight, TeamContext } from './insight';
 import {
-  DESIGN_STATUS, SELECTION_STATUS_CF_ID, GATE_DEFAULT_WEEKS, RULES, DONE_LIKE_TYPES, ANCHOR_NAME, ROADBLOCK_TASK_TYPE_NAME,
+  DESIGN_STATUS, SELECTION_STATUS_CF_ID, SELECTION_FLAG_CF_ID, PLAN_TAG_CF_ID, DECIDE_BY_CF_ID, isUndecided, GATE_DEFAULT_WEEKS, RULES, DONE_LIKE_TYPES, ANCHOR_NAME, ROADBLOCK_TASK_TYPE_NAME,
   isActiveGroup, isGatesGroup, isPlanTodo, isMilestonesGroup, isProductionGroup, isFieldGroup, isCompletedGroup, isOldGatesGroup,
   addDays, daysBetween, fmtDay, shortJobName, todayEastern,
 } from './constants';
@@ -91,8 +94,14 @@ async function fetchJobExtras(jobId: string) {
   };
 }
 
-async function fetchSelectionCounts(jobId: string): Promise<Record<string, number>> {
+/**
+ * Decision lines on the job's budget (not document copies): Status counts, and
+ * every undecided decision (Status 0 to 3) with its Decide By date and Plan Tag.
+ * A decision line is a line flagged Selection.
+ */
+async function fetchDecisions(jobId: string) {
   const counts: Record<string, number> = {};
+  const open: any[] = [];
   let page: string | null = null;
   for (let i = 0; i < 30; i++) {
     const args: any = { size: 100, where: { and: [[['document', 'id'], '=', null]] } };
@@ -103,19 +112,33 @@ async function fetchSelectionCounts(jobId: string): Promise<Record<string, numbe
         costItems: {
           $: args,
           nextPage: {},
-          nodes: { customFieldValues: { $: { size: 1, where: { and: [[['customField', 'id'], '=', SELECTION_STATUS_CF_ID]] } }, nodes: { value: {} } } },
+          nodes: {
+            id: {}, name: {},
+            customFieldValues: {
+              $: { size: 4, where: { and: [[['customField', 'id'], 'in', [SELECTION_STATUS_CF_ID, DECIDE_BY_CF_ID, SELECTION_FLAG_CF_ID, PLAN_TAG_CF_ID]]] } },
+              nodes: { value: {}, customField: { id: {} } },
+            },
+          },
         },
       },
     });
     const conn = data?.job?.costItems;
     for (const n of conn?.nodes || []) {
-      const v = n?.customFieldValues?.nodes?.[0]?.value;
-      if (v) counts[v] = (counts[v] || 0) + 1;
+      const cf: Record<string, any> = {};
+      for (const v of n?.customFieldValues?.nodes || []) cf[v?.customField?.id] = v?.value;
+      const status = cf[SELECTION_STATUS_CF_ID] || null;
+      const flagged = cf[SELECTION_FLAG_CF_ID] === true || cf[SELECTION_FLAG_CF_ID] === 'true';
+      if (status) counts[status] = (counts[status] || 0) + 1;
+      // only lines flagged Selection are decisions (a Status left on an allowance or margin line is ignored)
+      if (flagged && isUndecided(status)) {
+        open.push({ id: n.id, name: dec(n.name), status, tag: cf[PLAN_TAG_CF_ID] || null, decideBy: cf[DECIDE_BY_CF_ID] ? String(cf[DECIDE_BY_CF_ID]).slice(0, 10) : null });
+      }
     }
     page = conn?.nextPage || null;
     if (!page) break;
   }
-  return counts;
+  open.sort((a, b) => (a.decideBy || '9999') < (b.decideBy || '9999') ? -1 : 1);
+  return { counts, open };
 }
 
 async function fetchTaskDescription(taskId: string): Promise<string> {
@@ -176,11 +199,19 @@ async function inBatches<T, R>(items: T[], n: number, fn: (t: T) => Promise<R>):
 export interface LastMeetingTask { jt_task_id: string; job_id: string; kind: string; name: string; assignee?: string; due_date?: string }
 
 async function buildJob(job: any, today: string, memberName: Record<string, string>, lastTasks: LastMeetingTask[]) {
-  const [tasks, extras, sel] = await Promise.all([
+  const [tasks, extras, dl] = await Promise.all([
     fetchJobTasks(job.id),
     fetchJobExtras(job.id),
-    fetchSelectionCounts(job.id).catch(() => ({})),
+    fetchDecisions(job.id).catch(() => ({ counts: {}, open: [], failed: true })),
   ]);
+  const sel = dl.counts;
+  const decisions = {
+    list: dl.open.filter((x) => x.decideBy),
+    overdue: dl.open.filter((x) => x.decideBy && x.decideBy < today),
+    undated: dl.open.filter((x) => !x.decideBy).length,
+    open: dl.open.length,
+    failed: !!dl.failed,
+  };
   const byId: Record<string, any> = Object.fromEntries(tasks.map((t) => [t.id, t]));
   const kids = (id: string) => tasks.filter((t) => t.parentTask?.id === id);
   const groups = tasks.filter((t) => t.isGroup);
@@ -288,7 +319,7 @@ async function buildJob(job: any, today: string, memberName: Record<string, stri
     start, startName, end: last?.endDate || null, endName: dec(last?.name) || null,
     activeGroupId: activeGroup?.id || null,
     tasks: openTasks, roadblocks, lastMeeting,
-    sel, lastActivity,
+    sel, decisions, lastActivity,
     docs: extras.docs.map((d) => ({ name: d.name, type: d.type, status: d.status, created: easternDay(d.createdAt) })),
     planTodoId: planTodo?.id || null, jobPlanBlank, plan, planText, _planText: jobPlanBlank ? '' : planText,
     setup: {
@@ -349,6 +380,17 @@ function flagsFor(j: any, today: string) {
     } else if (t.overdue && !t.roadblock) {
       add('amber', 'Overdue task', `late:${t.id}`, `"${t.name}", ${t.who.join(', ') || 'no one assigned'}, due ${fmtDay(t.due)} (${t.days} day${t.days === 1 ? '' : 's'} late).`, t.who.join(', ') || 'No owner');
     }
+  }
+
+  // decisions: past their Decide By and still undecided; open decisions with no date once the concept is approved
+  const od = j.decisions?.overdue || [];
+  if (od.length) {
+    add('amber', 'Decision past due', 'decide',
+      `${od.length} decision${od.length === 1 ? ' is' : 's are'} past the Decide By date and not decided: ${od.slice(0, 3).map((x) => `"${x.name}"${x.tag ? ' (' + x.tag + ')' : ''} by ${fmtDay(x.decideBy)}`).join(', ')}${od.length > 3 ? ', ...' : ''}. Decide, or set a new date and say what it does to the start.`, 'Heather');
+  }
+  const conceptOk = !!j.gates[1]?.items.find((i) => /concept and budget/i.test(i[0]))?.[1];
+  if (conceptOk && (j.decisions?.undated || 0) > 0) {
+    add('house', 'No Decide By', 'undated', `${j.decisions.undated} open decision${j.decisions.undated === 1 ? ' has' : 's have'} no Decide By date. Set it on each decision line in the budget (Selections ONLY view).`, 'Heather');
   }
 
   if (j.lastActivity && daysBetween(j.lastActivity.date, today) > RULES.quietDays) {
