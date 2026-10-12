@@ -70,6 +70,15 @@
     },
     "app/api/dashboard/planning-meeting/setup/route.ts": {
       "maxDuration": 120
+    },
+    "app/api/dashboard/production-meeting/route.ts": {
+      "maxDuration": 300
+    },
+    "app/api/dashboard/production-meeting/confirm/route.ts": {
+      "maxDuration": 300
+    },
+    "app/api/cron/production-brief/route.ts": {
+      "maxDuration": 300
     }
   },
   "crons": [
@@ -132,6 +141,10 @@
     {
       "path": "/api/cron/planning-brief",
       "schedule": "0 10 * * 2"
+    },
+    {
+      "path": "/api/cron/production-brief",
+      "schedule": "0 10 * * 1"
     }
   ]
 }

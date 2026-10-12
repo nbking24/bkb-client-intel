@@ -70,7 +70,16 @@ export interface WriteResult { log: Log[]; written: number; failed: number; crea
  * @param holds     planning_job_holds rows changed during this meeting
  * @param context   planning_job_context rows added during this meeting (still active)
  */
-export async function writeMeetingToJobTread(meeting: any, holds: any[] = [], context: any[] = []): Promise<WriteResult> {
+export async function writeMeetingToJobTread(
+  meeting: any,
+  holds: any[] = [],
+  context: any[] = [],
+  opts: { label?: string; notesText?: (js: any) => string } = {},
+): Promise<WriteResult> {
+  // label: 'planning meeting' (default) or 'production meeting'; notesText: how one job's answers become text
+  const label = opts.label || 'planning meeting';
+  const Label = label.charAt(0).toUpperCase() + label.slice(1);
+  const notesOf = opts.notesText || meetingNotesText;
   const state = meeting.state || {};
   const brief = meeting.brief || { jobs: [] };
   const dateLabel = fmtDay(meeting.meeting_date, true);
@@ -118,7 +127,7 @@ export async function writeMeetingToJobTread(meeting: any, holds: any[] = [], co
     const ticks = Object.entries(js.ticks || {});
     const markers = Object.entries(js.markers || {}).filter(([, d]) => !!d);
     const hold = holds.find((h) => h.job_id === jid);
-    const notes = meetingNotesText(js);
+    const notes = notesOf(js);
     const lines: string[] = [];
 
     // 1 + 2. tasks
@@ -126,7 +135,7 @@ export async function writeMeetingToJobTread(meeting: any, holds: any[] = [], co
       lines.push('New tasks');
       for (const it of items) {
         const isRb = it.kind === 'roadblock';
-        const desc = clip([it.details?.trim(), `From the planning meeting, ${dateLabel}.`].filter(Boolean).join('\n\n'), MAX_DESC);
+        const desc = clip([it.details?.trim(), `From the ${label}, ${dateLabel}.`].filter(Boolean).join('\n\n'), MAX_DESC);
         const id = groupId ? await step(`item:${it.uid}`, async () => {
           const data: any = await pave({
             createTask: {
@@ -166,7 +175,7 @@ export async function writeMeetingToJobTread(meeting: any, holds: any[] = [], co
         } else if (t.act === 'drop') {
           await step(`tri:${taskId}:drop`, async () => {
             const cur = await readTask(taskId);
-            const note = `Dropped at the ${dateLabel} planning meeting${t.why ? ': ' + t.why : ''}.`;
+            const note = `Dropped at the ${dateLabel} ${label}${t.why ? ': ' + t.why : ''}.`;
             const description = clip([cur?.description?.trim(), note].filter(Boolean).join('\n\n'), MAX_DESC);
             await pave({ updateTask: { $: { id: taskId, progress: 1, description, notify: false } } });
           });
@@ -247,7 +256,7 @@ export async function writeMeetingToJobTread(meeting: any, holds: any[] = [], co
 
     // 6. daily log
     if ((notes || lines.length) && !holdLogForRetry) {
-      const body = [`Planning meeting, ${dateLabel}`, '', ...(notes ? [notes, ''] : []), ...(lines[0] === '' ? lines.slice(1) : lines)].join('\n').trim();
+      const body = [`${Label}, ${dateLabel}`, '', ...(notes ? [notes, ''] : []), ...(lines[0] === '' ? lines.slice(1) : lines)].join('\n').trim();
       await step(`log:${jid}`, async () => {
         const created = await createDailyLog({ jobId: jid, date: meeting.meeting_date, notes: clip(body, 9500), notify: false });
         return created.id;
