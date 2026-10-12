@@ -68,6 +68,8 @@ async function fetchTasks(jobId: string): Promise<any[]> {
   return [];
 }
 
+const MEETING_LOG = /^\s*(production|planning) meeting,/i;
+
 async function fetchExtras(jobId: string) {
   const data: any = await pave({
     job: {
@@ -76,7 +78,9 @@ async function fetchExtras(jobId: string) {
         $: { size: 50, where: { and: [['type', '=', 'customerOrder'], ['status', '=', 'pending']] } },
         nodes: { id: {}, name: {}, createdAt: {}, price: {} },
       },
-      dailyLogs: { $: { size: 1, sortBy: [{ field: ['date'], order: 'desc' }] }, nodes: { date: {} } },
+      // Field logs only: logs dated ahead do not count yet, and the meetings' own logs
+      // ("Production meeting, ...", "Planning meeting, ...") are not site logs.
+      dailyLogs: { $: { size: 8, where: ['date', '<=', todayEastern()], sortBy: [{ field: ['date'], order: 'desc' }] }, nodes: { date: {}, notes: {} } },
       comments: { $: { size: 1, sortBy: [{ field: ['createdAt'], order: 'desc' }] }, nodes: { createdAt: {} } },
       timeEntries: { $: { size: 1, sortBy: [{ field: ['startedAt'], order: 'desc' }] }, nodes: { startedAt: {} } },
     },
@@ -84,7 +88,7 @@ async function fetchExtras(jobId: string) {
   const j = data?.job || {};
   return {
     pendingOrders: j.documents?.nodes || [],
-    lastLog: j.dailyLogs?.nodes?.[0]?.date || null,
+    lastLog: (j.dailyLogs?.nodes || []).find((l) => !MEETING_LOG.test(String(l.notes || '')))?.date || null,
     lastComment: j.comments?.nodes?.[0]?.createdAt || null,
     lastTime: j.timeEntries?.nodes?.[0]?.startedAt || null,
   };
