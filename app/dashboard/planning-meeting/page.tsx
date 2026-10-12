@@ -37,6 +37,8 @@ function fd(s, dow = false) {
 }
 function token() { try { return `Bearer ${localStorage.getItem('bkb-token') || ''}`; } catch { return ''; } }
 const JT = (id) => `https://app.jobtread.com/jobs/${id}`;
+/** JobTread's limit on a to-do description (the 📄 JOB PLAN). */
+const PLAN_MAX = 4096;
 const QLABELS = { q1: 'Are we on track for the next gate date?', q2: 'What is in the way?', q3: 'What has to be decided, ordered or ready in the next 3 weeks?', q4: 'Who owes what, by when?' };
 const TRACK = { on: 'On track', risk: 'At risk', off: 'Off track' };
 /** Mirrors meetingNotesText() in app/lib/planning-meeting/constants.ts */
@@ -303,11 +305,15 @@ function JobPlanBox({ planText, hasTodo, edited, base, onSave, onUndo }) {
         </div>
       </div>
       {stale ? <div className="small" style={{ color: C.red, marginTop: 4 }}>The Job Plan was changed in JobTread after this edit was started. Undo edit, then edit again from the new version, or Confirm will stop on this job.</div> : null}
+      {edited != null && edited.length > PLAN_MAX ? <div className="small" style={{ color: C.red, marginTop: 4 }}>This edit is {edited.length.toLocaleString()} characters. JobTread allows {PLAN_MAX.toLocaleString()}, so Confirm will stop on this job. Edit it shorter.</div> : null}
       {editing ? (
         <>
           <textarea style={{ minHeight: 320, marginTop: 6, fontSize: 13 }} value={text} onChange={(e) => setText(e.target.value)} />
+          <div className="small" style={{ marginTop: 4, color: text.length > PLAN_MAX ? C.red : undefined }}>
+            {text.length.toLocaleString()} of {PLAN_MAX.toLocaleString()} characters{text.length > PLAN_MAX ? `. JobTread will not save more than ${PLAN_MAX.toLocaleString()}; cut ${(text.length - PLAN_MAX).toLocaleString()} to save this edit.` : ''}
+          </div>
           <div className="row" style={{ marginTop: 6 }}>
-            <button className="btn sm pri" onClick={() => { onSave(text); setEditing(false); }}>Save edit</button>
+            <button className="btn sm pri" disabled={text.length > PLAN_MAX} onClick={() => { onSave(text); setEditing(false); }}>Save edit</button>
             <button className="btn sm" onClick={() => setEditing(false)}>Cancel</button>
             <span className="small">Facts only. Anything someone has to do or answer by a date is a task above, not a line here.</span>
           </div>
@@ -617,7 +623,7 @@ export default function PlanningMeetingPage() {
         const m = j.markers.find((x) => x.id === mid);
         if (d && m && m.date !== d) add(j.id, 'Gate date', `${m.name.split(' (')[0]} set to ${fd(d, true)}`);
       }
-      if (typeof js.plan === 'string') add(j.id, 'Job Plan', `Update the 📄 JOB PLAN in JobTread with the text edited in this meeting${js.planBase != null && String(js.planBase).trim() !== String(j.planText || '').trim() ? '. Warning: it was changed in JobTread since, so this will stop until the edit is redone' : ''}`);
+      if (typeof js.plan === 'string') add(j.id, 'Job Plan', `Update the 📄 JOB PLAN in JobTread with the text edited in this meeting${js.planBase != null && String(js.planBase).trim() !== String(j.planText || '').trim() ? '. Warning: it was changed in JobTread since, so this will stop until the edit is redone' : ''}${js.plan.length > PLAN_MAX ? `. Warning: it is ${js.plan.length.toLocaleString()} characters and JobTread allows ${PLAN_MAX.toLocaleString()}, so this will stop until it is shortened` : ''}`);
       for (const it of js.items || []) add(j.id, it.kind === 'roadblock' ? 'Roadblock' : 'Commitment', `New task in 🔵 ACTIVE: ${it.what} · ${it.whoName || 'no owner'} · ${it.due ? 'due ' + fd(it.due) : 'no date'}${it.details ? ' · description: ' + it.details : ''}`);
     }
     for (const [fid, r] of Object.entries(S.rb || {})) {
