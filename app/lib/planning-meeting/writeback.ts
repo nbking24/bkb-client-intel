@@ -74,7 +74,7 @@ export async function writeMeetingToJobTread(
   meeting: any,
   holds: any[] = [],
   context: any[] = [],
-  opts: { label?: string; notesText?: (js: any) => string } = {},
+  opts: { label?: string; notesText?: (js: any, job?: any) => string } = {},
 ): Promise<WriteResult> {
   // label: 'planning meeting' (default) or 'production meeting'; notesText: how one job's answers become text
   const label = opts.label || 'planning meeting';
@@ -127,7 +127,7 @@ export async function writeMeetingToJobTread(
     const ticks = Object.entries(js.ticks || {});
     const markers = Object.entries(js.markers || {}).filter(([, d]) => !!d);
     const hold = holds.find((h) => h.job_id === jid);
-    const notes = notesOf(js);
+    const notes = notesOf(js, job);
     const lines: string[] = [];
 
     // 1 + 2. tasks
