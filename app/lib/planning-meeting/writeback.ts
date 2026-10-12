@@ -39,6 +39,8 @@ function changedLines(before: string, after: string) {
 }
 
 const MAX_DESC = 4000;
+/** JobTread's limit on a to-do description (the 📄 JOB PLAN). */
+const PLAN_MAX = 4096;
 const clip = (s: string, n: number) => (s.length > n ? s.slice(0, n - 3) + '...' : s);
 
 async function findActiveGroup(jobId: string): Promise<string | null> {
@@ -231,9 +233,12 @@ export async function writeMeetingToJobTread(
     if (typeof js.plan === 'string' && job.planTodoId && norm(js.plan) !== norm(js.planBase ?? job.planText ?? '')) {
       const base = js.planBase ?? job.planText ?? '';
       await step(`plan:${jid}:${hashText(js.plan)}`, async () => {
+        if (js.plan.length > PLAN_MAX) throw new Error(`The Job Plan edit is ${js.plan.length.toLocaleString()} characters and JobTread allows ${PLAN_MAX.toLocaleString()}. Edit it shorter on the job card, then Confirm again.`);
         const cur = await readTask(job.planTodoId);
+        // already written (for example by an earlier run that lost its log entry)
+        if (norm(cur?.description || '') === norm(js.plan)) return;
         if (norm(cur?.description || '') !== norm(base)) throw new Error('The Job Plan was changed in JobTread after the meeting started. Refresh from JobTread, start the Job Plan edit again from the new version, then Confirm again.');
-        await pave({ updateTask: { $: { id: job.planTodoId, description: js.plan.slice(0, 9500), notify: false } } });
+        await pave({ updateTask: { $: { id: job.planTodoId, description: js.plan, notify: false } } });
       });
       const changed = changedLines(base, js.plan);
       // If the Job Plan could not be written, hold this job's daily log until the retry,
