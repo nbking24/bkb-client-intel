@@ -297,8 +297,9 @@ export default function ProductionMeetingPage() {
     for (const [, t] of Object.entries(S.triage || {})) {
       if (!t?.act) continue;
       if (t.act === 'done') add(t.jobId, 'Update', `Tick complete: ${t.name}`);
-      if (t.act === 'date' && t.date) add(t.jobId, 'Update', `Move due date to ${fd(t.date)}: ${t.name}${t.why ? ' · reason: ' + t.why : ''}`);
-      if (t.act === 'drop') add(t.jobId, 'Update', `Drop: tick complete and add "Dropped at the ${fd(md)} production meeting${t.why ? ': ' + t.why : ''}" to its description. Not deleted: ${t.name}`);
+      const why = t.why === 'Other' && t.whyText?.trim() ? t.whyText.trim() : t.why;
+      if (t.act === 'date' && t.date) add(t.jobId, 'Update', `Move due date to ${fd(t.date)}: ${t.name}${why ? ' · reason: ' + why : ''}`);
+      if (t.act === 'drop') add(t.jobId, 'Update', `Drop: tick complete and add "Dropped at the ${fd(md)} production meeting${why ? ': ' + why : ''}" to its description. Not deleted: ${t.name}`);
     }
     for (const j of jobs) {
       const nt = notesText(S.jobs[j.id]);
@@ -323,7 +324,8 @@ export default function ProductionMeetingPage() {
         <div className="seg">{opts.map(([k, l]) => <button key={k} className={tr.act === k ? 'on' : ''} onClick={() => touch((s) => { s.triage[t.id] = s.triage[t.id]?.act === k ? {} : { ...(s.triage[t.id] || {}), act: k, jobId, name: t.name }; })}>{l}</button>)}</div>
         {(tr.act === 'date' || tr.act === 'drop') && <div className="row" style={{ flex: '1 1 100%', margin: '6px 0 0 16px' }}>
           {tr.act === 'date' && <input type="date" value={tr.date || ''} onChange={(e) => touch((s) => { s.triage[t.id].date = e.target.value; })} />}
-          <select value={tr.why || ''} onChange={(e) => touch((s) => { s.triage[t.id].why = e.target.value; })}><option value="">Why did it slip?</option>{REASONS.map((r) => <option key={r}>{r}</option>)}</select>
+          <select value={tr.why || ''} onChange={(e) => touch((s) => { s.triage[t.id].why = e.target.value; })}><option value="">{tr.act === 'drop' ? 'Why drop it?' : 'Why did it slip?'}</option>{REASONS.map((r) => <option key={r}>{r}</option>)}</select>
+          {tr.why === 'Other' && <input type="text" className="grow" placeholder="Say why, in a few words" defaultValue={tr.whyText || ''} onBlur={(e) => touch((s) => { s.triage[t.id].whyText = e.target.value; })} />}
         </div>}
       </li>
     );
@@ -722,7 +724,7 @@ export default function ProductionMeetingPage() {
       <div className="row" style={{ justifyContent: 'space-between' }}>
         <div>
           <div style={{ fontSize: 22, fontWeight: 700, color: C.maroon }}>Production Meeting</div>
-          <div className="small">Meeting date <input type="date" value={meetingDate} onChange={(e) => { dirty.current = true; setMeetingDate(e.target.value); }} style={{ padding: '2px 6px' }} /> · {prodJobs.length} in production · {punchJobs.length} punch list · {saveState}</div>
+          <div className="small">Meeting date <input type="date" value={meetingDate} onChange={(e) => { dirty.current = true; setMeetingDate(e.target.value); }} style={{ padding: '2px 6px' }} /> · {prodJobs.length} in production · {punchJobs.length} punch list{saveState ? ` · ${saveState}` : ''}</div>
         </div>
         <div className="small"><b style={{ color: C.ink }}>{changeCount}</b> JobTread change{changeCount === 1 ? '' : 's'} queued</div>
       </div>
