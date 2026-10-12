@@ -32,8 +32,13 @@ import {
   isActiveGroup, isProductionGroup, isFieldGroup, isPlanTodo, isGatesGroup, isMilestonesGroup, normName,
   addDays, daysBetween, fmtDay, shortJobName, todayEastern,
 } from '../planning-meeting/constants';
-import { PRODUCTION_STATUS, PUNCH_STATUS, EXCLUDED_JOB_NUMBERS, isOngoingJob, PROD_RULES, workingDaysBetween } from './constants';
+import { PRODUCTION_STATUS, PUNCH_STATUS, EXCLUDED_JOB_NUMBERS, isOngoingJob, PROD_RULES, workingDaysBetween, computeSchedule } from './constants';
 import { readMoney, moneyFor, moneyFlags } from './money';
+import { computeJobHours } from '@/app/lib/job-hours';
+
+/** Rejects after ms, so one slow job cannot hold up the whole brief. */
+const withTimeout = <T,>(p: Promise<T>, ms: number): Promise<T> =>
+  Promise.race([p, new Promise<T>((_, rej) => setTimeout(() => rej(new Error(`timed out after ${Math.round(ms / 1000)}s`)), ms))]);
 
 /* ---------------------------------------------------------------- JobTread reads */
 
@@ -162,10 +167,13 @@ async function inBatches<T, R>(items: T[], n: number, fn: (t: T) => Promise<R>):
 export interface LastMeetingTask { jt_task_id: string; job_id: string; kind: string; name: string; assignee?: string; due_date?: string }
 
 async function buildJob(job: any, today: string, memberName: Record<string, string>, lastTasks: LastMeetingTask[]) {
-  const [tasks, extras, dl] = await Promise.all([
+  const inProduction = job.customStatus === PRODUCTION_STATUS;
+  const [tasks, extras, dl, hours] = await Promise.all([
     fetchTasks(job.id),
     fetchExtras(job.id),
     fetchDecisionLines(job.id).catch(() => ({ undecided: [], toOrder: [], onOrder: [], total: 0, failed: true })),
+    // labor and admin hours (same rules as the Job Costing page); production jobs only
+    inProduction ? withTimeout(computeJobHours(job.id), 30000).catch((e) => ({ error: String(e?.message || e).slice(0, 160) })) : Promise.resolve(null),
   ]);
   const byId: Record<string, any> = Object.fromEntries(tasks.map((t) => [t.id, t]));
   const kids = (id: string) => tasks.filter((t) => t.parentTask?.id === id);
@@ -195,6 +203,8 @@ async function buildJob(job: any, today: string, memberName: Record<string, stri
   const next = openMs.find((m) => m.start > today) || null;
   const finish = milestones.reduce((d, m) => (m.end && (!d || m.end > d) ? m.end : d), null);
   const baselineFinish = milestones.reduce((d, m) => (m.bEnd && (!d || m.bEnd > d) ? m.bEnd : d), null);
+
+  const schedule = computeSchedule(milestones, prodGroup ? pct(prodGroup.progress) : null, today);
 
   // field tasks (crew plan)
   const fieldTasks = (fieldGroup ? kids(fieldGroup.id).filter((t) => !t.isGroup && isOpen(t)) : []).map((t) => ({
@@ -266,6 +276,9 @@ async function buildJob(job: any, today: string, memberName: Record<string, stri
     tasks: openTasks, punchItems, roadblocks, lastMeeting,
     decisions: { ...dl, overdue: (dl.undecided || []).filter((x) => x.decideBy && x.decideBy < today) },
     lastLog: extras.lastLog, lastActivity, unsignedCOs,
+    schedule,
+    hours: hours && !hours.error ? hours : null,
+    hoursError: hours?.error || null,
   };
 }
 
