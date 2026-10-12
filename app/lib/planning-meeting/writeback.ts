@@ -162,7 +162,9 @@ export async function writeMeetingToJobTread(
     if (tri.length) {
       lines.push('', 'Task updates');
       for (const [taskId, t] of tri as any) {
-        const why = t.why ? ` Reason: ${t.why}.` : '';
+        // "Other" carries the typed reason when there is one
+        const reason = t.why === 'Other' && String(t.whyText || '').trim() ? String(t.whyText).trim() : t.why;
+        const why = reason ? ` Reason: ${reason}.` : '';
         if (t.act === 'done') {
           await step(`tri:${taskId}`, async () => { await pave({ updateTask: { $: { id: taskId, progress: 1, notify: false } } }); });
           lines.push(`- Done: ${t.name}`);
@@ -175,7 +177,7 @@ export async function writeMeetingToJobTread(
         } else if (t.act === 'drop') {
           await step(`tri:${taskId}:drop`, async () => {
             const cur = await readTask(taskId);
-            const note = `Dropped at the ${dateLabel} ${label}${t.why ? ': ' + t.why : ''}.`;
+            const note = `Dropped at the ${dateLabel} ${label}${reason ? ': ' + reason : ''}.`;
             const description = clip([cur?.description?.trim(), note].filter(Boolean).join('\n\n'), MAX_DESC);
             await pave({ updateTask: { $: { id: taskId, progress: 1, description, notify: false } } });
           });
