@@ -15,13 +15,14 @@
  * Recomputing on a schedule keeps the instant page load AND fresh figures:
  * the pages still read the snapshot, the snapshot is just never old.
  *
- * Implemented as a thin self-call to the existing refresh path so the
- * compute logic stays in one place (that route owns computeSummaries +
+ * Calls the existing refresh handler directly (in-process, not over HTTP)
+ * so the compute logic stays in one place (that route owns computeSummaries +
  * writeCache).
  *
  * Auth: Bearer CRON_SECRET, same as the other cron routes.
  */
 import { NextRequest, NextResponse } from 'next/server';
+import { POST as refreshJobCosting } from '@/app/api/dashboard/job-costing/route';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -36,12 +37,18 @@ export async function GET(req: NextRequest) {
 
   const startedAt = Date.now();
   try {
-    const res = await fetch(`${req.nextUrl.origin}/api/dashboard/job-costing?refresh=1`, {
-      method: 'POST',
-      headers: { 'content-type': 'application/json' },
-      body: JSON.stringify({ force: true }),
-      cache: 'no-store',
-    });
+    // Call the refresh handler in-process. The old self-call over HTTP never
+    // landed a refresh: the cache sat at 18 Sep 12:50 UTC (a manual Refresh,
+    // not this 09:00 run) until another manual Refresh on 12 Oct, while the
+    // same refresh takes about 6 s when called directly. In-process removes
+    // the HTTP hop, whatever was stopping it.
+    const res = await refreshJobCosting(
+      new NextRequest(new URL('/api/dashboard/job-costing?refresh=1', req.url), {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ force: true }),
+      }),
+    );
     const body = await res.json().catch(() => ({}));
     if (!res.ok) {
       return NextResponse.json(
