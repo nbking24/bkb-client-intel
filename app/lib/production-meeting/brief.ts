@@ -279,7 +279,7 @@ function flagsFor(j: any, today: string, money: any) {
     } else {
       const late = open.filter((m) => m.end && m.end < today);
       if (late.length) {
-        add('red', 'Milestone late', 'late', `${late.slice(0, 3).map((m) => `"${m.name}" was due to finish ${fmtDay(m.end)} (${daysBetween(m.end, today)} days ago) and is ${m.progress}% done`).join('; ')}${late.length > 3 ? '; ...' : ''}. Tick it if it is finished, or give it a new date with the reason.`, pm);
+        add('red', 'Milestone late', 'late', `${late.slice(0, 3).map((m) => `"${m.name}" was due to finish ${fmtDay(m.end)} (${daysBetween(m.end, today)} day${daysBetween(m.end, today) === 1 ? '' : 's'} ago) and is ${m.progress}% done`).join('; ')}${late.length > 3 ? '; ...' : ''}. Tick it if it is finished, or give it a new date with the reason.`, pm);
       }
       const behind = open.filter((m) => m.slip != null && m.slip >= PROD_RULES.behindBaselineDays && !(m.end && m.end < today));
       if (behind.length) {
@@ -305,7 +305,8 @@ function flagsFor(j: any, today: string, money: any) {
     if (!j.ongoing && !j.punchItems.length && !j.tasks.length) {
       add('amber', 'No punch list', 'nopunch', 'No open punch items in JobTread. Write the punch list as tasks (one per item, owner and date), or move the job to 7. Final Billing if the work is done.', 'Evan');
     }
-    if (j.lastActivity && daysBetween(j.lastActivity.date, today) > PROD_RULES.quietPunchDays) {
+    // ongoing service jobs are quiet between calls by design, so only real punch jobs get this flag
+    if (!j.ongoing && j.lastActivity && daysBetween(j.lastActivity.date, today) > PROD_RULES.quietPunchDays) {
       add('amber', 'Quiet job', 'quiet', `No daily log, time, comment or new task since ${fmtDay(j.lastActivity.date)} (${daysBetween(j.lastActivity.date, today)} days). What is the next closeout step, and who owns it?`, 'Evan');
     }
   }
