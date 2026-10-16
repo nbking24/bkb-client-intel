@@ -37,7 +37,7 @@ function fd(s, dow = false) {
 }
 function token() { try { return `Bearer ${localStorage.getItem('bkb-token') || ''}`; } catch { return ''; } }
 const JT = (id) => `https://app.jobtread.com/jobs/${id}`;
-/** JobTread's limit on a to-do description (the 📄 JOB PLAN). */
+/** JobTread's limit on a budget group description (the Job Plan lives on 📋 Project Details). */
 const PLAN_MAX = 4096;
 const QLABELS = { q1: 'Are we on track for the next gate date?', q2: 'What is in the way?', q3: 'What has to be decided, ordered or ready in the next 3 weeks?', q4: 'Who owes what, by when?' };
 const TRACK = { on: 'On track', risk: 'At risk', off: 'Off track' };
@@ -283,17 +283,17 @@ function ContextPanel({ rows, onAdd, onRemove, onRedo, redoing, redoErr }) {
 }
 
 /**
- * The job's 📄 JOB PLAN, shown on the card and editable in the meeting.
+ * The job's Job Plan (description of the 📋 Project Details budget group), shown on the card and editable in the meeting.
  * Saving keeps the edit with the meeting; Confirm writes it to JobTread
  * (only if nobody changed the Job Plan in JobTread in the meantime).
  */
-function JobPlanBox({ planText, hasTodo, edited, base, onSave, onUndo }) {
+function JobPlanBox({ planText, hasPlan, edited, base, onSave, onUndo }) {
   const [open, setOpen] = useState(false);
   const [editing, setEditing] = useState(false);
   const [text, setText] = useState('');
   const shown = edited ?? planText ?? '';
   const stale = edited != null && base != null && String(base).trim() !== String(planText || '').trim();
-  if (!hasTodo) return <div className="plan small">No 📄 JOB PLAN on this job. Add it from the Set up a job tab.</div>;
+  if (!hasPlan) return <div className="plan small">No 📋 Project Details group in this job's budget, so there is no Job Plan. Add it from the Set up a job tab.</div>;
   return (
     <div className="plan">
       <div className="row" style={{ justifyContent: 'space-between' }}>
@@ -400,7 +400,7 @@ function SetupPanel({ jobs }) {
   return (
     <div>
       <h2>Set up a job</h2>
-      <p className="lead">Two steps. <b>1. Structure:</b> the Job Plan to-do, the 8 Project Gates with their checklists (unticked) and the 7 Planning Milestones (undated), copied from A-TEST PROJECT (#100). Only missing pieces are added, so it is safe to run twice. <b>2. Projected build block:</b> once you know a target start and a rough build length, add the bar that puts the job on the schedule.</p>
+      <p className="lead">Two steps. <b>1. Structure:</b> the 📋 Project Details budget group holding the Job Plan, the 8 Project Gates with their checklists (unticked) and the 7 Planning Milestones (undated), copied from A-TEST PROJECT (#100). Only missing pieces are added, so it is safe to run twice. <b>2. Projected build block:</b> once you know a target start and a rough build length, add the bar that puts the job on the schedule.</p>
       {needs.length ? <div className="note"><b>Design jobs missing the structure:</b> {needs.map((j) => <button key={j.id} className="chip" style={{ marginLeft: 6 }} onClick={() => look({ jobId: j.id })}>{j.short}</button>)}</div> : <p className="small">Every job at 5. Design Phase already has the structure.</p>}
       {noBlock.length ? <div className="note"><b>Design jobs with nothing on the production schedule yet:</b> {noBlock.map((j) => <button key={j.id} className="chip" style={{ marginLeft: 6 }} onClick={() => look({ jobId: j.id })}>{j.short}</button>)}</div> : null}
       <div className="card pad">
@@ -623,7 +623,7 @@ export default function PlanningMeetingPage() {
         const m = j.markers.find((x) => x.id === mid);
         if (d && m && m.date !== d) add(j.id, 'Gate date', `${m.name.split(' (')[0]} set to ${fd(d, true)}`);
       }
-      if (typeof js.plan === 'string') add(j.id, 'Job Plan', `Update the 📄 JOB PLAN in JobTread with the text edited in this meeting${js.planBase != null && String(js.planBase).trim() !== String(j.planText || '').trim() ? '. Warning: it was changed in JobTread since, so this will stop until the edit is redone' : ''}${js.plan.length > PLAN_MAX ? `. Warning: it is ${js.plan.length.toLocaleString()} characters and JobTread allows ${PLAN_MAX.toLocaleString()}, so this will stop until it is shortened` : ''}`);
+      if (typeof js.plan === 'string') add(j.id, 'Job Plan', `Update the Job Plan (📋 Project Details in the budget) with the text edited in this meeting${js.planBase != null && String(js.planBase).trim() !== String(j.planText || '').trim() ? '. Warning: it was changed in JobTread since, so this will stop until the edit is redone' : ''}${js.plan.length > PLAN_MAX ? `. Warning: it is ${js.plan.length.toLocaleString()} characters and JobTread allows ${PLAN_MAX.toLocaleString()}, so this will stop until it is shortened` : ''}`);
       for (const it of js.items || []) add(j.id, it.kind === 'roadblock' ? 'Roadblock' : 'Commitment', `New task in 🔵 ACTIVE: ${it.what} · ${it.whoName || 'no owner'} · ${it.due ? 'due ' + fd(it.due) : 'no date'}${it.details ? ' · description: ' + it.details : ''}`);
     }
     for (const [fid, r] of Object.entries(S.rb || {})) {
@@ -787,7 +787,7 @@ export default function PlanningMeetingPage() {
               {vis([j.insight.goal]).length ? <ReadLine as="div" label="Goals and start date:" text={j.insight.goal} onDismiss={dismiss} /> : null}
               {vis(j.insight.gaps).length ? <div style={{ marginTop: 4 }} className="small"><b>Missing from JobTread:</b><ul style={{ margin: '2px 0 0', paddingLeft: 17 }}>{vis(j.insight.gaps).map((x) => <ReadLine key={x} text={x} onDismiss={dismiss} />)}</ul></div> : null}
             </div> : <div className="small" style={{ marginBottom: 6 }}>Claude's written review appears here after the next Refresh from JobTread.</div>}
-            <JobPlanBox planText={j.planText} hasTodo={!!j.planTodoId} edited={typeof js.plan === 'string' ? js.plan : null} base={js.planBase ?? null}
+            <JobPlanBox planText={j.planText} hasPlan={!!(j.planGroupId || j.planTodoId)} edited={typeof js.plan === 'string' ? js.plan : null} base={js.planBase ?? null}
               onSave={(t) => touch((s) => { const x = jsOf(s, j.id); if (x.planBase == null) x.planBase = j.planText || ''; if (t.trim() === String(x.planBase).trim()) { delete x.plan; delete x.planBase; } else x.plan = t; })}
               onUndo={() => touch((s) => { const x = jsOf(s, j.id); delete x.plan; delete x.planBase; })} />
             <ContextPanel rows={ctxFor(j.id)} onAdd={(note) => addCtx(j.id, 'context', null, note)} onRemove={removeCtx} onRedo={() => redoRead(j.id)} redoing={redoing === j.id} redoErr={redoErr[j.id]} />
