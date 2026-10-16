@@ -48,8 +48,9 @@ export const PLAN_TEMPLATE = [
 ].join('\n');
 
 // The placeholder line every Project Details group carries, so the group shows on the
-// Specifications sheet: cost code 01 Planning, Admin; $0; specification on, no approval.
-const PLACEHOLDER = { name: 'Project Plans', costCodeId: '22P5SRxXqzSn', costTypeId: '22P6cCGfyeRJ' };
+// Specifications sheet: cost code 01 Planning, Admin; cost type Other (not scope, not a
+// decision); $0; specification on, no approval.
+const PLACEHOLDER = { name: 'Project Plans', costCodeId: '22P5SRxXqzSn', costTypeId: '22P5Z5uRq4aM' };
 
 export type PlanGroup = { id: string; name: string; description: string };
 
