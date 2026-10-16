@@ -4,7 +4,8 @@
  *
  * Copies the structure from A-TEST PROJECT (#100), the master copy, so every
  * job looks the same:
- *   📄 JOB PLAN (keep current, never complete)   to-do, moved to the top, template description
+ *   📋 Project Details                            budget group at the top of the budget; its description
+ *                                                 is the Job Plan (template from A-TEST's Project Details)
  *   ✅ PROJECT GATES                              to-do group with the 8 gates and their checklists (all unticked)
  *   🎨 PLANNING MILESTONES                        schedule group with the 7 gate markers (undated), moved to the top
  * Only missing pieces are created, so running it twice does nothing the second time.
@@ -21,7 +22,8 @@
  *   - never pass positionAfterTaskId: null on create; create, then move to the top with updateTask
  */
 import { pave } from '@/app/lib/jobtread';
-import { isGatesGroup, isMilestonesGroup, isPlanTodo, isOldGatesGroup, isProductionGroup, GATE_DEFAULT_WEEKS, addDays, parseDay, toDay } from './constants';
+import { findPlanGroup, createPlanGroup, PLAN_TEMPLATE } from './job-plan';
+import { isGatesGroup, isMilestonesGroup, isOldGatesGroup, isProductionGroup, GATE_DEFAULT_WEEKS, addDays, parseDay, toDay } from './constants';
 
 export const MASTER_JOB_ID = '22P5TUVA36x2'; // A-TEST PROJECT (#100)
 
@@ -49,20 +51,20 @@ const num = (n: string, re: RegExp) => { const m = String(n || '').match(re); re
 /** Read the master structure from A-TEST. */
 export async function readMaster() {
   const tasks = await allTasks(MASTER_JOB_ID);
-  const planT = tasks.find((t) => !t.isGroup && t.isToDo && isPlanTodo(t.name));
   const gatesG = tasks.find((t) => t.isGroup && isGatesGroup(t.name) && !isOldGatesGroup(t.name));
   const milesG = tasks.find((t) => t.isGroup && isMilestonesGroup(t.name));
-  if (!planT || !gatesG || !milesG) throw new Error('A-TEST PROJECT is missing its Job Plan, Project Gates or Planning Milestones, so there is no master copy to set up from.');
+  if (!gatesG || !milesG) throw new Error('A-TEST PROJECT is missing its Project Gates or Planning Milestones, so there is no master copy to set up from.');
+  const planG = await findPlanGroup(MASTER_JOB_ID).catch(() => null);
   const gateIds = tasks.filter((t) => t.parentTask?.id === gatesG.id && !t.isGroup).sort((a, b) => num(a.name, /^\s*(\d+)\./) - num(b.name, /^\s*(\d+)\./));
   const markerIds = tasks.filter((t) => t.parentTask?.id === milesG.id && !t.isGroup).sort((a, b) => num(a.name, /Gate\s+(\d+)/i) - num(b.name, /Gate\s+(\d+)/i));
-  const [plan, gatesGroup, milesGroup] = await Promise.all([taskFull(planT.id), taskFull(gatesG.id), taskFull(milesG.id)]);
+  const [gatesGroup, milesGroup] = await Promise.all([taskFull(gatesG.id), taskFull(milesG.id)]);
   const gates = [];
   for (const g of gateIds) {
     const f = await taskFull(g.id);
     gates.push({ name: f.name, description: f.description || '', items: (f.subtasks || []).map((s) => s.name) });
   }
   return {
-    plan: { name: plan.name, description: plan.description || '' },
+    plan: { description: planG?.description?.trim() ? planG.description : PLAN_TEMPLATE },
     gatesGroup: { name: gatesGroup.name, description: gatesGroup.description || '' },
     milesGroup: { name: milesGroup.name, description: milesGroup.description || '' },
     gates,
@@ -72,19 +74,20 @@ export async function readMaster() {
 
 /** What a job already has and what setup would add. */
 export async function planSetup(jobId: string) {
-  const [jobData, tasks] = await Promise.all([
+  const [jobData, tasks, planG] = await Promise.all([
     pave({ job: { $: { id: jobId }, id: {}, name: {}, number: {}, closedOn: {} } }),
     allTasks(jobId),
+    findPlanGroup(jobId),
   ]);
   const job = (jobData as any)?.job;
   if (!job?.id) throw new Error('Job not found');
   const has = {
-    plan: tasks.some((t) => !t.isGroup && t.isToDo && isPlanTodo(t.name)),
+    plan: !!planG,
     gates: tasks.some((t) => t.isGroup && isGatesGroup(t.name) && !isOldGatesGroup(t.name)),
     markers: tasks.some((t) => t.isGroup && isMilestonesGroup(t.name)),
   };
   const oldGates = tasks.filter((t) => t.isGroup && /DESIGN PHASE GATES/i.test(t.name) && !isOldGatesGroup(t.name)).map((t) => t.name);
-  return { job: { id: job.id, name: job.name, number: job.number, closed: !!job.closedOn }, has, oldGates, block: await blockStatus(tasks) };
+  return { job: { id: job.id, name: job.name, number: job.number, closed: !!job.closedOn }, has, oldGates, block: await blockStatus(tasks, planG?.description || '') };
 }
 
 /* ---------------- projected build block ---------------- */
@@ -93,17 +96,16 @@ export const PRODUCTION_GROUP_NAME = '🤖 PRODUCTION MILESTONES — Claude Mana
 export const BLOCK_NAME = 'Projected build (rough, replaced at Gate 5)';
 
 /** What the job has on the production side, plus what the Job Plan says about start and length. */
-async function blockStatus(tasks: any[]) {
+async function blockStatus(tasks: any[], planText?: string) {
   const prodG = tasks.find((t) => t.isGroup && isProductionGroup(t.name));
   const bars = prodG ? tasks.filter((t) => t.parentTask?.id === prodG.id && !t.isGroup) : [];
   const dated = bars.filter((t) => t.startDate).sort((a, b) => (a.startDate < b.startDate ? -1 : 1));
   const milesG = tasks.find((t) => t.isGroup && isMilestonesGroup(t.name));
   const markers = milesG ? tasks.filter((t) => t.parentTask?.id === milesG.id && !t.isGroup) : [];
-  const planT = tasks.find((t) => !t.isGroup && t.isToDo && isPlanTodo(t.name));
   let planStart = null, planWeeks = null;
-  if (planT) {
-    const d = await taskFull(planT.id);
-    const field = (label: string) => { const m = String(d?.description || '').match(new RegExp('^' + label + '[^:\\n]*:[ \\t]*(.*)$', 'mi')); return m && m[1].trim() ? m[1].trim() : null; };
+  const text = planText ?? '';
+  if (text) {
+    const field = (label: string) => { const m = text.match(new RegExp('^' + label + '[^:\\n]*:[ \\t]*(.*)$', 'mi')); return m && m[1].trim() ? m[1].trim() : null; };
     planStart = field('TARGET START');
     planWeeks = field('ROUGH BUILD LENGTH');
   }
@@ -218,9 +220,8 @@ export async function runSetup(jobId: string) {
   const done: string[] = [];
 
   if (!before.has.plan) {
-    const id = await create({ ...jt, name: m.plan.name, isGroup: false, isToDo: true, progress: 0, description: m.plan.description });
-    await toTop(id);
-    done.push('Job Plan to-do (at the top)');
+    await createPlanGroup(jobId, m.plan.description);
+    done.push('📋 Project Details group at the top of the budget, holding the blank Job Plan');
   }
   if (!before.has.gates) {
     const g = await create({ ...jt, name: m.gatesGroup.name, isGroup: true, isToDo: true, description: m.gatesGroup.description });

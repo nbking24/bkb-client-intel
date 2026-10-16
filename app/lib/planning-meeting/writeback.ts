@@ -15,12 +15,14 @@
  *      "Dropped at the <date> meeting: reason" added to its description; never deleted)
  *   4. Gate checklist ticks (read live, change only the named items)
  *   5. Planning marker dates
- *   5b. Job Plan text edited in the meeting (only if JobTread's copy has not
- *       changed since the brief read it; otherwise the step fails and says why)
+ *   5b. Job Plan text edited in the meeting, written to the description of the job's
+ *       📋 Project Details budget group (only if JobTread's copy has not changed since
+ *       the brief read it; otherwise the step fails and says why)
  *   6. One internal daily log for the meeting with the notes, everything above,
  *      and any corrections to Claude's read made during this meeting
  */
 import { pave, createDailyLog } from '@/app/lib/jobtread';
+import { PLAN_MAX, findPlanGroup, readPlanText, writePlanText } from './job-plan';
 import { ROADBLOCK_TASK_TYPE_ID, ACTIVE_GROUP_NAME, isActiveGroup, fmtDay, meetingNotesText, holdLogLine } from './constants';
 
 type Log = { key: string; ok: boolean; id?: string; error?: string; at: string };
@@ -39,8 +41,6 @@ function changedLines(before: string, after: string) {
 }
 
 const MAX_DESC = 4000;
-/** JobTread's limit on a to-do description (the 📄 JOB PLAN). */
-const PLAN_MAX = 4096;
 const clip = (s: string, n: number) => (s.length > n ? s.slice(0, n - 3) + '...' : s);
 
 async function findActiveGroup(jobId: string): Promise<string | null> {
@@ -230,15 +230,19 @@ export async function writeMeetingToJobTread(
 
     // 5b. Job Plan edited in the meeting
     let holdLogForRetry = false;
-    if (typeof js.plan === 'string' && job.planTodoId && norm(js.plan) !== norm(js.planBase ?? job.planText ?? '')) {
+    // The plan is the description of the 📋 Project Details budget group. A brief built before
+    // 16 Oct 2026 carries planTodoId instead of planGroupId; the group is looked up then.
+    if (typeof js.plan === 'string' && (job.planGroupId || job.planTodoId) && norm(js.plan) !== norm(js.planBase ?? job.planText ?? '')) {
       const base = js.planBase ?? job.planText ?? '';
       await step(`plan:${jid}:${hashText(js.plan)}`, async () => {
         if (js.plan.length > PLAN_MAX) throw new Error(`The Job Plan edit is ${js.plan.length.toLocaleString()} characters and JobTread allows ${PLAN_MAX.toLocaleString()}. Edit it shorter on the job card, then Confirm again.`);
-        const cur = await readTask(job.planTodoId);
+        const groupId = job.planGroupId || (await findPlanGroup(jid))?.id;
+        if (!groupId) throw new Error('This job has no 📋 Project Details group in its budget, so there is nowhere to save the Job Plan. Add it from the Set up a job tab, then Confirm again.');
+        const cur = await readPlanText(groupId);
         // already written (for example by an earlier run that lost its log entry)
-        if (norm(cur?.description || '') === norm(js.plan)) return;
-        if (norm(cur?.description || '') !== norm(base)) throw new Error('The Job Plan was changed in JobTread after the meeting started. Refresh from JobTread, start the Job Plan edit again from the new version, then Confirm again.');
-        await pave({ updateTask: { $: { id: job.planTodoId, description: js.plan, notify: false } } });
+        if (norm(cur) === norm(js.plan)) return;
+        if (norm(cur) !== norm(base)) throw new Error('The Job Plan was changed in JobTread after the meeting started. Refresh from JobTread, start the Job Plan edit again from the new version, then Confirm again.');
+        await writePlanText(groupId, js.plan);
       });
       const changed = changedLines(base, js.plan);
       // If the Job Plan could not be written, hold this job's daily log until the retry,
