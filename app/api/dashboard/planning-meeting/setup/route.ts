@@ -53,7 +53,7 @@ export async function POST(req: NextRequest) {
     }
     if (body.dryRun) {
       const plan = await planSetup(jobId);
-      const missing = [!plan.has.plan && 'Job Plan', !plan.has.gates && 'Project Gates (8 gates)', !plan.has.markers && 'Planning Milestones (7 markers)'].filter(Boolean);
+      const missing = [!plan.has.plan && 'Job Plan (📋 Project Details budget group)', !plan.has.gates && 'Project Gates (8 gates)', !plan.has.markers && 'Planning Milestones (7 markers)'].filter(Boolean);
       return NextResponse.json({ ok: true, ...plan, missing });
     }
     const res = await runSetup(jobId);
