@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { updateCostGroup } from '../../../../lib/jobtread';
+import { pave, updateCostGroup } from '../../../../lib/jobtread';
 
 interface RequestBody {
   costGroupId: string;
@@ -25,7 +25,16 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    const result = await updateCostGroup(costGroupId, { description });
+    // Never save contract text over the Job Plan (the 📋 Project Details description).
+    const g: any = await pave({ costGroup: { $: { id: costGroupId }, name: {} } });
+    if (/project details/i.test(g?.costGroup?.name || '')) {
+      return NextResponse.json(
+        { error: 'The 📋 Project Details group holds the Job Plan and is not part of the contract, so the spec writer does not save to it.' },
+        { status: 400 }
+      );
+    }
+
+    await updateCostGroup(costGroupId, { description });
 
     return NextResponse.json({
       success: true,
