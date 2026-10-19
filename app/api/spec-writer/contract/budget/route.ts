@@ -244,6 +244,11 @@ export async function POST(request: NextRequest) {
         }
       }
 
+      // 📋 Project Details holds the Job Plan in its description (since 16 Oct 2026).
+      // It is internal and never on the contract, so the contract spec writer must
+      // never list it, generate text for it, or save over it.
+      if (/project details/i.test(groupName) || ancestry.some((a) => /project details/i.test(a.name))) continue;
+
       // Determine section and group from ancestry
       let sectionName: string;
       let sectionId: string;

@@ -29,6 +29,7 @@
  * are shown once at the top, not as flags.
  */
 import { pave, getActiveJobs } from '@/app/lib/jobtread';
+import { findPlanGroup } from './job-plan';
 import { fetchJobContext, jobInsight, TeamContext } from './insight';
 import {
   DESIGN_STATUS, SELECTION_STATUS_CF_ID, SELECTION_FLAG_CF_ID, PLAN_TAG_CF_ID, DECIDE_BY_CF_ID, isUndecided, GATE_DEFAULT_WEEKS, RULES, DONE_LIKE_TYPES, ANCHOR_NAME, ROADBLOCK_TASK_TYPE_NAME,
@@ -220,7 +221,6 @@ async function buildJob(job: any, today: string, memberName: Record<string, stri
   const gatesGroup = groups.find((g) => isGatesGroup(g.name) && !isOldGatesGroup(g.name));
   const milesGroup = groups.find((g) => isMilestonesGroup(g.name));
   const prodGroup = groups.find((g) => isProductionGroup(g.name));
-  const planTodo = tasks.find((t) => !t.isGroup && t.isToDo && isPlanTodo(t.name));
 
   // gates
   const gates = gatesGroup
@@ -296,15 +296,18 @@ async function buildJob(job: any, today: string, memberName: Record<string, stri
   ].filter((c) => c.date);
   const lastActivity = candidates.sort((a, b) => (a.date > b.date ? -1 : 1))[0] || null;
 
-  // job plan blank?
+  // job plan: the description of the 📋 Project Details budget group. Blank?
   let jobPlanBlank = true;
   let planText = '';
-  if (planTodo) {
-    try {
-      planText = await fetchTaskDescription(planTodo.id);
-      jobPlanBlank = /DESIGN LEAD:[ \t]*\n[ \t]*PM:[ \t]*\n[ \t]*TARGET START:[ \t]*\n/.test(planText);
-    } catch { /* leave as blank */ }
-  }
+  let planGroupId: string | null = null;
+  try {
+    const pg = await findPlanGroup(job.id);
+    if (pg) {
+      planGroupId = pg.id;
+      planText = pg.description;
+      jobPlanBlank = !planText.trim() || /DESIGN LEAD:[ \t]*\n[ \t]*PM:[ \t]*\n[ \t]*TARGET START:[ \t]*\n/.test(planText);
+    }
+  } catch { /* leave as blank */ }
   const planField = (label: string) => {
     const m = planText.match(new RegExp('^' + label + ':[ \\t]*(.*)$', 'mi'));
     return m && m[1].trim() ? m[1].trim() : null;
@@ -321,7 +324,7 @@ async function buildJob(job: any, today: string, memberName: Record<string, stri
     tasks: openTasks, roadblocks, lastMeeting,
     sel, decisions, lastActivity,
     docs: extras.docs.map((d) => ({ name: d.name, type: d.type, status: d.status, created: easternDay(d.createdAt) })),
-    planTodoId: planTodo?.id || null, jobPlanBlank, plan, planText, _planText: jobPlanBlank ? '' : planText,
+    planGroupId, jobPlanBlank, plan, planText, _planText: jobPlanBlank ? '' : planText,
     setup: {
       jobPlanBlank,
       leadNotNamed: gates[0] ? !gates[0].items[0]?.[1] : true,
