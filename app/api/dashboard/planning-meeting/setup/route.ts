@@ -3,7 +3,7 @@
  * POST /api/dashboard/planning-meeting/setup
  *   { jobId? , jobNumber?, dryRun?: true }
  * Sets a job up with the planning structure copied from A-TEST PROJECT (#100):
- * Job Plan, Project Gates (8 gates, unticked) and Planning Milestones (7 undated markers).
+ * 📋 Project Details budget group (the Job Plan), Project Gates (8 gates, unticked) and Planning Milestones (7 undated markers).
  * dryRun returns what the job has and what would be added, without writing,
  * plus the projected build block status (and the Job Plan's target start and length).
  *
@@ -53,7 +53,7 @@ export async function POST(req: NextRequest) {
     }
     if (body.dryRun) {
       const plan = await planSetup(jobId);
-      const missing = [!plan.has.plan && 'Job Plan', !plan.has.gates && 'Project Gates (8 gates)', !plan.has.markers && 'Planning Milestones (7 markers)'].filter(Boolean);
+      const missing = [!plan.has.plan && '📋 Project Details budget group (Job Plan)', !plan.has.gates && 'Project Gates (8 gates)', !plan.has.markers && 'Planning Milestones (7 markers)'].filter(Boolean);
       return NextResponse.json({ ok: true, ...plan, missing });
     }
     const res = await runSetup(jobId);

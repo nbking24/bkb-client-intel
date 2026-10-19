@@ -171,7 +171,7 @@ The messages and daily logs (newest first) are the team's, the client's and vend
 The team's own word outranks everything else. "teamContext" is standing facts from the team; treat them as true. "lastMeetingNotes" are what the team said at the last planning meeting; treat them as true as of that date. "teamCorrections" are lines you wrote before that the team marked wrong or already handled, with the reason. Never repeat or reword a corrected line, and never raise the same item again, unless a message or daily log dated AFTER the correction clearly reopens it; if so, say what reopened it and its date.
 Return JSON only:
 {"stand":"one or two sentences: where the job actually is in design and how sure we are of the start date",
- "waiting":["what or who we are waiting on, with owner if known (max 4)"],
+ "waiting":["2 or 3 items, each under 8 words: who or what, e.g. 'Client: tile choice' (max 3, most blocking first)"],
  "focus":["the 1 to 3 things that would move this job forward most this week"],
  "recent":["what changed or was decided in the messages and daily logs, newest first, each starting with the date like 25 Sep (max 4, empty if nothing)"],
  "goal":"one sentence on whether the start date and the client's priorities look on track, or what puts them at risk",
@@ -187,7 +187,7 @@ Return JSON only:
   const notDismissed = (x: string) => !dismissed.some((d) => sameLine(x, d));
   const arr = (a: any, n: number) => (Array.isArray(a) ? a.map(clean).filter(Boolean).filter(notDismissed).slice(0, n) : []);
   return {
-    stand: clean(p.stand), waiting: arr(p.waiting, 4), focus: arr(p.focus, 3), recent: arr(p.recent, 4), goal: clean(p.goal), gaps: arr(p.gaps, 3),
+    stand: clean(p.stand), waiting: arr(p.waiting, 3), focus: arr(p.focus, 3), recent: arr(p.recent, 4), goal: clean(p.goal), gaps: arr(p.gaps, 3),
     read: { messages: ctx.comments?.length || 0, logs: ctx.logs?.length || 0, days: ctx.days || 30, corrections: (team.corrections || []).length, context: (team.context || []).length, lastMeeting: !!team.lastMeeting?.notes },
     at: new Date().toISOString(),
   };

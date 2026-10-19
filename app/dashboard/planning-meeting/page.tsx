@@ -250,7 +250,7 @@ function ContextPanel({ rows, onAdd, onRemove, onRedo, redoing, redoErr }) {
 }
 
 /**
- * The job's 📄 JOB PLAN, shown on the card and editable in the meeting.
+ * The job's Job Plan (📋 Project Details budget group description), shown on the card and editable in the meeting.
  * Saving keeps the edit with the meeting; Confirm writes it to JobTread
  * (only if nobody changed the Job Plan in JobTread in the meantime).
  */
@@ -363,7 +363,7 @@ function SetupPanel({ jobs }) {
   return (
     <div>
       <h2>Set up a job</h2>
-      <p className="lead">Two steps. <b>1. Structure:</b> the Job Plan to-do, the 8 Project Gates with their checklists (unticked) and the 7 Planning Milestones (undated), copied from A-TEST PROJECT (#100). Only missing pieces are added, so it is safe to run twice. <b>2. Projected build block:</b> once you know a target start and a rough build length, add the bar that puts the job on the schedule.</p>
+      <p className="lead">Two steps. <b>1. Structure:</b> the 📋 Project Details budget group (its description is the Job Plan), the 8 Project Gates with their checklists (unticked) and the 7 Planning Milestones (undated), copied from A-TEST PROJECT (#100). Only missing pieces are added, so it is safe to run twice. <b>2. Projected build block:</b> once you know a target start and a rough build length, add the bar that puts the job on the schedule.</p>
       {needs.length ? <div className="note"><b>Design jobs missing the structure:</b> {needs.map((j) => <button key={j.id} className="chip" style={{ marginLeft: 6 }} onClick={() => look({ jobId: j.id })}>{j.short}</button>)}</div> : <p className="small">Every job at 5. Design Phase already has the structure.</p>}
       {noBlock.length ? <div className="note"><b>Design jobs with nothing on the production schedule yet:</b> {noBlock.map((j) => <button key={j.id} className="chip" style={{ marginLeft: 6 }} onClick={() => look({ jobId: j.id })}>{j.short}</button>)}</div> : null}
       <div className="card pad">
@@ -709,7 +709,7 @@ export default function PlanningMeetingPage() {
         const m = j.markers.find((x) => x.id === mid);
         if (d && m && m.date !== d) add(j.id, 'Gate date', `${m.name.split(' (')[0]} set to ${fd(d, true)}`);
       }
-      if (typeof js.plan === 'string') add(j.id, 'Job Plan', `Update the 📄 JOB PLAN in JobTread with the text edited in this meeting${js.planBase != null && String(js.planBase).trim() !== String(j.planText || '').trim() ? '. Warning: it was changed in JobTread since, so this will stop until the edit is redone' : ''}`);
+      if (typeof js.plan === 'string') add(j.id, 'Job Plan', `Update the Job Plan (📋 Project Details) in JobTread with the text edited in this meeting${js.planBase != null && String(js.planBase).trim() !== String(j.planText || '').trim() ? '. Warning: it was changed in JobTread since, so this will stop until the edit is redone' : ''}`);
       for (const it of js.items || []) add(j.id, it.kind === 'roadblock' ? 'Roadblock' : 'Commitment', `New task in 🔵 ACTIVE: ${it.what} · ${it.whoName || 'no owner'} · ${it.due ? 'due ' + fd(it.due) : 'no date'}${it.details ? ' · description: ' + it.details : ''}`);
     }
     for (const [fid, r] of Object.entries(S.rb || {})) {
@@ -862,7 +862,7 @@ export default function PlanningMeetingPage() {
                 <div style={{ marginTop: 4 }}>
                   {ins.stand ? <div>{ins.stand}</div> : null}
                   {ins.goal ? <div style={{ marginTop: 4 }}>{ins.goal}</div> : null}
-                  {(ins.waiting || []).length ? <div className="small" style={{ marginTop: 4, color: C.ink }}><b>Waiting on:</b> {ins.waiting.join('; ')}</div> : null}
+                  {(ins.waiting || []).length ? <div className="small" style={{ marginTop: 4, color: C.ink }}><b>Waiting on:</b> {ins.waiting.slice(0, 3).join('; ')}</div> : null}
                 </div>
               ) : <div className="small" style={{ marginTop: 4 }}>Appears after the next Refresh from JobTread.</div>}
               {showCtx ? <ContextPanel rows={ctxFor(j.id)} onAdd={(note) => addCtx(j.id, 'context', null, note)} onRemove={removeCtx} onRedo={() => redoRead(j.id)} redoing={redoing === j.id} redoErr={redoErr[j.id]} /> : null}
