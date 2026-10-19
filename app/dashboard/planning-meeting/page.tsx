@@ -7,6 +7,8 @@
  *
  *   Prep Brief   flags from JobTread; each is "Bring to meeting" or "Handled"
  *   Meeting      1 Job by job, 2 On-hold jobs, 3 Six-week look ahead, 4 Close
+ *                Job card (simplified 19 Oct 2026): overview, heads-up flags, Tasks,
+ *                Talk it through, Gate checklist and dates
  *   Review       everything queued for JobTread, Confirm writes it; transcript step
  *   History      past meetings with plus and delta
  *
@@ -135,7 +137,27 @@ const CSS = `
 .pm .ctx ul{margin:4px 0 6px;padding-left:17px}
 .pm .msg{margin-top:10px;padding:10px 12px;border-radius:8px;font-size:14px}
 .pm .ok{background:${C.greenSoft};color:${C.green}}.pm .err{background:${C.redSoft};color:${C.red}}
-@media (max-width:760px){.pm .track{grid-template-columns:repeat(4,1fr)}.pm .facts{grid-template-columns:1fr 1fr}.pm .review{grid-template-columns:1fr}.pm .grid4{grid-template-columns:1fr 1fr}.pm .mk{grid-template-columns:1fr 1fr}.pm .mk .lab{grid-column:1/-1}}
+.pm .sec{margin-top:12px;border-top:1px solid ${C.line}}
+.pm .sechead{display:flex;align-items:center;width:100%;background:none;border:0;padding:10px 0 6px;cursor:pointer;font:inherit;font-weight:700;color:${C.ink};text-align:left}
+.pm .caret{display:inline-block;width:16px;color:${C.muted}}
+.pm .secbody{padding:0 0 4px}
+.pm .trow{display:flex;gap:8px;align-items:flex-start;padding:7px 0;border-bottom:1px dashed ${C.line};flex-wrap:wrap}
+.pm .trow.editing{display:block}
+.pm .trow.struck .tname2{text-decoration:line-through;color:${C.muted}}
+.pm .tname2{font-weight:600}
+.pm .acts{display:flex;gap:10px;flex:0 0 auto;margin-left:auto}
+.pm .lnk{border:0;background:none;padding:0;color:${C.blue};font-size:13px;cursor:pointer;text-decoration:none}
+.pm .lnk:hover{text-decoration:underline}
+.pm .d-blue{background:${C.blue}}
+.pm .addrow{margin-top:8px;background:${C.soft};border-radius:8px;padding:8px}
+.pm .heads{margin-top:10px}
+.pm .hline{display:flex;gap:8px;align-items:center;padding:5px 0;font-size:13.5px;border-bottom:1px dashed ${C.line}}
+.pm .hline .grow{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.pm .qs{margin:0 0 8px;padding-left:20px}
+.pm .qs li{margin:3px 0}
+.pm .lastnotes{margin-top:8px;font-size:13.5px}
+.pm .lastnotes summary{cursor:pointer;color:${C.muted}}
+@media (max-width:760px){.pm .hline{flex-wrap:wrap}.pm .hline .grow{white-space:normal}.pm .track{grid-template-columns:repeat(4,1fr)}.pm .facts{grid-template-columns:1fr 1fr}.pm .review{grid-template-columns:1fr}.pm .grid4{grid-template-columns:1fr 1fr}.pm .mk{grid-template-columns:1fr 1fr}.pm .mk .lab{grid-column:1/-1}}
 `;
 
 /* ------------------------------------------------------------------ helpers on a job */
@@ -150,30 +172,6 @@ function GateBar({ j, js }) {
   return (
     <div className="gbar" title={`Gate ${c + 1} is the current gate`}>
       {j.gates.map((g, i) => <span key={i} className={i === c ? 'cur' : ''}><i style={{ width: `${Math.round((100 * gateDoneLive(js, j, i)) / g.items.length)}%` }} /></span>)}
-    </div>
-  );
-}
-
-function NewItem({ members, onAdd, kind, label }) {
-  const [what, setWhat] = useState('');
-  const [whoId, setWhoId] = useState('');
-  const [due, setDue] = useState('');
-  const [details, setDetails] = useState('');
-  const addIt = () => {
-    if (!what.trim()) return;
-    const whoName = members.find((m) => m.id === whoId)?.name || '';
-    onAdd({ uid: uid(), kind, what: what.trim(), whoId: whoId || null, whoName, due: due || null, details: details.trim() });
-    setWhat(''); setWhoId(''); setDue(''); setDetails('');
-  };
-  return (
-    <div style={{ marginTop: 6 }}>
-      <div className="row">
-        <input type="text" className="grow" placeholder={label} value={what} onChange={(e) => setWhat(e.target.value)} onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); addIt(); } }} />
-        <select value={whoId} onChange={(e) => setWhoId(e.target.value)}><option value="">Who</option>{members.map((m) => <option key={m.id} value={m.id}>{m.name}</option>)}</select>
-        <input type="date" value={due} onChange={(e) => setDue(e.target.value)} />
-        <button className="btn sm" onClick={addIt}>Add {kind}</button>
-      </div>
-      {what.trim() ? <textarea style={{ minHeight: 46, marginTop: 6 }} placeholder="Description (optional): the detail someone needs to do it without asking. Saved as the task description." value={details} onChange={(e) => setDetails(e.target.value)} /> : null}
     </div>
   );
 }
@@ -221,35 +219,6 @@ function HoldRow({ job, hold, meetingDate, onSave, onWake }) {
       {job.start ? <div className="small" style={{ color: C.red, marginTop: 4 }}>{job.startName} is still on the schedule for {fd(job.start)}. Move the start or take it off hold.</div> : null}
     </div>
   );
-}
-
-/**
- * One line of Claude's read with a "Not right" button. Saving a correction hides
- * the line and tells Claude, on every later read, not to raise it again.
- */
-function ReadLine({ text, onDismiss, as = 'li', label = null }) {
-  const [open, setOpen] = useState(false);
-  const [why, setWhy] = useState('');
-  const [busy, setBusy] = useState(false);
-  const [err, setErr] = useState('');
-  const save = async () => {
-    setBusy(true); setErr('');
-    try { await onDismiss(text, why.trim()); setOpen(false); setWhy(''); } catch (e) { setErr(String(e.message || e)); }
-    setBusy(false);
-  };
-  const body = (
-    <>
-      {label ? <b>{label} </b> : null}{text}<button className="nr" onClick={() => setOpen(!open)}>{open ? 'cancel' : 'Not right'}</button>
-      {open ? (
-        <div className="row" style={{ margin: '4px 0 6px' }}>
-          <input type="text" className="grow" autoFocus placeholder="What is actually true (optional), e.g. received from Village 30 Sep" value={why} onChange={(e) => setWhy(e.target.value)} onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); save(); } }} />
-          <button className="btn sm pri" disabled={busy} onClick={save}>{busy ? 'Saving...' : 'Save correction'}</button>
-          {err ? <span className="small" style={{ color: C.red }}>{err}</span> : null}
-        </div>
-      ) : null}
-    </>
-  );
-  return as === 'li' ? <li>{body}</li> : <div style={{ marginTop: 4 }}>{body}</div>;
 }
 
 /** What the team has told Claude about one job: corrections, standing context, and a redo button. */
@@ -444,6 +413,128 @@ function GateTrack({ j, js, today }) {
 }
 
 
+/* ------------------------------------------------------------------ job card: tasks */
+
+/** Add a task or roadblock: one row, the description box opens once something is typed. */
+function AddTask({ members, onAdd }) {
+  const [kind, setKind] = useState('commitment');
+  const [what, setWhat] = useState('');
+  const [whoId, setWhoId] = useState('');
+  const [due, setDue] = useState('');
+  const [details, setDetails] = useState('');
+  const addIt = () => {
+    if (!what.trim()) return;
+    const whoName = members.find((m) => m.id === whoId)?.name || '';
+    onAdd({ uid: uid(), kind, what: what.trim(), whoId: whoId || null, whoName, due: due || null, details: details.trim() });
+    setWhat(''); setWhoId(''); setDue(''); setDetails(''); setKind('commitment');
+  };
+  return (
+    <div className="addrow">
+      <div className="row">
+        <div className="seg">{[['commitment', 'Task'], ['roadblock', 'Roadblock']].map(([k, l]) => <button key={k} className={kind === k ? 'on' : ''} onClick={() => setKind(k)}>{l}</button>)}</div>
+        <input type="text" className="grow" placeholder={kind === 'roadblock' ? 'What is in the way' : 'Add a task: what will be done'} value={what} onChange={(e) => setWhat(e.target.value)} onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); addIt(); } }} />
+        <select value={whoId} onChange={(e) => setWhoId(e.target.value)}><option value="">Who</option>{members.map((m) => <option key={m.id} value={m.id}>{m.name}</option>)}</select>
+        <input type="date" value={due} onChange={(e) => setDue(e.target.value)} />
+        <button className="btn sm pri" disabled={!what.trim()} onClick={addIt}>Add</button>
+      </div>
+      {what.trim() ? <textarea style={{ minHeight: 42, marginTop: 6 }} placeholder="Description (optional): the detail someone needs to do it without asking" value={details} onChange={(e) => setDetails(e.target.value)} /> : null}
+    </div>
+  );
+}
+
+/** A task added in this meeting (not in JobTread until Confirm): edit in place or remove. */
+function NewTaskRow({ it, members, onSave, onRemove }) {
+  const [edit, setEdit] = useState(false);
+  const [v, setV] = useState(it);
+  if (edit) {
+    return (
+      <li className="trow editing">
+        <div className="row" style={{ width: '100%' }}>
+          <div className="seg">{[['commitment', 'Task'], ['roadblock', 'Roadblock']].map(([k, l]) => <button key={k} className={v.kind === k ? 'on' : ''} onClick={() => setV({ ...v, kind: k })}>{l}</button>)}</div>
+          <input type="text" className="grow" value={v.what} onChange={(e) => setV({ ...v, what: e.target.value })} />
+          <select value={v.whoId || ''} onChange={(e) => setV({ ...v, whoId: e.target.value || null, whoName: members.find((m) => m.id === e.target.value)?.name || '' })}><option value="">Who</option>{members.map((m) => <option key={m.id} value={m.id}>{m.name}</option>)}</select>
+          <input type="date" value={v.due || ''} onChange={(e) => setV({ ...v, due: e.target.value || null })} />
+        </div>
+        <textarea style={{ minHeight: 42, marginTop: 6 }} placeholder="Description (optional)" value={v.details || ''} onChange={(e) => setV({ ...v, details: e.target.value })} />
+        <div className="row" style={{ marginTop: 6 }}><button className="btn sm pri" disabled={!String(v.what || '').trim()} onClick={() => { onSave({ ...v, what: v.what.trim() }); setEdit(false); }}>Save</button><button className="btn sm" onClick={() => { setV(it); setEdit(false); }}>Cancel</button></div>
+      </li>
+    );
+  }
+  return (
+    <li className="trow">
+      <span className={`dot ${it.kind === 'roadblock' ? 'd-red' : 'd-blue'}`} />
+      <div className="grow">
+        <span className="tname2">{it.what}</span> <span className="tag t-blue">new</span>{it.kind === 'roadblock' ? <span className="tag t-red" style={{ marginLeft: 4 }}>roadblock</span> : null}
+        <div className="small">{it.whoName || 'no owner'} · {it.due ? 'due ' + fd(it.due) : 'no date'}{it.details ? ' · ' + it.details : ''}</div>
+      </div>
+      <div className="acts"><button className="lnk" onClick={() => { setV(it); setEdit(true); }}>Edit</button><button className="lnk" onClick={onRemove}>Remove</button></div>
+    </li>
+  );
+}
+
+/** An open task already in JobTread: Done, Edit (name, owner, date), Drop, Move into ACTIVE. */
+function TaskRow({ t, tr, members, onSet, onClear }) {
+  const [edit, setEdit] = useState(false);
+  const [v, setV] = useState({});
+  const act = tr?.act;
+  const open = () => { setV({ newName: tr?.act === 'edit' ? tr.newName || t.name : t.name, whoId: tr?.act === 'edit' ? tr.whoId || '' : '', date: tr?.act === 'edit' || tr?.act === 'date' ? tr.date || '' : '', why: tr?.why || '' }); setEdit(true); };
+  const save = () => {
+    const changed = (v.newName.trim() && v.newName.trim() !== t.name) || v.whoId || (v.date && v.date !== t.due);
+    if (!changed) { onClear(); setEdit(false); return; }
+    onSet({ act: 'edit', newName: v.newName.trim(), whoId: v.whoId || null, whoName: members.find((m) => m.id === v.whoId)?.name || '', date: v.date && v.date !== t.due ? v.date : null, why: v.why || '' });
+    setEdit(false);
+  };
+  const queued = act === 'done' ? 'Done at Confirm' : act === 'drop' ? 'Dropped at Confirm' : act === 'move' ? 'Moves into 🔵 ACTIVE' : act === 'date' ? `New date ${fd(tr.date)}` : act === 'edit' ? ['Edited', tr.newName && tr.newName !== t.name ? `"${tr.newName}"` : '', tr.whoName ? `to ${tr.whoName}` : '', tr.date ? `due ${fd(tr.date)}` : ''].filter(Boolean).join(' ') : '';
+  return (
+    <li className={`trow ${act === 'done' || act === 'drop' ? 'struck' : ''}`}>
+      <span className={`dot ${t.roadblock ? 'd-red' : t.overdue ? 'd-amber' : 'd-green'}`} />
+      <div className="grow">
+        <span className="tname2">{t.name}</span>
+        {t.roadblock ? <span className="tag t-red" style={{ marginLeft: 6 }}>roadblock</span> : null}
+        {t.fromLast ? <span className="tag t-house" style={{ marginLeft: 6 }}>last meeting</span> : null}
+        <div className="small">{t.who.join(', ') || 'no owner'} · {t.due ? 'due ' + fd(t.due) : 'no date'}{t.overdue ? <b style={{ color: C.amber }}> · {t.days}d late</b> : null}{t.src !== 'ACTIVE' ? ' · not in 🔵 ACTIVE' : ''}</div>
+        {queued ? <div className="small row" style={{ color: C.blue, gap: 6 }}>{queued}{act !== 'drop' && tr?.why ? ` · ${tr.why}` : ''}
+          {act === 'drop' ? <select value={tr.why || ''} onChange={(e) => onSet({ ...tr, why: e.target.value })} style={{ padding: '1px 6px', fontSize: 12.5 }}><option value="">Why? (optional)</option>{REASONS.map((r) => <option key={r}>{r}</option>)}</select> : null}
+          <button className="lnk" onClick={onClear}>undo</button></div> : null}
+        {edit ? (
+          <div style={{ marginTop: 6 }}>
+            <div className="row">
+              <input type="text" className="grow" value={v.newName} onChange={(e) => setV({ ...v, newName: e.target.value })} />
+              <select value={v.whoId} onChange={(e) => setV({ ...v, whoId: e.target.value })}><option value="">Owner unchanged</option>{members.map((m) => <option key={m.id} value={m.id}>{m.name}</option>)}</select>
+              <input type="date" value={v.date} onChange={(e) => setV({ ...v, date: e.target.value })} />
+            </div>
+            <div className="row" style={{ marginTop: 6 }}>
+              {v.date && v.date !== t.due ? <select value={v.why} onChange={(e) => setV({ ...v, why: e.target.value })}><option value="">Why did the date move? (optional)</option>{REASONS.map((r) => <option key={r}>{r}</option>)}</select> : null}
+              <button className="btn sm pri" onClick={save}>Save</button><button className="btn sm" onClick={() => setEdit(false)}>Cancel</button>
+            </div>
+          </div>
+        ) : null}
+      </div>
+      {!edit && !act ? (
+        <div className="acts">
+          <button className="lnk" onClick={() => onSet({ act: 'done' })}>Done</button>
+          <button className="lnk" onClick={open}>Edit</button>
+          <button className="lnk" onClick={() => onSet({ act: 'drop' })}>Drop</button>
+          {t.src !== 'ACTIVE' ? <button className="lnk" onClick={() => onSet({ act: 'move' })}>Move to ACTIVE</button> : null}
+        </div>
+      ) : null}
+    </li>
+  );
+}
+
+/** Collapsible section on a job card; open/closed is kept per job for the session. */
+function Section({ id, title, count = null, children, defaultOpen = true, fold, setFold }) {
+  const isOpenSec = fold[id] === undefined ? defaultOpen : !fold[id];
+  return (
+    <div className="sec">
+      <button className="sechead" onClick={() => setFold((f) => ({ ...f, [id]: isOpenSec }))}>
+        <span className="caret">{isOpenSec ? '\u25be' : '\u25b8'}</span>{title}{count != null ? <span className="small" style={{ marginLeft: 8, fontWeight: 400 }}>{count}</span> : null}
+      </button>
+      {isOpenSec ? <div className="secbody">{children}</div> : null}
+    </div>
+  );
+}
+
 function Transcript({ last }) {
     const [text, setText] = useState('');
     const [busy, setBusy] = useState('');
@@ -508,6 +599,7 @@ export default function PlanningMeetingPage() {
   const [ctxRows, setCtxRows] = useState([]);
   const [redoing, setRedoing] = useState(null);
   const [redoErr, setRedoErr] = useState({});
+  const [fold, setFold] = useState({});
   const dirty = useRef(false);
   const loaded = useRef(false);
 
@@ -626,6 +718,7 @@ export default function PlanningMeetingPage() {
     for (const [tid, t] of Object.entries(S.triage || {})) {
       if (!t?.act) continue;
       if (t.act === 'done') add(t.jobId, 'Update', `Tick complete: ${t.name}`);
+      if (t.act === 'edit') add(t.jobId, 'Update', `Edit: ${t.name}${t.newName && t.newName !== t.name ? ' renamed to "' + t.newName + '"' : ''}${t.whoName ? ' · assign to ' + t.whoName : ''}${t.date ? ' · due ' + fd(t.date) : ''}${t.why ? ' · reason: ' + t.why : ''}`);
       if (t.act === 'move') add(t.jobId, 'Update', `Move into 🔵 ACTIVE: ${t.name}`);
       if (t.act === 'date' && t.date) add(t.jobId, 'Update', `Move due date to ${fd(t.date)}: ${t.name}${t.why ? ' · reason: ' + t.why : ''}`);
       if (t.act === 'drop') add(t.jobId, 'Update', `Drop: tick complete and add "Dropped at the ${fd(meetingDate)} meeting${t.why ? ': ' + t.why : ''}" to its description. Not deleted: ${t.name}`);
@@ -702,184 +795,152 @@ export default function PlanningMeetingPage() {
     );
   }
 
-  /* ================================================================ JOB CARD */
+  /* ================================================================ JOB CARD
+   * Simplified 19 Oct 2026 (Nathan): one overview from Claude, one task list
+   * (open JobTread tasks plus new ones, edit and add in place, collapsible),
+   * small heads-up flags, the three questions as a plain list with one notes
+   * box, then the gate checklist and dates. Roadblocks are tasks with the
+   * Roadblock type, so they live in the task list.
+   */
   function JobCard({ j, pos, list }) {
     const js = JS(j.id);
     const isOpen = open === j.id;
-    const live = (j.flags || []).filter((f) => !handled(f.id) && f.kind !== 'Overdue task' && f.kind !== 'Aging ask');
-    const rf = live.filter((f) => f.sev !== 'house'), hk = live.filter((f) => f.sev === 'house');
-    const red = (j.flags || []).filter((f) => f.sev === 'red' && !handled(f.id)).length, amb = (j.flags || []).filter((f) => f.sev === 'amber' && !handled(f.id)).length;
     const c = curGateLive(js, j);
     const gv = js.gateView ?? c;
     const dfl = defaults(j);
     const lm = last?.jobs?.[j.id];
-    const q = js.q || {};
-    const setQ = (key, field, val) => touch((s) => { const x = jsOf(s, j.id); x.q = x.q || {}; x.q[key] = { ...(x.q[key] || {}), [field]: val }; });
-    // gate due dates (marker if set, else default from the start)
+    const cur = j.gates[c];
+    const daysToStart = j.start ? daysBetween(today, j.start) : null;
     const gateDue = (i) => { if (i === 0) return null; const m = j.markers.find((x) => x.gate === i + 1); return js.markers?.[m?.id] || m?.date || (dfl ? dfl[i - 1] : null); };
     const nextGate = j.gates.findIndex((g, i) => i >= 1 && gateDoneLive(js, j, i) < g.items.length);
-    const cur = j.gates[c];
-    const openItems = cur ? cur.items.map((it, i) => [it[0], tickVal(js, j, c, i)]).filter((x) => !x[1]).map((x) => x[0]) : [];
-    const daysToStart = j.start ? daysBetween(today, j.start) : null;
-    // Claude's lines the team has marked Not right are hidden right away.
-    const gone = dismissedFor(j.id);
-    const vis = (a) => (Array.isArray(a) ? a.filter((x) => x && !gone.has(x)) : []);
-    const dismiss = (text, why) => addCtx(j.id, 'dismiss', text, why);
-    // waiting on (from JobTread facts)
-    const waiting = [
-      ...j.tasks.filter((t) => t.type === 'Pending').map((t) => `${t.name} (${t.who.join(', ') || 'no owner'}${t.due ? ', since ' + fd(t.due) : ''})`),
-      ...j.roadblocks.map((r) => `Roadblock: ${r.name} (${r.who.join(', ') || 'no owner'}, open ${r.daysOpen} days)`),
-      ...((j.sel?.['1. Client Selection Needed'] || 0) ? [`Client: ${j.sel['1. Client Selection Needed']} selection${j.sel['1. Client Selection Needed'] > 1 ? 's' : ''} to decide`] : []),
-      ...((j.sel?.['2. Internal Selection Needed'] || 0) ? [`Us: ${j.sel['2. Internal Selection Needed']} internal selection${j.sel['2. Internal Selection Needed'] > 1 ? 's' : ''}`] : []),
-      ...(j.flags || []).filter((f) => f.kind === 'Unsigned contract').map((f) => f.text),
-    ];
-    // next 3 weeks (for question 3)
-    const soonEnd = addDays(meetingDate, 21);
-    const soon = [
-      ...j.tasks.filter((t) => t.due && t.due <= soonEnd).map((t) => ({ d: t.due, t: `${t.name} (${t.who.join(', ') || 'no owner'})`, late: t.overdue })),
-      ...j.gates.map((g, i) => ({ d: gateDue(i), t: `Gate ${i + 1} due: ${g.name.replace(/^\d+\.\s*/, '')}`, late: false, done: gateDoneLive(js, j, i) >= g.items.length })).filter((x) => x.d && x.d >= today && x.d <= soonEnd && !x.done),
-      ...(j.start && j.start >= today && j.start <= soonEnd ? [{ d: j.start, t: `Production start: ${j.startName}`, late: false }] : []),
-      ...(j.decisions?.list || []).filter((x) => x.decideBy && x.decideBy <= soonEnd).map((x) => ({ d: x.decideBy, t: `Decide: ${x.name}${x.tag ? ' (' + x.tag + ')' : ''}, ${x.status || 'no status'}`, late: x.decideBy < today })),
-    ].sort((a, b) => (a.d < b.d ? -1 : 1));
-    const commitments = (js.items || []).map((it, i) => [it, i]).filter(([it]) => it.kind !== 'roadblock');
-    const roadblocksNew = (js.items || []).map((it, i) => [it, i]).filter(([it]) => it.kind === 'roadblock');
-    const itemRow = ([it, i]) => <div key={it.uid} className="added"><span><span className={`tag ${it.kind === 'roadblock' ? 't-red' : 't-blue'}`} style={{ marginRight: 6 }}>{it.kind}</span>{it.what} · <b>{it.whoName || 'no owner'}</b> · {it.due ? fd(it.due, true) : 'no date'}{it.details ? <><br /><span className="small" style={{ whiteSpace: 'pre-wrap' }}>{it.details}</span></> : null}</span><button className="x" aria-label="Remove" onClick={() => touch((s) => { jsOf(s, j.id).items.splice(i, 1); })}>×</button></div>;
+    // Heads-up: red and amber flags not already shown as a late task, not cleared in this meeting.
+    const flagOpen = (f) => !handled(f.id) && !(S.rb?.[f.id]?.act);
+    const heads = (j.flags || []).filter((f) => f.sev !== 'house' && f.kind !== 'Overdue task' && f.kind !== 'Aging ask' && flagOpen(f));
+    const house = (j.flags || []).filter((f) => f.sev === 'house' && flagOpen(f));
+    const red = (j.flags || []).filter((f) => f.sev === 'red' && flagOpen(f)).length;
+    const late = j.tasks.filter((t) => t.overdue).length;
+    const newItems = (js.items || []).map((it, i) => [it, i]);
+    const flagRbs = Object.entries(S.rb || {}).filter(([fid, r]) => r?.act === 'rb' && r.what?.trim() && fid.split('|')[1] === j.id);
+    const firstSentence = (s) => { const t = String(s || '').split(/(?<=\.)\s/)[0]; return t.length > 140 ? t.slice(0, 137) + '...' : t; };
+    const flagToTask = (f) => touch((s) => { jsOf(s, j.id).items.push({ uid: uid(), kind: 'roadblock', what: firstSentence(f.text).replace(/\.$/, ''), whoId: null, whoName: '', due: null, details: f.text }); s.rb[f.id] = { act: 'clear' }; });
+    const flagClear = (f) => touch((s) => { s.rb[f.id] = { act: 'clear' }; });
+    const ins = j.insight;
+    const showCtx = !!fold[`${j.id}:ctx`];
+    const kept = (j.lastMeeting || []).filter((t) => t.status === 'done').length;
     const holdOpen = holdFormFor === j.id;
+    const nextLine = nextGate > 0 && gateDue(nextGate)
+      ? `Gate ${nextGate + 1} ${j.gates[nextGate].name.replace(/^\d+\.\s*/, '')} due ${fd(gateDue(nextGate))}${j.markers.find((m) => m.gate === nextGate + 1)?.date || js.markers?.[j.markers.find((m) => m.gate === nextGate + 1)?.id] ? '' : ' (default)'}${gateDue(nextGate) < today ? ', already past' : ''}`
+      : 'No next gate date yet';
     return (
       <div className="card job">
         <div className="head" onClick={() => setOpen(isOpen ? null : j.id)}>
           <div>
             <div style={{ fontWeight: 700 }}>{j.short} <span className="small" style={{ fontWeight: 400 }}>{j.name}</span></div>
-            <div className="small">Gate {c + 1} {cur?.name.replace(/^\d+\.\s*/, '')} · {gateDoneLive(js, j, c)} of {cur?.items.length || 0}{j.start ? ` · ${j.startName} ${fd(j.start)}` : ' · no start date'}</div>
+            <div className="small">Gate {c + 1} {cur?.name.replace(/^\d+\.\s*/, '')} · {gateDoneLive(js, j, c)} of {cur?.items.length || 0}{j.start ? ` · start ${fd(j.start)}` : ' · no start date'}</div>
           </div>
-          <div className="row"><GateBar j={j} js={js} />{red ? <span className="tag t-red">{red} red</span> : null}{amb ? <span className="tag t-amber">{amb} amber</span> : null}{j.roadblocks?.length ? <span className="tag t-red">{j.roadblocks.length} roadblock{j.roadblocks.length > 1 ? 's' : ''}</span> : null}<span className="small">{isOpen ? 'Close' : 'Open'}</span></div>
+          <div className="row"><GateBar j={j} js={js} />{red ? <span className="tag t-red">{red} red</span> : null}{late ? <span className="tag t-amber">{late} late</span> : null}<span className="small">{isOpen ? 'Close' : 'Open'}</span></div>
         </div>
         {isOpen && (
           <div className="bd">
-            {/* 1. PROJECT REVIEW */}
-            <h4>1. Project review: where it stands</h4>
-            {j.gates.length ? <GateTrack j={j} js={js} today={today} /> : <p className="empty">No ✅ PROJECT GATES on this job. Set it up from the Set up a job tab.</p>}
-            <div className="small" style={{ margin: '4px 0 10px' }}>Green is done, blue is the current gate, red means the gate date has passed with items still open. * date counted back from the production start (not set yet).</div>
+            {/* OVERVIEW */}
+            {j.gates.length ? <div style={{ marginTop: 12 }} title="Green done, blue current, red past its date with items open. * date counted back from the start."><GateTrack j={j} js={js} today={today} /></div> : <p className="empty">No ✅ PROJECT GATES on this job. Set it up from the Set up a job tab.</p>}
             <div className="facts">
-              <div><span className="small">Production start</span><b>{j.start ? `${fd(j.start, true)} (${daysToStart >= 0 ? daysToStart + ' days' : 'started'})` : 'Not on the schedule'}</b></div>
+              <div><span className="small">Production start</span><b>{j.start ? `${fd(j.start)} (${daysToStart >= 0 ? daysToStart + ' days' : 'started'})` : 'Not set'}</b></div>
+              <div><span className="small">Next gate</span><b>{nextLine}</b></div>
               <div><span className="small">Design lead / PM</span><b>{j.plan?.designLead || 'not named'} / {j.plan?.pm || 'not named'}</b></div>
-              <div><span className="small">Client target window</span><b>{j.plan?.clientWindow || 'not in Job Plan'}</b></div>
               <div><span className="small">Last activity</span><b>{j.lastActivity ? `${fd(j.lastActivity.date)} (${j.lastActivity.what})` : 'none'}</b></div>
             </div>
-            <div className="review">
-              <div className="rcol"><div className="rhead">Where we are</div>
-                <div>Gate {c + 1}: <b>{cur?.name.replace(/^\d+\.\s*/, '')}</b>, {gateDoneLive(js, j, c)} of {cur?.items.length || 0} done.</div>
-                {openItems.length ? <ul>{openItems.slice(0, 4).map((x, i) => <li key={i}>{x}</li>)}{openItems.length > 4 ? <li className="small">and {openItems.length - 4} more</li> : null}</ul> : null}
-                {nextGate > 0 && gateDue(nextGate) ? <div className="small">Gate {nextGate + 1} due {fd(gateDue(nextGate))}{gateDue(nextGate) < today ? <b style={{ color: C.red }}> (past)</b> : ''}</div> : null}
+            <div className="read">
+              <div className="row" style={{ justifyContent: 'space-between' }}>
+                <div className="rhead" style={{ color: C.blue, margin: 0 }}>Claude's overview</div>
+                <div className="row" style={{ gap: 10 }}>
+                  <button className="lnk" onClick={() => setFold((f) => ({ ...f, [`${j.id}:ctx`]: !showCtx }))}>{showCtx ? 'Close' : 'Correct Claude'}</button>
+                  <a className="lnk" href={JT(j.id)} target="_blank" rel="noreferrer">JobTread</a>
+                </div>
               </div>
-              <div className="rcol"><div className="rhead">Waiting on</div>{waiting.length ? <ul>{waiting.slice(0, 5).map((x, i) => <li key={i}>{x}</li>)}</ul> : <div className="small">Nothing recorded as waiting in JobTread.</div>}</div>
-              <div className="rcol"><div className="rhead">Focus next</div>{vis(j.insight?.focus).length ? <ul>{vis(j.insight.focus).map((x) => <ReadLine key={x} text={x} onDismiss={dismiss} />)}</ul> : openItems.length ? <ul>{openItems.slice(0, 3).map((x, i) => <li key={i}>{x}</li>)}</ul> : <div className="small">Current gate is complete.</div>}</div>
+              {ins ? (
+                <div style={{ marginTop: 4 }}>
+                  {ins.stand ? <div>{ins.stand}</div> : null}
+                  {ins.goal ? <div style={{ marginTop: 4 }}>{ins.goal}</div> : null}
+                  {(ins.waiting || []).length ? <div className="small" style={{ marginTop: 4, color: C.ink }}><b>Waiting on:</b> {ins.waiting.join('; ')}</div> : null}
+                </div>
+              ) : <div className="small" style={{ marginTop: 4 }}>Appears after the next Refresh from JobTread.</div>}
+              {showCtx ? <ContextPanel rows={ctxFor(j.id)} onAdd={(note) => addCtx(j.id, 'context', null, note)} onRemove={removeCtx} onRedo={() => redoRead(j.id)} redoing={redoing === j.id} redoErr={redoErr[j.id]} /> : null}
             </div>
-            {j.insight ? <div className="read"><div className="rhead">Claude's read from JobTread <span className="small" style={{ fontWeight: 400 }}>(check it, built {fd(String(j.insight.at || '').slice(0, 10))}{j.insight.read ? `, read ${j.insight.read.messages} message${j.insight.read.messages === 1 ? '' : 's'} and ${j.insight.read.logs} daily log${j.insight.read.logs === 1 ? '' : 's'} from the last ${j.insight.read.days} days` : ''}{j.insight.read?.corrections || j.insight.read?.context ? `, plus ${(j.insight.read.corrections || 0) + (j.insight.read.context || 0)} from the team` : ''}{j.insight.read?.lastMeeting ? ' and last meeting\'s notes' : ''})</span></div>
-              {vis([j.insight.stand]).length ? <ReadLine as="div" text={j.insight.stand} onDismiss={dismiss} /> : null}
-              {vis(j.insight.waiting).length ? <div style={{ marginTop: 4 }}><b>Waiting on:</b><ul style={{ margin: '2px 0 0', paddingLeft: 17 }}>{vis(j.insight.waiting).map((x) => <ReadLine key={x} text={x} onDismiss={dismiss} />)}</ul></div> : null}
-              {vis([j.insight.goal]).length ? <ReadLine as="div" label="Goals and start date:" text={j.insight.goal} onDismiss={dismiss} /> : null}
-              {vis(j.insight.gaps).length ? <div style={{ marginTop: 4 }} className="small"><b>Missing from JobTread:</b><ul style={{ margin: '2px 0 0', paddingLeft: 17 }}>{vis(j.insight.gaps).map((x) => <ReadLine key={x} text={x} onDismiss={dismiss} />)}</ul></div> : null}
-            </div> : <div className="small" style={{ marginBottom: 6 }}>Claude's written review appears here after the next Refresh from JobTread.</div>}
+            {last && lm?.notes ? (
+              <details className="lastnotes"><summary>Notes from the {fd(last.meeting_date)} meeting</summary><div style={{ whiteSpace: 'pre-wrap', marginTop: 4 }}>{lm.notes}</div></details>
+            ) : null}
             <JobPlanBox planText={j.planText} hasTodo={!!j.planTodoId} edited={typeof js.plan === 'string' ? js.plan : null} base={js.planBase ?? null}
               onSave={(t) => touch((s) => { const x = jsOf(s, j.id); if (x.planBase == null) x.planBase = j.planText || ''; if (t.trim() === String(x.planBase).trim()) { delete x.plan; delete x.planBase; } else x.plan = t; })}
               onUndo={() => touch((s) => { const x = jsOf(s, j.id); delete x.plan; delete x.planBase; })} />
-            <ContextPanel rows={ctxFor(j.id)} onAdd={(note) => addCtx(j.id, 'context', null, note)} onRemove={removeCtx} onRedo={() => redoRead(j.id)} redoing={redoing === j.id} redoErr={redoErr[j.id]} />
-            <div className="small" style={{ marginTop: 6 }}><a href={JT(j.id)} target="_blank" rel="noreferrer">Open in JobTread</a></div>
 
-            {/* 2. SINCE LAST MEETING */}
-            <h4>2. Since last meeting</h4>
-            {vis(j.insight?.recent).length ? <div className="note" style={{ marginBottom: 6 }}><b>From job messages and daily logs (Claude, check it):</b><ul style={{ margin: '4px 0 0' }}>{vis(j.insight.recent).map((x) => <ReadLine key={x} text={x} onDismiss={dismiss} />)}</ul></div> : null}
-            {last ? (
-              <>
-                {lm?.notes ? <div className="note" style={{ whiteSpace: 'pre-wrap' }}><b>Notes from {fd(last.meeting_date)}:</b>{'\n'}{lm.notes}</div> : <p className="empty" style={{ margin: '0 0 6px' }}>No notes for this job at the {fd(last.meeting_date)} meeting.</p>}
-                {j.lastMeeting?.length ? <p className="small" style={{ margin: '0 0 6px' }}>From last meeting: kept {j.lastMeeting.filter((t) => t.status === 'done').length} of {j.lastMeeting.length}. Late ones are marked below.</p> : null}
-                {(j.lastMeeting || []).filter((t) => t.status === 'done').map((t) => <div key={t.id} className="small">✓ Done: {t.name} ({t.who || 'no owner'})</div>)}
-              </>
-            ) : <p className="empty" style={{ margin: '0 0 6px' }}>First meeting, so there are no notes or commitments from last week yet.</p>}
-            <div className="small" style={{ margin: '6px 0' }}>Open tasks on this job. Decide each late one: Done, New date, or Drop. Tasks outside 🔵 ACTIVE can be moved in.</div>
-            {j.tasks.length ? <ul className="tlist">{j.tasks.map((t) => { const tr = S.triage[t.id] || {}; const opts = [['done', 'Done'], ['date', 'New date'], ['drop', 'Drop'], ...(t.src !== 'ACTIVE' ? [['move', 'Move to ACTIVE']] : [])]; return (
-              <li key={t.id} style={{ flexWrap: 'wrap' }}>
-                <span className={`dot ${t.overdue ? 'd-amber' : t.doneLike ? 'd-house' : 'd-green'}`} />
-                <div className="grow">{t.name}{t.fromLast ? <span className="tag t-blue" style={{ marginLeft: 6 }}>from last meeting</span> : null}{t.roadblock ? <span className="tag t-red" style={{ marginLeft: 6 }}>roadblock</span> : null}{t.src !== 'ACTIVE' ? <span className="small"> (not in 🔵 ACTIVE)</span> : null}
-                  <div className="small">{t.who.join(', ') || 'no owner'} · {t.due ? 'due ' + fd(t.due) : 'no date'}{t.overdue ? <b style={{ color: C.amber }}> · {t.days} day{t.days === 1 ? '' : 's'} late</b> : null}{t.type ? ' · type ' + t.type : ''}</div></div>
-                {(t.overdue || tr.act || t.src !== 'ACTIVE') && <div className="seg">{opts.map(([k, l]) => <button key={k} className={tr.act === k ? 'on' : ''} onClick={() => touch((s) => { s.triage[t.id] = s.triage[t.id]?.act === k ? {} : { ...(s.triage[t.id] || {}), act: k, jobId: j.id, name: t.name }; })}>{l}</button>)}</div>}
-                {(tr.act === 'date' || tr.act === 'drop') && <div className="row" style={{ flex: '1 1 100%', margin: '6px 0 0 16px' }}>
-                  {tr.act === 'date' && <input type="date" value={tr.date || ''} onChange={(e) => touch((s) => { s.triage[t.id].date = e.target.value; })} />}
-                  <select value={tr.why || ''} onChange={(e) => touch((s) => { s.triage[t.id].why = e.target.value; })}><option value="">Why did it slip?</option>{REASONS.map((r) => <option key={r}>{r}</option>)}</select>
-                </div>}
-              </li>); })}</ul> : <p className="empty">No open tasks.</p>}
-
-            {/* 3. ROADBLOCKS AND RED FLAGS */}
-            <h4>3. Roadblocks and red flags</h4>
-            {j.roadblocks?.length ? <ul className="tlist" style={{ marginBottom: 8 }}>{j.roadblocks.map((r) => <li key={r.id}><span className="dot d-red" /><span><b>{r.name}</b> · {r.who.join(', ') || 'no owner'} · open {r.daysOpen} days{r.due ? ' · due ' + fd(r.due) : ''}</span></li>)}</ul> : <p className="empty" style={{ margin: '0 0 6px' }}>No open roadblocks. Roadblocks stay here every week until they are ticked complete in JobTread.</p>}
-            {rf.map((f) => { const r = S.rb[f.id] || {}; return (
-              <div key={f.id} className={`flag ${f.sev}`}><div className="bar" /><div className="body">
-                <div className="meta"><span className={`tag t-${f.sev}`}>{f.kind}</span></div>
-                <div>{f.text}</div>
-                <div className="row" style={{ marginTop: 8 }}><div className="seg">
-                  <button className={r.act === 'rb' ? 'on' : ''} onClick={() => touch((s) => { s.rb[f.id] = s.rb[f.id]?.act === 'rb' ? {} : { ...(s.rb[f.id] || {}), act: 'rb' }; })}>Make it a roadblock</button>
-                  <button className={r.act === 'clear' ? 'on' : ''} onClick={() => touch((s) => { s.rb[f.id] = s.rb[f.id]?.act === 'clear' ? {} : { act: 'clear' }; })}>No action needed</button>
-                </div></div>
-                {r.act === 'rb' && <>
-                  <div className="row" style={{ marginTop: 8 }}>
-                    <input type="text" className="grow" placeholder="Roadblock: what is in the way" defaultValue={r.what || ''} onBlur={(e) => touch((s) => { s.rb[f.id].what = e.target.value; })} />
-                    <select value={r.whoId || ''} onChange={(e) => touch((s) => { s.rb[f.id].whoId = e.target.value; s.rb[f.id].whoName = members.find((m) => m.id === e.target.value)?.name || ''; })}><option value="">Who</option>{members.map((m) => <option key={m.id} value={m.id}>{m.name}</option>)}</select>
-                    <input type="date" value={r.due || ''} onChange={(e) => touch((s) => { s.rb[f.id].due = e.target.value; })} />
+            {/* HEADS-UP: red and amber flags, one line each */}
+            {heads.length || house.length ? (
+              <div className="heads">
+                {heads.map((f) => (
+                  <div key={f.id} className={`hline ${f.sev}`}>
+                    <span className={`tag t-${f.sev}`}>{f.kind}</span>
+                    <span className="grow" title={f.text}>{firstSentence(f.text)}</span>
+                    <span className="acts"><button className="lnk" onClick={() => flagToTask(f)}>Make a task</button><button className="lnk" onClick={() => flagClear(f)}>Clear</button></span>
                   </div>
-                  <textarea style={{ minHeight: 52, marginTop: 6 }} placeholder="Description: what needs to happen to clear it, who to call, links" defaultValue={r.details || ''} onBlur={(e) => touch((s) => { s.rb[f.id].details = e.target.value; })} />
-                </>}
-              </div></div>); })}
-            {!rf.length && <p className="empty">No red flags on this job.</p>}
-            {hk.length > 0 && <><div className="small" style={{ marginTop: 6 }}><b>Housekeeping not handled yet ({hk.length}):</b></div><ul className="tlist">{hk.map((f) => <li key={f.id}><span className="dot d-house" /><span className="small">{f.text} <b>{f.owner}</b></span></li>)}</ul></>}
+                ))}
+                {house.length ? <details className="small" style={{ marginTop: 4 }}><summary>{house.length} housekeeping item{house.length > 1 ? 's' : ''}</summary><ul style={{ margin: '4px 0 0', paddingLeft: 17 }}>{house.map((f) => <li key={f.id}>{f.text} <b>{f.owner}</b> <button className="lnk" onClick={() => flagClear(f)}>Clear</button></li>)}</ul></details> : null}
+              </div>
+            ) : null}
 
-            {/* 4. THE FOUR QUESTIONS */}
-            <h4>4. The four questions</h4>
-            {(j.agenda || []).length ? <div className="small" style={{ margin: '0 0 8px' }}><b>Also cover:</b> {(j.agenda || []).map((p, i) => <label key={i} style={{ display: 'flex', gap: 6, cursor: 'pointer', marginTop: 3 }}><input type="checkbox" checked={!!js.agenda?.[i]} onChange={(e) => touch((s) => { const x = jsOf(s, j.id); x.agenda = x.agenda || {}; x.agenda[i] = e.target.checked; })} /><span>{p}</span></label>)}</div> : null}
-            <div className="qbox"><div className="qhead">1. Are we on track for the next gate date?</div>
-              <div className="small" style={{ marginBottom: 6 }}>{nextGate > 0 && gateDue(nextGate) ? `Next: Gate ${nextGate + 1} ${j.gates[nextGate].name.replace(/^\d+\.\s*/, '')}, due ${fd(gateDue(nextGate))}${j.markers.find((m) => m.gate === nextGate + 1)?.date || js.markers?.[j.markers.find((m) => m.gate === nextGate + 1)?.id] ? '' : ' (default date)'}${gateDue(nextGate) < today ? ', already past' : ''}.` : 'No next gate date yet. Set a production start or the gate dates.'}</div>
-              <div className="seg" style={{ marginBottom: 6 }}>{[['on', 'On track'], ['risk', 'At risk'], ['off', 'Off track']].map(([k, l]) => <button key={k} className={q.q1?.track === k ? 'on' : ''} onClick={() => setQ('q1', 'track', q.q1?.track === k ? '' : k)}>{l}</button>)}</div>
-              <NoteBox value={q.q1?.note} placeholder="Why, and what changes the answer" minHeight={46} onSave={(v) => setQ('q1', 'note', v)} />
-            </div>
-            <div className="qbox"><div className="qhead">2. What is in the way?</div>
-              <div className="small" style={{ marginBottom: 6 }}>Add each blocker as a roadblock: it becomes a red Roadblock task in 🔵 ACTIVE and stays on this card until it is cleared.</div>
-              {roadblocksNew.map(itemRow)}
-              <NewItem members={members} kind="roadblock" label="Roadblock: what is in the way" onAdd={(it) => touch((s) => { jsOf(s, j.id).items.push(it); })} />
-              <div style={{ marginTop: 6 }}><NoteBox value={q.q2?.note} placeholder="Notes" minHeight={40} onSave={(v) => setQ('q2', 'note', v)} /></div>
-            </div>
-            <div className="qbox"><div className="qhead">3. What has to be decided, ordered or ready in the next 3 weeks?</div>
-              {soon.length ? <ul className="tlist" style={{ marginBottom: 6 }}>{soon.map((x, i) => <li key={i}><span className={`dot ${x.late ? 'd-amber' : 'd-house'}`} /><span className="small"><b>{fd(x.d, true)}</b> · {x.t}{x.late ? ' · late' : ''}</span></li>)}</ul> : <div className="small" style={{ marginBottom: 6 }}>Nothing on this job's schedule in the next 3 weeks.</div>}
-              <NoteBox value={q.q3?.note} placeholder="What has to be decided, ordered or ready, and anything missing from the list above" minHeight={46} onSave={(v) => setQ('q3', 'note', v)} />
-            </div>
-            <div className="qbox"><div className="qhead">4. Who owes what, by when?</div>
-              <div className="small" style={{ marginBottom: 6 }}>Each commitment becomes its own task in 🔵 ACTIVE after Confirm, assigned to that person.</div>
-              {commitments.map(itemRow)}
-              <NewItem members={members} kind="commitment" label="Commitment: what will be done" onAdd={(it) => touch((s) => { jsOf(s, j.id).items.push(it); })} />
-            </div>
+            {/* TASKS */}
+            <Section fold={fold} setFold={setFold} id={`${j.id}:tasks`} title="Tasks" count={`${j.tasks.length} open${late ? `, ${late} late` : ''}${newItems.length + flagRbs.length ? `, ${newItems.length + flagRbs.length} new` : ''}${j.lastMeeting?.length ? ` · kept ${kept} of ${j.lastMeeting.length} from last meeting` : ''}`}>
+              <ul className="tlist">
+                {j.tasks.map((t) => (
+                  <TaskRow key={t.id} t={t} tr={S.triage[t.id]} members={members}
+                    onSet={(patch) => touch((s) => { s.triage[t.id] = { ...patch, jobId: j.id, name: t.name }; })}
+                    onClear={() => touch((s) => { s.triage[t.id] = {}; })} />
+                ))}
+                {newItems.map(([it, i]) => (
+                  <NewTaskRow key={it.uid} it={it} members={members}
+                    onSave={(nv) => touch((s) => { jsOf(s, j.id).items[i] = nv; })}
+                    onRemove={() => touch((s) => { jsOf(s, j.id).items.splice(i, 1); })} />
+                ))}
+                {flagRbs.map(([fid, r]) => (
+                  <li key={fid} className="trow"><span className="dot d-red" /><div className="grow"><span className="tname2">{r.what}</span> <span className="tag t-blue">new</span><span className="tag t-red" style={{ marginLeft: 4 }}>roadblock</span><div className="small">{r.whoName || 'no owner'} · {r.due ? 'due ' + fd(r.due) : 'no date'}</div></div><div className="acts"><button className="lnk" onClick={() => touch((s) => { s.rb[fid] = { act: 'clear' }; })}>Remove</button></div></li>
+                ))}
+                {!j.tasks.length && !newItems.length && !flagRbs.length ? <li className="empty">No open tasks.</li> : null}
+              </ul>
+              <AddTask members={members} onAdd={(it) => touch((s) => { jsOf(s, j.id).items.push(it); })} />
+              <div className="small" style={{ marginTop: 4 }}>New tasks go into 🔵 ACTIVE at Confirm, one per line, assigned and dated. Roadblocks get the red Roadblock type.</div>
+            </Section>
 
-            {/* 5. OTHER NOTES */}
-            <h4>5. Other notes and decisions</h4>
-            <NoteBox value={js.notes} placeholder={`Anything else decided about ${j.short}. All answers above and these notes go into one internal daily log on the job.`} onSave={(v) => touch((s) => { jsOf(s, j.id).notes = v; })} />
+            {/* TALK IT THROUGH */}
+            <Section fold={fold} setFold={setFold} id={`${j.id}:talk`} title="Talk it through">
+              <ol className="qs">
+                <li>Are we on track for the next gate date? <span className="small">{nextLine}.</span></li>
+                <li>What has to be decided, ordered, or ready in the next 3 weeks?</li>
+                <li>What is in the way?</li>
+              </ol>
+              {(j.agenda || []).length ? <div className="small" style={{ margin: '0 0 8px' }}><b>Also cover:</b> {(j.agenda || []).join(' ')}</div> : null}
+              <NoteBox value={js.notes} placeholder={`Notes and decisions for ${j.short}. Saved as an internal daily log on the job at Confirm.`} onSave={(v) => touch((s) => { jsOf(s, j.id).notes = v; })} />
+            </Section>
 
-            {/* 6. UPDATE GATES AND DATES */}
-            <h4>6. Update the gate checklist and gate dates</h4>
-            {j.gates.length ? <>
-              <select value={gv} onChange={(e) => touch((s) => { jsOf(s, j.id).gateView = Number(e.target.value); })} style={{ marginBottom: 6 }}>{j.gates.map((g, i) => <option key={g.id} value={i}>{g.name} ({gateDoneLive(js, j, i)}/{g.items.length}){i === c ? ' · current' : ''}</option>)}</select>
-              {j.gates[gv].items.map((it, i) => { const v = tickVal(js, j, gv, i); const ch = v !== !!it[1]; return <div key={i} style={{ padding: '3px 0' }}><label style={{ display: 'flex', gap: 6, cursor: 'pointer' }}><input type="checkbox" checked={v} onChange={(e) => touch((s) => { jsOf(s, j.id).ticks[`${gv}_${i}`] = e.target.checked; })} /><span>{it[0]}{ch ? <span className="tag t-blue" style={{ marginLeft: 6 }}>queued</span> : null}</span></label></div>; })}
-            </> : null}
-            {j.markers.length ? <>
-              <div className="small" style={{ margin: '10px 0 6px' }}>{dfl ? <>Gate dates. Defaults are counted back from {fd(j.start)}. <button className="btn sm" onClick={() => touch((s) => { const x = jsOf(s, j.id); j.markers.forEach((m, i) => { x.markers[m.id] = dfl[i]; }); })}>Fill all with defaults</button></> : 'Gate dates. No start date yet, so no defaults.'}</div>
-              <div className="mk">{j.markers.map((m, i) => { const val = js.markers?.[m.id] ?? m.date ?? ''; const past = dfl && dfl[i] < today; return [
-                <div key={m.id + 'l'} className="lab">{m.name.split(' (')[0]}</div>,
-                <input key={m.id + 'i'} type="date" value={val || ''} onChange={(e) => touch((s) => { jsOf(s, j.id).markers[m.id] = e.target.value; })} />,
-                <div key={m.id + 'd'} className="small" style={{ color: past ? C.red : C.muted }}>{dfl ? fd(dfl[i]) : ''}</div>]; })}</div>
-            </> : null}
+            {/* GATES AND DATES */}
+            <Section fold={fold} setFold={setFold} id={`${j.id}:gates`} title="Gate checklist and gate dates">
+              {j.gates.length ? <>
+                <select value={gv} onChange={(e) => touch((s) => { jsOf(s, j.id).gateView = Number(e.target.value); })} style={{ marginBottom: 6 }}>{j.gates.map((g, i) => <option key={g.id} value={i}>{g.name} ({gateDoneLive(js, j, i)}/{g.items.length}){i === c ? ' · current' : ''}</option>)}</select>
+                {j.gates[gv].items.map((it, i) => { const v = tickVal(js, j, gv, i); const ch = v !== !!it[1]; return <div key={i} style={{ padding: '3px 0' }}><label style={{ display: 'flex', gap: 6, cursor: 'pointer' }}><input type="checkbox" checked={v} onChange={(e) => touch((s) => { jsOf(s, j.id).ticks[`${gv}_${i}`] = e.target.checked; })} /><span>{it[0]}{ch ? <span className="tag t-blue" style={{ marginLeft: 6 }}>queued</span> : null}</span></label></div>; })}
+              </> : null}
+              {j.markers.length ? <>
+                <div className="small" style={{ margin: '10px 0 6px' }}>{dfl ? <>Gate dates. Defaults are counted back from {fd(j.start)}. <button className="btn sm" onClick={() => touch((s) => { const x = jsOf(s, j.id); j.markers.forEach((m, i) => { x.markers[m.id] = dfl[i]; }); })}>Fill all with defaults</button></> : 'Gate dates. No start date yet, so no defaults.'}</div>
+                <div className="mk">{j.markers.map((m, i) => { const val = js.markers?.[m.id] ?? m.date ?? ''; const past = dfl && dfl[i] < today; return [
+                  <div key={m.id + 'l'} className="lab">{m.name.split(' (')[0]}</div>,
+                  <input key={m.id + 'i'} type="date" value={val || ''} onChange={(e) => touch((s) => { jsOf(s, j.id).markers[m.id] = e.target.value; })} />,
+                  <div key={m.id + 'd'} className="small" style={{ color: past ? C.red : C.muted }}>{dfl ? fd(dfl[i]) : ''}</div>]; })}</div>
+              </> : null}
+            </Section>
 
-            {/* 7. STATUS */}
-            <h4>7. Keep it active, or put it on hold?</h4>
-            {holdOpen ? <HoldForm initialDate={addDays(meetingDate, 28)} onCancel={() => setHoldFormFor(null)} onSave={async (d, r) => { await setHold(j, true, d, r); setHoldFormFor(null); setOpen(null); }} />
-              : <div className="row"><button className="btn sm" onClick={() => setHoldFormFor(j.id)}>Put on hold...</button><span className="small">Set a wake-up date and the reason. The job moves to the On-hold list until then, and the hold is noted in its daily log on Confirm.</span></div>}
-            <div className="nav"><span />{pos < list.length - 1 ? <button className="btn" onClick={() => setOpen(list[pos + 1].id)}>Next job: {list[pos + 1].short}</button> : <button className="btn" onClick={() => { setStep(2); setOpen(null); window.scrollTo(0, 0); }}>Done with jobs</button>}</div>
+            {holdOpen ? <HoldForm initialDate={addDays(meetingDate, 28)} onCancel={() => setHoldFormFor(null)} onSave={async (d, r) => { await setHold(j, true, d, r); setHoldFormFor(null); setOpen(null); }} /> : null}
+            <div className="nav">
+              {!holdOpen ? <button className="btn sm" onClick={() => setHoldFormFor(j.id)}>Put on hold...</button> : <span />}
+              {pos < list.length - 1 ? <button className="btn" onClick={() => setOpen(list[pos + 1].id)}>Next job: {list[pos + 1].short}</button> : <button className="btn" onClick={() => { setStep(2); setOpen(null); window.scrollTo(0, 0); }}>Done with jobs</button>}
+            </div>
           </div>
         )}
       </div>
@@ -895,7 +956,7 @@ export default function PlanningMeetingPage() {
         <div className="steps">{STEPS.map((s, i) => <button key={s} className={step === i + 1 ? 'on' : ''} onClick={() => { setStep(i + 1); window.scrollTo(0, 0); }}>{i + 1}. {s}</button>)}</div>
         {step === 1 && <div>
           <h2>1. Job by job</h2>
-          <p className="lead">Active design jobs, soonest start first. Open one at a time. Each card runs top to bottom: where the job stands, since last meeting, roadblocks and red flags, talking points, then notes and new tasks. Everything waits for the review screen.</p>
+          <p className="lead">Active design jobs, soonest start first. Open one at a time: overview, tasks, talk it through, gates. Nothing goes to JobTread until Confirm on the review screen.</p>
           {list.map((j, pos) => <div key={j.id}>{JobCard({ j, pos, list })}</div>)}
         </div>}
         {step === 2 && OnHold()}
