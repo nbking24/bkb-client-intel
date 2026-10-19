@@ -141,6 +141,19 @@ async function fetchDecisions(jobId: string) {
   return { counts, open };
 }
 
+/**
+ * The Job Plan: description of the budget's own 📋 Project Details group (since 16 Oct 2026).
+ * Skips copies on estimates and contracts (they carry a document) and prefers the top-level group.
+ */
+async function fetchPlanGroup(jobId: string): Promise<{ id: string; description: string } | null> {
+  const data: any = await pave({
+    job: { $: { id: jobId }, costGroups: { $: { size: 50, where: [['name'], 'like', '%Project Details%'] }, nodes: { id: {}, name: {}, description: {}, parentCostGroup: { id: {} }, document: { id: {} } } } },
+  });
+  const nodes = (data?.job?.costGroups?.nodes || []).filter((g: any) => !g.document?.id);
+  const g = nodes.find((x: any) => !x.parentCostGroup?.id) || nodes[0];
+  return g ? { id: g.id, description: g.description || '' } : null;
+}
+
 async function fetchTaskDescription(taskId: string): Promise<string> {
   const data: any = await pave({ task: { $: { id: taskId }, description: {} } });
   return data?.task?.description || '';
@@ -296,10 +309,14 @@ async function buildJob(job: any, today: string, memberName: Record<string, stri
   ].filter((c) => c.date);
   const lastActivity = candidates.sort((a, b) => (a.date > b.date ? -1 : 1))[0] || null;
 
-  // job plan blank?
+  // job plan: 📋 Project Details budget group; the retired 📄 JOB PLAN to-do only as a fallback
   let jobPlanBlank = true;
   let planText = '';
-  if (planTodo) {
+  const planGroup = await fetchPlanGroup(job.id).catch(() => null);
+  if (planGroup) {
+    planText = planGroup.description;
+    jobPlanBlank = !planText.trim() || /DESIGN LEAD:[ \t]*\n[ \t]*PM:[ \t]*\n[ \t]*TARGET START:[ \t]*\n/.test(planText);
+  } else if (planTodo) {
     try {
       planText = await fetchTaskDescription(planTodo.id);
       jobPlanBlank = /DESIGN LEAD:[ \t]*\n[ \t]*PM:[ \t]*\n[ \t]*TARGET START:[ \t]*\n/.test(planText);
@@ -321,7 +338,7 @@ async function buildJob(job: any, today: string, memberName: Record<string, stri
     tasks: openTasks, roadblocks, lastMeeting,
     sel, decisions, lastActivity,
     docs: extras.docs.map((d) => ({ name: d.name, type: d.type, status: d.status, created: easternDay(d.createdAt) })),
-    planTodoId: planTodo?.id || null, jobPlanBlank, plan, planText, _planText: jobPlanBlank ? '' : planText,
+    planTodoId: planGroup ? null : planTodo?.id || null, planGroupId: planGroup?.id || null, jobPlanBlank, plan, planText, _planText: jobPlanBlank ? '' : planText,
     setup: {
       jobPlanBlank,
       leadNotNamed: gates[0] ? !gates[0].items[0]?.[1] : true,
