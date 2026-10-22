@@ -94,17 +94,6 @@ export default function TranscriptsToConfirm({ scopeAll = false, reloadKey = 0 }
 
   useEffect(() => { load(); }, [load, reloadKey]);
 
-  // Debounce the "search all jobs" boxes. One timer per open box; 300ms is
-  // long enough that typing a job name is a single JobTread call, short
-  // enough that results feel immediate.
-  useEffect(() => {
-    const openIds = Object.keys(searchOpen).filter((id) => searchOpen[id]);
-    if (openIds.length === 0) return;
-    const timers = openIds.map((id) =>
-      setTimeout(() => runJobSearch(id, searchText[id] || ''), 300),
-    );
-    return () => timers.forEach(clearTimeout);
-  }, [searchOpen, searchText, runJobSearch]);
 
   /**
    * Look a job up across open AND closed jobs. Debounced by the caller's
@@ -129,6 +118,18 @@ export default function TranscriptsToConfirm({ scopeAll = false, reloadKey = 0 }
       setSearching((b) => ({ ...b, [transcriptId]: false }));
     }
   }, []);
+
+  // Debounce the "search all jobs" boxes. One timer per open box; 300ms is
+  // long enough that typing a job name is a single JobTread call, short
+  // enough that results feel immediate.
+  useEffect(() => {
+    const openIds = Object.keys(searchOpen).filter((id) => searchOpen[id]);
+    if (openIds.length === 0) return;
+    const timers = openIds.map((id) =>
+      setTimeout(() => runJobSearch(id, searchText[id] || ''), 300),
+    );
+    return () => timers.forEach(clearTimeout);
+  }, [searchOpen, searchText, runJobSearch]);
 
   /** Pick a searched job: remember it so the select can render it, then select it. */
   function pickFoundJob(t: any, job: any) {
