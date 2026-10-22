@@ -9,7 +9,7 @@
  * when the user has no pending transcripts, so it is safe to drop on any home page.
  */
 import { useEffect, useState, useCallback, useMemo } from 'react';
-import { FileText, Check, Loader2, Calendar, ChevronRight, Trash2, Clock } from 'lucide-react';
+import { FileText, Check, Loader2, Calendar, ChevronRight, Trash2, Clock, Search } from 'lucide-react';
 import { formatEasternDateTime } from '@/app/lib/eastern-time';
 
 /**
@@ -56,6 +56,18 @@ export default function TranscriptsToConfirm({ scopeAll = false, reloadKey = 0 }
   const [leadName, setLeadName] = useState<Record<string, string>>({});
   const [busy, setBusy] = useState<Record<string, boolean>>({});
   const [confirmDeleteId, setConfirmDeleteId] = useState<string | null>(null);
+  // "Search all jobs" state. The normal dropdown only carries OPEN jobs, so a
+  // meeting recorded after a job closed (thank-you visit, warranty call,
+  // post-mortem) has nothing to attach to. Picking the __search__ sentinel
+  // opens a box that queries /api/transcripts/job-search, which searches open
+  // AND closed jobs by name, number or client.
+  const [searchOpen, setSearchOpen] = useState<Record<string, boolean>>({});
+  const [searchText, setSearchText] = useState<Record<string, string>>({});
+  const [searchResults, setSearchResults] = useState<Record<string, any[]>>({});
+  const [searching, setSearching] = useState<Record<string, boolean>>({});
+  // Jobs pulled in by search, so the <select> can display one that isn't in
+  // jobOptions and confirm() can still resolve its name. id -> job
+  const [foundJobs, setFoundJobs] = useState<Record<string, any>>({});
 
   const load = useCallback(async () => {
     try {
@@ -81,6 +93,49 @@ export default function TranscriptsToConfirm({ scopeAll = false, reloadKey = 0 }
   }, [scopeAll]);
 
   useEffect(() => { load(); }, [load, reloadKey]);
+
+  // Debounce the "search all jobs" boxes. One timer per open box; 300ms is
+  // long enough that typing a job name is a single JobTread call, short
+  // enough that results feel immediate.
+  useEffect(() => {
+    const openIds = Object.keys(searchOpen).filter((id) => searchOpen[id]);
+    if (openIds.length === 0) return;
+    const timers = openIds.map((id) =>
+      setTimeout(() => runJobSearch(id, searchText[id] || ''), 300),
+    );
+    return () => timers.forEach(clearTimeout);
+  }, [searchOpen, searchText, runJobSearch]);
+
+  /**
+   * Look a job up across open AND closed jobs. Debounced by the caller's
+   * effect; 2 characters is the server's floor too.
+   */
+  const runJobSearch = useCallback(async (transcriptId: string, q: string) => {
+    const term = (q || '').trim();
+    if (term.length < 2) {
+      setSearchResults((r) => ({ ...r, [transcriptId]: [] }));
+      return;
+    }
+    setSearching((b) => ({ ...b, [transcriptId]: true }));
+    try {
+      const res = await fetch(`/api/transcripts/job-search?q=${encodeURIComponent(term)}`, {
+        headers: { authorization: `Bearer ${getToken()}` },
+      });
+      const data = await res.json();
+      setSearchResults((r) => ({ ...r, [transcriptId]: res.ok ? (data.jobs || []) : [] }));
+    } catch {
+      setSearchResults((r) => ({ ...r, [transcriptId]: [] }));
+    } finally {
+      setSearching((b) => ({ ...b, [transcriptId]: false }));
+    }
+  }, []);
+
+  /** Pick a searched job: remember it so the select can render it, then select it. */
+  function pickFoundJob(t: any, job: any) {
+    setFoundJobs((f) => ({ ...f, [job.id]: job }));
+    setSel((sl) => ({ ...sl, [t.id]: job.id }));
+    setSearchOpen((o) => ({ ...o, [t.id]: false }));
+  }
 
   async function doConfirm(t: any, payload: any) {
     setBusy((b) => ({ ...b, [t.id]: true }));
@@ -114,7 +169,7 @@ export default function TranscriptsToConfirm({ scopeAll = false, reloadKey = 0 }
         leadName: matched?.contactName || leadName[t.id] || t.suggested_lead_name || '',
       };
     } else {
-      const job = jobOptions.find((j) => j.id === choice);
+      const job = jobOptions.find((j) => j.id === choice) || foundJobs[choice];
       payload = { kind: 'job', jobId: choice, jobName: job?.name || t.suggested_job_name || null };
     }
     return doConfirm(t, payload);
@@ -172,7 +227,16 @@ export default function TranscriptsToConfirm({ scopeAll = false, reloadKey = 0 }
               <div style={{ display: 'flex', gap: 6, alignItems: 'center', flexWrap: 'wrap' }}>
                 <select
                   value={sel[t.id] || ''}
-                  onChange={(e) => setSel((s) => ({ ...s, [t.id]: e.target.value }))}
+                  onChange={(e) => {
+                    const v = e.target.value;
+                    if (v === '__search__') {
+                      // Sentinel, not a real choice: open the search box and
+                      // leave the previous selection alone.
+                      setSearchOpen((o) => ({ ...o, [t.id]: true }));
+                      return;
+                    }
+                    setSel((s) => ({ ...s, [t.id]: v }));
+                  }}
                   style={{ flex: 1, minWidth: 180, fontSize: 12, padding: '6px 8px', borderRadius: 6, border: '1px solid rgba(200,140,0,0.2)', background: '#fff', color: '#2a2520' }}
                 >
                   <option value="">Select job or lead...</option>
@@ -184,7 +248,74 @@ export default function TranscriptsToConfirm({ scopeAll = false, reloadKey = 0 }
                       <option key={j.id} value={j.id}>{j.name}{j.clientName && !String(j.name || '').toLowerCase().includes(String(j.clientName).toLowerCase()) ? ` (${j.clientName})` : ''}</option>
                     ))}
                   </optgroup>
+                  {/* A job found by search that isn't in the open list (almost
+                      always a closed one) needs its own option or the select
+                      has nothing to display for the chosen id. */}
+                  {sel[t.id] && foundJobs[sel[t.id]] && !sortedJobs.some((j) => j.id === sel[t.id]) && (
+                    <optgroup label="Found by search">
+                      <option value={sel[t.id]}>
+                        {foundJobs[sel[t.id]].name}
+                        {foundJobs[sel[t.id]].closedOn ? ` — closed ${foundJobs[sel[t.id]].closedOn}` : ''}
+                      </option>
+                    </optgroup>
+                  )}
+                  <optgroup label="Not listed?">
+                    <option value="__search__">Search all jobs, including closed...</option>
+                  </optgroup>
                 </select>
+                {searchOpen[t.id] && (
+                  <div style={{ flexBasis: '100%', border: '1px solid rgba(200,140,0,0.25)', borderRadius: 6, padding: 8, background: '#fffdf8' }}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                      <Search size={12} style={{ color: GOLD, flexShrink: 0 }} />
+                      <input
+                        autoFocus
+                        type="text"
+                        placeholder="Job name, number or client — closed jobs included"
+                        value={searchText[t.id] || ''}
+                        onChange={(e) => setSearchText((x) => ({ ...x, [t.id]: e.target.value }))}
+                        onKeyDown={(e) => { if (e.key === 'Escape') setSearchOpen((o) => ({ ...o, [t.id]: false })); }}
+                        style={{ flex: 1, minWidth: 160, fontSize: 12, padding: '6px 8px', borderRadius: 6, border: '1px solid rgba(200,140,0,0.2)', background: '#fff', color: '#2a2520' }}
+                      />
+                      {searching[t.id] && <Loader2 size={12} className="animate-spin" style={{ color: GOLD }} />}
+                      <button
+                        onClick={() => setSearchOpen((o) => ({ ...o, [t.id]: false }))}
+                        style={{ padding: '4px 8px', borderRadius: 6, border: '1px solid rgba(0,0,0,0.1)', background: '#fff', color: '#6a6058', fontSize: 11, cursor: 'pointer' }}
+                      >
+                        Close
+                      </button>
+                    </div>
+                    {(() => {
+                      const term = (searchText[t.id] || '').trim();
+                      const results = searchResults[t.id] || [];
+                      if (term.length < 2) {
+                        return <div style={{ fontSize: 11, color: '#8a8078', marginTop: 6 }}>Type at least 2 characters.</div>;
+                      }
+                      if (searching[t.id]) return null;
+                      if (results.length === 0) {
+                        return <div style={{ fontSize: 11, color: '#8a8078', marginTop: 6 }}>No job matches "{term}".</div>;
+                      }
+                      return (
+                        <div style={{ marginTop: 6, maxHeight: 190, overflowY: 'auto', display: 'flex', flexDirection: 'column', gap: 2 }}>
+                          {results.map((j: any) => (
+                            <button
+                              key={j.id}
+                              onClick={() => pickFoundJob(t, j)}
+                              style={{ textAlign: 'left', padding: '5px 8px', borderRadius: 5, border: '1px solid rgba(0,0,0,0.06)', background: '#fff', cursor: 'pointer', fontSize: 12, color: '#2a2520', display: 'flex', alignItems: 'center', gap: 6 }}
+                            >
+                              <span style={{ fontWeight: 600 }}>{j.number ? `${j.number} · ` : ''}{j.name}</span>
+                              {j.clientName && !String(j.name || '').toLowerCase().includes(String(j.clientName).toLowerCase()) && (
+                                <span style={{ color: '#8a8078' }}>({j.clientName})</span>
+                              )}
+                              <span style={{ marginLeft: 'auto', fontSize: 10, fontWeight: 700, padding: '1px 6px', borderRadius: 999, background: j.closedOn ? '#f1efec' : 'rgba(200,140,0,0.12)', color: j.closedOn ? '#8a8078' : GOLD, whiteSpace: 'nowrap' }}>
+                                {j.closedOn ? `CLOSED ${j.closedOn}` : 'OPEN'}
+                              </span>
+                            </button>
+                          ))}
+                        </div>
+                      );
+                    })()}
+                  </div>
+                )}
                 {sel[t.id] === '__lead__' && (
                   <>
                     {/* Lead picker: choose an existing Loop lead so the

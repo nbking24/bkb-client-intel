@@ -104,9 +104,14 @@ export interface JTJob {
  * feature so Nathan can pull up historical jobs for post-mortem costing
  * analysis without having to load every job on the index view.
  *
- * Searches by name AND number in parallel and merges the results,
- * deduplicated by job id. JT's PAVE filter syntax is `['field', 'like',
- * '%pattern%']` for substring matches.
+ * Searches job NAME, job NUMBER and CLIENT (account) NAME in one PAVE query
+ * using an `or` filter — `{ or: [[field,'like','%x%'], ...] }`. `like` is
+ * case-insensitive. Nested paths work as arrays, e.g.
+ * `[['location','account','name'], 'like', '%x%']`.
+ *
+ * Open AND closed jobs are returned: callers that only want live work should
+ * use getActiveJobs() instead. Open jobs sort first, then closed jobs
+ * most-recently-closed first.
  */
 export interface JTJobSearchResult {
   id: string;
@@ -120,14 +125,13 @@ export interface JTJobSearchResult {
 export async function searchJobsByText(query: string, limit = 25): Promise<JTJobSearchResult[]> {
   const term = query.trim();
   if (!term) return [];
-  const likePattern = `%${term}%`;
+  // Escape LIKE wildcards so a stray % or _ in a client name stays literal.
+  const likePattern = `%${term.replace(/[%_]/g, (c) => `\\${c}`)}%`;
+  const size = Math.min(Math.max(limit, 1), 50);
 
-  // PAVE doesn't expose `customStatus` as a direct field on a job —
-  // it lives in the customFieldValues collection keyed by "Status".
-  // This is the same pattern getActiveJobs uses; we resolve it after
-  // the query returns by walking customFieldValues and picking the
-  // one whose customField.name === 'Status'. Same trick for "Project
-  // Manager" if we ever want it.
+  // PAVE doesn't expose `customStatus` as a direct field on a job — it lives
+  // in the customFieldValues collection keyed by "Status". Same pattern
+  // getActiveJobs uses; resolved after the query returns.
   const fields = {
     id: {}, name: {}, number: {},
     closedOn: {}, priceType: {},
@@ -140,51 +144,50 @@ export async function searchJobsByText(query: string, limit = 25): Promise<JTJob
     },
   };
 
-  // Two queries in parallel: by name and by number. JT doesn't expose
-  // an OR across fields in a single `where`, and running both as
-  // separate hits and merging is simpler than learning the AST syntax.
-  let byNameRes: any = { nodes: [] };
-  let byNumberRes: any = { nodes: [] };
+  // `closedOn` DESC sorts nulls FIRST in PAVE (ASC puts them last — verified
+  // against the live API), so open jobs lead and the archive follows
+  // most-recently-closed first. The client-side sort below still runs as a
+  // guard, but this makes the server-side cut at `size` keep the right rows.
+  let res: any = { nodes: [] };
   try {
-    byNameRes = await orgQuery('jobs', {
-      $: { size: limit, where: ['name', 'like', likePattern] },
+    res = await orgQuery('jobs', {
+      $: {
+        size,
+        where: {
+          or: [
+            ['name', 'like', likePattern],
+            ['number', 'like', likePattern],
+            [['location', 'account', 'name'], 'like', likePattern],
+          ],
+        },
+        sortBy: [
+          { field: 'closedOn', order: 'desc' },
+          { field: 'createdAt', order: 'desc' },
+        ],
+      },
       nodes: fields,
     });
   } catch (err: any) {
-    console.warn('[searchJobsByText] name query failed:', err?.message || err);
-  }
-  // Skip the number query when the term is clearly text — saves a JT
-  // round-trip and avoids a noisy 'like' against the number column.
-  if (/\d/.test(term)) {
-    try {
-      byNumberRes = await orgQuery('jobs', {
-        $: { size: limit, where: ['number', 'like', likePattern] },
-        nodes: fields,
-      });
-    } catch (err: any) {
-      console.warn('[searchJobsByText] number query failed:', err?.message || err);
-    }
+    console.warn('[searchJobsByText] query failed:', err?.message || err);
   }
 
   const seen = new Set<string>();
   const results: JTJobSearchResult[] = [];
-  for (const r of [byNameRes, byNumberRes]) {
-    for (const j of (r?.nodes || []) as any[]) {
-      if (!j?.id || seen.has(j.id)) continue;
-      seen.add(j.id);
-      const statusField = (j.customFieldValues?.nodes || []).find(
-        (cfv: any) => cfv?.customField?.name === 'Status'
-      );
-      results.push({
-        id: j.id,
-        name: j.name || '',
-        number: j.number || '',
-        customStatus: statusField?.value || null,
-        closedOn: j.closedOn || null,
-        clientName: j.location?.account?.name || '',
-        priceType: j.priceType || null,
-      });
-    }
+  for (const j of (res?.nodes || []) as any[]) {
+    if (!j?.id || seen.has(j.id)) continue;
+    seen.add(j.id);
+    const statusField = (j.customFieldValues?.nodes || []).find(
+      (cfv: any) => cfv?.customField?.name === 'Status'
+    );
+    results.push({
+      id: j.id,
+      name: j.name || '',
+      number: j.number || '',
+      customStatus: statusField?.value || null,
+      closedOn: j.closedOn || null,
+      clientName: j.location?.account?.name || '',
+      priceType: j.priceType || null,
+    });
   }
   // Sort: open jobs first (no closedOn), then closed jobs newest-first.
   results.sort((a, b) => {
