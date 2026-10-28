@@ -252,7 +252,9 @@ async function syncOne(ctx: any) {
     enrollments = keep;
 
     if (wantLoop) {
-      const withNames = internal.map((m) => firstName(team[m]?.name || '')).filter(Boolean);
+      // The booker (organizer, often Terri) is only "who you're meeting" when no other BKB guest is on the invite.
+      const hosts = internal.filter((m) => m !== organizer);
+      const withNames = (hosts.length ? hosts : internal).map((m) => firstName(team[m]?.name || '')).filter(Boolean);
       for (const c of clients) {
         if (testList.length && !testList.includes(c.email)) continue;
         if (enrollments.some((en) => en.email === c.email)) continue;
