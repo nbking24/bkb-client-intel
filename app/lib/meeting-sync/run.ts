@@ -158,6 +158,8 @@ async function syncOne(ctx: any) {
   const organizer = String(e.organizer?.email || '').toLowerCase();
   const internal = [...new Set([organizer, ...attendees.map((a: any) => a.email.toLowerCase())].filter((x) => x && isInternal(x) && !testList.includes(x)))];
   const clients = attendees.filter((a: any) => { const m = a.email.toLowerCase(); return testList.includes(m) || !isInternal(m); }).map((a: any) => ({ email: a.email.toLowerCase(), name: a.displayName || '' }));
+  // Supervised test: a test address that organized the event counts as the client too.
+  if (organizer && testList.includes(organizer) && !clients.some((c: any) => c.email === organizer)) clients.push({ email: organizer, name: '' });
 
   const base: any = {
     ical_uid: uid, calendar_user: user, event_id: e.id || row?.event_id || uid, title,
