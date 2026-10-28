@@ -60,8 +60,8 @@ export async function jobContacts(jobId: string) {
  * candidate's account wins. Otherwise one candidate wins only if it is the
  * only one (an "Ongoing" twin loses unless the title says ongoing).
  */
-export async function findJob(subject: string, guestEmails: string[]) {
-  const words = String(subject || '').split(/[^A-Za-z'\-]+/).map((w) => w.replace(/'s$/i, '')).filter((w) => w.length >= 3 && !STOP.has(w.toLowerCase()));
+export async function findJob(subject: string, guestEmails: string[], ignore: Set<string> = new Set()) {
+  const words = String(subject || '').split(/[^A-Za-z'\-]+/).map((w) => w.replace(/'s$/i, '')).filter((w) => w.length >= 3 && !STOP.has(w.toLowerCase()) && !ignore.has(w.toLowerCase()));
   const seen = new Map<string, any>();
   // A job number in the title ("Dayton 259") is the surest match.
   for (const n of (String(subject || '').match(/\b\d{3,4}\b/g) || []).slice(0, 2)) {

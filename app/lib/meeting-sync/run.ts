@@ -73,6 +73,9 @@ export async function runMeetingSync(opts: { force?: boolean } = {}) {
   const team = await jt.teamMemberships(cfg.team || {});
   const isInternal = (email: string) => email.endsWith(BKB_DOMAIN) || !!team[email];
   const testList: string[] = (cfg.loop_test_emails || []).map((x: string) => x.toLowerCase());
+  // Team names and booking-page words are never the client's name.
+  const ignoreWords = new Set(['bkb', 'brett', 'king', 'builder', 'initial', 'consultation', 'discovery', 'informational', 'information', 'agreement', 'walk', 'through', 'measurement', 'measurements', 'existing', 'conditions', 'nathan', 'terri']);
+  for (const m of Object.values(team)) for (const w of String((m as any).name || '').toLowerCase().split(/\s+/)) if (w.length >= 3) ignoreWords.add(w);
 
   let fields = cfg.loop_fields || {};
   if (cfg.loop_enabled) {
@@ -103,6 +106,7 @@ export async function runMeetingSync(opts: { force?: boolean } = {}) {
   const { data: rows } = await sb.from('meeting_sync_events').select('*').gte('end_at', timeMin);
   const tracked = new Map((rows || []).map((r: any) => [r.ical_uid, r]));
 
+  const seenKeys = new Set<string>();
   for (const [uid, { e, user }] of byUid) {
     summary.events++;
     const title = e.summary || '';
@@ -112,9 +116,13 @@ export async function runMeetingSync(opts: { force?: boolean } = {}) {
     const fromLoop = desc.includes(LOOP_WIDGET);
     const row = tracked.get(uid);
     if (!type && !fromLoop && !row) continue;
+    // Loop writes one calendar copy per client; treat same title + start as one meeting.
+    const key = `${title.trim().toLowerCase()}|${e.start?.dateTime || e.start?.date}`;
+    if (fromLoop && seenKeys.has(key) && e.status !== 'cancelled') continue;
+    seenKeys.add(key);
     summary.tracked++;
     try {
-      await syncOne({ sb, cfg, e, uid, user, title, subject, type, fromLoop, row, team, isInternal, testList, fields, now, summary });
+      await syncOne({ sb, cfg, e, uid, user, title, subject, type, fromLoop, row, team, isInternal, testList, fields, now, summary, ignoreWords });
     } catch (err: any) {
       summary.errors.push(`${title}: ${err.message}`);
     }
@@ -126,7 +134,7 @@ export async function runMeetingSync(opts: { force?: boolean } = {}) {
       if (byUid.has(r.ical_uid) || r.status === 'cancelled') continue;
       if (new Date(r.start_at) < now) continue;
       try {
-        await syncOne({ sb, cfg, e: { status: 'cancelled', start: { dateTime: r.start_at }, end: { dateTime: r.end_at } }, uid: r.ical_uid, user: r.calendar_user, title: r.title, subject: '', type: r.meeting_type ? triggerByKey(r.meeting_type) : null, fromLoop: r.from_loop, row: r, team, isInternal, testList, fields, now, summary });
+        await syncOne({ sb, cfg, e: { status: 'cancelled', start: { dateTime: r.start_at }, end: { dateTime: r.end_at } }, uid: r.ical_uid, user: r.calendar_user, title: r.title, subject: '', type: r.meeting_type ? triggerByKey(r.meeting_type) : null, fromLoop: r.from_loop, row: r, team, isInternal, testList, fields, now, summary, ignoreWords });
       } catch (err: any) { summary.errors.push(`${r.title}: ${err.message}`); }
     }
   }
@@ -167,7 +175,7 @@ async function syncOne(ctx: any) {
   let jobId = row.job_id;
   let jobName = row.job_name;
   if (!jobId && !cancelled) {
-    const found = await jt.findJob(subject || title, clients.map((c: any) => c.email));
+    const found = await jt.findJob(subject || title, clients.map((c: any) => c.email), ctx.ignoreWords);
     if (found.job) { jobId = found.job.id; jobName = `${found.job.name} (${found.job.number})`; log.push({ at: stamp(), msg: `Matched job ${jobName}` }); }
     else flags.push(found.reason);
   }
