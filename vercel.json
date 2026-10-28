@@ -79,6 +79,9 @@
     },
     "app/api/cron/production-brief/route.ts": {
       "maxDuration": 300
+    },
+    "app/api/cron/meeting-sync/route.ts": {
+      "maxDuration": 120
     }
   },
   "crons": [
@@ -145,6 +148,10 @@
     {
       "path": "/api/cron/production-brief",
       "schedule": "0 10 * * 1"
+    },
+    {
+      "path": "/api/cron/meeting-sync",
+      "schedule": "*/10 * * * *"
     }
   ]
 }

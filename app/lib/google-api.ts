@@ -658,3 +658,41 @@ export async function threadRepliedByNathan(threadId: string, userId?: string): 
     return false; // fail open: keep showing the email rather than hide something unanswered
   }
 }
+
+// ============================================================
+// Raw calendar read for the meeting sync (attendees, deleted events,
+// paging). Read-only: uses the calendar.readonly scope already granted.
+// ============================================================
+
+export async function fetchCalendarEventsRaw(params: {
+  userId: string;
+  timeMin: string;
+  timeMax: string;
+}): Promise<any[]> {
+  const token = await getAccessToken(params.userId);
+  const out: any[] = [];
+  let pageToken: string | undefined;
+  for (let i = 0; i < 20; i++) {
+    const q = new URLSearchParams({
+      timeMin: params.timeMin,
+      timeMax: params.timeMax,
+      singleEvents: 'true',
+      showDeleted: 'true',
+      maxResults: '250',
+    });
+    if (pageToken) q.set('pageToken', pageToken);
+    const res = await fetch(`https://www.googleapis.com/calendar/v3/calendars/primary/events?${q}`, {
+      headers: { Authorization: `Bearer ${token}` },
+      cache: 'no-store',
+    });
+    if (!res.ok) {
+      const t = await res.text().catch(() => '');
+      throw new Error(`Calendar read failed for ${params.userId}: ${res.status} ${t.slice(0, 200)}`);
+    }
+    const data = await res.json();
+    out.push(...(data.items || []));
+    pageToken = data.nextPageToken;
+    if (!pageToken) break;
+  }
+  return out;
+}
