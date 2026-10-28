@@ -49,7 +49,9 @@ export async function POST(
   if (loadErr || !row) {
     return NextResponse.json({ error: 'Queue row not found' }, { status: 404 });
   }
-  if (row.status !== 'pending' && row.status !== 'failed') {
+  // 'flagged' rows are approvable: a row Heather escalated is resolved by
+  // Nathan either applying a budget item or dismissing it.
+  if (!['pending', 'failed', 'flagged'].includes(row.status)) {
     return NextResponse.json({ error: `Row is ${row.status}, not pending` }, { status: 409 });
   }
 

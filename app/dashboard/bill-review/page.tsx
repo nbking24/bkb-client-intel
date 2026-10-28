@@ -18,10 +18,10 @@
  * no navigation.
  */
 
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   RefreshCw, Check, X, Loader2, AlertTriangle, HelpCircle, PieChart,
-  Search, Filter, Zap, Tag, Clock, ChevronDown, ChevronRight,
+  Search, Filter, Zap, Tag, Clock, ChevronDown, ChevronRight, Flag,
   ExternalLink, FileText, CheckSquare, Square, Brain,
 } from 'lucide-react';
 import Link from 'next/link';
@@ -73,11 +73,18 @@ type ReviewRow = {
   // JT bill issueDate (text, e.g. "2026-03-04"). Null on queue rows from
   // before migration 014 — UI falls back to first_seen_at relative time.
   document_issue_date?: string | null;
+  // "Flag for Nathan" (migration 036). Set when someone escalates the row
+  // instead of applying or dismissing it.
+  flag_note?: string | null;
+  flagged_by?: string | null;
+  flagged_at?: string | null;
 };
 
 type Stats = {
   pendingTotal: number;
   pendingByType: { uncategorized: number; miscategorized: number; budget_gap: number };
+  /** Rows escalated to Nathan. Not part of pendingTotal. */
+  flaggedTotal?: number;
   byJob: Array<{
     jobId: string; jobName: string; jobNumber: string | null;
     uncategorized: number; miscategorized: number; budgetGap: number; total: number;
@@ -104,7 +111,62 @@ const FILTERS = [
   { id: 'uncategorized',  label: 'Uncategorized',       type: 'uncategorized' },
   { id: 'miscategorized', label: 'Possibly miscategorized', type: 'miscategorized' },
   { id: 'budget_gap',     label: 'Budget gap',          type: 'budget_gap' },
+  // Its own view, not a slice of pending: a flagged row has left the
+  // pending queue and is waiting on Nathan.
+  { id: 'flagged',        label: 'Flagged for Nathan',  type: null, status: 'flagged' },
 ];
+
+/**
+ * BKB pricebook: the last two digits of a 4-digit cost code are the cost
+ * type. 1602 = cost code 16, Subcontractor. Mirrors extractSubTypeToken()
+ * in app/lib/bill-categorization.ts; the names here are JobTread's own
+ * cost-type names (org has Labor / Materials / Subcontractor / Other /
+ * Allowance / Selection).
+ */
+const SUB_TYPE_TO_COST_TYPE: Record<string, string> = {
+  '01': 'Labor',
+  '02': 'Subcontractor',
+  '03': 'Materials',
+};
+
+/**
+ * Parse what the user typed into the picker box. Codes only — no free text.
+ *   ''      -> null              (show everything allowed)
+ *   '16'    -> division 16
+ *   '1602'  -> division 16 + Subcontractor
+ * Anything else (letters, 1 or 3 digits, 5+) returns `invalid`, which the
+ * picker renders as a hint rather than an empty list.
+ */
+/**
+ * What to pre-fill the picker box with for a row: the bill line's own cost
+ * code. A 4-digit code is kept whole when its last two digits are a type we
+ * understand (01/02/03) — that narrows straight to the right bucket —
+ * otherwise we fall back to the 2-digit division so the list isn't empty.
+ */
+function defaultCodeForRow(row: { line_cost_code_number?: string | null; suggested_cost_code_number?: string | null }): string {
+  const raw = String(row.line_cost_code_number || row.suggested_cost_code_number || '').trim();
+  const digits = raw.replace(/\D/g, '');
+  if (digits.length >= 4) {
+    const four = digits.slice(0, 4);
+    return SUB_TYPE_TO_COST_TYPE[four.slice(2)] ? four : four.slice(0, 2);
+  }
+  if (digits.length >= 2) return digits.slice(0, 2);
+  return '';
+}
+
+function parseCodeQuery(raw: string): { division: string; costType: string | null } | 'invalid' | null {
+  const q = (raw || '').trim();
+  if (!q) return null;
+  if (!/^\d+$/.test(q)) return 'invalid';
+  if (q.length === 2) return { division: q, costType: null };
+  if (q.length === 4) {
+    const sub = q.slice(2);
+    const costType = SUB_TYPE_TO_COST_TYPE[sub];
+    if (!costType) return 'invalid';
+    return { division: q.slice(0, 2), costType };
+  }
+  return 'invalid';
+}
 
 function formatMoney(n: number | null | undefined) {
   if (n == null) return '$0';
@@ -170,6 +232,8 @@ export default function BillReviewPage() {
     costCodeId: string | null;
     costCodeNumber: string | null;
     costCodeName: string | null;
+    /** JobTread cost type: "Labor" | "Materials" | "Subcontractor" | ... */
+    costTypeName?: string | null;
     cost: number;
     // True when this budget item is on an approved CO. Fixed-price jobs
     // gate picker visibility on this (cc23 items are always allowed).
@@ -188,6 +252,9 @@ export default function BillReviewPage() {
   // the dropdown flips up when the row is too close to the bottom of the
   // viewport (the common case being one-row-left in the queue).
   const [pickerOpenDir, setPickerOpenDir] = useState<'down' | 'up'>('down');
+  // "Flag for Nathan": which row's note box is open, and the note text.
+  const [flagRowId, setFlagRowId] = useState<string | null>(null);
+  const [flagNote, setFlagNote] = useState<Record<string, string>>({});
 
   // Close picker when clicking outside of it.
   useEffect(() => {
@@ -203,19 +270,35 @@ export default function BillReviewPage() {
     return () => document.removeEventListener('mousedown', handler);
   }, [openPickerRowId]);
 
-  async function fetchBudgetItemsForJob(jobId: string) {
-    if (budgetItemsCache[jobId] || budgetItemsLoading[jobId]) return;
+  // In-flight guard that survives re-renders. setState is async, so two
+  // rows on the same job opening back-to-back both saw budgetItemsLoading
+  // as false and fired duplicate fetches.
+  const budgetFetchInFlight = useRef<Set<string>>(new Set());
+
+  const fetchBudgetItemsForJob = useCallback(async (jobId: string) => {
+    if (!jobId || !token) return;
+    if (budgetItemsCacheRef.current[jobId] || budgetFetchInFlight.current.has(jobId)) return;
+    budgetFetchInFlight.current.add(jobId);
     setBudgetItemsLoading(prev => ({ ...prev, [jobId]: true }));
     try {
-      const res = await fetch(`/api/dashboard/bill-review/budget-items?jobId=${encodeURIComponent(jobId)}`, { headers });
+      const res = await fetch(`/api/dashboard/bill-review/budget-items?jobId=${encodeURIComponent(jobId)}`, {
+        headers: { Authorization: `Bearer ${token}` },
+      });
       const json = await res.json();
       if (res.ok) {
         setBudgetItemsCache(prev => ({ ...prev, [jobId]: json.items || [] }));
         setJobIsCostPlus(prev => ({ ...prev, [jobId]: !!json.isCostPlus }));
       }
     } catch { /* swallow — picker will fall back to candidates only */ }
+    budgetFetchInFlight.current.delete(jobId);
     setBudgetItemsLoading(prev => ({ ...prev, [jobId]: false }));
-  }
+  }, [token]);
+
+  // Mirror of budgetItemsCache for the in-flight guard above (reading state
+  // inside a useCallback would capture a stale snapshot).
+  const budgetItemsCacheRef = useRef<Record<string, BudgetItem[]>>({});
+  useEffect(() => { budgetItemsCacheRef.current = budgetItemsCache; }, [budgetItemsCache]);
+
 
   const token = typeof window !== 'undefined' ? localStorage.getItem('bkb-token') : null;
   const headers = token ? { Authorization: `Bearer ${token}` } : {};
@@ -229,6 +312,9 @@ export default function BillReviewPage() {
       if (filter !== 'all') {
         const f = FILTERS.find(x => x.id === filter);
         if (f?.type) params.set('issueType', f.type);
+        // 'flagged' swaps the whole view to escalated rows rather than
+        // narrowing the pending list by issue type.
+        if ((f as any)?.status) params.set('status', (f as any).status);
       }
       if (jobFilter) params.set('jobId', jobFilter);
       const res = await fetch(`/api/dashboard/bill-review?${params.toString()}`, { headers });
@@ -247,6 +333,62 @@ export default function BillReviewPage() {
   }, [token, filter, jobFilter]);
 
   useEffect(() => { load(); }, [load]);
+
+  // Prefetch budget items for every job represented in the queue as soon as
+  // the rows land, so the "Apply to" dropdown opens instantly instead of
+  // blocking on a JobTread round-trip the first time each job is touched.
+  // Results are cached for the session in budgetItemsCache.
+  //
+  // Fetched a few jobs at a time: the queue can span a dozen jobs and firing
+  // them all at once just queues up behind JobTread's rate limit anyway.
+  useEffect(() => {
+    if (!token || rows.length === 0) return;
+    let cancelled = false;
+    const jobIds = [...new Set(rows.map(r => r.job_id).filter(Boolean))];
+    (async () => {
+      const CONCURRENCY = 3;
+      for (let i = 0; i < jobIds.length; i += CONCURRENCY) {
+        if (cancelled) return;
+        await Promise.all(jobIds.slice(i, i + CONCURRENCY).map(id => fetchBudgetItemsForJob(id)));
+      }
+    })();
+    return () => { cancelled = true; };
+  }, [rows, token, fetchBudgetItemsForJob]);
+
+  /**
+   * Escalate a row to Nathan with a short note. Takes it out of the pending
+   * queue; the nightly scan leaves flagged rows alone.
+   */
+  async function flagRow(row: ReviewRow) {
+    const note = (flagNote[row.id] || '').trim();
+    if (!note) {
+      setRowError((m) => ({ ...m, [row.id]: 'Add a short note so Nathan knows what to look at.' }));
+      return;
+    }
+    setActingId(row.id);
+    setRowError((m) => { const n = { ...m }; delete n[row.id]; return n; });
+    try {
+      const res = await fetch(`/api/dashboard/bill-review/${row.id}/flag`, {
+        method: 'POST',
+        headers: { ...headers, 'Content-Type': 'application/json' },
+        body: JSON.stringify({ note }),
+      });
+      const json = await res.json().catch(() => ({} as any));
+      if (!res.ok) {
+        setRowError((m) => ({ ...m, [row.id]: json?.error || `Flag failed (HTTP ${res.status})` }));
+      } else {
+        // Leaves the pending view immediately; reload picks up the counts.
+        setRows(prev => prev.filter(r => r.id !== row.id));
+        setFlagRowId(null);
+        setFlagNote(prev => { const n = { ...prev }; delete n[row.id]; return n; });
+        void load();
+      }
+    } catch (err: any) {
+      setRowError((m) => ({ ...m, [row.id]: `Network error: ${err?.message || 'unknown'}` }));
+    } finally {
+      setActingId(null);
+    }
+  }
 
   const filteredRows = useMemo(() => {
     if (!search.trim()) return rows;
@@ -414,7 +556,10 @@ export default function BillReviewPage() {
         const res = await fetch(`/api/dashboard/bill-review/${id}/dismiss`, {
           method: 'POST',
           headers: { ...headers, 'Content-Type': 'application/json' },
-          body: JSON.stringify({ reason: 'Bulk-dismissed by Nathan', dismissedBy: auth.userId || 'nathan' }),
+          // Reason + actor are resolved server-side from the signed-in
+          // user (see the dismiss route) — this used to say "Nathan" no
+          // matter who clicked it.
+          body: JSON.stringify({ bulk: true }),
         });
         if (res.ok) setRows(prev => prev.filter(r => r.id !== id));
         else failed++;
@@ -440,7 +585,8 @@ export default function BillReviewPage() {
       const res = await fetch(`/api/dashboard/bill-review/${row.id}/dismiss`, {
         method: 'POST',
         headers: { ...headers, 'Content-Type': 'application/json' },
-        body: JSON.stringify({ reason: 'Nathan marked OK', dismissedBy: auth.userId || 'nathan' }),
+        // Reason + actor resolved server-side from the signed-in user.
+        body: JSON.stringify({}),
       });
       if (!res.ok) {
         const json = await res.json().catch(() => ({} as any));
@@ -539,9 +685,11 @@ export default function BillReviewPage() {
       <div className="flex flex-wrap items-center gap-2 mb-4">
         {FILTERS.map((f) => {
           const isActive = filter === f.id;
-          const count = f.type
-            ? stats?.pendingByType?.[f.type as keyof typeof stats.pendingByType] || 0
-            : stats?.pendingTotal || 0;
+          const count = (f as any).status === 'flagged'
+            ? stats?.flaggedTotal || 0
+            : f.type
+              ? stats?.pendingByType?.[f.type as keyof typeof stats.pendingByType] || 0
+              : stats?.pendingTotal || 0;
           return (
             <button
               key={f.id}
@@ -722,6 +870,18 @@ export default function BillReviewPage() {
                     >
                       <Icon size={11} /> {meta.label}
                     </span>
+                    {/* Escalated row: show who flagged it and why, right next
+                        to the issue pill, so Nathan can triage the list
+                        without opening anything. */}
+                    {row.status === 'flagged' && (
+                      <span
+                        className="inline-flex items-center gap-1 px-2 py-0.5 rounded text-xs font-medium"
+                        style={{ background: '#fef3c7', color: '#8a6100' }}
+                        title={row.flagged_at ? `Flagged ${timeAgo(row.flagged_at)}` : 'Flagged'}
+                      >
+                        <Flag size={11} /> Flagged{row.flagged_by ? ` by ${row.flagged_by}` : ''}
+                      </span>
+                    )}
                     {/* Previous-apply-failed indicator. Surfaced when the row
                         is currently in 'failed' status (typically a prior JT
                         update threw) so the user knows it needs a retry. The
@@ -782,6 +942,17 @@ export default function BillReviewPage() {
                       </div>
                     </div>
                   </div>
+
+                  {/* The flag note itself. Always expanded — it is the whole
+                      reason the row is in front of Nathan. */}
+                  {row.status === 'flagged' && row.flag_note && (
+                    <div
+                      className="mt-2 p-2 rounded text-xs"
+                      style={{ background: '#fffdf5', border: '1px solid #e8d9a8', color: '#5a4a1f' }}
+                    >
+                      <span className="font-semibold">Note: </span>{row.flag_note}
+                    </div>
+                  )}
 
                   {/* Bill description — captured from JT at scan time. Collapsed
                       by default; click "Show description" to expand. Hidden
@@ -880,7 +1051,9 @@ export default function BillReviewPage() {
                             : null);
                         const isOpen = openPickerRowId === row.id;
                         const isLoading = !!budgetItemsLoading[row.job_id];
-                        const q = pickerSearch.trim().toLowerCase();
+                        // The box takes a COST CODE, not free text: 2 digits
+                        // for a division, 4 for division + cost type.
+                        const codeQuery = parseCodeQuery(pickerSearch);
                         const candidateIds = new Set(candidates.map(c => c.jobCostItemId));
                         // Enforce BKB's matching rule per pricing type:
                         // - Fixed-price: only show budget items that are on
@@ -899,12 +1072,26 @@ export default function BillReviewPage() {
                           return !!b.isApproved;
                         };
                         const allowedItems = allItems.filter(isAllowedTarget);
-                        const filteredAll = q
-                          ? allowedItems.filter(b => {
-                              const hay = `${b.costCodeNumber || ''} ${b.name || ''} ${b.costCodeName || ''}`.toLowerCase();
-                              return hay.includes(q);
-                            })
-                          : allowedItems;
+                        /**
+                         * Cost-code match. A budget item's code may be 2 or 4
+                         * digits ("16" or "1602"); we compare on the first two
+                         * (the division) and, when the user typed 4 digits,
+                         * also require the cost type to match.
+                         */
+                        const matchesCode = (
+                          codeNumber: string | null | undefined,
+                          costTypeName: string | null | undefined,
+                        ): boolean => {
+                          if (!codeQuery || codeQuery === 'invalid') return codeQuery !== 'invalid';
+                          const division = String(codeNumber || '').trim().slice(0, 2);
+                          if (division !== codeQuery.division) return false;
+                          if (!codeQuery.costType) return true;
+                          return String(costTypeName || '').trim().toLowerCase()
+                            === codeQuery.costType.toLowerCase();
+                        };
+                        const filteredAll = codeQuery === 'invalid'
+                          ? []
+                          : allowedItems.filter(b => matchesCode(b.costCodeNumber, b.costTypeName));
                         // Always show all candidates in the suggested section,
                         // even when searching, so the user can fall back if
                         // the search matches nothing useful.
@@ -931,7 +1118,11 @@ export default function BillReviewPage() {
                                   void fetchBudgetItemsForJob(row.job_id);
                                 }
                                 setOpenPickerRowId(next);
-                                setPickerSearch('');
+                                // Pre-fill with the bill line's own cost code
+                                // so the right list is already showing. Falls
+                                // back to the division when the line carries
+                                // a 4-digit code whose type we don't map.
+                                setPickerSearch(next ? defaultCodeForRow(row) : '');
                               }}
                               className="w-full flex items-center gap-2 px-2 py-1.5 rounded text-xs text-left"
                               style={{ background: '#ffffff', border: '1px solid #e8e5e0', color: '#1a1a1a' }}
@@ -977,12 +1168,21 @@ export default function BillReviewPage() {
                                     <input
                                       type="text"
                                       autoFocus
+                                      inputMode="numeric"
+                                      maxLength={4}
                                       value={pickerSearch}
-                                      onChange={(e) => setPickerSearch(e.target.value)}
-                                      placeholder="Search by cost code or name…"
+                                      onChange={(e) => setPickerSearch(e.target.value.replace(/\D/g, '').slice(0, 4))}
+                                      placeholder="Cost code — 16, or 1602"
                                       className="w-full pl-7 pr-2 py-1.5 rounded text-xs"
                                       style={{ background: '#faf8f5', border: '1px solid #e8e5e0', color: '#1a1a1a' }}
                                     />
+                                  </div>
+                                  <div className="mt-1 text-[10px]" style={{ color: codeQuery === 'invalid' ? '#b91c1c' : '#8a8078' }}>
+                                    {codeQuery === 'invalid'
+                                      ? 'Enter 2 digits (16) or 4 digits (1602 = 16 Subcontractor).'
+                                      : codeQuery
+                                        ? `Showing cost code ${codeQuery.division}${codeQuery.costType ? ` · ${codeQuery.costType}` : ''}`
+                                        : 'Last 2 digits are the type: 01 Labor · 02 Subcontractor · 03 Materials'}
                                   </div>
                                 </div>
                                 <div style={{ overflowY: 'auto', flex: 1 }}>
@@ -991,12 +1191,21 @@ export default function BillReviewPage() {
                                       jobs only show suggestions that are
                                       on an approved CO (cc23 always allowed). */}
                                   {(() => {
-                                    const suggested = candidates.filter(c => {
-                                      if (isCostPlus) return true;
-                                      if ((c.costCodeNumber || '').trim() === '23') return true;
-                                      const b = allItems.find(b => b.id === c.jobCostItemId);
-                                      return !!b?.isApproved;
-                                    });
+                                    // Approval gate first, then the cost-code
+                                    // filter — so an empty result hides the
+                                    // whole section rather than leaving a
+                                    // bare "Suggested" header behind.
+                                    const suggested = candidates
+                                      .filter(c => {
+                                        if (isCostPlus) return true;
+                                        if ((c.costCodeNumber || '').trim() === '23') return true;
+                                        const b = allItems.find(b => b.id === c.jobCostItemId);
+                                        return !!b?.isApproved;
+                                      })
+                                      .filter(c => matchesCode(
+                                        c.costCodeNumber,
+                                        allItems.find(b => b.id === c.jobCostItemId)?.costTypeName,
+                                      ));
                                     if (suggested.length === 0) return null;
                                     return (
                                     <div>
@@ -1004,7 +1213,6 @@ export default function BillReviewPage() {
                                         Suggested
                                       </div>
                                       {suggested
-                                        .filter(c => !q || `${c.costCodeNumber || ''} ${c.name || ''}`.toLowerCase().includes(q))
                                         .map((c) => {
                                           const isPicked = c.jobCostItemId === currentPick;
                                           return (
@@ -1049,9 +1257,13 @@ export default function BillReviewPage() {
                                     </div>
                                     {filteredAll.length === 0 && !isLoading ? (
                                       <div className="px-2 py-3 text-xs italic" style={{ color: '#8a8078' }}>
-                                        {allItems.length === 0
-                                          ? 'No approved budget items on this job.'
-                                          : 'No items match the search.'}
+                                        {allowedItems.length === 0
+                                          ? 'No approved budget items on this job — flag it for Nathan.'
+                                          : codeQuery === 'invalid'
+                                            ? 'Enter a 2- or 4-digit cost code.'
+                                            : codeQuery
+                                              ? `No approved budget item on cost code ${codeQuery.division}${codeQuery.costType ? ` · ${codeQuery.costType}` : ''} — flag it for Nathan.`
+                                              : 'No approved budget items match.'}
                                       </div>
                                     ) : (
                                       filteredAll
@@ -1099,22 +1311,106 @@ export default function BillReviewPage() {
                         </span>
                       )}
 
-                      {/* Apply is enabled as long as something has been
-                          picked — either a candidate or any budget item from
-                          the searchable picker. */}
+                      {(() => {
+                        // Nothing legal to apply to? Then Apply is a dead
+                        // end — swap it for the escalation path. "Nothing
+                        // legal" means no approved budget item on this job
+                        // the fixed-price rule would accept.
+                        const allItemsForRow = budgetItemsCache[row.job_id] || [];
+                        const costPlus = !!jobIsCostPlus[row.job_id];
+                        const anyAllowed = allItemsForRow.some(b =>
+                          costPlus || (b.costCodeNumber || '').trim() === '23' || !!b.isApproved
+                        );
+                        const stillLoading = !!budgetItemsLoading[row.job_id];
+                        const noTargets = !stillLoading && !anyAllowed;
+                        if (noTargets) {
+                          return (
+                            <span className="ml-auto text-xs italic" style={{ color: '#8a8078' }}>
+                              No approved budget item to apply to
+                            </span>
+                          );
+                        }
+                        return (
+                          <button
+                            onClick={() => approveRow(row)}
+                            disabled={isActing || !currentPick}
+                            className="flex items-center gap-1 px-3 py-1.5 rounded text-xs font-medium ml-auto"
+                            style={{
+                              background: '#68050a', color: '#ffffff',
+                              border: '1px solid #68050a',
+                              opacity: (isActing || !currentPick) ? 0.5 : 1,
+                            }}
+                          >
+                            {isActing ? <Loader2 size={12} className="animate-spin" /> : <Check size={12} />}
+                            Apply
+                          </button>
+                        );
+                      })()}
+
+                      {/* Flag for Nathan — available on every row, not just
+                          the dead ends, so Heather can escalate anything she
+                          isn't sure about. */}
                       <button
-                        onClick={() => approveRow(row)}
-                        disabled={isActing || !currentPick}
-                        className="flex items-center gap-1 px-3 py-1.5 rounded text-xs font-medium ml-auto"
+                        onClick={() => {
+                          setFlagRowId(flagRowId === row.id ? null : row.id);
+                          setRowError((m) => { const n = { ...m }; delete n[row.id]; return n; });
+                        }}
+                        disabled={isActing}
+                        className="flex items-center gap-1 px-3 py-1.5 rounded text-xs"
                         style={{
-                          background: '#68050a', color: '#ffffff',
-                          border: '1px solid #68050a',
-                          opacity: (isActing || !currentPick) ? 0.5 : 1,
+                          background: flagRowId === row.id ? '#fef3c7' : '#ffffff',
+                          border: '1px solid #e8d9a8',
+                          color: '#8a6100',
                         }}
                       >
-                        {isActing ? <Loader2 size={12} className="animate-spin" /> : <Check size={12} />}
-                        Apply
+                        <Flag size={12} /> Flag for Nathan
                       </button>
+
+                      {flagRowId === row.id && (
+                        <div
+                          className="basis-full mt-2 p-2 rounded"
+                          style={{ background: '#fffdf5', border: '1px solid #e8d9a8' }}
+                        >
+                          <label className="block text-[11px] font-semibold mb-1" style={{ color: '#8a6100' }}>
+                            What should Nathan look at?
+                          </label>
+                          <div className="flex items-center gap-2">
+                            <input
+                              type="text"
+                              autoFocus
+                              maxLength={500}
+                              value={flagNote[row.id] || ''}
+                              onChange={(e) => setFlagNote(prev => ({ ...prev, [row.id]: e.target.value }))}
+                              onKeyDown={(e) => {
+                                if (e.key === 'Enter') { e.preventDefault(); void flagRow(row); }
+                                if (e.key === 'Escape') setFlagRowId(null);
+                              }}
+                              placeholder="e.g. no 16 Subcontractor line on the contract — is this a change order?"
+                              className="flex-1 px-2 py-1.5 rounded text-xs"
+                              style={{ background: '#ffffff', border: '1px solid #e8e5e0', color: '#1a1a1a' }}
+                            />
+                            <button
+                              onClick={() => flagRow(row)}
+                              disabled={isActing || !(flagNote[row.id] || '').trim()}
+                              className="flex items-center gap-1 px-3 py-1.5 rounded text-xs font-medium"
+                              style={{
+                                background: '#8a6100', color: '#ffffff', border: '1px solid #8a6100',
+                                opacity: (isActing || !(flagNote[row.id] || '').trim()) ? 0.5 : 1,
+                              }}
+                            >
+                              {isActing ? <Loader2 size={12} className="animate-spin" /> : <Flag size={12} />}
+                              Flag
+                            </button>
+                            <button
+                              onClick={() => setFlagRowId(null)}
+                              className="px-2 py-1.5 rounded text-xs"
+                              style={{ background: '#ffffff', border: '1px solid #e8e5e0', color: '#5a5550' }}
+                            >
+                              Cancel
+                            </button>
+                          </div>
+                        </div>
+                      )}
                       {rowError[row.id] && (
                         <div
                           className="basis-full mt-2 p-2 rounded text-xs"
