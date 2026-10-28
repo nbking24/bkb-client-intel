@@ -37,9 +37,15 @@ export const maxDuration = 300;  // this scan can take a while on a full org
 // Jobs flagged with these custom statuses are considered "active" enough
 // to care about bill categorization. Historic / archived / lost jobs
 // would just generate noise. Uses StatusCategoryKey values from
-// constants.ts. Leads (no bills yet) and Design (pre-construction) are
-// skipped; scans run on jobs that are actively spending.
+// constants.ts.
+//
+// IN_DESIGN is included (added 2026-10-28): design-phase jobs do run up
+// vendor bills — engineering, surveys, permit fees, design retainers — and
+// leaving them out meant those bills never reached the queue at all. Beyer
+// Addition and Robinson Kitchen & Interior both had bills in JobTread and
+// never appeared. LEADS stays out: no job, no bills.
 const SCAN_STATUS_CATEGORIES = new Set<string>([
+  'IN_DESIGN',
   'READY',
   'IN_PRODUCTION',
   'FINAL_BILLING',

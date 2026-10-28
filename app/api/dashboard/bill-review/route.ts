@@ -8,6 +8,8 @@
  * Query params:
  *   issueType=uncategorized|miscategorized|budget_gap    filter
  *   jobId=<jt job id>                                     filter
+ *   status=flagged                                        show the rows
+ *       Heather escalated to Nathan instead of the pending queue
  *   limit=<n>                                             default 100
  *   includeStats=1                                        append scan stats
  */
@@ -21,6 +23,10 @@ export async function GET(req: NextRequest) {
 
   const issueType = req.nextUrl.searchParams.get('issueType');
   const jobId = req.nextUrl.searchParams.get('jobId');
+  // 'flagged' is its own view, not a slice of pending — a flagged row has
+  // deliberately left the pending queue and is waiting on Nathan.
+  const statusParam = req.nextUrl.searchParams.get('status');
+  const wantFlagged = statusParam === 'flagged';
   const limit = Math.min(500, Number(req.nextUrl.searchParams.get('limit') || 100));
   const includeStats = req.nextUrl.searchParams.get('includeStats') === '1';
 
@@ -28,12 +34,19 @@ export async function GET(req: NextRequest) {
   // attempt failed in JT — the line is still uncategorized and needs another
   // try). 'failed' rows surface a retry-indicator in the UI so they don't
   // silently disappear from view after a transient JT error.
-  let query = supabase
-    .from('bill_review_queue')
-    .select('*')
-    .in('status', ['pending', 'failed'])
-    .order('first_seen_at', { ascending: true })
-    .limit(limit);
+  let query = wantFlagged
+    ? supabase
+        .from('bill_review_queue')
+        .select('*')
+        .eq('status', 'flagged')
+        .order('flagged_at', { ascending: false })
+        .limit(limit)
+    : supabase
+        .from('bill_review_queue')
+        .select('*')
+        .in('status', ['pending', 'failed'])
+        .order('first_seen_at', { ascending: true })
+        .limit(limit);
 
   if (issueType) query = query.eq('issue_type', issueType);
   if (jobId) query = query.eq('job_id', jobId);
@@ -60,6 +73,14 @@ export async function GET(req: NextRequest) {
     for (const r of counts || []) {
       if (r.issue_type in byType) byType[r.issue_type]++;
     }
+
+    // Flagged-for-Nathan count. Shown as its own filter chip; deliberately
+    // NOT folded into pendingTotal, since a flagged row has left the
+    // pending queue.
+    const { count: flaggedTotal } = await supabase
+      .from('bill_review_queue')
+      .select('id', { count: 'exact', head: true })
+      .eq('status', 'flagged');
 
     // Most recent scan run
     const { data: lastScan } = await supabase
@@ -97,6 +118,7 @@ export async function GET(req: NextRequest) {
     response.stats = {
       pendingTotal: (counts || []).length,
       pendingByType: byType,
+      flaggedTotal: flaggedTotal || 0,
       // Alphabetical by job name so the filter dropdown is easy to scan;
       // ties fall back to job number then pending count.
       byJob: [...jobMap.values()].sort((a, b) =>

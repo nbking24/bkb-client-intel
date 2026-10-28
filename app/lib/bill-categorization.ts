@@ -580,7 +580,9 @@ export async function scanJobBills(
 
     if (existing) {
       // Already-known flag. Refresh it, but don't reset status if
-      // Nathan already approved/applied/dismissed.
+      // Nathan already approved/applied/dismissed — or if Heather flagged
+      // it for him. A 'flagged' row is waiting on a person, so the scan
+      // must not quietly push it back to pending and bury the note.
       if (existing.status === 'pending' || existing.status === 'failed') {
         // For previously-failed rows, also reset status back to 'pending'
         // and clear last_error — the issue is still present, the prior
@@ -610,6 +612,11 @@ export async function scanJobBills(
   // Auto-dismiss previously-pending rows on this job that are no
   // longer in the flagged set (line was categorized correctly between
   // runs, either by Nathan in JT or by the approval endpoint).
+  //
+  // Scoped to status='pending' ONLY. In particular a row Heather flagged
+  // for Nathan ('flagged') must survive every scan until he acts on it —
+  // auto-dismissing it would drop her note and the row would silently
+  // vanish from his list.
   const { data: staleRows } = await supabase
     .from('bill_review_queue')
     .select('id, document_id, cost_item_id')

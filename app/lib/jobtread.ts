@@ -2439,6 +2439,121 @@ export async function getCostItemsForJobLite(jobId: string, limit = 200): Promis
  * rollup — it had to fall back to time-entry costs only, dropping every
  * vendor bill from the per-cost-code breakdown.
  */
+/**
+ * Cost items from a job's APPROVED, in-budget customer orders only.
+ *
+ * This is the narrow version of getDocumentCostItemsForJob() for the one
+ * question the Bill Review picker actually asks: "which budget items sit on
+ * an approved customer order?" The general function walks EVERY document on
+ * the job — every vendor bill, invoice and order — and every line on each of
+ * them, which on Henschel Renovation (190+ bills) means hundreds of PAVE
+ * round-trips to answer a question that only concerns a handful of customer
+ * orders.
+ *
+ * Here the document list is filtered server-side to type=customerOrder,
+ * status=approved, includeInBudget=true, so only those documents' lines are
+ * fetched. Typically 1-5 documents instead of 200.
+ *
+ * Returns the doc-level cost items, each carrying its `jobCostItem` link —
+ * the caller maps those to job-level budget item ids.
+ */
+export async function getApprovedOrderCostItemsForJob(jobId: string): Promise<JTCostItem[]> {
+  const MAX_DOC_PAGES = 20;
+
+  // Pass 1: just the approved, in-budget customer orders.
+  const docs: { id: string; type: string; status: string; number: string | null }[] = [];
+  let nextPage: string | null = null;
+  for (let page = 0; page < 10; page++) {
+    const pageParams: Record<string, unknown> = {
+      size: 50,
+      where: {
+        and: [
+          ['type', '=', 'customerOrder'],
+          ['status', '=', 'approved'],
+          ['includeInBudget', '=', true],
+        ],
+      },
+    };
+    if (nextPage) pageParams.page = nextPage;
+    const data = await pave({
+      job: {
+        $: { id: jobId },
+        documents: {
+          $: pageParams,
+          nextPage: {},
+          nodes: { id: {}, type: {}, status: {}, number: {} },
+        },
+      },
+    });
+    const docsPage = (data as any)?.job?.documents;
+    const nodes = (docsPage?.nodes || []) as any[];
+    docs.push(...nodes.map((n) => ({
+      id: n.id, type: n.type, status: n.status,
+      number: n.number != null ? String(n.number) : null,
+    })));
+    nextPage = docsPage?.nextPage || null;
+    if (!nextPage || nodes.length < 50) break;
+  }
+  if (docs.length === 0) return [];
+
+  // Pass 2: lines for those documents only, paginated within each doc
+  // (PAVE caps a page at 100 and a contract can carry 130+ lines).
+  const out: JTCostItem[] = [];
+  const results = await Promise.all(
+    docs.map(async (doc) => {
+      const items: any[] = [];
+      let docNextPage: string | null = null;
+      try {
+        for (let p = 0; p < MAX_DOC_PAGES; p++) {
+          const params: Record<string, unknown> = { size: 100 };
+          if (docNextPage) params.page = docNextPage;
+          const itemData = await pave({
+            document: {
+              $: { id: doc.id },
+              costItems: {
+                $: params,
+                nextPage: {},
+                nodes: {
+                  id: {}, name: {}, cost: {}, price: {}, quantity: {},
+                  isSelected: {},
+                  costType: { name: {} },
+                  costCode: { name: {}, number: {} },
+                  jobCostItem: { id: {}, costCode: { name: {}, number: {} } },
+                  costGroup: {
+                    id: {}, name: {}, isSelected: {},
+                    parentCostGroup: { id: {}, name: {}, isSelected: {} },
+                  },
+                },
+              },
+            },
+          });
+          const page = (itemData as any)?.document?.costItems;
+          const pageItems = (page?.nodes || []) as any[];
+          items.push(...pageItems);
+          docNextPage = page?.nextPage || null;
+          if (!docNextPage || pageItems.length < 100) break;
+        }
+      } catch (err: any) {
+        console.warn(`[getApprovedOrderCostItemsForJob] doc ${doc.id} failed:`, err?.message || err);
+      }
+      return { doc, items };
+    })
+  );
+
+  for (const { doc, items } of results) {
+    for (const item of items) {
+      out.push({
+        ...item,
+        document: {
+          id: doc.id, name: '', type: doc.type, status: doc.status,
+          ...(doc.number != null ? { number: doc.number } : {}),
+        } as any,
+      });
+    }
+  }
+  return out;
+}
+
 export async function getDocumentCostItemsForJob(jobId: string): Promise<JTCostItem[]> {
   const DOCS_PAGE_SIZE = 50;
   type DocMeta = {
