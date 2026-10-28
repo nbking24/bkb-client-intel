@@ -240,6 +240,14 @@ export default function BillReviewPage() {
     // Cost-plus jobs ignore it.
     isApproved?: boolean;
   };
+  // Declared before anything that lists `token` in a dependency array.
+  // A hook's dependency array is evaluated during render, so a `const`
+  // declared further down the component is still in its temporal dead zone
+  // at that point — which crashed the whole page with "Cannot access 'x'
+  // before initialization".
+  const token = typeof window !== 'undefined' ? localStorage.getItem('bkb-token') : null;
+  const headers = token ? { Authorization: `Bearer ${token}` } : {};
+
   const [openPickerRowId, setOpenPickerRowId] = useState<string | null>(null);
   const [pickerSearch, setPickerSearch] = useState('');
   const [budgetItemsCache, setBudgetItemsCache] = useState<Record<string, BudgetItem[]>>({});
@@ -275,6 +283,12 @@ export default function BillReviewPage() {
   // as false and fired duplicate fetches.
   const budgetFetchInFlight = useRef<Set<string>>(new Set());
 
+  // Mirror of budgetItemsCache for the in-flight guard below (reading state
+  // inside a useCallback would capture a stale snapshot). Declared before
+  // the callback that reads it, same reason as token above.
+  const budgetItemsCacheRef = useRef<Record<string, BudgetItem[]>>({});
+  useEffect(() => { budgetItemsCacheRef.current = budgetItemsCache; }, [budgetItemsCache]);
+
   const fetchBudgetItemsForJob = useCallback(async (jobId: string) => {
     if (!jobId || !token) return;
     if (budgetItemsCacheRef.current[jobId] || budgetFetchInFlight.current.has(jobId)) return;
@@ -294,14 +308,7 @@ export default function BillReviewPage() {
     setBudgetItemsLoading(prev => ({ ...prev, [jobId]: false }));
   }, [token]);
 
-  // Mirror of budgetItemsCache for the in-flight guard above (reading state
-  // inside a useCallback would capture a stale snapshot).
-  const budgetItemsCacheRef = useRef<Record<string, BudgetItem[]>>({});
-  useEffect(() => { budgetItemsCacheRef.current = budgetItemsCache; }, [budgetItemsCache]);
 
-
-  const token = typeof window !== 'undefined' ? localStorage.getItem('bkb-token') : null;
-  const headers = token ? { Authorization: `Bearer ${token}` } : {};
 
   const load = useCallback(async () => {
     if (!token) return;
