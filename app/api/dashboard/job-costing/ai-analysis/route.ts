@@ -46,7 +46,16 @@ export async function POST(req: Request) {
     const totalCommitted = Number(fs.totalCosts) || (totalActualCost + totalPendingCost);
     const collectedAmount = Number(fs.collectedAmount) || 0;
     const contractTotal = Number(fs.contractPrice) || totalEstimatedPrice;
-    const invoicedTotal = Number(fs.invoicedAmount) || 0;
+    // Field-name mismatch, fixed 2026-10-29. The job-costing DETAIL route
+    // (which is what `detail` here always is) publishes this as
+    // `invoicedTotal`; only the job-costing LIST route calls it
+    // `invoicedAmount`. Reading the list name off a detail payload yielded
+    // undefined -> 0, so every AI analysis on every job reported
+    // "Invoiced: $0" regardless of what had actually been billed. Marrero
+    // Kitchen Addition #168 surfaced it: $220,216.50 invoiced and collected
+    // in JobTread, reported as zero invoicing here. Both names are accepted
+    // so this keeps working whichever payload shape is passed in.
+    const invoicedTotal = Number(fs.invoicedTotal ?? fs.invoicedAmount) || 0;
     const margin = Number(fs.margin) || 0;
     const marginPct = Number(fs.marginPct) || 0;
 

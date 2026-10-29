@@ -81,7 +81,10 @@ function buildContext(detail: any): string {
     `Total Committed: $${fmt(fs.totalCosts || 0)}`,
     `Net Remaining: $${fmt((fs.estimatedCost || 0) - ((fs.actualCost || 0) + (fs.pendingCost || 0)))}`,
     `Margin: $${fmt(fs.margin || 0)} (${(fs.marginPct ?? 0).toFixed(1)}%)`,
-    `Invoiced: $${fmt(fs.invoicedAmount || 0)}`,
+    // See ai-analysis/route.ts: the detail payload names this
+    // `invoicedTotal`; `invoicedAmount` is the list route's name and was
+    // always undefined here, printing $0 for every job.
+    `Invoiced: $${fmt(fs.invoicedTotal ?? fs.invoicedAmount ?? 0)}`,
     fs.isCostPlus ? `Collected from client: $${fmt(fs.collectedAmount || 0)}` : '',
     '',
     '# LABOR HOURS',
