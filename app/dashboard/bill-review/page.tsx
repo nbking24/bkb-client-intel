@@ -18,11 +18,11 @@
  * no navigation.
  */
 
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { Fragment, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   RefreshCw, Check, X, Loader2, AlertTriangle, HelpCircle, PieChart,
   Search, Filter, Zap, Tag, Clock, ChevronDown, ChevronRight, Flag,
-  ExternalLink, FileText, CheckSquare, Square, Brain,
+  ExternalLink, FileText, CheckSquare, Square, Brain, DollarSign,
 } from 'lucide-react';
 import Link from 'next/link';
 import { useAuth } from '../../hooks/useAuth';
@@ -264,6 +264,13 @@ export default function BillReviewPage() {
   const [flagRowId, setFlagRowId] = useState<string | null>(null);
   const [flagNote, setFlagNote] = useState<Record<string, string>>({});
 
+  // "Billables to bill": jobs carrying cost code 23 costs that haven't been
+  // turned into a change order yet. Read from the cached invoicing report —
+  // see /api/dashboard/bill-review/billables.
+  const [billables, setBillables] = useState<any | null>(null);
+  const [billablesOpen, setBillablesOpen] = useState(false);
+  const [billablesJobOpen, setBillablesJobOpen] = useState<string | null>(null);
+
   // Close picker when clicking outside of it.
   useEffect(() => {
     if (!openPickerRowId) return;
@@ -340,6 +347,22 @@ export default function BillReviewPage() {
   }, [token, filter, jobFilter]);
 
   useEffect(() => { load(); }, [load]);
+
+  useEffect(() => {
+    if (!token) return;
+    let cancelled = false;
+    (async () => {
+      try {
+        const res = await fetch('/api/dashboard/bill-review/billables', {
+          headers: { Authorization: `Bearer ${token}` },
+          cache: 'no-store',
+        });
+        const json = await res.json();
+        if (!cancelled && res.ok) setBillables(json);
+      } catch { /* panel just stays hidden */ }
+    })();
+    return () => { cancelled = true; };
+  }, [token]);
 
   // Prefetch budget items for every job represented in the queue as soon as
   // the rows land, so the "Apply to" dropdown opens instantly instead of
@@ -685,6 +708,128 @@ export default function BillReviewPage() {
       {lastError && (
         <div className="mb-3 p-3 rounded-lg text-sm" style={{ background: '#fee2e2', color: '#b91c1c' }}>
           {lastError}
+        </div>
+      )}
+
+      {/* Billables to bill — cost code 23 costs with no change order yet.
+          Sits above the queue because it is step 1 of Heather's weekly
+          pass, and because the money here is invisible on the Bill Review
+          queue itself (a 23 line is correctly categorized — it just hasn't
+          been billed to anyone). */}
+      {billables && (billables.totals?.jobCount > 0 || billables.notComputed) && (
+        <div className="mb-4 rounded-lg" style={{ background: '#fffdf5', border: '1px solid #e8d9a8' }}>
+          <button
+            type="button"
+            onClick={() => setBillablesOpen(o => !o)}
+            className="w-full flex items-center gap-2 px-4 py-3 text-left"
+            style={{ background: 'transparent', border: 'none', cursor: 'pointer' }}
+          >
+            <DollarSign size={16} style={{ color: '#8a6100' }} />
+            <span className="font-semibold text-sm" style={{ color: '#8a6100' }}>
+              Billables to bill
+            </span>
+            {billables.notComputed ? (
+              <span className="text-xs" style={{ color: '#8a8078' }}>{billables.message}</span>
+            ) : (
+              <span className="text-sm" style={{ color: '#5a5550' }}>
+                <strong style={{ color: '#1a1a1a' }}>{formatMoney(billables.totals.amount)}</strong>
+                {billables.totals.hours > 0 && (
+                  <> and <strong style={{ color: '#1a1a1a' }}>{billables.totals.hours} hrs</strong></>
+                )}
+                {' '}across <strong style={{ color: '#1a1a1a' }}>{billables.totals.jobCount}</strong> job{billables.totals.jobCount === 1 ? '' : 's'}
+              </span>
+            )}
+            <span className="ml-auto flex items-center gap-2">
+              {billables.cachedAt && (
+                <span className="text-xs" style={{ color: '#8a8078' }}>
+                  as of {timeAgo(billables.cachedAt)}
+                </span>
+              )}
+              {billablesOpen ? <ChevronDown size={14} style={{ color: '#8a6100' }} /> : <ChevronRight size={14} style={{ color: '#8a6100' }} />}
+            </span>
+          </button>
+
+          {billablesOpen && !billables.notComputed && (
+            <div style={{ borderTop: '1px solid #e8d9a8' }}>
+              <div className="px-4 py-2 text-xs" style={{ color: '#5a4a1f', background: 'rgba(232,217,168,0.25)' }}>
+                These are cost code 23 costs (2301 Labor, 2302 Subs, 2303 Materials) that no change order
+                covers yet. To bill one: create the change order on the job, then move those 23 costs onto
+                the change order's items. Hours are shown separately because JobTread tracks 23 labor as
+                time, not dollars — price them when you write the change order.
+              </div>
+              <table className="w-full text-sm">
+                <thead>
+                  <tr style={{ color: '#8a8078', fontSize: 11, textTransform: 'uppercase', letterSpacing: 0.5 }}>
+                    <th className="text-left px-4 py-2">Job</th>
+                    <th className="text-left px-4 py-2">Status</th>
+                    <th className="text-right px-4 py-2">Billable $</th>
+                    <th className="text-right px-4 py-2">Billable hrs</th>
+                    <th className="px-4 py-2"></th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {billables.jobs.map((j: any) => {
+                    const expanded = billablesJobOpen === j.jobId;
+                    return (
+                      <Fragment key={j.jobId}>
+                        <tr style={{ borderTop: '1px solid #f0ece6' }}>
+                          <td className="px-4 py-2">
+                            <span style={{ color: '#8a8078' }}>{j.jobNumber ? `${j.jobNumber} · ` : ''}</span>
+                            <span style={{ color: '#1a1a1a', fontWeight: 600 }}>{j.jobName}</span>
+                            {j.priceType && (
+                              <span className="ml-2 text-[10px] px-1.5 py-0.5 rounded" style={{ background: '#f1efec', color: '#8a8078' }}>
+                                {j.priceType}
+                              </span>
+                            )}
+                          </td>
+                          <td className="px-4 py-2 text-xs" style={{ color: '#8a8078' }}>{j.customStatus || '—'}</td>
+                          <td className="px-4 py-2 text-right" style={{ fontVariantNumeric: 'tabular-nums', color: j.amount > 0 ? '#1a1a1a' : '#b0a89e' }}>
+                            {j.amount > 0 ? formatMoney(j.amount) : '—'}
+                          </td>
+                          <td className="px-4 py-2 text-right" style={{ fontVariantNumeric: 'tabular-nums', color: j.hours > 0 ? '#1a1a1a' : '#b0a89e' }}>
+                            {j.hours > 0 ? `${j.hours} hrs` : '—'}
+                          </td>
+                          <td className="px-4 py-2 text-right whitespace-nowrap">
+                            {j.lines?.length > 0 && (
+                              <button
+                                onClick={() => setBillablesJobOpen(expanded ? null : j.jobId)}
+                                className="text-xs mr-2"
+                                style={{ background: 'none', border: 'none', color: '#8a6100', cursor: 'pointer' }}
+                              >
+                                {expanded ? 'Hide' : `${j.lines.length} line${j.lines.length === 1 ? '' : 's'}`}
+                              </button>
+                            )}
+                            <a
+                              href={j.jtBudgetUrl}
+                              target="_blank"
+                              rel="noopener noreferrer"
+                              className="text-xs inline-flex items-center gap-1"
+                              style={{ color: '#68050a' }}
+                            >
+                              Open budget <ExternalLink size={10} />
+                            </a>
+                          </td>
+                        </tr>
+                        {expanded && j.lines?.length > 0 && (
+                          <tr>
+                            <td colSpan={5} className="px-4 pb-3" style={{ background: '#fffdf5' }}>
+                              {j.lines.map((l: any) => (
+                                <div key={l.costItemId} className="flex items-center gap-2 text-xs py-0.5" style={{ color: '#5a5550' }}>
+                                  <span className="flex-1">{l.name}</span>
+                                  {l.documentName && <span style={{ color: '#8a8078' }}>{l.documentName}</span>}
+                                  <span style={{ fontVariantNumeric: 'tabular-nums' }}>{formatMoney(l.total)}</span>
+                                </div>
+                              ))}
+                            </td>
+                          </tr>
+                        )}
+                      </Fragment>
+                    );
+                  })}
+                </tbody>
+              </table>
+            </div>
+          )}
         </div>
       )}
 
