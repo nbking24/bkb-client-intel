@@ -137,6 +137,78 @@ function PropertyRow({ p }) {
   );
 }
 
+/**
+ * Category by month grid. Rows are categories (largest YTD first), columns are
+ * months, plus an average and a YTD column, and a totals row.
+ *
+ * The close sums in cents and divides only at the end, so every row here adds
+ * to the same YTD figure the category list shows and every column adds to the
+ * same month figure. If those ever disagree on screen, the close is at fault,
+ * not this table.
+ *
+ * A cell is tinted when it runs 25% or more above that category's own monthly
+ * average, so the months that drove a category stand out without reading every
+ * number.
+ */
+function SpendingGrid({ cm }) {
+  const months = cm?.months || [];
+  const cats = cm?.categories || [];
+  if (!months.length || !cats.length) return null;
+
+  const rows = cats.map((c) => {
+    const amounts = c.amounts || [];
+    const ytd = amounts.reduce((a, v) => a + (Number(v) || 0), 0);
+    return { label: c.label, amounts, ytd, avg: ytd / months.length };
+  });
+  const colTotals = months.map((_, i) => rows.reduce((a, r) => a + (Number(r.amounts[i]) || 0), 0));
+  const grand = rows.reduce((a, r) => a + r.ytd, 0);
+
+  const th = { padding: '6px 8px', textAlign: 'right', fontSize: 10, color: MUTED, textTransform: 'uppercase', whiteSpace: 'nowrap' };
+  const td = { padding: '5px 8px', textAlign: 'right', fontVariantNumeric: 'tabular-nums', whiteSpace: 'nowrap' };
+  const stickyL = { position: 'sticky', left: 0, background: '#fff', zIndex: 1 };
+
+  return (
+    <div style={{ overflowX: 'auto', border: `1px solid ${LINE}`, borderRadius: 8 }}>
+      <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12.5 }}>
+        <thead>
+          <tr style={{ borderBottom: `1px solid ${LINE}` }}>
+            <th style={{ ...th, textAlign: 'left', ...stickyL }}>Category</th>
+            {months.map((m) => <th key={m} style={th}>{monthLabel(m)}</th>)}
+            <th style={{ ...th, color: BLUE }}>Avg/mo</th>
+            <th style={{ ...th, color: INK }}>YTD</th>
+          </tr>
+        </thead>
+        <tbody>
+          {rows.map((r) => (
+            <tr key={r.label} style={{ borderTop: `1px solid ${LINE}` }}>
+              <td style={{ ...td, textAlign: 'left', ...stickyL }}>{r.label}</td>
+              {r.amounts.map((v, i) => {
+                const n = Number(v) || 0;
+                const hot = r.avg > 0 && n >= r.avg * 1.25;
+                return (
+                  <td key={i} style={{ ...td, background: hot ? 'rgba(200,140,0,0.11)' : undefined, color: n === 0 ? '#c9c2b6' : INK }}>
+                    {n === 0 ? '-' : money(n)}
+                  </td>
+                );
+              })}
+              <td style={{ ...td, color: BLUE, fontWeight: 600 }}>{money(r.avg)}</td>
+              <td style={{ ...td, fontWeight: 700 }}>{money(r.ytd)}</td>
+            </tr>
+          ))}
+        </tbody>
+        <tfoot>
+          <tr style={{ borderTop: `2px solid ${LINE}`, fontWeight: 700 }}>
+            <td style={{ ...td, textAlign: 'left', ...stickyL }}>Total</td>
+            {colTotals.map((t, i) => <td key={i} style={td}>{money(t)}</td>)}
+            <td style={{ ...td, color: BLUE }}>{money(grand / months.length)}</td>
+            <td style={td}>{money(grand)}</td>
+          </tr>
+        </tfoot>
+      </table>
+    </div>
+  );
+}
+
 export default function PersonalInvestmentsPage() {
   const [state, setState] = useState({ loading: true, error: null, data: null });
 
@@ -185,6 +257,9 @@ export default function PersonalInvestmentsPage() {
   const avgMonthly = completeMonths.length ? completeMonths.reduce((a, m) => a + m.amount, 0) / completeMonths.length : null;
   const maxCat = pers.categories?.[0]?.amount || 1;
   const maxPersMonth = Math.max(...(pers.months || []).map((m) => m.amount), 1);
+  // The grid only exists on closes from 2026-11-03 onward (and the backfilled
+  // October row). Older snapshots fall back to the two bar lists.
+  const hasGrid = !!(pers.categoryMonths?.months?.length && pers.categoryMonths?.categories?.length);
 
   return (
     <div style={{ maxWidth: 1100, margin: '0 auto', padding: '20px 16px 60px', color: INK }}>
@@ -282,24 +357,35 @@ export default function PersonalInvestmentsPage() {
             <AlertCircle size={14} style={{ flexShrink: 0, marginTop: 1 }} /> {pers.coverageNote}
           </div>
         )}
-        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(320px, 1fr))', gap: 24 }}>
-          <div>
-            <div style={{ fontSize: 12, color: MUTED, marginBottom: 6 }}>By category, year to date ({money(pers.total)})</div>
-            {(pers.categories || []).map((c) => <HBar key={c.label} label={c.label} amount={c.amount} max={maxCat} />)}
+        {hasGrid ? (
+          <>
+            <div style={{ fontSize: 12, color: MUTED, marginBottom: 8 }}>
+              Every category by month, with its own monthly average. Shaded cells ran 25% or more above
+              that category's average. Totals: {money(pers.total)} year to date,
+              {' '}{avgMonthly == null ? '-' : money(avgMonthly)} a month.
+            </div>
+            <SpendingGrid cm={pers.categoryMonths} />
+          </>
+        ) : (
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(320px, 1fr))', gap: 24 }}>
+            <div>
+              <div style={{ fontSize: 12, color: MUTED, marginBottom: 6 }}>By category, year to date ({money(pers.total)})</div>
+              {(pers.categories || []).map((c) => <HBar key={c.label} label={c.label} amount={c.amount} max={maxCat} />)}
+            </div>
+            <div>
+              <div style={{ fontSize: 12, color: MUTED, marginBottom: 6 }}>By month</div>
+              {(pers.months || []).map((m) => (
+                <HBar
+                  key={m.m}
+                  label={longMonth(m.m)}
+                  amount={m.amount}
+                  max={maxPersMonth}
+                  color={pers.completeFrom && m.m < pers.completeFrom ? '#d9d3c7' : BLUE}
+                />
+              ))}
+            </div>
           </div>
-          <div>
-            <div style={{ fontSize: 12, color: MUTED, marginBottom: 6 }}>By month</div>
-            {(pers.months || []).map((m) => (
-              <HBar
-                key={m.m}
-                label={longMonth(m.m)}
-                amount={m.amount}
-                max={maxPersMonth}
-                color={pers.completeFrom && m.m < pers.completeFrom ? '#d9d3c7' : BLUE}
-              />
-            ))}
-          </div>
-        </div>
+        )}
       </div>
     </div>
   );
