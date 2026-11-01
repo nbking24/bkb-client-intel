@@ -49,6 +49,7 @@ export const DASHBOARDS: DashboardDef[] = [
   { id: 'production-meeting', label: 'Production Meeting', href: '/dashboard/production-meeting', icon: 'HardHat', description: 'Monday production meeting: Production Brief, jobs in production and punch list, money flags, write-back to JobTread' },
   { id: 'production-schedule', label: 'Production Schedule', href: '/dashboard/production-schedule', icon: 'GanttChartSquare', description: 'Cross-job milestone timeline + workload from the Claude-managed production milestones' },
   { id: 'company-financials', label: 'Company Financials', href: '/dashboard/company-financials', icon: 'Landmark', ownerOnly: true, description: 'Whole-company P&L: YTD vs prior years + goal, profitability, overhead tracking, cash position, and per-job profitability (QuickBooks snapshot + JobTread)' },
+  { id: 'personal-investments', label: 'Personal & Investments', href: '/dashboard/personal-investments', icon: 'PiggyBank', ownerOnly: true, description: "Nathan only: rental property P&L, Seth Bryan note interest, personal spending and BKB bill-backs (monthly close snapshot from Stessa)" },
   { id: 'invoicing',   label: 'Invoicing',        href: '/dashboard/invoicing',   icon: 'DollarSign',      description: 'Invoicing health + AR' },
   { id: 'job-costing', label: 'Job Costing',      href: '/dashboard/job-costing', icon: 'BarChart3',       description: 'Per-job cost analysis' },
   { id: 'bill-review', label: 'Bill Review',      href: '/dashboard/bill-review', icon: 'Receipt',         description: 'Bill categorization queue' },
