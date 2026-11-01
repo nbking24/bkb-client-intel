@@ -209,6 +209,101 @@ function SpendingGrid({ cm }) {
   );
 }
 
+/** Open bookkeeping questions. Answers are saved here and applied in Stessa
+ *  by the next weekly bookkeeping run. */
+function QuestionsPanel() {
+  const [qs, setQs] = useState(null);
+  const [err, setErr] = useState(null);
+  const [draft, setDraft] = useState({});
+  const [saving, setSaving] = useState(null);
+
+  const load = () =>
+    fetch('/api/dashboard/personal-investments/questions', { headers: { Authorization: `Bearer ${getToken()}` } })
+      .then((r) => r.json())
+      .then((j) => (j.error ? setErr(j.error) : setQs(j.questions || [])))
+      .catch((e) => setErr(e.message));
+  useEffect(() => { load(); }, []);
+
+  const submit = async (q, answer) => {
+    if (!answer) return;
+    setSaving(q.stessa_id);
+    const r = await fetch('/api/dashboard/personal-investments/questions', {
+      method: 'POST',
+      headers: { Authorization: `Bearer ${getToken()}`, 'Content-Type': 'application/json' },
+      body: JSON.stringify({ stessaId: q.stessa_id, answer }),
+    });
+    const j = await r.json().catch(() => ({}));
+    setSaving(null);
+    if (!r.ok) { setErr(j.error || 'Could not save'); return; }
+    setQs((prev) => prev.map((x) => (x.stessa_id === q.stessa_id ? { ...x, status: 'answered', answer } : x)));
+  };
+
+  if (err) return <div style={{ ...card, marginBottom: 16, color: RED }}>{err}</div>;
+  if (!qs) return null;
+  const open = qs.filter((q) => q.status === 'open');
+  const answered = qs.filter((q) => q.status === 'answered');
+
+  return (
+    <div style={{ ...card, marginBottom: 16, borderColor: open.length ? GOLD : LINE }}>
+      <h2 style={h2}>
+        Bookkeeping questions {open.length ? <span style={{ color: GOLD }}>({open.length} open)</span> : ''}
+      </h2>
+      {open.length === 0 && (
+        <div style={{ fontSize: 13, color: GREEN }}>
+          Nothing to answer.{answered.length ? ` ${answered.length} answer${answered.length > 1 ? 's' : ''} will be applied at the next Monday run.` : ''}
+        </div>
+      )}
+      {open.map((q) => (
+        <div key={q.stessa_id} style={{ borderTop: `1px solid ${LINE}`, padding: '12px 0' }}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', gap: 12, flexWrap: 'wrap', fontSize: 13 }}>
+            <b>{q.vendor}</b>
+            <span style={{ fontVariantNumeric: 'tabular-nums' }}>
+              {money2(q.amount)} · {new Date(q.txn_date + 'T12:00:00').toLocaleDateString('en-US')} · {q.account}
+            </span>
+          </div>
+          <div style={{ fontSize: 13, margin: '6px 0 8px' }}>{q.question}</div>
+          <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', alignItems: 'center' }}>
+            {(q.options || []).map((o) => (
+              <button
+                key={o}
+                disabled={saving === q.stessa_id}
+                onClick={() => submit(q, o)}
+                style={{
+                  fontSize: 12, padding: '6px 10px', borderRadius: 8, cursor: 'pointer',
+                  border: `1px solid ${o === q.best_guess ? GOLD : '#ddd'}`,
+                  background: o === q.best_guess ? '#fdf6e3' : '#fff',
+                }}
+              >
+                {o}
+              </button>
+            ))}
+            <input
+              placeholder="Or type an answer"
+              value={draft[q.stessa_id] || ''}
+              onChange={(e) => setDraft({ ...draft, [q.stessa_id]: e.target.value })}
+              onKeyDown={(e) => e.key === 'Enter' && submit(q, draft[q.stessa_id])}
+              style={{ fontSize: 12, padding: '6px 8px', border: '1px solid #ddd', borderRadius: 8, minWidth: 180, flex: '1 1 180px' }}
+            />
+            <button
+              disabled={!draft[q.stessa_id] || saving === q.stessa_id}
+              onClick={() => submit(q, draft[q.stessa_id])}
+              style={{ fontSize: 12, padding: '6px 12px', borderRadius: 8, border: 'none', background: GOLD, color: '#fff', cursor: 'pointer' }}
+            >
+              Submit
+            </button>
+          </div>
+          {q.best_guess && <div style={{ fontSize: 11, color: MUTED, marginTop: 4 }}>Best guess: {q.best_guess}</div>}
+        </div>
+      ))}
+      {answered.length > 0 && open.length > 0 && (
+        <div style={{ fontSize: 12, color: MUTED, marginTop: 8 }}>
+          {answered.length} answered, waiting to be applied at the next Monday run.
+        </div>
+      )}
+    </div>
+  );
+}
+
 export default function PersonalInvestmentsPage() {
   const [state, setState] = useState({ loading: true, error: null, data: null });
 
@@ -285,6 +380,8 @@ export default function PersonalInvestmentsPage() {
         <Tile label="Personal spending" value={avgMonthly == null ? '-' : money(avgMonthly) + '/mo'} sub={pers.completeFrom ? `average since ${longMonth(pers.completeFrom)}` : 'monthly average'} />
         <Tile label="Owed back by BKB" value={money2(unbilled)} sub={unbilled ? 'not billed yet' : `all billed through ${s.bkbReimbursable?.billedThrough || '-'}`} />
       </div>
+
+      <QuestionsPanel />
 
       <div style={{ ...card, marginBottom: 16 }}>
         <h2 style={h2}>Rental properties</h2>
