@@ -17,8 +17,13 @@ function decodeToken(token: string): { pin: string; userId?: string; timestamp: 
   try {
     const decoded = atob(token);
     const parts = decoded.split(':');
+    // Signed token: s:userId:ts:sig. Older unsigned per-user tokens are
+    // rejected by the server, so treat them as signed out to force a login.
+    if (parts.length === 4 && parts[0] === 's') {
+      return { pin: '', userId: parts[1], timestamp: parts[2] };
+    }
     if (parts.length >= 3) {
-      return { pin: parts[0], userId: parts[1], timestamp: parts[2] };
+      return null;
     }
     if (parts.length === 2) {
       return { pin: parts[0], timestamp: parts[1] };
