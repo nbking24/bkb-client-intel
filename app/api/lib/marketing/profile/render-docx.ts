@@ -66,7 +66,25 @@ export function imageSize(buf: Buffer): { w: number; h: number; type: 'jpg' | 'p
 /** Fetches the bytes for one photo. Returns null when the image is unavailable. */
 export type ImageLoader = (ref: any) => Promise<Buffer | null>;
 
-export async function renderProfile(c: ProfileContent, loadImage: ImageLoader): Promise<Buffer> {
+export async function renderProfile(c: ProfileContent, loadImageOne: ImageLoader): Promise<Buffer> {
+  // Fetch every photo up front, six at a time, instead of one by one.
+  const refs = (c.sections || []).flatMap((s: any) => (s.kind === 'photos' ? s.photos.map((p) => p.image) : []));
+  const cache = new Map<string, Promise<Buffer | null>>();
+  const keyOf = (r: any) => JSON.stringify(r);
+  let i = 0;
+  const workers = Array.from({ length: 6 }, async () => {
+    while (i < refs.length) {
+      const r = refs[i++];
+      if (!cache.has(keyOf(r))) {
+        const p = loadImageOne(r).catch(() => null);
+        cache.set(keyOf(r), p);
+        await p;
+      }
+    }
+  });
+  await Promise.all(workers);
+  const loadImage = (r: any) => cache.get(keyOf(r)) || loadImageOne(r);
+
   const font = c.style?.font || 'Calibri';
   const body = (c.style?.bodySizePt || 11) * 2; // half points
   const headingSize = (c.style?.headingSizePt || 14) * 2;

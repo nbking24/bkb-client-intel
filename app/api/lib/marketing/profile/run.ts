@@ -64,7 +64,77 @@ function imageLoader() {
   };
 }
 
+/**
+ * Logged entry point: one marketing_photo_runs row per profile run (trigger
+ * profile-preview or profile-publish) with each step's timing, so a failed
+ * or slow run can be read back afterwards.
+ */
 export async function runProfile(opts: { jobId: string; mode: 'preview' | 'publish' }) {
+  const supabase = getSupabase();
+  const started = Date.now();
+  const steps: { step: string; ms: number }[] = [];
+  const { data: row } = await supabase
+    .from('marketing_photo_runs')
+    .insert({ job_id: opts.jobId, trigger: 'profile-' + opts.mode, status: 'processing', email_status: 'skipped' })
+    .select('id')
+    .single();
+  const runId = row?.id;
+  const step = async (name: string) => {
+    steps.push({ step: name, ms: Date.now() - started });
+    if (runId) await supabase.from('marketing_photo_runs').update({ change_summary: JSON.stringify({ steps }) }).eq('id', runId);
+  };
+  try {
+    const result = await runProfileCore(opts, step);
+    await step('finished');
+    if (runId) {
+      await supabase
+        .from('marketing_photo_runs')
+        .update({
+          status: 'complete',
+          profile_updated: opts.mode === 'publish' && (result as any).published === true,
+          email_status: opts.mode === 'preview' ? ((result as any).emailed ? 'sent' : 'skipped') : 'skipped',
+          change_summary: JSON.stringify({ steps, result: { ...result, downloadUrl: undefined } }),
+          completed_at: new Date().toISOString(),
+        })
+        .eq('id', runId);
+    }
+    return result;
+  } catch (err: any) {
+    if (runId) {
+      await supabase
+        .from('marketing_photo_runs')
+        .update({ status: 'error', error: String(err?.stack || err?.message || err).slice(0, 4000), change_summary: JSON.stringify({ steps }), completed_at: new Date().toISOString() })
+        .eq('id', runId);
+    }
+    throw err;
+  }
+}
+
+/**
+ * Keep a copy of the original profile's Word XML (text, styles, header,
+ * footer, page setup) so the rebuilt layout can be checked against it.
+ * Stored once per job in agent_cache under marketing-profile-source:<jobId>.
+ */
+async function snapshotSource(jobId: string, fileName: string, buf: Buffer) {
+  const supabase = getSupabase();
+  const key = 'marketing-profile-source:' + jobId;
+  const { data: have } = await supabase.from('agent_cache').select('key').eq('key', key).maybeSingle();
+  if (have) return;
+  const JSZip = (await import('jszip')).default;
+  const zip = await JSZip.loadAsync(buf);
+  const parts: Record<string, string> = {};
+  for (const name of Object.keys(zip.files)) {
+    if (/^word\/(document|styles|numbering|settings|header\d*|footer\d*)\.xml$/.test(name) || name === 'word/_rels/document.xml.rels') {
+      parts[name] = await zip.file(name)!.async('string');
+    }
+  }
+  await supabase.from('agent_cache').upsert(
+    { key, data: { file: fileName, bytes: buf.length, saved_at: new Date().toISOString(), parts }, updated_at: new Date().toISOString() },
+    { onConflict: 'key' }
+  );
+}
+
+async function runProfileCore(opts: { jobId: string; mode: 'preview' | 'publish' }, step: (name: string) => Promise<void>) {
   const supabase = getSupabase();
   const today = todayET();
 
@@ -87,9 +157,15 @@ export async function runProfile(opts: { jobId: string; mode: 'preview' | 'publi
   // ---- first run: read the existing profile into stored content
   let current = content.profile || null;
   let existingBytes: Buffer | null = null;
-  if (!current && existingName) {
+  if (existingName && !content.profile_last_built) {
+    // Until this pipeline has published, the FTP file is the original profile.
     existingBytes = await downloadFile(sel.folder_name + '/' + existingName);
+    await snapshotSource(opts.jobId, existingName, existingBytes);
+    await step('downloaded and snapshotted the current profile');
+  }
+  if (!current && existingName) {
     current = await parseProfileDocx(opts.jobId, existingBytes);
+    await step('read the current profile into content');
     const shown = allJtIds(content);
     if (docRow?.updated_at) {
       const { data: earlier } = await supabase
@@ -121,6 +197,7 @@ export async function runProfile(opts: { jobId: string; mode: 'preview' | 'publi
   const shownIds = new Set<string>(content.shown_ids || allJtIds(content));
   const since = content.profile_last_built || docRow?.updated_at || sel.last_processed_at || null;
   const src = await gatherSources(opts.jobId, since, shownIds);
+  await step('gathered JobTread sources');
   const label = statusLabel(src.job.status, src.job.closed ? 'closed' : null).label || 'In Progress';
 
   // Change orders the profile already covers: from this pipeline, or from the
@@ -150,7 +227,9 @@ export async function runProfile(opts: { jobId: string; mode: 'preview' | 'publi
     notes.push('Nothing new since the last profile, so the rebuild shows the stored content as is.');
   }
 
+  await step('wrote the new material');
   const docx = await renderProfile(result.content, imageLoader());
+  await step('rendered the .docx');
   const fileName = existingName || folderNameForJob(src.job.name) + ' Marketing Profile.docx';
   const stamp = new Date().toISOString().replace(/[:.]/g, '-');
 
