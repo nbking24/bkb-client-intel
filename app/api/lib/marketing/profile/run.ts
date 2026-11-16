@@ -244,6 +244,8 @@ async function runProfileCore(opts: { jobId: string; mode: 'preview' | 'publish'
     newVideos: src.newAssets.filter(isVideo).length,
     newPlans: src.newAssets.filter(isPlan).length,
     newChangeOrders: newCOs.map((c) => c.name),
+    describedChangeOrders: (result as any).describedChangeOrders || [],
+    skippedChangeOrders: (src.skippedChangeOrders || []).map((c) => c.name + ' (' + c.reason + ')'),
     whatsNew: nothingNew ? null : result.content.whatsNew[0],
     rulesFixed: result.rulesFixed,
     rulesScrubbed: result.rulesScrubbed,
@@ -296,7 +298,8 @@ async function runProfileCore(opts: { jobId: string; mode: 'preview' | 'publish'
   await uploadFile(sel.folder_name + '/' + fileName, docx);
 
   const newShown = Array.from(new Set([...(content.shown_ids || []), ...shownIds, ...result.shownIds]));
-  const newCOsShown = Array.from(new Set([...shownCOs, ...result.shownChangeOrders]));
+  // Credit only change orders are never written about, but count as covered.
+  const newCOsShown = Array.from(new Set([...shownCOs, ...result.shownChangeOrders, ...(src.skippedChangeOrders || []).map((c) => c.id)]));
   const log = docRow?.whats_new_log || [];
   if (!nothingNew) log.unshift({ date: today, note: result.content.whatsNew[0]?.text || '' });
   await supabase.from('marketing_photo_doc_state').upsert({

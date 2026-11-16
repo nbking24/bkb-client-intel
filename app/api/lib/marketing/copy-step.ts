@@ -127,10 +127,18 @@ export function whatItShows(f: JTFile): string | null {
   return null;
 }
 
+/**
+ * A photo is ready to send only once it has a description. The DataX photo
+ * labeler sets one on every image it handles, so this waits for the labeler
+ * even when a person already named the file (Nathan, 2026-11-16, replacing
+ * the earlier rule that person named files count as labeled).
+ */
 function isLabeled(f: JTFile): boolean {
-  const { stem } = stemAndExt(f.name, f.type);
-  return LABELED_NAME_RE.test(stem) || !isDefaultName(stem) || !!(f.description && f.description.trim());
+  return !!(f.description && f.description.trim());
 }
+
+/** Inspiration, reference or product pictures, not this project's own work. */
+const REFERENCE_RE = /\b(inspiration|inspirational|inspo|reference|product (photo|photograph|image|picture|shot))\b/i;
 
 export function isHeic(f: { type?: string; name?: string }): boolean {
   return /image\/hei[cf]/i.test(f.type || '') || /\.hei[cf]$/i.test(f.name || '');
@@ -147,18 +155,26 @@ function hasTag(f: JTFile, id: string) {
   return f.tags.some((t) => t.id === id);
 }
 
-function photoKind(f: JTFile): string {
+/**
+ * Kind from the phase tag. With no phase tag, a photo on a Completed job is
+ * Finished and otherwise Progress.
+ */
+const PHASE_TAGS = [TAG.preConstruction, TAG.projectStart, TAG.roughIn, TAG.inProgress, TAG.finish];
+function photoKind(f: JTFile, jobCompleted: boolean): string {
   if (hasTag(f, TAG.preConstruction)) return 'Before';
   if (hasTag(f, TAG.finish)) return 'Finished';
-  return 'Progress';
+  if (PHASE_TAGS.some((id) => hasTag(f, id))) return 'Progress';
+  return jobCompleted ? 'Finished' : 'Progress';
 }
 
 // ---------------------------------------------------------------- sorting
 
-export function decide(f: JTFile, jobName: string): Decision {
+export function decide(f: JTFile, jobName: string, opts: { jobCompleted?: boolean } = {}): Decision {
   const mime = (f.type || '').toLowerCase();
   const { stem, ext } = stemAndExt(f.name, f.type);
-  const job = cleanPart(jobName);
+  // "Berntsen - Renovation" is written "Berntsen Renovation" in file names,
+  // as the earlier engine did, so the only " - " is the one before what it shows.
+  const job = cleanPart((jobName || '').replace(/\s+-\s+/g, ' '));
 
   if (f.document) return { action: 'exclude', file: f, kind: 'document', reason: 'attached to a ' + (f.document.type || 'document') };
   if (hasTag(f, TAG.receipts)) return { action: 'exclude', file: f, kind: 'receipt', reason: 'receipt' };
@@ -184,6 +200,13 @@ export function decide(f: JTFile, jobName: string): Decision {
     const outExt = isHeic(f) ? 'jpg' : ext;
     if (/screen ?shot/i.test(f.name)) return { action: 'exclude', file: f, kind: 'other', reason: 'screenshot' };
     if (isDesign) {
+      // Only renderings of this project go to Mike. Inspiration, reference
+      // and product pictures are left out for good. Wait for the labeler's
+      // description before deciding.
+      if (REFERENCE_RE.test(f.name) || REFERENCE_RE.test(f.description || '')) {
+        return { action: 'exclude', file: f, kind: 'reference', reason: 'inspiration, reference or product picture' };
+      }
+      if (!isLabeled(f)) return { action: 'wait', file: f, reason: 'design image not labeled yet' };
       const what = whatItShows(f) || cleanPart(stem);
       return { action: 'send', file: f, sub: 'Plans & Renderings', kind: 'rendering', ftpName: job + ' - ' + what + ' (Rendering).' + outExt };
     }
@@ -191,8 +214,11 @@ export function decide(f: JTFile, jobName: string): Decision {
       const what = whatItShows(f) || cleanPart(stem);
       return { action: 'send', file: f, sub: 'Plans & Renderings', kind: 'plan', ftpName: job + ' - ' + what + '.' + outExt };
     }
+    if (REFERENCE_RE.test(f.name) || REFERENCE_RE.test(f.description || '')) {
+      return { action: 'exclude', file: f, kind: 'reference', reason: 'inspiration, reference or product picture' };
+    }
     if (!isLabeled(f)) return { action: 'wait', file: f, reason: 'not labeled yet' };
-    const kind = photoKind(f);
+    const kind = photoKind(f, !!opts.jobCompleted);
     return { action: 'send', file: f, sub: 'Photos', kind: kind.toLowerCase(), ftpName: job + ' - ' + whatItShows(f) + ' (' + kind + ').' + outExt };
   }
 
@@ -367,7 +393,8 @@ export async function runCopyStep(opts: { jobId: string; dryRun: boolean; deadli
   }
   const fresh = files.filter((f) => !known.has(f.id));
 
-  let decisions = markNearDuplicates(fresh.map((f) => decide(f, job.name)));
+  const jobCompleted = /\(Completed\)$/.test(folder.target || '');
+  let decisions = markNearDuplicates(fresh.map((f) => decide(f, job.name, { jobCompleted })));
 
   // Videos shorter than a few seconds are dropped. Only checked for videos we
   // would otherwise send, and only when not out of time.

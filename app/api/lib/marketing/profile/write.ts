@@ -31,12 +31,18 @@ Hard rules:
 - Never use the client's first name. "The homeowners" or "the <Last name> family" is fine.
 - Name a product or material only if it appears in the source material. Never invent features, rooms, products or outcomes.
 - Source notes may contain internal instructions to the crew (logs required, cleanup rules, "per Nathan", "not in scope"). Treat them only as facts about the work, never quote them.
-- Captions: one sentence describing what the photo shows, based on its name and description.`;
+- Captions: one sentence describing what the photo shows, based on its name and description.
+
+Change orders (How the Project Evolved, and any What's new mention):
+- Tell them as the design and construction story: what changed in the house and why it matters, for example removing the foyer columns and adding a steel beam to open the space.
+- Never mention credits, deducts, refunds, savings, allowances, pricing or anything about money.
+- Skip routine items such as touch up or repaint coats, extra paint prep, patching, or rehanging fixtures, unless they are part of a bigger design move. Skip a change order entirely if nothing in it is a real design or construction change.
+- Never list change order numbers; describe the work.`;
 
 // ------------------------------------------------------------ rule checks
 
 const DASH_RE = /[\u2012\u2013\u2014\u2015]/;
-const MONEY_RE = /\$\s?\d|\b\d[\d,.]*\s?(dollars|k)\b|\bprice[ds]?\b|\bcost[s]?\b|\bbudget\b|\ballowance\b|\bmargin\b/i;
+const MONEY_RE = /\$\s?\d|\b\d[\d,.]*\s?(dollars|k)\b|\bprice[ds]?\b|\bcost[s]?\b|\bbudget\b|\ballowances?\b|\bmargin\b|\bcredit(s|ed)?\b|\bdeduct(s|ed|ion|ions)?\b|\brefund(s|ed)?\b|\bsavings?\b/i;
 
 function firstNameRe(names: string[]) {
   return names.length ? new RegExp('\\b(' + names.map((n) => n.replace(/[^A-Za-z'-]/g, '')).join('|') + ')\\b') : null;
@@ -156,7 +162,7 @@ export async function buildNewProfile(src, today: string, folderLabel: string) {
     '- tagline: the project in a phrase with the place, like "A Full-Home Renovation and Addition in Bucks County · Perkasie, PA".',
     '- whatsNew: exactly one entry dated ' + today + ' saying the profile was created and what it covers.',
     '- facts, in this order: Project = "' + src.job.name + ' (Job #' + src.job.number + ')", Last Updated = "' + longDate(today) + '", Location = "' + src.job.address + '" (full street address), Project Type, Status (folder status is ' + folderLabel + '; describe the current stage in a few words), Standout Feature.',
-    '- sections, in this order and with these headings: Project Description (kind paragraphs, two paragraphs: what the project is and how it respects the house, then the materials and spaces that make it special), Scope of Work (kind scope, subheads such as Structure & Site, Exterior, Systems, Interior Finishes, short bullets), How the Project Evolved (kind paragraphs, approved change orders as a story, leave out if there are none), Challenges & Solutions (kind challenges, 2 to 4 pairs), Suggested Marketing Angles (kind leadBullets, 4 to 6), Plans & Renderings (kind paragraphs, one short paragraph naming what is in that folder, leave out if nothing), Video Walk-Throughs (kind leadBullets, lead = video title, text = what it shows; design walkthroughs are design concepts; leave out if no videos).',
+    '- sections, in this order and with these headings: Project Description (kind paragraphs, two paragraphs: what the project is and how it respects the house, then the materials and spaces that make it special), Scope of Work (kind scope, subheads such as Structure & Site, Exterior, Systems, Interior Finishes, short bullets), How the Project Evolved (kind paragraphs, the approved change orders told as the design and construction story under the change order rules, leave out if none qualify), Challenges & Solutions (kind challenges, 2 to 4 pairs), Suggested Marketing Angles (kind leadBullets, 4 to 6), Plans & Renderings (kind paragraphs, one short paragraph naming what is in that folder, leave out if nothing), Video Walk-Throughs (kind leadBullets, lead = video title, text = what it shows; design walkthroughs are design concepts; leave out if no videos).',
     '- photo sections (kind photos), each with an intro line ending "These photos are also saved in this folder.": The Home Today (before photos), Design Vision (renderings), Progress Photos (progress and finished photos). Use at most ' + MAX_PHOTOS_PER_SECTION + ' photos per section, choosing the most telling. Refer to photos by id. Leave out a section with no photos.',
     '',
     'FILES SENT TO MIKE (ids for photos):',
@@ -187,9 +193,10 @@ const updateSchema = {
     captions: { type: 'array', items: { type: 'object', properties: { id: { type: 'string' }, caption: { type: 'string' } }, required: ['id', 'caption'] } },
     videos: { type: 'array', description: 'One entry per new video', items: { type: 'object', properties: { id: { type: 'string' }, title: { type: 'string' }, text: { type: 'string' } }, required: ['id', 'title', 'text'] } },
     plansSentence: { type: 'string', description: 'A sentence to add to the Plans & Renderings section naming the new plans or renderings. Empty if none.' },
-    evolvedParagraph: { type: 'string', description: 'A paragraph to add to How the Project Evolved telling the new approved change orders as a story. Empty if none.' },
+    evolvedParagraph: { type: 'string', description: 'A paragraph to add to How the Project Evolved telling the change orders you chose to describe as the design and construction story. Empty if none qualify.' },
+    describedChangeOrders: { type: 'array', items: { type: 'string' }, description: 'The ids (the [id] in brackets) of exactly the change orders your evolvedParagraph describes. Empty if none.' },
   },
-  required: ['whatsNew', 'status', 'progressIntro', 'captions', 'videos', 'plansSentence', 'evolvedParagraph'],
+  required: ['whatsNew', 'status', 'progressIntro', 'captions', 'videos', 'plansSentence', 'evolvedParagraph', 'describedChangeOrders'],
 };
 
 export async function writeUpdate(current: ProfileContent, src, newChangeOrders, today: string, folderLabel: string) {
@@ -214,13 +221,13 @@ export async function writeUpdate(current: ProfileContent, src, newChangeOrders,
     '',
     'NEW APPROVED CHANGE ORDERS:',
     ...(newChangeOrders.length
-      ? newChangeOrders.map((c) => '## ' + c.name + ' (' + c.date + ')\n' + c.items.map((i) => '- ' + i.name + (i.description ? ': ' + i.description : '')).join('\n'))
+      ? newChangeOrders.map((c) => '## [' + c.id + '] ' + c.name + ' (' + c.date + ')\n' + c.items.map((i) => '- ' + i.name + (i.description ? ': ' + i.description : '')).join('\n'))
       : ['none']),
     '',
     'NEW DAILY LOG NOTES:',
     ...(src.dailyLogs.length ? src.dailyLogs.map((l) => l.date + ': ' + l.notes) : ['none']),
     '',
-    'EXACT COUNTS for this update (use these numbers, never estimate): ' + countsLine(updateCounts(assets, newChangeOrders)) + '.',
+    'EXACT COUNTS for this update (use these numbers, never estimate): ' + countsLine(updateCounts(assets, [])).replace(/^0 new approved change orders, /, '') + '. If you mention change orders, the number is how many you list in describedChangeOrders.',
     '',
     'Write: one whatsNew sentence covering what is new (photos, videos, plans, change orders, progress). A status value (keep the style of the current row, update it only if the stage has moved). A caption for every new photo and rendering id. A videos entry for every new video id (design walkthroughs are design concepts). A plansSentence only if there are new plans or renderings. An evolvedParagraph only if there are new change orders.',
   ].join('\n');
@@ -228,8 +235,24 @@ export async function writeUpdate(current: ProfileContent, src, newChangeOrders,
   const raw: any = await callForJson({ system: VOICE, user, toolName: 'save_update', toolDescription: 'Save the update pieces.', schema: updateSchema, maxTokens: 8000 });
   const checked = await enforceRules(raw, updateSchema, src.job.clientFirstNames, 'update');
   const u: any = checked.value;
+  // Only change orders the paragraph actually describes are counted.
+  const offered = new Set(newChangeOrders.map((c) => c.id));
+  const described = (u.describedChangeOrders || []).filter((id) => offered.has(id));
+  if (!u.evolvedParagraph || !u.evolvedParagraph.trim()) described.length = 0;
   // Counts in the prose must match what is actually included.
-  const counts = updateCounts(assets, newChangeOrders);
+  const counts = updateCounts(assets, described);
+  if (!described.length && /change orders?/i.test(u.whatsNew || '')) {
+    // No change order qualified, so the line must not mention any.
+    const re: any = await callForJson({
+      system: VOICE,
+      user: 'Rewrite this What\'s new sentence so it does not mention change orders at all, keeping everything else: "' + u.whatsNew + '"',
+      toolName: 'save_line',
+      toolDescription: 'Save the rewritten sentence.',
+      schema: { type: 'object', properties: { whatsNew: { type: 'string' } }, required: ['whatsNew'] },
+      maxTokens: 500,
+    });
+    if (re?.whatsNew && !/change orders?/i.test(re.whatsNew)) u.whatsNew = re.whatsNew;
+  }
   u.whatsNew = fixCounts(u.whatsNew, counts);
   u.evolvedParagraph = fixCounts(u.evolvedParagraph || '', counts);
   u.plansSentence = fixCounts(u.plansSentence || '', counts);
@@ -303,6 +326,7 @@ export async function writeUpdate(current: ProfileContent, src, newChangeOrders,
     content: c,
     shownIds: assets.map((a) => a.fileId),
     shownChangeOrders: newChangeOrders.map((x) => x.id),
+    describedChangeOrders: newChangeOrders.filter((x) => described.includes(x.id)).map((x) => x.name),
     rulesFixed: checked.fixed,
     rulesScrubbed: checked.scrubbed,
   };

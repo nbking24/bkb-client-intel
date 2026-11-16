@@ -50,6 +50,14 @@ function clip(s: string, n: number) {
   return s.length > n ? s.slice(0, n) + '...' : s;
 }
 
+/** Line items that are about money, not work. */
+export const CREDIT_LINE_RE = /\b(credit|credits|deduct|deduction|deducts|refund|rebate|reimburse|allowance|pricing|price revision|revision on pricing|discount)\b/i;
+/** Routine work that is not a story on its own: paint coats, prep, patching, rehanging. */
+export const ROUTINE_LINE_RE = /\b(paint|painting|repaint|repainting|touch.?up|patch|patching|rehang|re-hang|prime|primer|paint prep|prep|caulk|caulking|clean.?up)\b/i;
+
+/** Overhead lines that say nothing about the design or the build. */
+export const ADMIN_LINE_RE = /\b(project management|management time|design time|administration|admin|profit|margin|markup|overhead|dumpster|portalet|porta.?john)\b/i;
+
 /** First names from a JobTread customer account name ("Anne Marrero", "Nicols, John & Marcie"). */
 export function clientFirstNames(account: string | null | undefined): string[] {
   const a = (account || '').trim();
@@ -136,7 +144,7 @@ export async function gatherSources(jobId: string, sinceISO: string | null, show
             ...(page ? { page } : {}),
           },
           nextPage: {},
-          nodes: { id: {}, name: {}, fullName: {}, issueDate: {} },
+          nodes: { id: {}, name: {}, fullName: {}, issueDate: {}, price: {} },
         },
       },
     }),
@@ -150,7 +158,7 @@ export async function gatherSources(jobId: string, sinceISO: string | null, show
       (page) => ({
         document: {
           $: { id: d.id },
-          costItems: { $: { size: PAGE, ...(page ? { page } : {}) }, nextPage: {}, nodes: { name: {}, description: {} } },
+          costItems: { $: { size: PAGE, ...(page ? { page } : {}) }, nextPage: {}, nodes: { name: {}, description: {}, price: {} } },
         },
       }),
       (x) => x?.document?.costItems
@@ -188,13 +196,33 @@ export async function gatherSources(jobId: string, sinceISO: string | null, show
 
   // Change orders only: the construction contract and design agreements are
   // mostly terms, and their scope is already in the specification items.
-  const changeOrders = (job.orders?.nodes || [])
-    .map((d) => ({
-      id: d.id,
-      name: d.fullName,
-      date: d.issueDate,
-      items: (d.costItems?.nodes || []).map((i) => ({ name: i.name, description: clip(scrubMoney(i.description), 600) })),
-    }));
+  // Change orders as the writer sees them. Amounts are used here only to
+  // filter and are never passed on.
+  //   - Lines that are credits, deducts, refunds, allowance deductions or
+  //     pricing revisions are dropped, as are admin lines (management or
+  //     design time, administration, profit).
+  //   - A change order that nets to a credit, or has nothing left after
+  //     that, is skipped entirely (it is still recorded as covered).
+  const changeOrders = [];
+  const skippedChangeOrders = [];
+  for (const d of job.orders?.nodes || []) {
+    const raw = d.costItems?.nodes || [];
+    const items = raw
+      .filter((i) => !CREDIT_LINE_RE.test(i.name || '') && !ADMIN_LINE_RE.test(i.name || ''))
+      .map((i) => ({ name: i.name, description: clip(scrubMoney(i.description), 600) }));
+    const netCredit = typeof d.price === 'number' && d.price <= 0;
+    const allCredits = raw.length > 0 && raw.every((i) => CREDIT_LINE_RE.test(i.name || '') || (typeof i.price === 'number' && i.price < 0));
+    const routineOnly = items.length > 0 && items.every((i) => ROUTINE_LINE_RE.test(i.name || ''));
+    if (netCredit || allCredits || items.length === 0 || routineOnly) {
+      skippedChangeOrders.push({
+        id: d.id,
+        name: d.fullName,
+        reason: netCredit || allCredits ? 'credit only' : routineOnly ? 'routine work only' : 'only admin lines',
+      });
+      continue;
+    }
+    changeOrders.push({ id: d.id, name: d.fullName, date: d.issueDate, items });
+  }
 
   const dailyLogs = (job.dailyLogs?.nodes || [])
     .filter((l) => l.notes && l.notes.trim())
@@ -250,6 +278,7 @@ export async function gatherSources(jobId: string, sinceISO: string | null, show
     },
     specs,
     changeOrders,
+    skippedChangeOrders,
     dailyLogs,
     newAssets,
   };
