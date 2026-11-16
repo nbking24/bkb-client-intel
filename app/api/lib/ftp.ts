@@ -142,3 +142,46 @@ export async function deleteFile(subpath: string): Promise<void> {
     client.close();
   }
 }
+
+/**
+ * Read only. List ROOT itself and then each top level folder under ROOT, using
+ * one connection for the whole walk. Used by the reorg plan, which needs every
+ * job folder's contents but must never change anything on the server.
+ *
+ * Returns the root entries plus a map of folder name to its entries. A folder
+ * that cannot be listed gets an error string instead of entries.
+ */
+export async function listRootTree(): Promise<{
+  root: { name: string; isDir: boolean; size: number }[];
+  folders: Record<string, { entries: { name: string; isDir: boolean; size: number }[]; error?: string }>;
+}> {
+  const client = await connect();
+  const toEntries = (list: any[]) =>
+    list
+      .filter((e) => e.name !== '.' && e.name !== '..')
+      .map((e) => ({
+        name: e.name,
+        isDir: e.isDirectory === true || e.type === 2,
+        size: typeof e.size === 'number' ? e.size : 0,
+      }));
+  try {
+    const root = toEntries(await client.list(ROOT));
+    const folders: Record<string, any> = {};
+    for (const e of root) {
+      if (!e.isDir) continue;
+      try {
+        folders[e.name] = { entries: toEntries(await client.list(ROOT + '/' + e.name)) };
+      } catch (err: any) {
+        folders[e.name] = { entries: [], error: err?.message || 'Could not list folder' };
+      }
+    }
+    return { root, folders };
+  } finally {
+    client.close();
+  }
+}
+
+/** The configured marketing root folder name, for display. */
+export function rootName(): string {
+  return ROOT;
+}

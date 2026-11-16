@@ -8,6 +8,7 @@ import {
   FolderOpen, ArrowLeft, ChevronRight, Upload, ExternalLink, File as FileIcon, Trash2,
   RotateCw,
 } from 'lucide-react';
+import FtpReorgPlan from './FtpReorgPlan';
 
 function getToken() {
   return typeof window !== 'undefined' ? localStorage.getItem('bkb-token') || '' : '';
@@ -367,6 +368,9 @@ export default function PhotoEnginePage() {
       {error && (
         <div className="rounded-md bg-red-50 p-4 text-red-700 text-sm">Failed: {error}</div>
       )}
+
+      {/* Marketing pipeline Step 1: read only reorg plan */}
+      <FtpReorgPlan />
 
       {/* Project folders (designer FTP browser) */}
       <div>

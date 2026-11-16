@@ -322,6 +322,41 @@ export async function getAllJobs(max = 2000): Promise<
   return out;
 }
 
+/**
+ * Read the Status custom field (id 22P5SRxYPb7Q) for a set of jobs, in batches
+ * of 50. Returns a map of job id to { status, closedOn }. A job with no Status
+ * value gets status null.
+ */
+export const JOB_STATUS_FIELD_ID = '22P5SRxYPb7Q';
+export async function getJobStatuses(
+  jobIds: string[]
+): Promise<Record<string, { status: string | null; closedOn: string | null }>> {
+  const out: Record<string, { status: string | null; closedOn: string | null }> = {};
+  const ids = Array.from(new Set(jobIds.filter(Boolean)));
+  for (let i = 0; i < ids.length; i += 50) {
+    const batch = ids.slice(i, i + 50);
+    const result: any = await orgQuery('jobs', {
+      $: { size: 50, where: ['id', 'in', batch] },
+      nodes: {
+        id: {},
+        closedOn: {},
+        statusVal: {
+          _: 'customFieldValues',
+          $: { where: [['customField', 'id'], JOB_STATUS_FIELD_ID], size: 1 },
+          nodes: { value: {} },
+        },
+      },
+    });
+    for (const j of result.nodes || []) {
+      out[j.id] = {
+        status: j.statusVal?.nodes?.[0]?.value ?? null,
+        closedOn: j.closedOn ?? null,
+      };
+    }
+  }
+  return out;
+}
+
 export async function createTask(params: {
         jobId: string;
         name: string;
