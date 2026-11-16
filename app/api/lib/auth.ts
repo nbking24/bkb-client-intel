@@ -1,3 +1,5 @@
+import { verifyToken } from './auth-token';
+
 export interface AuthResult {
   valid: boolean;
   userId?: string;
@@ -17,8 +19,8 @@ const USER_ROLES: Record<string, string> = {
 
 // User ids now live in the DB (app_users), so we can't keep a static whitelist
 // here without an async DB call on every request. Validate the *format* instead:
-// a lowercase slug that starts with a letter. The PIN was already checked at
-// login; this token only asserts which user is making the request.
+// a lowercase slug that starts with a letter. The PIN is checked at login and
+// the token is HMAC-signed, so the userId inside it can be trusted.
 const USER_ID_RE = /^[a-z][a-z0-9_-]{1,30}$/;
 function isValidUserId(id: string): boolean {
   return USER_ID_RE.test(id);
@@ -63,11 +65,13 @@ export function validateAuth(authHeader: string | null): AuthResult {
   try {
     const decoded = Buffer.from(token, 'base64').toString();
     const parts = decoded.split(':');
+    // Unsigned "pin:userId:ts" tokens are no longer trusted; only the
+    // shared-PIN forms below, which carry the real APP_PIN, still pass.
 
-    // New format (per-user PIN): pin:userId:timestamp
-    if (parts.length >= 3 && isValidUserId(parts[1])) {
-      const userId = parts[1];
-      return { valid: true, userId, role: USER_ROLES[userId] || 'field' };
+    // Signed per-user token issued by /api/auth (see auth-token.ts)
+    const signedUser = verifyToken(token);
+    if (signedUser && isValidUserId(signedUser)) {
+      return { valid: true, userId: signedUser, role: USER_ROLES[signedUser] || 'field' };
     }
 
     // Legacy format: pin:timestamp (validate against APP_PIN)
