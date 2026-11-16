@@ -14,14 +14,34 @@ import { pave } from '@/app/lib/jobtread';
 import { JOB_STATUS_FIELD_ID } from '@/app/api/lib/jobtread';
 import { getSupabase } from '@/app/api/lib/supabase';
 
-/** Drop money, percentages of price, and internal ids from text. */
+/** Sentences about pricing are dropped whole; product names in other sentences are kept. */
+const PRICING_SENTENCE_RE = /\b(priced?|pricing|cost|costs|estimate|estimated|discount|tax|freight|margin|markup|allowance|invoice|payment|retainage|fee|credit|budget|percent of)\b/i;
+
+/**
+ * Take money out of text before the writer sees it: dollar amounts and
+ * "31 at $52.60" style quantities are cut, then any sentence still about
+ * pricing is dropped. Internal JobTread ids are removed too.
+ */
 export function scrubMoney(text: string | null | undefined): string {
   if (!text) return '';
-  return text
+  const cut = text
+    .replace(/\b\d[\d,.]*\s*([A-Za-z]{1,6}\s+)?at\s+\$\s?[\d,.]+(\s*(per|each|\/)\s*\w+)?,?/gi, '')
+    .replace(/\$\s?[\d,.]+(\s*(per|\/)\s*\w+)?/g, '')
+    .replace(/\b\d[\d,.]*\s?(dollars|usd)\b/gi, '')
+    .replace(/\b22P[A-Za-z0-9]{9}\b/g, '');
+  return cut
     .split('\n')
-    .filter((line) => !/\$\s?\d|\d\s?(dollars|usd)\b|margin|markup|allowance of|per sf\b.*\d|invoice|payment|retainage|fee\b/i.test(line))
+    .map((line) =>
+      line
+        .split(/(?<=[.!?])\s+/)
+        .filter((sentence) => !PRICING_SENTENCE_RE.test(sentence))
+        .join(' ')
+        .replace(/\s+,/g, ',')
+        .replace(/,\s*([.,])/g, '$1')
+        .replace(/\s{2,}/g, ' ')
+        .trimEnd()
+    )
     .join('\n')
-    .replace(/\b22P[A-Za-z0-9]{9}\b/g, '')
     .replace(/\n{3,}/g, '\n\n')
     .trim();
 }
@@ -53,8 +73,29 @@ export type NewAsset = {
   createdAt: string;
 };
 
+const PAGE = 25;
+const MAX_PAGES = 20;
+
+/**
+ * Follow nextPage for one connection, PAGE at a time. JobTread answers 413
+ * when a single response gets too big, so every list is fetched in small
+ * pages with few nested fields.
+ */
+async function pageAll(build: (page: string | undefined) => any, pick: (data: any) => any): Promise<any[]> {
+  const out = [];
+  let page: string | undefined;
+  for (let i = 0; i < MAX_PAGES; i++) {
+    const conn = pick(await pave(build(page)));
+    out.push(...(conn?.nodes || []));
+    page = conn?.nextPage || undefined;
+    if (!page) break;
+  }
+  return out;
+}
+
 export async function gatherSources(jobId: string, sinceISO: string | null, shownIds: Set<string>) {
-  const data: any = await pave({
+  // 1. The job itself: no lists.
+  const base: any = await pave({
     job: {
       $: { id: jobId },
       id: {},
@@ -63,30 +104,81 @@ export async function gatherSources(jobId: string, sinceISO: string | null, show
       closedOn: {},
       location: { address: {}, account: { name: {} } },
       statusVal: { _: 'customFieldValues', $: { where: [['customField', 'id'], JOB_STATUS_FIELD_ID], size: 1 }, nodes: { value: {} } },
-      specs: {
-        _: 'costItems',
-        $: { size: 100, where: ['isSpecification', true] },
-        nodes: { name: {}, description: {}, costGroup: { name: {}, parentCostGroup: { name: {} } } },
-      },
-      orders: {
-        _: 'documents',
-        $: { size: 50, where: { and: [['type', 'customerOrder'], ['status', 'approved']] }, sortBy: [{ field: 'issueDate', order: 'asc' }] },
-        nodes: {
-          id: {},
-          name: {},
-          fullName: {},
-          issueDate: {},
-          costItems: { $: { size: 40 }, nodes: { name: {}, description: {} } },
-        },
-      },
-      dailyLogs: {
-        $: { size: 40, sortBy: [{ field: 'date', order: 'desc' }], ...(sinceISO ? { where: ['date', '>=', sinceISO.slice(0, 10)] } : {}) },
-        nodes: { date: {}, notes: {} },
-      },
     },
   });
-  const job = data?.job;
-  if (!job?.id) throw new Error('JobTread job not found');
+  if (!base?.job?.id) throw new Error('JobTread job not found');
+
+  // 2. Specification items, paged.
+  const specNodes = await pageAll(
+    (page) => ({
+      job: {
+        $: { id: jobId },
+        costItems: {
+          $: { size: PAGE, where: ['isSpecification', true], ...(page ? { page } : {}) },
+          nextPage: {},
+          nodes: { name: {}, description: {}, costGroup: { name: {}, parentCostGroup: { name: {} } } },
+        },
+      },
+    }),
+    (d) => d?.job?.costItems
+  );
+
+  // 3. Approved customer orders, paged, with no line items in the list.
+  const orderNodes = await pageAll(
+    (page) => ({
+      job: {
+        $: { id: jobId },
+        documents: {
+          $: {
+            size: PAGE,
+            where: { and: [['type', 'customerOrder'], ['status', 'approved']] },
+            sortBy: [{ field: 'issueDate', order: 'asc' }],
+            ...(page ? { page } : {}),
+          },
+          nextPage: {},
+          nodes: { id: {}, name: {}, fullName: {}, issueDate: {} },
+        },
+      },
+    }),
+    (d) => d?.job?.documents
+  );
+
+  // 4. Line items fetched per change order, paged.
+  const orders = [];
+  for (const d of orderNodes.filter((x) => /change order/i.test(x.name || ''))) {
+    const items = await pageAll(
+      (page) => ({
+        document: {
+          $: { id: d.id },
+          costItems: { $: { size: PAGE, ...(page ? { page } : {}) }, nextPage: {}, nodes: { name: {}, description: {} } },
+        },
+      }),
+      (x) => x?.document?.costItems
+    );
+    orders.push({ ...d, costItems: { nodes: items } });
+  }
+
+  // 5. Daily logs since the last profile, paged.
+  const logNodes = await pageAll(
+    (page) => ({
+      job: {
+        $: { id: jobId },
+        dailyLogs: {
+          $: {
+            size: PAGE,
+            sortBy: [{ field: 'date', order: 'desc' }],
+            ...(sinceISO ? { where: ['date', '>=', sinceISO.slice(0, 10)] } : {}),
+            ...(page ? { page } : {}),
+          },
+          nextPage: {},
+          nodes: { date: {}, notes: {} },
+        },
+      },
+    }),
+    (d) => d?.job?.dailyLogs
+  );
+
+  const job = { ...base.job, specs: { nodes: specNodes }, orders: { nodes: orders }, dailyLogs: { nodes: logNodes } };
 
   const specs = (job.specs?.nodes || []).map((s) => ({
     group: [s.costGroup?.parentCostGroup?.name, s.costGroup?.name].filter(Boolean).join(' > '),
@@ -97,7 +189,6 @@ export async function gatherSources(jobId: string, sinceISO: string | null, show
   // Change orders only: the construction contract and design agreements are
   // mostly terms, and their scope is already in the specification items.
   const changeOrders = (job.orders?.nodes || [])
-    .filter((d) => /change order/i.test(d.name || ''))
     .map((d) => ({
       id: d.id,
       name: d.fullName,
@@ -121,19 +212,19 @@ export async function gatherSources(jobId: string, sinceISO: string | null, show
   const fresh = (rows || []).filter((r) => !shownIds.has(r.jobtread_file_id));
 
   const newAssets: NewAsset[] = [];
-  for (let i = 0; i < fresh.length; i += 50) {
-    const ids = fresh.slice(i, i + 50).map((r) => r.jobtread_file_id);
+  for (let i = 0; i < fresh.length; i += PAGE) {
+    const ids = fresh.slice(i, i + PAGE).map((r) => r.jobtread_file_id);
     const res: any = await pave({
       organization: {
         $: { id: '22P5SRwhLaYe' },
         files: {
-          $: { size: 50, where: ['id', 'in', ids] },
+          $: { size: PAGE, where: ['id', 'in', ids] },
           nodes: { id: {}, name: {}, description: {}, createdAt: {}, fileTags: { nodes: { name: {} } } },
         },
       },
     });
     const byId = Object.fromEntries((res?.organization?.files?.nodes || []).map((f) => [f.id, f]));
-    for (const r of fresh.slice(i, i + 50)) {
+    for (const r of fresh.slice(i, i + PAGE)) {
       const f = byId[r.jobtread_file_id];
       newAssets.push({
         fileId: r.jobtread_file_id,

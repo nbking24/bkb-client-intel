@@ -257,7 +257,7 @@ async function listJobFiles(jobId: string, sinceISO: string | null): Promise<JTF
         $: { id: jobId },
         files: {
           $: {
-            size: 100,
+            size: 50, // nested tags and document per file: keep pages small (JobTread 413s on big responses)
             ...(sinceISO ? { where: ['createdAt', '>', sinceISO] } : {}),
             sortBy: [{ field: 'createdAt', order: 'asc' }],
             ...(page ? { page } : {}),

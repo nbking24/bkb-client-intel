@@ -70,15 +70,15 @@ How Step 3 sorts each new JobTread file. A file already in `marketing_photo_asse
 
 ## 3. Marketing Project Profile format (from the Henschel and Marrero profiles)
 
-Word document, US Letter, 1 inch side margins. Header `BRETT KING BUILDER | Marketing Project Profile`; footer `Page N`. Colors: navy 1F3A5F, blue 2E75B6, caption gray 555555, table shading EEF3F8, table borders DDDDDD.
+Word document, US Letter, 1 inch side margins, 0.83 inch top and bottom. Arial 11 pt. Header right aligned, bold blue 8 pt: `BRETT KING BUILDER  |  Marketing Project Profile`; footer centered, gray 8 pt: `Page N`. Section headings are Heading 1, 14 pt bold navy with a thin blue rule under them. The exact measurements (read from the live Marrero profile on 2026-11-16) are listed at the top of `app/api/lib/marketing/profile/render-docx.ts`. Colors: navy 1F3A5F, blue 2E75B6, caption gray 555555, table shading EEF3F8, table borders DDDDDD.
 
 Order of the document:
 
 1. Title: job name, 20 pt bold navy.
 2. Subtitle: `Marketing Project Profile`, 13 pt blue.
 3. Tagline: one italic gray line, the project in a phrase with place (`A Full-Home Renovation and Addition in Bucks County · Perkasie, PA`).
-4. What's new lines: one italic bold navy line per update, newest first: `What's new (<Month D, YYYY>): <one sentence>.` This is the single running log. (Henschel also carries an older "What's New" section with mixed bullets; the rebuild keeps only the top lines and folds the older section into them.)
-5. Facts table (label column shaded, bold navy): Project (`<Job name> (Job #<n>)`), Last Updated, Location, Project Type, Status, Standout Feature.
+4. Facts table (label column shaded, bold navy): Project (`<Job name> (Job #<n>)`), Last Updated, Location, Project Type, Status, Standout Feature.
+5. What's new lines, directly under the table: one 10 pt italic bold navy line per update, newest first: `What's new (<Month D, YYYY>): <one sentence>.` This is the single running log. (Henschel also carries an older "What's New" section with mixed bullets; the rebuild keeps only the top lines and folds the older section into them.)
 6. Project Description: two paragraphs. What the project is and how it respects the house, then the materials and spaces that make it special. Name the architect or partner when the documents do.
 7. Scope of Work: bold navy subheads (Structure & Site, Exterior, Systems, Interior Finishes, or what fits) with short bullets.
 8. How the Project Evolved: approved change orders told as a story, no prices.
