@@ -220,12 +220,19 @@ export async function writeUpdate(current: ProfileContent, src, newChangeOrders,
     'NEW DAILY LOG NOTES:',
     ...(src.dailyLogs.length ? src.dailyLogs.map((l) => l.date + ': ' + l.notes) : ['none']),
     '',
+    'EXACT COUNTS for this update (use these numbers, never estimate): ' + countsLine(updateCounts(assets, newChangeOrders)) + '.',
+    '',
     'Write: one whatsNew sentence covering what is new (photos, videos, plans, change orders, progress). A status value (keep the style of the current row, update it only if the stage has moved). A caption for every new photo and rendering id. A videos entry for every new video id (design walkthroughs are design concepts). A plansSentence only if there are new plans or renderings. An evolvedParagraph only if there are new change orders.',
   ].join('\n');
 
   const raw: any = await callForJson({ system: VOICE, user, toolName: 'save_update', toolDescription: 'Save the update pieces.', schema: updateSchema, maxTokens: 8000 });
   const checked = await enforceRules(raw, updateSchema, src.job.clientFirstNames, 'update');
   const u: any = checked.value;
+  // Counts in the prose must match what is actually included.
+  const counts = updateCounts(assets, newChangeOrders);
+  u.whatsNew = fixCounts(u.whatsNew, counts);
+  u.evolvedParagraph = fixCounts(u.evolvedParagraph || '', counts);
+  u.plansSentence = fixCounts(u.plansSentence || '', counts);
   const caption = (id: string) => (u.captions.find((c) => c.id === id) || {}).caption || '';
 
   // Merge into the stored profile.
@@ -299,6 +306,68 @@ export async function writeUpdate(current: ProfileContent, src, newChangeOrders,
     rulesFixed: checked.fixed,
     rulesScrubbed: checked.scrubbed,
   };
+}
+
+// ------------------------------------------------------------ counts
+
+type Counts = Record<'changeOrder' | 'photo' | 'video' | 'rendering' | 'plan', number>;
+
+export function updateCounts(assets: NewAsset[], newChangeOrders: any[]): Counts {
+  return {
+    changeOrder: newChangeOrders.length,
+    photo: assets.filter(isPhoto).length,
+    video: assets.filter(isVideo).length,
+    rendering: assets.filter(isRendering).length,
+    plan: assets.filter(isPlan).length,
+  };
+}
+
+function countsLine(c: Counts) {
+  return [
+    c.changeOrder + ' new approved change order' + (c.changeOrder === 1 ? '' : 's'),
+    c.photo + ' new photo' + (c.photo === 1 ? '' : 's'),
+    c.video + ' new video' + (c.video === 1 ? '' : 's'),
+    c.rendering + ' new rendering' + (c.rendering === 1 ? '' : 's'),
+    c.plan + ' new plan file' + (c.plan === 1 ? '' : 's'),
+  ].join(', ');
+}
+
+const NUMBER_WORDS = ['zero', 'one', 'two', 'three', 'four', 'five', 'six', 'seven', 'eight', 'nine', 'ten', 'eleven', 'twelve'];
+const NOUNS: [keyof Counts, string][] = [
+  ['changeOrder', 'change orders?'],
+  ['photo', 'photos?|photographs?|progress photos?'],
+  ['video', 'videos?|clips?'],
+  ['rendering', 'renderings?'],
+];
+
+function numberWord(n: number, capital: boolean) {
+  const w = n < NUMBER_WORDS.length ? NUMBER_WORDS[n] : String(n);
+  return capital ? w.charAt(0).toUpperCase() + w.slice(1) : w;
+}
+
+/**
+ * Replace any count the writer put in front of these nouns ("three approved
+ * change orders", "2 new photos") with the real count. Up to three words may
+ * sit between the number and the noun.
+ */
+export function fixCounts(text: string, counts: Counts): string {
+  if (!text) return text;
+  let out = text;
+  for (const [key, noun] of NOUNS) {
+    const n = counts[key];
+    if (!n) continue;
+    const re = new RegExp('\\b(' + NUMBER_WORDS.join('|') + '|an|a|\\d+)((?:\\s+[A-Za-z-]+){0,3}?\\s+)(' + noun + ')\\b', 'gi');
+    out = out.replace(re, (m, num, middle, word) => {
+      // "a change order" is already right when there is one.
+      if (/^an?$/i.test(num) && n === 1) return m;
+      const capital = /^[A-Z]/.test(num);
+      let w = word;
+      if (n === 1) w = w.replace(/s$/i, '');
+      else if (!/s$/i.test(w)) w = w + 's';
+      return numberWord(n, capital) + middle + w;
+    });
+  }
+  return out;
 }
 
 function setFact(c: ProfileContent, label: string, value: string) {
