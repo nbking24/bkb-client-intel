@@ -82,6 +82,12 @@
     },
     "app/api/cron/meeting-sync/route.ts": {
       "maxDuration": 120
+    },
+    "app/api/public/questionnaire/route.ts": {
+      "maxDuration": 60
+    },
+    "app/api/cron/questionnaire-retry/route.ts": {
+      "maxDuration": 120
     }
   },
   "crons": [
@@ -152,6 +158,10 @@
     {
       "path": "/api/cron/meeting-sync",
       "schedule": "*/10 * * * *"
+    },
+    {
+      "path": "/api/cron/questionnaire-retry",
+      "schedule": "0 7 * * *"
     }
   ]
 }
