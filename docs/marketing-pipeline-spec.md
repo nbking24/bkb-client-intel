@@ -54,6 +54,20 @@ BKB Review/
 - Full size originals for photos and videos (Nathan 2026-11-16). No resizing, no transcoding.
 - Never sent to the FTP: vendor quotes, invoices, receipts, working markups, selection references, near duplicates, clips under a few seconds. Record them in `marketing_photo_assets` as excluded so they are not reconsidered.
 
+## Copy step rules (Hub build, 2026-11-16)
+
+How Step 3 sorts each new JobTread file. A file already in `marketing_photo_assets` (sent or excluded) is never looked at again.
+
+- Sent:
+  - Photos: images with a labeled name (`<Area> - <What> - <date>`) or a description. Kind from the phase tag: Pre-construction is Before, Finish is Finished, otherwise Progress. Goes to `Photos/` as `<Job Name> - <What it shows> (<Kind>).<ext>`.
+  - Renderings: images tagged `Design`, to `Plans & Renderings/` with Kind Rendering.
+  - Plan sheets: images tagged `Documents/Plans`, and PDFs tagged `Documents/Plans` or `Design`, to `Plans & Renderings/`.
+  - Videos: to `Videos/` as `<Job Name> - <What it shows>.<ext>` (`Site Video <date>` when unlabeled). Videos tagged `Design` are design walkthroughs, Kind Rendering.
+- Excluded for good (recorded so they are not reconsidered): files attached to a document (bills, quotes), tags `Receipts`, `Selections`, `Bids-Pricing`, `Permits`, or only `X. Vendor`; screenshots; PDFs not tagged as plans; other file types; near duplicates (same name stem and size, the earliest is kept); videos under 3 seconds.
+- Waiting: photos with no label yet. Not recorded, so they are picked up on a later run once the labeler has done them.
+- Originals only, never resized or converted (HEIC stays HEIC). Nothing on the FTP is replaced: a taken name gets ` 2`, ` 3` and so on. Uploads go to a hidden temporary name and are renamed into place when complete.
+- The job folder is created if missing and renamed when the JobTread Status changes; the Hub tables follow the rename.
+
 ## 3. Marketing Project Profile format (from the Henschel and Marrero profiles)
 
 Word document, US Letter, 1 inch side margins. Header `BRETT KING BUILDER | Marketing Project Profile`; footer `Page N`. Colors: navy 1F3A5F, blue 2E75B6, caption gray 555555, table shading EEF3F8, table borders DDDDDD.

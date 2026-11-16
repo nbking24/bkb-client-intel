@@ -9,6 +9,7 @@ import {
   RotateCw,
 } from 'lucide-react';
 import FtpReorgPlan from './FtpReorgPlan';
+import CopyStepPanel from './CopyStepPanel';
 
 function getToken() {
   return typeof window !== 'undefined' ? localStorage.getItem('bkb-token') || '' : '';
@@ -371,6 +372,9 @@ export default function PhotoEnginePage() {
 
       {/* Marketing pipeline Step 1: read only reorg plan */}
       <FtpReorgPlan />
+
+      {/* Marketing pipeline Step 3: copy new files to Mike */}
+      <CopyStepPanel />
 
       {/* Project folders (designer FTP browser) */}
       <div>

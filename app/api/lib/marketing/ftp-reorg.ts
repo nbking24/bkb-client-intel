@@ -35,6 +35,18 @@ function actionsFor(f: any): { actions: ReorgAction[]; skipReason: string | null
   return { actions, skipReason: null };
 }
 
+/**
+ * Keep the Hub's records in step when a folder on the FTP is renamed: the
+ * asset ledger (the FTP delete route finds files by folder name), the
+ * selected jobs table and the profile history.
+ */
+export async function recordFolderRename(oldName: string, newName: string) {
+  const supabase = getSupabase();
+  await supabase.from('marketing_photo_assets').update({ folder_name: newName }).eq('folder_name', oldName);
+  await supabase.from('marketing_photo_selected_jobs').update({ folder_name: newName, updated_at: new Date().toISOString() }).eq('folder_name', oldName);
+  await supabase.from('marketing_photo_doc_state').update({ folder_name: newName }).eq('folder_name', oldName);
+}
+
 function describe(a: ReorgAction): string {
   if (a.type === 'mkdir') return 'Create ' + a.folder + '/' + a.sub + '/';
   if (a.type === 'move') return 'Move ' + a.folder + '/' + a.file + ' to ' + a.folder + '/' + a.to + '/' + a.file;
@@ -114,6 +126,7 @@ export async function runReorg(opts: {
     try {
       await applyFolderReorg(actions, async (a, r) => {
         log.push({ ...a, text: describe(a), status: r.error ? 'error' : r.skipped ? 'skipped' : 'done', note: r.skipped || r.error || null, at: new Date().toISOString() });
+        if (a.type === 'rename' && r.ok && !r.skipped) await recordFolderRename(a.folder, a.to);
         if (runId) {
           await supabase
             .from('marketing_photo_runs')

@@ -281,3 +281,74 @@ export async function applyFolderReorg(
     client.close();
   }
 }
+
+/**
+ * Upload a stream into ROOT/<folder>/<sub>/ under the wanted file name, never
+ * replacing anything that is already there.
+ *
+ *   - If the wanted name is taken, " 2", " 3" and so on is added before the
+ *     extension. Names in `reserved` (already chosen this run) count as taken.
+ *   - The bytes go to a hidden temporary name first (".bkb-upload-<key>.part")
+ *     and are renamed to the final name only after the upload finishes, so
+ *     Mike never sees a half written file. If a run is cut off, the next run
+ *     writes the same temporary name again (it only ever holds our own
+ *     unfinished upload).
+ *
+ * Returns the final file name used.
+ */
+export async function uploadStreamNoOverwrite(opts: {
+  folder: string;
+  sub: string;
+  fileName: string;
+  key: string;
+  stream: Readable;
+  reserved?: Set<string>;
+}): Promise<string> {
+  const { folder, sub, fileName, key, stream } = opts;
+  for (const n of [folder, sub, fileName]) {
+    if (!n || /[\/\\\0]/.test(n) || n === '.' || n === '..') throw new Error('Unsafe name: ' + n);
+  }
+  const safeKey = String(key).replace(/[^A-Za-z0-9_-]/g, '');
+  const dir = ROOT + '/' + folder + '/' + sub;
+  const client = await connect();
+  try {
+    const home = await client.pwd();
+    await client.ensureDir(dir);
+    await client.cd(home);
+    const taken = new Set((await client.list(dir)).map((e) => e.name.toLowerCase()));
+    for (const r of opts.reserved || []) taken.add(r.toLowerCase());
+
+    const dot = fileName.lastIndexOf('.');
+    const stem = dot > 0 ? fileName.slice(0, dot) : fileName;
+    const ext = dot > 0 ? fileName.slice(dot) : '';
+    let finalName = fileName;
+    for (let n = 2; taken.has(finalName.toLowerCase()); n++) finalName = stem + ' ' + n + ext;
+
+    const tmp = dir + '/.bkb-upload-' + safeKey + '.part';
+    await client.uploadFrom(stream, tmp);
+
+    // Check again right before the rename in case something arrived meanwhile.
+    const now = new Set((await client.list(dir)).map((e) => e.name.toLowerCase()));
+    for (let n = 2; now.has(finalName.toLowerCase()); n++) finalName = stem + ' ' + n + ext;
+    await client.rename(tmp, dir + '/' + finalName);
+    opts.reserved?.add(finalName);
+    return finalName;
+  } finally {
+    client.close();
+  }
+}
+
+/** Read only. Names in ROOT/<folder>/<sub>/, or [] if it does not exist. */
+export async function listNames(folder: string, sub?: string): Promise<string[]> {
+  const client = await connect();
+  try {
+    const path = ROOT + '/' + folder + (sub ? '/' + sub : '');
+    try {
+      return (await client.list(path)).map((e) => e.name);
+    } catch {
+      return [];
+    }
+  } finally {
+    client.close();
+  }
+}
