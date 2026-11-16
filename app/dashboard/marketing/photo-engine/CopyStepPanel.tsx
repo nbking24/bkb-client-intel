@@ -26,6 +26,30 @@ export default function CopyStepPanel() {
   const [busy, setBusy] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [result, setResult] = useState<any>(null);
+  const [profile, setProfile] = useState<any>(null);
+
+  // Step 4: build the profile. Preview emails it to Nathan; publish replaces it on the FTP.
+  async function runProfile(job: any, mode: 'preview' | 'publish') {
+    const token = getToken();
+    if (!token) return;
+    if (mode === 'publish' && !window.confirm('Publish the rebuilt profile for ' + job.job_name + ' to Mike\'s FTP?\n\nThe current profile is backed up first. Preview it before publishing.')) return;
+    setBusy(job.job_id + ':' + mode);
+    setError(null);
+    try {
+      const r = await fetch('/api/marketing/photo-engine/profile', {
+        method: 'POST',
+        headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
+        body: JSON.stringify({ jobId: job.job_id, mode }),
+      });
+      const data = await r.json().catch(() => ({ error: 'Unreadable response (status ' + r.status + ')' }));
+      if (data.error) setError(data.error);
+      else setProfile(data);
+    } catch (err: any) {
+      setError(err.message);
+    } finally {
+      setBusy(null);
+    }
+  }
 
   async function loadJobs() {
     const token = getToken();
@@ -103,12 +127,38 @@ export default function CopyStepPanel() {
                 <button onClick={() => run(j, true)} disabled={!!busy} className="px-2 py-1 rounded border border-gray-300 hover:bg-gray-50 disabled:opacity-50 mr-1">
                   {busy === j.job_id + ':dry' ? 'Checking...' : 'Preview'}
                 </button>
-                <button onClick={() => run(j, false)} disabled={!!busy} className="px-2 py-1 rounded border border-red-300 text-red-700 hover:bg-red-50 disabled:opacity-50">
+                <button onClick={() => run(j, false)} disabled={!!busy} className="px-2 py-1 rounded border border-red-300 text-red-700 hover:bg-red-50 disabled:opacity-50 mr-3">
                   {busy === j.job_id + ':real' ? 'Copying...' : 'Copy'}
+                </button>
+                <button onClick={() => runProfile(j, 'preview')} disabled={!!busy} title="Build the profile and email it to Nathan. Nothing goes to the FTP." className="px-2 py-1 rounded border border-gray-300 hover:bg-gray-50 disabled:opacity-50 mr-1">
+                  {busy === j.job_id + ':preview' ? 'Building (1 to 3 min)...' : 'Profile preview'}
+                </button>
+                <button onClick={() => runProfile(j, 'publish')} disabled={!!busy} className="px-2 py-1 rounded border border-red-300 text-red-700 hover:bg-red-50 disabled:opacity-50">
+                  {busy === j.job_id + ':publish' ? 'Publishing...' : 'Publish'}
                 </button>
               </div>
             </div>
           ))}
+        </div>
+      )}
+
+      {profile && (
+        <div className={`mt-3 rounded-lg border p-3 text-xs ${profile.mode === 'preview' ? 'border-blue-200 bg-blue-50/50' : 'border-green-300 bg-green-50/50'}`}>
+          <div className="flex items-start justify-between gap-2">
+            <div className="space-y-0.5 text-gray-700">
+              <div className="text-sm font-semibold text-gray-900">
+                {profile.mode === 'preview' ? 'Profile preview' : profile.published ? 'Profile published' : 'Profile not published'}: {profile.job}
+              </div>
+              <div>{profile.fileName} . {Math.round(profile.bytes / 1024)} KB</div>
+              {profile.notes?.map((n) => <div key={n}>{n}</div>)}
+              {profile.whatsNew && <div>What's new: {profile.whatsNew.text}</div>}
+              <div>New photos {profile.newPhotos}, renderings {profile.newRenderings}, videos {profile.newVideos}, plans {profile.newPlans}{profile.newChangeOrders?.length ? ', change orders ' + profile.newChangeOrders.join(', ') : ''}.</div>
+              {profile.rulesFixed > 0 && <div className="text-amber-800">Writing rule fixes: {profile.rulesFixed}{profile.rulesScrubbed ? ' (' + profile.rulesScrubbed + ' hard scrubbed, worth a look)' : ''}</div>}
+              {profile.mode === 'preview' && <div>{profile.emailed ? 'Emailed to Nathan.' : 'Email failed: ' + profile.emailError}{profile.downloadUrl && <> <a className="underline text-blue-700" href={profile.downloadUrl}>Download the .docx</a></>}</div>}
+              {profile.reason && <div>{profile.reason}</div>}
+            </div>
+            <button onClick={() => setProfile(null)} className="text-gray-400 hover:text-gray-700">Close</button>
+          </div>
         </div>
       )}
 

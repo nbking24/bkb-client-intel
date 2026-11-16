@@ -2,10 +2,10 @@
  * Thin Resend wrapper for transactional emails.
  *
  * Requires env vars:
- *   RESEND_API_KEY         — API key from resend.com
- *   RESEND_FROM_EMAIL      — e.g. "BKB Hub <hub@brettkingbuilder.com>"
- *   TICKET_NOTIFY_NATHAN   — destination for new-ticket + escalation alerts
- *   TICKET_NOTIFY_TERRI    — fallback email for Terri if not stored on the ticket
+ *   RESEND_API_KEY        : API key from resend.com
+ *   RESEND_FROM_EMAIL     : e.g. "BKB Hub <hub@brettkingbuilder.com>"
+ *   TICKET_NOTIFY_NATHAN  : destination for new-ticket + escalation alerts
+ *   TICKET_NOTIFY_TERRI   : fallback email for Terri if not stored on the ticket
  *
  * Keeping this dependency-free (fetch against the Resend REST API) so we don't
  * have to add the `resend` npm package right now. We can swap in the SDK later.
@@ -22,6 +22,8 @@ type EmailPayload = {
   from?: string;
   cc?: string | string[];
   bcc?: string | string[];
+  /** Files to attach. content is the raw bytes (sent base64 encoded). */
+  attachments?: { filename: string; content: Buffer }[];
 };
 
 export async function sendEmail(payload: EmailPayload): Promise<{ ok: boolean; id?: string; error?: string }> {
@@ -49,6 +51,7 @@ export async function sendEmail(payload: EmailPayload): Promise<{ ok: boolean; i
         reply_to: payload.replyTo,
         cc: payload.cc,
         bcc: payload.bcc,
+        attachments: payload.attachments?.map((a) => ({ filename: a.filename, content: a.content.toString('base64') })),
       }),
     });
 

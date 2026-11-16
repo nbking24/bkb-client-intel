@@ -92,6 +92,14 @@ Writing rules: BKB voice, warm and specific, written for a marketing team; no em
 
 Location row keeps the full street address (Nathan 2026-11-16).
 
+## Profile writer (Hub build, 2026-11-16)
+
+- First run for a job: the Hub downloads the job's current profile .docx from the FTP, reads it into structured content (title, tagline, What's new lines, facts table, each section's text, photo sections with captions) and stores it in `marketing_photo_doc_state.content.profile` (Nathan 2026-11-16). Claude only says which blocks belong to which part; the text is copied from the document by code, so wording is kept exactly. Photos embedded in the old profile are kept in the private `marketing-profiles` storage bucket.
+- Every run rebuilds the whole .docx from the stored content plus the new material. No editing in place.
+- New material each run: one What's new line (newest first), Status and Last Updated, a `Progress Update (<date>)` section with the new photos, new renderings added to Design Vision, new videos added to Video Walk-Throughs (design walkthroughs as design concepts), a sentence for new plans, and a paragraph for new approved change orders. Which files and change orders are already shown is tracked in `content.shown_ids` and `content.shown_change_orders`.
+- Sources are scrubbed of money before Claude sees them. After writing, every string is checked for em or en dashes, money and the client's first name; anything flagged gets one fix pass, then a hard scrub.
+- Preview builds the profile and emails it to Nathan with nothing sent to the FTP. Publish backs up the current .docx to storage, then replaces it in the job folder root.
+
 ## Weekly email to Mike
 
 From Nathan, to Mike at Lighthouse Digital, BCC Nathan. Subject `Marketing photos and updates - <Month D, YYYY>`. Body as in the Sept to Oct emails: "Hi Mike, I put a few project updates in the shared folder for you." then a short block per job (job name, counts of new photos, videos, profile updated), then "Let me know if you need anything else." Draft gate stays: settings `live_mode` plus env `MARKETING_PHOTO_ENGINE_LIVE`.
