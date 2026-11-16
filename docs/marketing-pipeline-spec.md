@@ -51,7 +51,7 @@ BKB Review/
 - Folders with no JobTread job (they predate JobTread) can be marked "no JobTread job, keep name" in the Hub. Every run skips the job match and status check for them and never renames them; the one time moves still apply. Marked so far: `Nicols-Whole Home Renovation (Completed)` (shown as Completed; not Nicholson #156, which is Lost). Marks are stored in `agent_cache` under `marketing-ftp-folder-overrides`.
 - Photos move into `Photos/` (new). Existing folders are migrated once (Nathan 2026-11-16): root level photos move into `Photos/`, videos into `Videos/`, PDFs and rendering images into `Plans & Renderings/`; the profile .docx stays at the root. Anything else stays at the root and is listed in the plan for Nathan to decide. Tell Mike before the move in case his site links to file paths.
 - File names: `<Job Name> - <What it shows> (<Kind>).jpg`, Kind one of Before, Progress, Finished, Rendering, Professional. Renderings and plan PDFs go in `Plans & Renderings/`; videos in `Videos/` as `<Job Name> - <What it shows>.mp4` (or original format).
-- Full size originals for photos and videos (Nathan 2026-11-16). No resizing, no transcoding.
+- Full size originals for photos and videos (Nathan 2026-11-16). No resizing, no transcoding, except HEIC photos, which go as full resolution JPEG.
 - Never sent to the FTP: vendor quotes, invoices, receipts, working markups, selection references, near duplicates, clips under a few seconds. Record them in `marketing_photo_assets` as excluded so they are not reconsidered.
 
 ## Copy step rules (Hub build, 2026-11-16)
@@ -59,13 +59,13 @@ BKB Review/
 How Step 3 sorts each new JobTread file. A file already in `marketing_photo_assets` (sent or excluded) is never looked at again.
 
 - Sent:
-  - Photos: images with a labeled name (`<Area> - <What> - <date>`) or a description. Kind from the phase tag: Pre-construction is Before, Finish is Finished, otherwise Progress. Goes to `Photos/` as `<Job Name> - <What it shows> (<Kind>).<ext>`.
+  - Photos: images with a labeled name (`<Area> - <What> - <date>`), a description, or a name a person typed on upload (anything that is not a camera, phone or JobTread default such as `IMG_####`, `PXL_...`, `Photo 1`, `annotation_...`; Nathan 2026-11-16). Kind from the phase tag: Pre-construction is Before, Finish is Finished, otherwise Progress. Goes to `Photos/` as `<Job Name> - <What it shows> (<Kind>).<ext>`.
   - Renderings: images tagged `Design`, to `Plans & Renderings/` with Kind Rendering.
   - Plan sheets: images tagged `Documents/Plans`, and PDFs tagged `Documents/Plans` or `Design`, to `Plans & Renderings/`.
   - Videos: to `Videos/` as `<Job Name> - <What it shows>.<ext>` (`Site Video <date>` when unlabeled). Videos tagged `Design` are design walkthroughs, Kind Rendering.
 - Excluded for good (recorded so they are not reconsidered): files attached to a document (bills, quotes), tags `Receipts`, `Selections`, `Bids-Pricing`, `Permits`, or only `X. Vendor`; screenshots; PDFs not tagged as plans; other file types; near duplicates (same name stem and size, the earliest is kept); videos under 3 seconds.
 - Waiting: photos with no label yet. Not recorded, so they are picked up on a later run once the labeler has done them.
-- Originals only, never resized or converted (HEIC stays HEIC). Nothing on the FTP is replaced: a taken name gets ` 2`, ` 3` and so on. Uploads go to a hidden temporary name and are renamed into place when complete.
+- Originals only, never resized. The one conversion (Nathan 2026-11-16): HEIC photos are sent as JPEG at the original resolution, quality 92, so Mike's site can show them. Nothing on the FTP is replaced: a taken name gets ` 2`, ` 3` and so on. Uploads go to a hidden temporary name and are renamed into place when complete.
 - The job folder is created if missing and renamed when the JobTread Status changes; the Hub tables follow the rename.
 
 ## 3. Marketing Project Profile format (from the Henschel and Marrero profiles)

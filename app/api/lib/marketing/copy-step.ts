@@ -90,10 +90,34 @@ export function cleanPart(s: string): string {
 }
 
 /** "What it shows" from a labeled name, or else a short phrase from the description. */
+/**
+ * Default names that cameras, phones and the JobTread app give a file. Any
+ * other name was typed by a person on upload and counts as a label
+ * (Nathan, 2026-11-16).
+ */
+const DEFAULT_NAME_RES = [
+  /^(img|img_e|dsc|dscn|dscf|pxl|mvimg|vid|pano|gopr|dji|mov|hpim|sam|cimg|dcim)[\s_-]*[\w-]*$/i,
+  /^photo(\s*\(?\d+\)?)?$/i,
+  /^image(\s*\(?\d+\)?)?$/i,
+  /^video(\s*\(?\d+\)?)?$/i,
+  /^annotation[\s_-]/i,
+  /^screen ?shot/i,
+  /^untitled/i,
+  /^p\d{6,}$/i,
+  /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i,
+  /^[\d\s_.-]+$/,
+];
+
+export function isDefaultName(stem: string): boolean {
+  const s = (stem || '').trim();
+  return !s || DEFAULT_NAME_RES.some((re) => re.test(s));
+}
+
 export function whatItShows(f: JTFile): string | null {
   const { stem } = stemAndExt(f.name, f.type);
   const m = stem.match(LABELED_NAME_RE);
   if (m) return cleanPart(m[2]);
+  if (!isDefaultName(stem)) return cleanPart(stem);
   if (f.description) {
     const first = f.description.split(/[.;]/)[0];
     const short = first.split(/[,:(]/)[0];
@@ -105,7 +129,18 @@ export function whatItShows(f: JTFile): string | null {
 
 function isLabeled(f: JTFile): boolean {
   const { stem } = stemAndExt(f.name, f.type);
-  return LABELED_NAME_RE.test(stem) || !!(f.description && f.description.trim());
+  return LABELED_NAME_RE.test(stem) || !isDefaultName(stem) || !!(f.description && f.description.trim());
+}
+
+export function isHeic(f: { type?: string; name?: string }): boolean {
+  return /image\/hei[cf]/i.test(f.type || '') || /\.hei[cf]$/i.test(f.name || '');
+}
+
+/** Full resolution, high quality JPEG from a HEIC original. Nothing is resized. */
+async function heicToJpeg(input: Buffer): Promise<Buffer> {
+  const convert = (await import('heic-convert')).default;
+  const out = await convert({ buffer: input, format: 'JPEG', quality: 0.92 });
+  return Buffer.from(out);
 }
 
 function hasTag(f: JTFile, id: string) {
@@ -145,18 +180,20 @@ export function decide(f: JTFile, jobName: string): Decision {
   }
 
   if (mime.startsWith('image/')) {
+    // HEIC is the one conversion: sent as a full size JPEG so Mike's site can show it.
+    const outExt = isHeic(f) ? 'jpg' : ext;
     if (/screen ?shot/i.test(f.name)) return { action: 'exclude', file: f, kind: 'other', reason: 'screenshot' };
     if (isDesign) {
       const what = whatItShows(f) || cleanPart(stem);
-      return { action: 'send', file: f, sub: 'Plans & Renderings', kind: 'rendering', ftpName: job + ' - ' + what + ' (Rendering).' + ext };
+      return { action: 'send', file: f, sub: 'Plans & Renderings', kind: 'rendering', ftpName: job + ' - ' + what + ' (Rendering).' + outExt };
     }
     if (isPlan) {
       const what = whatItShows(f) || cleanPart(stem);
-      return { action: 'send', file: f, sub: 'Plans & Renderings', kind: 'plan', ftpName: job + ' - ' + what + '.' + ext };
+      return { action: 'send', file: f, sub: 'Plans & Renderings', kind: 'plan', ftpName: job + ' - ' + what + '.' + outExt };
     }
     if (!isLabeled(f)) return { action: 'wait', file: f, reason: 'not labeled yet' };
     const kind = photoKind(f);
-    return { action: 'send', file: f, sub: 'Photos', kind: kind.toLowerCase(), ftpName: job + ' - ' + whatItShows(f) + ' (' + kind + ').' + ext };
+    return { action: 'send', file: f, sub: 'Photos', kind: kind.toLowerCase(), ftpName: job + ' - ' + whatItShows(f) + ' (' + kind + ').' + outExt };
   }
 
   if (mime.startsWith('video/')) {
@@ -429,12 +466,15 @@ export async function runCopyStep(opts: { jobId: string; dryRun: boolean; deadli
     try {
       const res = await fetch(await originalUrl(d.file.id), { cache: 'no-store' });
       if (!res.ok || !res.body) throw new Error('JobTread download failed (' + res.status + ')');
+      const stream = isHeic(d.file)
+        ? Readable.from(await heicToJpeg(Buffer.from(await res.arrayBuffer())))
+        : Readable.fromWeb(res.body as any);
       const finalName = await uploadStreamNoOverwrite({
         folder: folderName,
         sub: d.sub,
         fileName: d.ftpName,
         key: d.file.id,
-        stream: Readable.fromWeb(res.body as any),
+        stream,
         reserved,
       });
       await supabase.from('marketing_photo_assets').insert({
