@@ -19,6 +19,7 @@ const CONF: Record<string, { label: string; cls: string }> = {
   likely: { label: 'Likely', cls: 'bg-amber-100 text-amber-800' },
   ambiguous: { label: 'Unclear', cls: 'bg-red-100 text-red-700' },
   none: { label: 'No match', cls: 'bg-red-100 text-red-700' },
+  manual: { label: 'No JobTread job', cls: 'bg-gray-200 text-gray-700' },
 };
 
 export default function FtpReorgPlan() {
@@ -26,6 +27,7 @@ export default function FtpReorgPlan() {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [open, setOpen] = useState<Record<string, boolean>>({});
+  const [marking, setMarking] = useState<string | null>(null);
 
   async function run() {
     const token = getToken();
@@ -45,6 +47,36 @@ export default function FtpReorgPlan() {
       setError(err.message);
     } finally {
       setBusy(false);
+    }
+  }
+
+  async function markKeepName(folder: string, keep: boolean) {
+    const token = getToken();
+    if (!token) return;
+    let label = null;
+    if (keep) {
+      const answer = window.prompt(
+        'Mark "' + folder + '" as having no JobTread job. Its name will never change.\n\nStatus to show for it (In Design, In Progress or Completed):',
+        'Completed'
+      );
+      if (answer === null) return;
+      label = answer.trim() || null;
+    }
+    setMarking(folder);
+    setError(null);
+    try {
+      const r = await fetch('/api/marketing/photo-engine/ftp/folder-override', {
+        method: 'POST',
+        headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
+        body: JSON.stringify({ folder, keepName: keep, label }),
+      });
+      const data = await r.json().catch(() => ({}));
+      if (!r.ok || data.error) setError(data.error || 'Could not save the change.');
+      else await run();
+    } catch (err: any) {
+      setError(err.message);
+    } finally {
+      setMarking(null);
     }
   }
 
@@ -98,10 +130,12 @@ export default function FtpReorgPlan() {
             <Stat label="Folders" value={s.folders} />
             <Stat label="Matched" value={s.matched} />
             <Stat label="Not matched" value={s.unmatched} warn={s.unmatched > 0} />
+            {s.keptNoJob > 0 && <Stat label="No JobTread job, name kept" value={s.keptNoJob} />}
             <Stat label="Renames" value={s.renames} />
             <Stat label="Files to move" value={s.filesToMove} />
             <Stat label="Need subfolders" value={s.foldersMissingSubfolders} />
             <Stat label="Status needs a decision" value={s.statusNeedsDecision} warn={s.statusNeedsDecision > 0} />
+            {s.filesToDecide > 0 && <Stat label="Files for you to decide" value={s.filesToDecide} warn />}
             {s.lostExcluded > 0 && <Stat label="Lost jobs left out" value={s.lostExcluded} />}
             {s.collisions > 0 && <Stat label="Name clashes" value={s.collisions} warn />}
           </div>
@@ -117,6 +151,15 @@ export default function FtpReorgPlan() {
           {plan.looseRootFiles?.length > 0 && (
             <Warn>
               Files sitting directly in {plan.root} (not in a job folder), left alone: {plan.looseRootFiles.map((f) => f.file).join(', ')}
+            </Warn>
+          )}
+
+          {plan.filesToDecide?.length > 0 && (
+            <Warn>
+              <div className="font-medium">Left at the folder root for you to decide (not a photo, video, PDF, rendering or the profile):</div>
+              <ul className="ml-4 list-disc">
+                {plan.filesToDecide.map((x) => <li key={x.folder + '/' + x.file}>{x.folder} / {x.file}</li>)}
+              </ul>
             </Warn>
           )}
 
@@ -137,13 +180,13 @@ export default function FtpReorgPlan() {
                 {plan.folders.map((f) => {
                   const c = CONF[f.confidence] || CONF.none;
                   const isOpen = !!open[f.folder];
-                  const hasDetail = f.moves.length || f.leftInPlace.length || f.otherSubfolders.length || f.candidates.length || f.profileFiles.length || f.listError;
+                  const hasDetail = true; // every row has at least the keep name button
                   return (
                     <Fragment key={f.folder}>
                       <tr className={`align-top ${f.excluded ? 'opacity-50' : ''}`}>
                         <td className="px-3 py-2">
                           {hasDetail ? (
-                            <button onClick={() => setOpen({ ...open, [f.folder]: !isOpen })} className="text-gray-400 hover:text-gray-700">
+                            <button title="Details"  onClick={() => setOpen({ ...open, [f.folder]: !isOpen })} className="text-gray-400 hover:text-gray-700">
                               {isOpen ? <ChevronDown className="w-4 h-4" /> : <ChevronRight className="w-4 h-4" />}
                             </button>
                           ) : null}
@@ -151,19 +194,23 @@ export default function FtpReorgPlan() {
                         <td className="px-3 py-2 font-medium text-gray-900">{f.folder}</td>
                         <td className="px-3 py-2">
                           <span className={`inline-block px-1.5 py-0.5 rounded text-[11px] font-medium mr-1.5 ${c.cls}`}>{c.label}</span>
-                          {f.job ? (
+                          {f.keepName ? (
+                            <span className="text-gray-500">None, name kept</span>
+                          ) : f.job ? (
                             <span className="text-gray-700">{f.job.name}{f.job.number ? ' #' + f.job.number : ''}{f.job.closed ? ' (closed)' : ''}</span>
                           ) : (
                             <span className="text-gray-400">None</span>
                           )}
                         </td>
                         <td className="px-3 py-2 text-gray-600">
-                          {f.job ? (f.jobStatus || (f.job.closed ? 'Closed' : 'Not set')) : ''}
+                          {f.keepName ? (f.statusLabel || '') : f.job ? (f.jobStatus || (f.job.closed ? 'Closed' : 'Not set')) : ''}
                           {f.statusNote && <div className={`text-xs mt-0.5 ${f.excluded ? "text-gray-500" : "text-red-600"}`}>{f.statusNote}</div>}
                         </td>
                         <td className="px-3 py-2">
                           {f.excluded ? (
                             <span className="text-gray-400">Left out (Lost)</span>
+                          ) : f.keepName ? (
+                            <span className="text-gray-400">No change (name kept)</span>
                           ) : f.targetName ? (
                             f.rename ? <span className="text-blue-800">{f.targetName}</span> : <span className="text-gray-400">No change</span>
                           ) : (
@@ -177,6 +224,17 @@ export default function FtpReorgPlan() {
                         <tr className="bg-gray-50/60">
                           <td></td>
                           <td colSpan={6} className="px-3 py-2 text-xs text-gray-600 space-y-1.5">
+                            <div>
+                              {f.keepName ? (
+                                <button onClick={() => markKeepName(f.folder, false)} disabled={marking === f.folder} className="px-2 py-1 rounded border border-gray-300 hover:bg-white disabled:opacity-50">
+                                  {marking === f.folder ? 'Saving...' : 'Undo: match this folder to a JobTread job again'}
+                                </button>
+                              ) : (
+                                <button onClick={() => markKeepName(f.folder, true)} disabled={marking === f.folder} className="px-2 py-1 rounded border border-gray-300 hover:bg-white disabled:opacity-50">
+                                  {marking === f.folder ? 'Saving...' : 'No JobTread job, keep this name'}
+                                </button>
+                              )}
+                            </div>
                             {f.listError && <div className="text-red-600">Could not read this folder: {f.listError}</div>}
                             {f.candidates.length > 0 && (
                               <div><span className="font-medium">{f.job ? 'Other possible jobs' : 'Possible jobs'}:</span> {f.candidates.map((j) => j.name + (j.number ? ' #' + j.number : '') + (j.closed ? ' (closed)' : '')).join('; ')}</div>
@@ -186,7 +244,7 @@ export default function FtpReorgPlan() {
                               <div>
                                 <span className="font-medium">Moves:</span>
                                 <ul className="mt-0.5 ml-4 list-disc">
-                                  {f.moves.map((m) => <li key={m.file}>{m.file} <span className="text-gray-400">to {m.to}/</span></li>)}
+                                  {f.moves.map((m) => <li key={m.file}>{m.file} <span className="text-gray-400">to {m.to}/{m.why === 'rendering' ? ' (name looks like a rendering)' : ''}</span></li>)}
                                 </ul>
                               </div>
                             )}

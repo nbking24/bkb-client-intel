@@ -84,22 +84,28 @@ export async function getActiveJobs(limit = 30) {
 // ---------------------------------------------------------------------------
 
 /**
- * Folder name rule: replace the FIRST space in the job name with a hyphen.
- *   "Edwards Pool House" -> "Edwards-Pool House"
- *   "Leonard Kitchen"    -> "Leonard-Kitchen"
- * A name with no space is returned unchanged.
+ * Folder name rule (Nathan, 2026-11-16):
+ *   - If the job name already contains a dash, collapse each " - " to "-" and
+ *     stop. Do not touch any other space.
+ *       "Johnson - 4 Season Room" -> "Johnson-4 Season Room"
+ *       "Puglia - Sunroom"        -> "Puglia-Sunroom"
+ *   - Otherwise replace only the FIRST space with a hyphen.
+ *       "Edwards Pool House"      -> "Edwards-Pool House"
+ *       "Marrero Kitchen Addition" -> "Marrero-Kitchen Addition"
+ * Slashes are not allowed in a folder name, so they become hyphens after the
+ * dash check: "Halvorsen Roof/Exterior" -> "Halvorsen-Roof-Exterior".
  */
 export function folderNameForJob(name: string): string {
-  // Produce a clean, filesystem-safe per-job folder name.
-  //   "Edwards Pool House"     -> "Edwards-Pool House"
-  //   "Puglia - Sunroom"       -> "Puglia-Sunroom"
-  //   "Halvorsen Roof/Exterior" -> "Halvorsen-Roof-Exterior"
-  let s = (name || '').trim();
-  s = s.replace(/[\/\\]+/g, '-');    // slashes are path separators, not allowed in a folder name
-  s = s.replace(/\s*[-\u2013]\s*/g, '-'); // collapse " - " style separators to a single hyphen
-  s = s.replace(' ', '-');            // first remaining space becomes a hyphen
-  s = s.replace(/-{2,}/g, '-');       // collapse repeated hyphens
-  s = s.replace(/^-+|-+$/g, '');      // trim stray hyphens
+  let s = (name || '').trim().replace(/\s+/g, ' ');
+  const hasDash = /[-\u2010-\u2015]/.test(s);
+  if (hasDash) {
+    s = s.replace(/\s*[-\u2010-\u2015]\s*/g, '-'); // " - " (or an en dash) becomes "-"
+  } else {
+    s = s.replace(' ', '-'); // first space only
+  }
+  s = s.replace(/\s*[\/\\]+\s*/g, '-'); // slashes are path separators
+  s = s.replace(/-{2,}/g, '-');
+  s = s.replace(/^-+|-+$/g, '');
   return s;
 }
 

@@ -40,13 +40,16 @@ BKB Review/
     Videos/
 ```
 
-- Folder name: first space in the JobTread job name becomes a hyphen (`Marrero Kitchen Addition` to `Marrero-Kitchen Addition`), then the status in parentheses.
+- Folder name, then the status in parentheses (Nathan 2026-11-16):
+  - If the JobTread job name already contains a dash, collapse each ` - ` to `-` and stop (`Johnson - 4 Season Room` to `Johnson-4 Season Room`, `Puglia - Sunroom` to `Puglia-Sunroom`).
+  - Otherwise the first space becomes a hyphen (`Marrero Kitchen Addition` to `Marrero-Kitchen Addition`).
 - Status in parentheses follows JobTread (job custom field Status, id `22P5SRxYPb7Q`) and the folder is renamed when it changes. Mapping (confirmed by Nathan 2026-11-16):
   - Status 5 and earlier, and `10. Ready` = `In Design`
-  - `6. In Production` and `6.5 Ongoing / Punch List` = `In Progress`
-  - job closed or later statuses (`7. Final Billing`, `11. Closed`) = `Completed`
+  - `6. In Production` = `In Progress`
+  - `6.5 Ongoing / Punch List` (finished projects in punch list), `7. Final Billing`, `11. Closed`, or a closed job = `Completed`
   - `8. Lost` jobs are not included: no folder rename, no moves, no uploads.
-- Photos move into `Photos/` (new). Existing folders are migrated once: root level photos move into `Photos/`; profile stays at the root. Tell Mike before the move in case his site links to file paths.
+- Folders with no JobTread job (they predate JobTread) can be marked "no JobTread job, keep name" in the Hub. Every run skips the job match and status check for them and never renames them; the one time moves still apply. Marked so far: `Nicols-Whole Home Renovation (Completed)` (shown as Completed; not Nicholson #156, which is Lost). Marks are stored in `agent_cache` under `marketing-ftp-folder-overrides`.
+- Photos move into `Photos/` (new). Existing folders are migrated once (Nathan 2026-11-16): root level photos move into `Photos/`, videos into `Videos/`, PDFs and rendering images into `Plans & Renderings/`; the profile .docx stays at the root. Anything else stays at the root and is listed in the plan for Nathan to decide. Tell Mike before the move in case his site links to file paths.
 - File names: `<Job Name> - <What it shows> (<Kind>).jpg`, Kind one of Before, Progress, Finished, Rendering, Professional. Renderings and plan PDFs go in `Plans & Renderings/`; videos in `Videos/` as `<Job Name> - <What it shows>.mp4` (or original format).
 - Full size originals for photos and videos (Nathan 2026-11-16). No resizing, no transcoding.
 - Never sent to the FTP: vendor quotes, invoices, receipts, working markups, selection references, near duplicates, clips under a few seconds. Record them in `marketing_photo_assets` as excluded so they are not reconsidered.

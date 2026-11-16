@@ -16,6 +16,7 @@
  */
 import { listRootTree, rootName } from '@/app/api/lib/ftp';
 import { getAllJobs, getJobStatuses, folderNameForJob } from '@/app/api/lib/jobtread';
+import { getFolderOverrides } from '@/app/api/lib/marketing/folder-overrides';
 
 export const SUBFOLDERS = ['Photos', 'Plans & Renderings', 'Videos'] as const;
 
@@ -24,12 +25,16 @@ const VIDEO_EXT = new Set(['mp4', 'mov', 'm4v', 'avi', 'wmv', 'mkv', 'webm', '3g
 const PLAN_EXT = new Set(['pdf']);
 const PROFILE_EXT = new Set(['docx', 'doc']);
 
+/** An image whose name says it is a rendering or a drawing, not a site photo. */
+const RENDERING_RE = /render|enscape|revit|concept|design vision|\(rendering\)|floor ?plan|site ?plan|plan set|sketch|drawing/i;
+
 /**
  * Status label for the folder name. Returns null when the Status value is not
  * covered by the agreed mapping, so the plan flags it instead of guessing.
  *   5 and earlier, and 10. Ready: In Design
- *   6. In Production, 6.5 Ongoing / Punch List: In Progress
- *   Closed job, 7. Final Billing, 11. Closed: Completed
+ *   6. In Production: In Progress
+ *   6.5 Ongoing / Punch List (finished, in punch list), 7. Final Billing,
+ *   11. Closed, or a closed job: Completed
  *   8. Lost: excluded, the folder is left out of the reorg entirely
  * Anything else (or no Status) is flagged for Nathan.
  */
@@ -46,8 +51,8 @@ export function statusLabel(status: string | null, closedOn: string | null): { l
   const n = m ? parseFloat(m[1]) : NaN;
   if (n === 10) return { label: 'In Design' };
   if (n <= 5) return { label: 'In Design' };
-  if (n === 6 || n === 6.5) return { label: 'In Progress' };
-  if (n === 7 || n === 11) return { label: 'Completed' };
+  if (n === 6) return { label: 'In Progress' };
+  if (n === 6.5 || n === 7 || n === 11) return { label: 'Completed' };
   return { label: null, note: 'Status "' + s + '" is not in the agreed mapping' };
 }
 
@@ -125,12 +130,17 @@ function ext(name: string): string {
 }
 
 export async function buildReorgPlan() {
-  const [tree, jobs] = await Promise.all([listRootTree(), getAllJobs()]);
+  const [tree, jobs, overrides] = await Promise.all([listRootTree(), getAllJobs(), getFolderOverrides()]);
   const folderNames = Object.keys(tree.folders).sort((a, b) =>
     a.localeCompare(b, undefined, { sensitivity: 'base' })
   );
 
-  const matches = folderNames.map((f) => ({ folder: f, ...matchFolder(f, jobs) }));
+  // A folder marked "no JobTread job, keep name" skips the job match.
+  const matches = folderNames.map((f) =>
+    overrides[f]?.mode === 'no_job_keep_name'
+      ? { folder: f, confidence: 'manual', job: null, candidates: [] }
+      : { folder: f, ...matchFolder(f, jobs) }
+  );
   const statuses = await getJobStatuses(matches.filter((m) => m.job).map((m) => m.job.id));
 
   const folders = matches.map((m) => {
@@ -143,16 +153,17 @@ export async function buildReorgPlan() {
       (d) => !SUBFOLDERS.some((s) => s.toLowerCase() === d.toLowerCase())
     );
 
-    const moves: { file: string; size: number; to: string }[] = [];
+    const moves: { file: string; size: number; to: string; why?: string }[] = [];
     const profileFiles: string[] = [];
     const leftInPlace: { file: string; size: number }[] = [];
     for (const e of entries) {
       if (e.isDir) continue;
       const x = ext(e.name);
-      if (IMAGE_EXT.has(x)) moves.push({ file: e.name, size: e.size, to: 'Photos' });
+      if (IMAGE_EXT.has(x) && RENDERING_RE.test(e.name)) moves.push({ file: e.name, size: e.size, to: 'Plans & Renderings', why: 'rendering' });
+      else if (IMAGE_EXT.has(x)) moves.push({ file: e.name, size: e.size, to: 'Photos' });
       else if (VIDEO_EXT.has(x)) moves.push({ file: e.name, size: e.size, to: 'Videos' });
       else if (PLAN_EXT.has(x)) moves.push({ file: e.name, size: e.size, to: 'Plans & Renderings' });
-      else if (PROFILE_EXT.has(x)) profileFiles.push(e.name);
+      else if (PROFILE_EXT.has(x) && /profile/i.test(e.name)) profileFiles.push(e.name);
       else leftInPlace.push({ file: e.name, size: e.size });
     }
 
@@ -160,6 +171,13 @@ export async function buildReorgPlan() {
     let label = null;
     let statusNote = undefined;
     let targetName = null;
+    const override = overrides[m.folder] || null;
+    if (override) {
+      // No JobTread job: keep the name exactly, skip the status check.
+      label = override.label || null;
+      targetName = m.folder;
+      statusNote = 'No JobTread job, name kept';
+    }
     if (m.job) {
       const st = statuses[m.job.id] || { status: null, closedOn: m.job.closedOn };
       currentStatus = st.status;
@@ -179,6 +197,8 @@ export async function buildReorgPlan() {
     return {
       folder: m.folder,
       excluded,
+      keepName: !!override,
+      override,
       confidence: m.confidence,
       job: m.job
         ? { id: m.job.id, name: m.job.name, number: m.job.number, closed: !!m.job.closedOn }
@@ -213,17 +233,20 @@ export async function buildReorgPlan() {
     summary: {
       folders: folders.length,
       matched: folders.filter((f) => f.job).length,
-      unmatched: folders.filter((f) => !f.job).length,
+      keptNoJob: folders.filter((f) => f.keepName).length,
+      unmatched: folders.filter((f) => !f.job && !f.keepName).length,
       renames: folders.filter((f) => f.rename).length,
       filesToMove: folders.reduce((n, f) => n + f.moves.length, 0),
       foldersMissingSubfolders: folders.filter((f) => f.missingSubfolders.length > 0).length,
       statusNeedsDecision: folders.filter((f) => f.job && !f.statusLabel && !f.excluded).length,
+      filesToDecide: folders.reduce((n, f) => n + f.leftInPlace.length, 0),
       lostExcluded: folders.filter((f) => f.excluded).length,
       collisions: collisions.length,
     },
     folders,
-    unmatched: folders.filter((f) => !f.job).map((f) => ({ folder: f.folder, confidence: f.confidence, candidates: f.candidates })),
+    unmatched: folders.filter((f) => !f.job && !f.keepName).map((f) => ({ folder: f.folder, confidence: f.confidence, candidates: f.candidates })),
     collisions,
     looseRootFiles,
+    filesToDecide: folders.flatMap((f) => f.leftInPlace.map((x) => ({ folder: f.folder, ...x }))),
   };
 }
