@@ -167,6 +167,19 @@ export async function buildReorgPlan() {
       else leftInPlace.push({ file: e.name, size: e.size });
     }
 
+    // A move whose destination already holds a file of the same name is not
+    // made: it stays at the root and is listed for Nathan to decide.
+    const subs = listing.subs || {};
+    const clashes: { file: string; size: number; to: string }[] = [];
+    for (let i = moves.length - 1; i >= 0; i--) {
+      const m = moves[i];
+      const there = (subs[m.to.toLowerCase()] || []).map((n) => n.toLowerCase());
+      if (there.includes(m.file.toLowerCase())) {
+        clashes.unshift({ file: m.file, size: m.size, to: m.to });
+        moves.splice(i, 1);
+      }
+    }
+
     let currentStatus = null;
     let label = null;
     let statusNote = undefined;
@@ -191,6 +204,7 @@ export async function buildReorgPlan() {
     if (excluded) {
       moves.length = 0;
       leftInPlace.length = 0;
+      clashes.length = 0;
       missingSubfolders.length = 0;
     }
 
@@ -212,6 +226,7 @@ export async function buildReorgPlan() {
       moves,
       profileFiles,
       leftInPlace,
+      clashes,
       missingSubfolders,
       otherSubfolders,
       listError: listing.error || null,
@@ -239,7 +254,7 @@ export async function buildReorgPlan() {
       filesToMove: folders.reduce((n, f) => n + f.moves.length, 0),
       foldersMissingSubfolders: folders.filter((f) => f.missingSubfolders.length > 0).length,
       statusNeedsDecision: folders.filter((f) => f.job && !f.statusLabel && !f.excluded).length,
-      filesToDecide: folders.reduce((n, f) => n + f.leftInPlace.length, 0),
+      filesToDecide: folders.reduce((n, f) => n + f.leftInPlace.length + f.clashes.length, 0),
       lostExcluded: folders.filter((f) => f.excluded).length,
       collisions: collisions.length,
     },
@@ -247,6 +262,9 @@ export async function buildReorgPlan() {
     unmatched: folders.filter((f) => !f.job && !f.keepName).map((f) => ({ folder: f.folder, confidence: f.confidence, candidates: f.candidates })),
     collisions,
     looseRootFiles,
-    filesToDecide: folders.flatMap((f) => f.leftInPlace.map((x) => ({ folder: f.folder, ...x }))),
+    filesToDecide: folders.flatMap((f) => [
+      ...f.leftInPlace.map((x) => ({ folder: f.folder, ...x, reason: 'not a photo, video, PDF, rendering or the profile' })),
+      ...f.clashes.map((x) => ({ folder: f.folder, file: x.file, size: x.size, reason: 'a file with the same name is already in ' + x.to + '/' })),
+    ]),
   };
 }

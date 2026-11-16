@@ -26,6 +26,7 @@ export async function GET(req: NextRequest) {
   const { data, error } = await supabase
     .from('marketing_photo_runs')
     .select('*')
+    .neq('trigger', 'ftp-reorg') // FTP reorg log rows are shown in the reorg panel instead
     .order('created_at', { ascending: false })
     .limit(30);
 

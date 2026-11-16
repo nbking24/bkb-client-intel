@@ -151,9 +151,11 @@ export async function deleteFile(subpath: string): Promise<void> {
  * Returns the root entries plus a map of folder name to its entries. A folder
  * that cannot be listed gets an error string instead of entries.
  */
+const STANDARD_SUBFOLDERS = ['photos', 'plans & renderings', 'videos'];
+
 export async function listRootTree(): Promise<{
   root: { name: string; isDir: boolean; size: number }[];
-  folders: Record<string, { entries: { name: string; isDir: boolean; size: number }[]; error?: string }>;
+  folders: Record<string, { entries: { name: string; isDir: boolean; size: number }[]; subs?: Record<string, string[]>; error?: string }>;
 }> {
   const client = await connect();
   const toEntries = (list: any[]) =>
@@ -170,7 +172,19 @@ export async function listRootTree(): Promise<{
     for (const e of root) {
       if (!e.isDir) continue;
       try {
-        folders[e.name] = { entries: toEntries(await client.list(ROOT + '/' + e.name)) };
+        const entries = toEntries(await client.list(ROOT + '/' + e.name));
+        // Also list the three standard subfolders when present, so the plan
+        // can spot a file that would clash with one already moved there.
+        const subs: Record<string, string[]> = {};
+        for (const d of entries) {
+          if (!d.isDir || !STANDARD_SUBFOLDERS.includes(d.name.toLowerCase())) continue;
+          try {
+            subs[d.name.toLowerCase()] = toEntries(await client.list(ROOT + '/' + e.name + '/' + d.name)).map((x) => x.name);
+          } catch {
+            subs[d.name.toLowerCase()] = [];
+          }
+        }
+        folders[e.name] = { entries, subs };
       } catch (err: any) {
         folders[e.name] = { entries: [], error: err?.message || 'Could not list folder' };
       }
@@ -184,4 +198,86 @@ export async function listRootTree(): Promise<{
 /** The configured marketing root folder name, for display. */
 export function rootName(): string {
   return ROOT;
+}
+
+/**
+ * One time reorg of a single job folder. NEVER deletes anything: the only
+ * server commands used are LIST, MKD (via ensureDir), CWD and RNFR/RNTO.
+ *
+ * Runs, in order: create missing subfolders, move loose files into them,
+ * then rename the folder itself last so the paths above stay valid.
+ *
+ * Before every move or rename it re-lists the destination and refuses to go
+ * ahead if something with that name is already there, because some FTP
+ * servers let RNTO replace an existing file, which would lose it.
+ *
+ * onAction is awaited after each step so the caller can log it as it happens.
+ */
+export type ReorgAction =
+  | { type: 'mkdir'; folder: string; sub: string }
+  | { type: 'move'; folder: string; file: string; to: string }
+  | { type: 'rename'; folder: string; to: string };
+
+function assertName(n: string) {
+  if (!n || n.includes('/') || n.includes('\\') || n.includes('\0') || n === '.' || n === '..') {
+    throw new Error('Unsafe name: ' + n);
+  }
+}
+
+export async function applyFolderReorg(
+  actions: ReorgAction[],
+  onAction: (a: ReorgAction, result: { ok: boolean; skipped?: string; error?: string }) => Promise<void>
+): Promise<void> {
+  const client = await connect();
+  try {
+    const home = await client.pwd();
+    const names = async (path: string) =>
+      new Set((await client.list(path)).map((e) => e.name.toLowerCase()));
+
+    for (const a of actions) {
+      try {
+        assertName(a.folder);
+        const folderPath = ROOT + '/' + a.folder;
+        if (a.type === 'mkdir') {
+          assertName(a.sub);
+          if ((await names(folderPath)).has(a.sub.toLowerCase())) {
+            await onAction(a, { ok: true, skipped: 'already there' });
+            continue;
+          }
+          await client.ensureDir(folderPath + '/' + a.sub);
+          await client.cd(home);
+          await onAction(a, { ok: true });
+        } else if (a.type === 'move') {
+          assertName(a.file);
+          assertName(a.to);
+          const here = await names(folderPath);
+          if (!here.has(a.file.toLowerCase())) {
+            await onAction(a, { ok: false, skipped: 'file is no longer at the folder root' });
+            continue;
+          }
+          if ((await names(folderPath + '/' + a.to)).has(a.file.toLowerCase())) {
+            await onAction(a, { ok: false, skipped: 'a file with this name is already in ' + a.to + '/, left both alone' });
+            continue;
+          }
+          await client.rename(folderPath + '/' + a.file, folderPath + '/' + a.to + '/' + a.file);
+          await onAction(a, { ok: true });
+        } else if (a.type === 'rename') {
+          assertName(a.to);
+          if ((await names(ROOT)).has(a.to.toLowerCase())) {
+            await onAction(a, { ok: false, skipped: 'a folder with the new name already exists, left both alone' });
+            continue;
+          }
+          await client.rename(folderPath, ROOT + '/' + a.to);
+          await onAction(a, { ok: true });
+        }
+      } catch (err: any) {
+        await onAction(a, { ok: false, error: err?.message || 'FTP error' });
+        // Stop this folder on a real error so we never rename a folder that
+        // is only partly moved. A rerun picks up where it stopped.
+        throw err;
+      }
+    }
+  } finally {
+    client.close();
+  }
 }

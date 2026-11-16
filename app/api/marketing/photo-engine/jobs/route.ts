@@ -71,6 +71,7 @@ export async function GET(req: NextRequest) {
       .from('marketing_photo_runs')
       .select('job_id, status, photos_added, videos_added, profile_updated, email_status, change_summary, completed_at, created_at')
       .in('job_id', jobIds)
+      .neq('trigger', 'ftp-reorg') // one time FTP reorg log rows are not photo runs
       .order('created_at', { ascending: false });
     for (const run of runs || []) {
       if (!latestByJob[run.job_id]) latestByJob[run.job_id] = run;

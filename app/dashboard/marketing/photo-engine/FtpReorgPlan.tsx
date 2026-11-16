@@ -28,6 +28,36 @@ export default function FtpReorgPlan() {
   const [error, setError] = useState<string | null>(null);
   const [open, setOpen] = useState<Record<string, boolean>>({});
   const [marking, setMarking] = useState<string | null>(null);
+  const [reorg, setReorg] = useState<any>(null);
+  const [reorgBusy, setReorgBusy] = useState<string | null>(null);
+
+  // Step 2. dryRun is true unless the caller says otherwise; a real run asks first.
+  async function callReorg(target: { folder?: string; all?: boolean }, dryRun: boolean) {
+    const token = getToken();
+    if (!token) return;
+    const what = target.all ? 'EVERY folder' : '"' + target.folder + '"';
+    if (!dryRun && !window.confirm('Run the reorg for real on ' + what + '?\n\nThis creates subfolders, moves files and renames the folder on Mike\'s FTP. Nothing is deleted.')) return;
+    const key = (target.all ? '*all*' : target.folder) + (dryRun ? ':dry' : ':real');
+    setReorgBusy(key);
+    setError(null);
+    try {
+      const r = await fetch('/api/marketing/photo-engine/ftp/reorg', {
+        method: 'POST',
+        headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
+        body: JSON.stringify({ ...target, dryRun }),
+      });
+      const data = await r.json().catch(() => ({ error: 'The server returned an unreadable response (status ' + r.status + ').' }));
+      if (data.error) setError(data.error);
+      else {
+        setReorg({ ...data, target: target.all ? 'All folders' : target.folder });
+        if (!dryRun) await run();
+      }
+    } catch (err: any) {
+      setError(err.message);
+    } finally {
+      setReorgBusy(null);
+    }
+  }
 
   async function run() {
     const token = getToken();
@@ -96,7 +126,7 @@ export default function FtpReorgPlan() {
         <h3 className="text-sm font-semibold text-gray-700 flex items-center gap-2">
           <ClipboardList className="w-4 h-4 text-blue-700" />
           Folder reorganization plan
-          <span className="text-xs font-normal text-gray-400">Read only, nothing on the FTP changes</span>
+          <span className="text-xs font-normal text-gray-400">Building the plan and dry runs change nothing on the FTP</span>
         </h3>
         <div className="flex items-center gap-2">
           {plan && (
@@ -156,12 +186,31 @@ export default function FtpReorgPlan() {
 
           {plan.filesToDecide?.length > 0 && (
             <Warn>
-              <div className="font-medium">Left at the folder root for you to decide (not a photo, video, PDF, rendering or the profile):</div>
+              <div className="font-medium">Left at the folder root for you to decide:</div>
               <ul className="ml-4 list-disc">
-                {plan.filesToDecide.map((x) => <li key={x.folder + '/' + x.file}>{x.folder} / {x.file}</li>)}
+                {plan.filesToDecide.map((x) => <li key={x.folder + '/' + x.file}>{x.folder} / {x.file} <span className="text-amber-700">({x.reason})</span></li>)}
               </ul>
             </Warn>
           )}
+
+          {reorg && <ReorgResult result={reorg} onClose={() => setReorg(null)} />}
+
+          <div className="flex items-center gap-2 text-xs">
+            <button
+              onClick={() => callReorg({ all: true }, true)}
+              disabled={!!reorgBusy}
+              className="px-2.5 py-1.5 rounded-md border border-gray-300 hover:bg-gray-50 disabled:opacity-50"
+            >
+              {reorgBusy === '*all*:dry' ? 'Working...' : 'Dry run all folders'}
+            </button>
+            <button
+              onClick={() => callReorg({ all: true }, false)}
+              disabled={!!reorgBusy}
+              className="px-2.5 py-1.5 rounded-md border border-red-300 text-red-700 hover:bg-red-50 disabled:opacity-50"
+            >
+              {reorgBusy === '*all*:real' ? 'Working...' : 'Run reorg on all folders'}
+            </button>
+          </div>
 
           <div className="bg-white border border-gray-200 rounded-lg overflow-x-auto">
             <table className="w-full text-sm">
@@ -174,6 +223,7 @@ export default function FtpReorgPlan() {
                   <th className="px-3 py-2">New folder name</th>
                   <th className="px-3 py-2 text-right">Files to move</th>
                   <th className="px-3 py-2">Subfolders to add</th>
+                  <th className="px-3 py-2">Reorg</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-gray-100">
@@ -219,11 +269,33 @@ export default function FtpReorgPlan() {
                         </td>
                         <td className="px-3 py-2 text-right tabular-nums">{f.moves.length || ''}</td>
                         <td className="px-3 py-2 text-gray-600 text-xs">{f.missingSubfolders.join(', ')}</td>
+                        <td className="px-3 py-2 whitespace-nowrap text-xs">
+                          {!f.excluded && (f.job || f.keepName) && (f.moves.length || f.missingSubfolders.length || f.rename) ? (
+                            <>
+                              <button
+                                onClick={() => callReorg({ folder: f.folder }, true)}
+                                disabled={!!reorgBusy}
+                                className="px-2 py-1 rounded border border-gray-300 hover:bg-gray-50 disabled:opacity-50 mr-1"
+                              >
+                                {reorgBusy === f.folder + ':dry' ? '...' : 'Dry run'}
+                              </button>
+                              <button
+                                onClick={() => callReorg({ folder: f.folder }, false)}
+                                disabled={!!reorgBusy}
+                                className="px-2 py-1 rounded border border-red-300 text-red-700 hover:bg-red-50 disabled:opacity-50"
+                              >
+                                {reorgBusy === f.folder + ':real' ? '...' : 'Run'}
+                              </button>
+                            </>
+                          ) : (
+                            <span className="text-gray-400">Nothing to do</span>
+                          )}
+                        </td>
                       </tr>
                       {isOpen && (
                         <tr className="bg-gray-50/60">
                           <td></td>
-                          <td colSpan={6} className="px-3 py-2 text-xs text-gray-600 space-y-1.5">
+                          <td colSpan={7} className="px-3 py-2 text-xs text-gray-600 space-y-1.5">
                             <div>
                               {f.keepName ? (
                                 <button onClick={() => markKeepName(f.folder, false)} disabled={marking === f.folder} className="px-2 py-1 rounded border border-gray-300 hover:bg-white disabled:opacity-50">
@@ -249,6 +321,7 @@ export default function FtpReorgPlan() {
                               </div>
                             )}
                             {f.leftInPlace.length > 0 && <div><span className="font-medium">Other files left where they are:</span> {f.leftInPlace.map((x) => x.file).join(', ')}</div>}
+                            {f.clashes?.length > 0 && <div className="text-amber-800"><span className="font-medium">Not moved, same name already in the subfolder:</span> {f.clashes.map((x) => x.file + ' (' + x.to + '/)').join(', ')}</div>}
                             {f.otherSubfolders.length > 0 && <div><span className="font-medium">Other subfolders already there, left alone:</span> {f.otherSubfolders.join(', ')}</div>}
                           </td>
                         </tr>
@@ -262,6 +335,68 @@ export default function FtpReorgPlan() {
           <div className="text-xs text-gray-400">Plan built {new Date(plan.generatedAt).toLocaleString()}.</div>
         </div>
       )}
+    </div>
+  );
+}
+
+const ACTION_STYLE: Record<string, string> = {
+  'would do': 'text-gray-700',
+  done: 'text-green-700',
+  skipped: 'text-amber-700',
+  error: 'text-red-700',
+  'nothing to do': 'text-gray-400',
+};
+
+function ReorgResult({ result, onClose }: { result: any; onClose: () => void }) {
+  const s = result.summary;
+  const icon = (t: string) => (t === 'mkdir' ? 'Create' : t === 'move' ? 'Move' : 'Rename');
+  return (
+    <div className={`rounded-lg border p-3 text-xs ${result.dryRun ? 'border-blue-200 bg-blue-50/50' : 'border-green-300 bg-green-50/50'}`}>
+      <div className="flex items-start justify-between gap-2">
+        <div>
+          <div className="text-sm font-semibold text-gray-900">
+            {result.dryRun ? 'Dry run, nothing was changed' : 'Reorg applied'}: {result.target}
+          </div>
+          <div className="text-gray-600 mt-0.5">
+            {s.creates} subfolders to create, {s.moves} files to move, {s.renames} folder renames
+            {!result.dryRun && <>; {s.done} done, {s.problems} skipped or failed</>}
+            {s.skipped > 0 && <>; {s.skipped} folders left out</>}
+          </div>
+          {result.stoppedEarly && <div className="text-amber-800 mt-1">Ran out of time before every folder was done. Run it again to continue; finished folders show nothing to do.</div>}
+        </div>
+        <button onClick={onClose} className="text-gray-400 hover:text-gray-700">Close</button>
+      </div>
+      <div className="mt-2 space-y-2 max-h-96 overflow-y-auto">
+        {result.results.map((r) => (
+          <div key={r.folder} className="bg-white rounded border border-gray-200 p-2">
+            <div className="font-medium text-gray-900">
+              {r.folder}
+              {r.newName && r.newName !== r.folder && <span className="text-blue-800"> {'->'} {r.newName}</span>}
+            </div>
+            {r.skipped && <div className="text-gray-500">Left out: {r.skipped}</div>}
+            {r.error && <div className="text-red-700">Stopped on an error: {r.error}. Nothing after this step was done; run it again to retry.</div>}
+            {r.actions.length > 0 && (
+              <table className="mt-1 w-full">
+                <tbody>
+                  {r.actions.map((a, i) => (
+                    <tr key={i} className="align-top">
+                      <td className="pr-2 text-gray-400 w-14">{icon(a.type)}</td>
+                      <td className={`pr-2 ${ACTION_STYLE[a.status] || ''}`}>
+                        {a.type === 'mkdir' && <>{a.sub}/</>}
+                        {a.type === 'move' && <>{a.file} <span className="text-gray-400">{'->'}</span> {a.to}/</>}
+                        {a.type === 'rename' && <>Folder {'->'} {a.to}</>}
+                        {a.note && <span className="text-gray-500"> ({a.note})</span>}
+                      </td>
+                      <td className={`text-right whitespace-nowrap ${ACTION_STYLE[a.status] || ''}`}>{a.status}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            )}
+            {!r.skipped && r.actions.length === 0 && <div className="text-gray-400">Nothing to do</div>}
+          </div>
+        ))}
+      </div>
     </div>
   );
 }
