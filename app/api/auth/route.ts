@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { createClient } from '@supabase/supabase-js';
 import { getAppUser } from '@/app/lib/access';
+import { issueToken } from '@/app/api/lib/auth-token';
 
 // Users are DB-managed (app_users), with the code-defined users as a fallback.
 // A user is valid for auth if the access layer can resolve them.
@@ -70,8 +71,7 @@ export async function POST(req: NextRequest) {
       }, { onConflict: 'key' });
 
       // Return a token so user is immediately logged in after setup
-      const tokenPayload = `${pin}:${userId}:${Date.now()}`;
-      const token = Buffer.from(tokenPayload).toString('base64');
+      const token = issueToken(userId);
       return NextResponse.json({ token, message: 'PIN created successfully' });
     }
 
@@ -93,8 +93,7 @@ export async function POST(req: NextRequest) {
         return NextResponse.json({ error: 'Invalid PIN' }, { status: 401 });
       }
 
-      const tokenPayload = `${pin}:${userId}:${Date.now()}`;
-      const token = Buffer.from(tokenPayload).toString('base64');
+      const token = issueToken(userId);
       return NextResponse.json({ token });
     }
 
