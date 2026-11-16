@@ -69,7 +69,7 @@ function imageLoader() {
  * profile-preview or profile-publish) with each step's timing, so a failed
  * or slow run can be read back afterwards.
  */
-export async function runProfile(opts: { jobId: string; mode: 'preview' | 'publish' }) {
+export async function runProfile(opts: { jobId: string; mode: 'preview' | 'publish'; emailPreview?: boolean }) {
   const supabase = getSupabase();
   const started = Date.now();
   const steps: { step: string; ms: number }[] = [];
@@ -134,7 +134,7 @@ async function snapshotSource(jobId: string, fileName: string, buf: Buffer) {
   );
 }
 
-async function runProfileCore(opts: { jobId: string; mode: 'preview' | 'publish' }, step: (name: string) => Promise<void>) {
+async function runProfileCore(opts: { jobId: string; mode: 'preview' | 'publish'; emailPreview?: boolean }, step: (name: string) => Promise<void>) {
   const supabase = getSupabase();
   const today = todayET();
 
@@ -267,6 +267,9 @@ async function runProfileCore(opts: { jobId: string; mode: 'preview' | 'publish'
       newCOs.length ? 'New change orders covered: ' + newCOs.map((c) => c.name).join(', ') + '.' : 'No new change orders.',
       result.rulesFixed ? 'Writing rule fixes applied: ' + result.rulesFixed + (result.rulesScrubbed ? ' (' + result.rulesScrubbed + ' needed a hard scrub, worth a look)' : '') + '.' : '',
     ].filter((l) => l !== null);
+    if (opts.emailPreview === false) {
+      return { ...summary, previewPath: path, downloadUrl: signed?.signedUrl || null, emailed: false, emailError: null };
+    }
     const mail = await sendEmail({
       to: NATHAN,
       subject: 'Profile preview: ' + src.job.name + ' (' + longDate(today) + ')',

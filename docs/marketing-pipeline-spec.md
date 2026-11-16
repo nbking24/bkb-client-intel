@@ -106,6 +106,14 @@ Location row keeps the full street address (Nathan 2026-11-16).
 
 From Nathan, to Mike at Lighthouse Digital, BCC Nathan. Subject `Marketing photos and updates - <Month D, YYYY>`. Body as in the Sept to Oct emails: "Hi Mike, I put a few project updates in the shared folder for you." then a short block per job (job name, counts of new photos, videos, profile updated), then "Let me know if you need anything else." Draft gate stays: settings `live_mode` plus env `MARKETING_PHOTO_ENGINE_LIVE`.
 
+## Friday run (Hub build, 2026-11-16)
+
+- Cron `/api/cron/marketing-photo-weekly`, every 10 minutes from 07:05 to 09:55 UTC on Fridays. The first call starts the run, later calls continue it; one run per Eastern date (agent_cache `marketing-weekly-run:<date>`).
+- Switched off until turned on in the Hub (Photo Engine, Friday run panel; agent_cache `marketing-weekly-config`). While off, the cron does nothing.
+- Draft (settings `live_mode` off or env `MARKETING_PHOTO_ENGINE_LIVE` not `true`): nothing on the FTP changes. The copy step runs as a dry run, profiles as previews, and one email goes to Nathan showing exactly what Mike would get, with a link to each profile preview.
+- Live: per flagged job, copy, then publish the profile, then clear the flag (the baseline stays at the earliest photo still waiting for a label). One email to Mike, BCC Nathan, in the Sept and Oct format: a bold job name (with "(now complete)" when the folder moved to Completed), bullets of counts, "Updated project profile", then "Let me know if you need anything else." and "Thanks, Nathan". A job that errors is left out, stays flagged for next week, and Nathan gets a separate note.
+- A draft can be run any time from the Friday run panel.
+
 ## Backlog at rebuild
 
 Flagged since 2026-10-23: Berntsen, Edwards, Henschel, Loder, Marrero, Oakes, Zajick. Folders on the FTP also include Behmlander, Halvorsen, Hurley-Phase 2, Johnson, Nicols, Puglia, Wallace.

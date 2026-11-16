@@ -10,6 +10,7 @@ import {
 } from 'lucide-react';
 import FtpReorgPlan from './FtpReorgPlan';
 import CopyStepPanel from './CopyStepPanel';
+import WeeklyRunPanel from './WeeklyRunPanel';
 
 function getToken() {
   return typeof window !== 'undefined' ? localStorage.getItem('bkb-token') || '' : '';
@@ -375,6 +376,9 @@ export default function PhotoEnginePage() {
 
       {/* Marketing pipeline Step 3: copy new files to Mike */}
       <CopyStepPanel />
+
+      {/* Marketing pipeline Step 5: the Friday run */}
+      <WeeklyRunPanel />
 
       {/* Project folders (designer FTP browser) */}
       <div>

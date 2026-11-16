@@ -88,6 +88,9 @@
     },
     "app/api/cron/questionnaire-retry/route.ts": {
       "maxDuration": 120
+    },
+    "app/api/cron/marketing-photo-weekly/route.ts": {
+      "maxDuration": 300
     }
   },
   "crons": [
@@ -162,6 +165,10 @@
     {
       "path": "/api/cron/questionnaire-retry",
       "schedule": "0 7 * * *"
+    },
+    {
+      "path": "/api/cron/marketing-photo-weekly",
+      "schedule": "5-55/10 7-9 * * 5"
     }
   ]
 }
