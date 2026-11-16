@@ -27,19 +27,24 @@ const PROFILE_EXT = new Set(['docx', 'doc']);
 /**
  * Status label for the folder name. Returns null when the Status value is not
  * covered by the agreed mapping, so the plan flags it instead of guessing.
- *   5 and earlier: In Design
+ *   5 and earlier, and 10. Ready: In Design
  *   6. In Production, 6.5 Ongoing / Punch List: In Progress
  *   Closed job, 7. Final Billing, 11. Closed: Completed
- * Not covered (flagged for Nathan): 10. Ready, 8. Lost, no Status.
+ *   8. Lost: excluded, the folder is left out of the reorg entirely
+ * Anything else (or no Status) is flagged for Nathan.
  */
+export function isLostStatus(status: string | null): boolean {
+  return /^8\./.test((status || '').trim());
+}
+
 export function statusLabel(status: string | null, closedOn: string | null): { label: string | null; note?: string } {
-  if (closedOn) return { label: 'Completed' };
   const s = (status || '').trim();
+  if (isLostStatus(s)) return { label: null, note: 'Lost job, left out of the reorg' };
+  if (closedOn) return { label: 'Completed' };
   if (!s) return { label: null, note: 'No Status set in JobTread' };
   const m = s.match(/^(\d+(?:\.\d+)?)/);
   const n = m ? parseFloat(m[1]) : NaN;
-  if (n === 10) return { label: null, note: 'Status "' + s + '" is not in the agreed mapping' };
-  if (n === 8) return { label: null, note: 'Status "' + s + '" is not in the agreed mapping' };
+  if (n === 10) return { label: 'In Design' };
   if (n <= 5) return { label: 'In Design' };
   if (n === 6 || n === 6.5) return { label: 'In Progress' };
   if (n === 7 || n === 11) return { label: 'Completed' };
@@ -133,7 +138,7 @@ export async function buildReorgPlan() {
     const entries = listing.entries || [];
     const existingDirs = entries.filter((e) => e.isDir).map((e) => e.name);
     const lowerDirs = new Set(existingDirs.map((d) => d.toLowerCase()));
-    const missingSubfolders = SUBFOLDERS.filter((s) => !lowerDirs.has(s.toLowerCase()));
+    const missingSubfolders: string[] = SUBFOLDERS.filter((s) => !lowerDirs.has(s.toLowerCase()));
     const otherSubfolders = existingDirs.filter(
       (d) => !SUBFOLDERS.some((s) => s.toLowerCase() === d.toLowerCase())
     );
@@ -164,8 +169,16 @@ export async function buildReorgPlan() {
       if (label) targetName = folderNameForJob(m.job.name) + ' (' + label + ')';
     }
 
+    const excluded = isLostStatus(currentStatus);
+    if (excluded) {
+      moves.length = 0;
+      leftInPlace.length = 0;
+      missingSubfolders.length = 0;
+    }
+
     return {
       folder: m.folder,
+      excluded,
       confidence: m.confidence,
       job: m.job
         ? { id: m.job.id, name: m.job.name, number: m.job.number, closed: !!m.job.closedOn }
@@ -204,7 +217,8 @@ export async function buildReorgPlan() {
       renames: folders.filter((f) => f.rename).length,
       filesToMove: folders.reduce((n, f) => n + f.moves.length, 0),
       foldersMissingSubfolders: folders.filter((f) => f.missingSubfolders.length > 0).length,
-      statusNeedsDecision: folders.filter((f) => f.job && !f.statusLabel).length,
+      statusNeedsDecision: folders.filter((f) => f.job && !f.statusLabel && !f.excluded).length,
+      lostExcluded: folders.filter((f) => f.excluded).length,
       collisions: collisions.length,
     },
     folders,

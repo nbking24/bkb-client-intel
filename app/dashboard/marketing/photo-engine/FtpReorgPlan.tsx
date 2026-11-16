@@ -102,6 +102,7 @@ export default function FtpReorgPlan() {
             <Stat label="Files to move" value={s.filesToMove} />
             <Stat label="Need subfolders" value={s.foldersMissingSubfolders} />
             <Stat label="Status needs a decision" value={s.statusNeedsDecision} warn={s.statusNeedsDecision > 0} />
+            {s.lostExcluded > 0 && <Stat label="Lost jobs left out" value={s.lostExcluded} />}
             {s.collisions > 0 && <Stat label="Name clashes" value={s.collisions} warn />}
           </div>
 
@@ -139,7 +140,7 @@ export default function FtpReorgPlan() {
                   const hasDetail = f.moves.length || f.leftInPlace.length || f.otherSubfolders.length || f.candidates.length || f.profileFiles.length || f.listError;
                   return (
                     <Fragment key={f.folder}>
-                      <tr className="align-top">
+                      <tr className={`align-top ${f.excluded ? 'opacity-50' : ''}`}>
                         <td className="px-3 py-2">
                           {hasDetail ? (
                             <button onClick={() => setOpen({ ...open, [f.folder]: !isOpen })} className="text-gray-400 hover:text-gray-700">
@@ -158,10 +159,12 @@ export default function FtpReorgPlan() {
                         </td>
                         <td className="px-3 py-2 text-gray-600">
                           {f.job ? (f.jobStatus || (f.job.closed ? 'Closed' : 'Not set')) : ''}
-                          {f.statusNote && <div className="text-xs text-red-600 mt-0.5">{f.statusNote}</div>}
+                          {f.statusNote && <div className={`text-xs mt-0.5 ${f.excluded ? "text-gray-500" : "text-red-600"}`}>{f.statusNote}</div>}
                         </td>
                         <td className="px-3 py-2">
-                          {f.targetName ? (
+                          {f.excluded ? (
+                            <span className="text-gray-400">Left out (Lost)</span>
+                          ) : f.targetName ? (
                             f.rename ? <span className="text-blue-800">{f.targetName}</span> : <span className="text-gray-400">No change</span>
                           ) : (
                             <span className="text-gray-400">Needs review</span>
