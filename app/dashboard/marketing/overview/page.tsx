@@ -4,8 +4,10 @@
 import { useEffect, useState } from 'react';
 import Link from 'next/link';
 import {
-  Star, AlertTriangle, Inbox, Activity, Loader2, ArrowRight, Mail, MessageCircle, BookOpen, CalendarDays, ExternalLink,
+  Star, AlertTriangle, Inbox, Activity, Loader2, ArrowRight, Mail, MessageCircle, BookOpen, CalendarDays, ExternalLink, Video,
 } from 'lucide-react';
+
+const VIDEO_PLAN_URL = 'https://claude.ai/artifact/VJ19FzAvwrXpwBboc8PPJL';
 
 function getToken() {
   return typeof window !== 'undefined' ? localStorage.getItem('bkb-token') || '' : '';
@@ -27,6 +29,32 @@ interface Stats {
   recentResearchBriefs: Array<any>;
   recentNewsletters: Array<any>;
   recentSocialWeeks: Array<any>;
+}
+
+/** Link to the Video Marketing Game Plan. Shown even while the stats load or fail. */
+function VideoMarketingCard() {
+  return (
+    <div className="bg-white border border-gray-200 rounded-lg p-5 flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
+      <div>
+        <h2 className="text-lg font-semibold text-gray-900 flex items-center gap-2">
+          <Video className="w-5 h-5 text-blue-700" />
+          Video Marketing
+        </h2>
+        <p className="text-sm text-gray-600 mt-1">
+          Video plan, shoot schedule, scripts, idea bank, video brief for Mike and the to-do checklist.
+        </p>
+      </div>
+      <a
+        href={VIDEO_PLAN_URL}
+        target="_blank"
+        rel="noopener noreferrer"
+        className="inline-flex items-center justify-center gap-1.5 px-4 py-2 text-sm font-medium rounded-md bg-blue-700 text-white hover:bg-blue-800 flex-shrink-0"
+      >
+        Open the Video Marketing Game Plan
+        <ExternalLink className="w-4 h-4" />
+      </a>
+    </div>
+  );
 }
 
 export default function MarketingOverview() {
@@ -57,17 +85,23 @@ export default function MarketingOverview() {
 
   if (loading) {
     return (
-      <div className="flex items-center justify-center py-20 text-gray-500">
-        <Loader2 className="w-5 h-5 animate-spin mr-2" />
-        Loading marketing overview...
+      <div className="space-y-6">
+        <VideoMarketingCard />
+        <div className="flex items-center justify-center py-20 text-gray-500">
+          <Loader2 className="w-5 h-5 animate-spin mr-2" />
+          Loading marketing overview...
+        </div>
       </div>
     );
   }
 
   if (error) {
     return (
-      <div className="rounded-md bg-red-50 p-4 text-red-700 text-sm">
-        Failed to load stats: {error}
+      <div className="space-y-6">
+        <VideoMarketingCard />
+        <div className="rounded-md bg-red-50 p-4 text-red-700 text-sm">
+          Failed to load stats: {error}
+        </div>
       </div>
     );
   }
@@ -79,6 +113,8 @@ export default function MarketingOverview() {
 
   return (
     <div className="space-y-6">
+      <VideoMarketingCard />
+
       {/* Metrics strip */}
       <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
         <MetricCard
