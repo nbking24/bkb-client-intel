@@ -57,6 +57,19 @@ export default function WeeklyRunPanel() {
     }
   }
 
+  async function toggleLive(on: boolean) {
+    if (on && !window.confirm('Turn the Hub live setting on? With the Vercel variable also on, the Friday run copies files, publishes profiles and emails Mike.')) return;
+    setBusy('live');
+    try {
+      await call('POST', { action: on ? 'live-on' : 'live-off' });
+      await load();
+    } catch (e: any) {
+      setError(e.message);
+    } finally {
+      setBusy(null);
+    }
+  }
+
   async function runDraft() {
     setBusy('draft');
     setError(null);
@@ -105,6 +118,18 @@ export default function WeeklyRunPanel() {
         </div>
       </div>
       {error && <div className="rounded-md bg-red-50 p-3 text-red-700 text-sm mb-2">{error}</div>}
+      {state?.checks && (
+        <div className="mb-2 flex flex-wrap items-center gap-2 text-xs">
+          <Check ok={state.config?.enabled} label={'Friday schedule ' + (state.config?.enabled ? 'on' : 'off')} />
+          <Check ok={state.checks.hubLive} label={'Hub live setting ' + (state.checks.hubLive ? 'on' : 'off')} />
+          <button onClick={() => toggleLive(!state.checks.hubLive)} disabled={!!busy} className="px-2 py-0.5 border border-gray-300 rounded hover:bg-gray-50 disabled:opacity-50">
+            {state.checks.hubLive ? 'Turn live off' : 'Turn live on'}
+          </button>
+          <Check ok={state.checks.vercelLive} label={'Vercel MARKETING_PHOTO_ENGINE_LIVE ' + (state.checks.vercelLive ? 'true' : 'not true')} />
+          <Check ok={state.checks.cronSecretSet} label={'CRON_SECRET ' + (state.checks.cronSecretSet ? 'set' : 'missing')} />
+          {state.checks.recipient && <span className="text-gray-500">Mike's address: {state.checks.recipient}</span>}
+        </div>
+      )}
       {state && !run && <div className="text-xs text-gray-500">No run today.</div>}
       {run && (
         <div className="bg-white border border-gray-200 rounded-lg p-3 text-xs text-gray-700 space-y-1">
@@ -123,5 +148,13 @@ export default function WeeklyRunPanel() {
         </div>
       )}
     </div>
+  );
+}
+
+function Check({ ok, label }: { ok: boolean; label: string }) {
+  return (
+    <span className={`px-2 py-0.5 rounded-full border ${ok ? 'border-green-300 bg-green-50 text-green-800' : 'border-gray-300 bg-gray-50 text-gray-600'}`}>
+      {ok ? '\u2713 ' : ''}{label}
+    </span>
   );
 }

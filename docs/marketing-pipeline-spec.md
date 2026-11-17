@@ -78,7 +78,7 @@ Order of the document:
 2. Subtitle: `Marketing Project Profile`, 13 pt blue.
 3. Tagline: one italic gray line, the project in a phrase with place (`A Full-Home Renovation and Addition in Bucks County · Perkasie, PA`).
 4. Facts table (label column shaded, bold navy): Project (`<Job name> (Job #<n>)`), Last Updated, Location, Project Type, Status, Standout Feature.
-5. What's new lines, directly under the table: one 10 pt italic bold navy line per update, newest first: `What's new (<Month D, YYYY>): <one sentence>.` This is the single running log. (Henschel also carries an older "What's New" section with mixed bullets; the rebuild keeps only the top lines and folds the older section into them.)
+5. What's new lines (Nathan 2026-11-16): describe the work, not the paperwork. Each starts with a lowercase verb and says what changed, for example `opened up the foyer, removing the Greek columns and carrying the load on a new steel beam.` Never "change order", "project record" or "has been added"; a line that breaks this is rewritten automatically. They sit directly under the table: one 10 pt italic bold navy line per update, newest first: `What's new (<Month D, YYYY>): <one sentence>.` This is the single running log. (Henschel also carries an older "What's New" section with mixed bullets; the rebuild keeps only the top lines and folds the older section into them.)
 6. Project Description: two paragraphs. What the project is and how it respects the house, then the materials and spaces that make it special. Name the architect or partner when the documents do.
 7. Scope of Work: bold navy subheads (Structure & Site, Exterior, Systems, Interior Finishes, or what fits) with short bullets.
 8. How the Project Evolved: approved change orders told as a story, no prices.
@@ -114,6 +114,7 @@ From Nathan, to Mike at Lighthouse Digital, BCC Nathan. Subject `Marketing photo
 - Draft (settings `live_mode` off or env `MARKETING_PHOTO_ENGINE_LIVE` not `true`): nothing on the FTP changes. The copy step runs as a dry run, profiles as previews, and one email goes to Nathan showing exactly what Mike would get, with a link to each profile preview.
 - Live: per flagged job, copy, then publish the profile, then clear the flag (the baseline stays at the earliest photo still waiting for a label). One email to Mike, BCC Nathan, in the Sept and Oct format: a bold job name (with "(now complete)" when the folder moved to Completed), bullets of counts, "Updated project profile", then "Let me know if you need anything else." and "Thanks, Nathan". A job that errors is left out, stays flagged for next week, and Nathan gets a separate note.
 - A draft can be run any time from the Friday run panel.
+- Hands-off live use: no per job preview emails, copy and publish for every flagged job, one email to Mike with BCC Nathan, a separate note to Nathan only if a job fails. A profile with nothing new is never republished. Live needs all of: the Friday schedule on and the Hub live setting on (both in the Friday run panel), `MARKETING_PHOTO_ENGINE_LIVE=true` in Vercel, and `CRON_SECRET` set in Vercel.
 
 ## Backlog at rebuild
 

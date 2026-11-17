@@ -7,13 +7,16 @@
  *                              until finished is true). Never changes the FTP.
  *       { action: "enable" }   switch the Friday schedule on
  *       { action: "disable" }  switch it off
+ *       { action: "live-on" }  set the Hub's live setting (live also needs
+ *                              MARKETING_PHOTO_ENGINE_LIVE=true in Vercel)
+ *       { action: "live-off" } clear it
  *
  * Style note: no em or en dashes in this file.
  */
 import { NextRequest, NextResponse } from 'next/server';
 import { validateAgentOrUser } from '@/app/api/lib/auth';
 import { isConfigured } from '@/app/api/lib/ftp';
-import { getRun, getWeeklyConfig, isLive, runWeeklyTick, setWeeklyEnabled } from '@/app/api/lib/marketing/weekly';
+import { getRun, getWeeklyConfig, isLive, liveChecks, runWeeklyTick, setHubLive, setWeeklyEnabled } from '@/app/api/lib/marketing/weekly';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -29,7 +32,7 @@ function owner(req: NextRequest) {
 export async function GET(req: NextRequest) {
   const { denied } = owner(req);
   if (denied) return denied;
-  return NextResponse.json({ config: await getWeeklyConfig(), live: await isLive(), run: await getRun() });
+  return NextResponse.json({ config: await getWeeklyConfig(), live: await isLive(), checks: await liveChecks(), run: await getRun() });
 }
 
 export async function POST(req: NextRequest) {
@@ -40,6 +43,10 @@ export async function POST(req: NextRequest) {
     if (body.action === 'enable' || body.action === 'disable') {
       await setWeeklyEnabled(body.action === 'enable', auth.userId || null);
       return NextResponse.json({ config: await getWeeklyConfig() });
+    }
+    if (body.action === 'live-on' || body.action === 'live-off') {
+      await setHubLive(body.action === 'live-on');
+      return NextResponse.json({ live: await isLive(), checks: await liveChecks() });
     }
     if (body.action === 'draft') {
       if (!isConfigured()) return NextResponse.json({ error: 'FTP is not configured' });

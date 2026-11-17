@@ -160,7 +160,7 @@ export async function buildNewProfile(src, today: string, folderLabel: string) {
     'Structure:',
     '- title: the job name. subtitle: "Marketing Project Profile".',
     '- tagline: the project in a phrase with the place, like "A Full-Home Renovation and Addition in Bucks County · Perkasie, PA".',
-    '- whatsNew: exactly one entry dated ' + today + ' saying the profile was created and what it covers.',
+    '- whatsNew: exactly one entry dated ' + today + ' saying what the profile covers. ' + WHATS_NEW_RULES,
     '- facts, in this order: Project = "' + src.job.name + ' (Job #' + src.job.number + ')", Last Updated = "' + longDate(today) + '", Location = "' + src.job.address + '" (full street address), Project Type, Status (folder status is ' + folderLabel + '; describe the current stage in a few words), Standout Feature.',
     '- sections, in this order and with these headings: Project Description (kind paragraphs, two paragraphs: what the project is and how it respects the house, then the materials and spaces that make it special), Scope of Work (kind scope, subheads such as Structure & Site, Exterior, Systems, Interior Finishes, short bullets), How the Project Evolved (kind paragraphs, the approved change orders told as the design and construction story under the change order rules, leave out if none qualify), Challenges & Solutions (kind challenges, 2 to 4 pairs), Suggested Marketing Angles (kind leadBullets, 4 to 6), Plans & Renderings (kind paragraphs, one short paragraph naming what is in that folder, leave out if nothing), Video Walk-Throughs (kind leadBullets, lead = video title, text = what it shows; design walkthroughs are design concepts; leave out if no videos).',
     '- photo sections (kind photos), each with an intro line ending "These photos are also saved in this folder.": The Home Today (before photos), Design Vision (renderings), Progress Photos (progress and finished photos). Use at most ' + MAX_PHOTOS_PER_SECTION + ' photos per section, choosing the most telling. Refer to photos by id. Leave out a section with no photos.',
@@ -174,6 +174,7 @@ export async function buildNewProfile(src, today: string, folderLabel: string) {
   const raw: any = await callForJson({ system: VOICE, user, toolName: 'save_profile', toolDescription: 'Save the profile.', schema: profileSchema, maxTokens: 16000 });
   const checked = await enforceRules(raw, profileSchema, src.job.clientFirstNames, 'profile');
   const c: any = checked.value;
+  if (c.whatsNew?.[0]) c.whatsNew[0].text = await fixWhatsNew(c.whatsNew[0].text, 'A new profile for ' + src.job.name + '.');
   c.sections = (c.sections || []).map((s) =>
     s.kind === 'photos'
       ? { ...s, intro: s.intro || '', photos: (s.photos || []).filter((p) => ids[p.image]).map((p) => ({ image: { source: 'jobtread', fileId: ids[p.image].fileId }, caption: p.caption || '' })) }
@@ -184,10 +185,61 @@ export async function buildNewProfile(src, today: string, folderLabel: string) {
 
 // ------------------------------------------------------------ update
 
+// ------------------------------------------------------------ What's new line
+
+const WHATS_NEW_RULES =
+  "The What's new line describes the work, not the paperwork. Start with a lowercase verb and say what changed in the house or what was added, " +
+  'like "opened up the foyer, removing the Greek columns and carrying the load on a new steel beam." or ' +
+  '"added three progress photos of the new kitchen addition, weather-wrapped and tied into the stone farmhouse." ' +
+  'Never use the words "change order" or "project record", and never say something "has been added to" a record or file.';
+
+/** Paperwork wording a What's new line must not use (Nathan, 2026-11-16). */
+const PAPERWORK_RE = /\bchange[\s-]?orders?\b|\bproject records?\b|\b(added|logged|recorded) (to|in) the (project )?(record|file|profile)\b|\b(has|have) been (added|recorded|logged)\b/i;
+
+const IRREGULAR_PAST = new Set(['set', 'built', 'began', 'hung', 'laid', 'ran', 'put', 'cut', 'brought', 'took', 'made', 'got', 'fit', 'split', 'spread', 'dug', 'wrote', 'shot', 'sent', 'spent', 'tore', 'rebuilt', 'reset']);
+
+/** Lowercase the opening verb ("Opened up..." to "opened up..."), end with a period. */
+export function shapeWhatsNew(text: string): string {
+  let t = (text || '').trim().replace(/^what.?s new\s*(\([^)]*\))?\s*:\s*/i, '');
+  const first = (t.match(/^([A-Za-z]+)/) || [])[1] || '';
+  if (/^[A-Z][a-z]+$/.test(first) && (/ed$/.test(first) || IRREGULAR_PAST.has(first.toLowerCase()))) {
+    t = first.toLowerCase() + t.slice(first.length);
+  }
+  if (t && !/[.!?]$/.test(t)) t += '.';
+  return t;
+}
+
+export function whatsNewProblems(text: string): string[] {
+  const out = [];
+  if (PAPERWORK_RE.test(text || '')) out.push('uses paperwork wording (change order, project record, has been added)');
+  const first = ((text || '').trim().match(/^([A-Za-z]+)/) || [])[1] || '';
+  if (/^[A-Z]/.test(first)) out.push('does not start with a lowercase verb');
+  return out;
+}
+
+/** Rewrite the line until it follows the rules (two tries), then shape it. */
+async function fixWhatsNew(line: string, context: string): Promise<string> {
+  let t = shapeWhatsNew(line);
+  for (let attempt = 0; attempt < 2 && whatsNewProblems(t).length; attempt++) {
+    const r: any = await callForJson({
+      system: VOICE,
+      user:
+        WHATS_NEW_RULES + '\n\nThis line breaks the rules (' + whatsNewProblems(t).join('; ') + '): "' + t + '"\n\n' +
+        'What is new this time:\n' + context + '\n\nWrite the corrected line.',
+      toolName: 'save_line',
+      toolDescription: 'Save the corrected What\'s new line.',
+      schema: { type: 'object', properties: { whatsNew: { type: 'string' } }, required: ['whatsNew'] },
+      maxTokens: 500,
+    });
+    if (r?.whatsNew) t = shapeWhatsNew(r.whatsNew);
+  }
+  return t;
+}
+
 const updateSchema = {
   type: 'object',
   properties: {
-    whatsNew: { type: 'string', description: 'One sentence for the What\'s new line, without the "What\'s new (date):" prefix.' },
+    whatsNew: { type: 'string', description: 'One sentence for the What\'s new line, without the "What\'s new (date):" prefix. ' + WHATS_NEW_RULES },
     status: { type: 'string', description: 'New value for the Status row, in the same style as the current one.' },
     progressIntro: { type: 'string', description: 'Intro line for the Progress Update section, ending "These photos are also saved in this folder." Empty if no new photos.' },
     captions: { type: 'array', items: { type: 'object', properties: { id: { type: 'string' }, caption: { type: 'string' } }, required: ['id', 'caption'] } },
@@ -229,7 +281,9 @@ export async function writeUpdate(current: ProfileContent, src, newChangeOrders,
     '',
     'EXACT COUNTS for this update (use these numbers, never estimate): ' + countsLine(updateCounts(assets, [])).replace(/^0 new approved change orders, /, '') + '. If you mention change orders, the number is how many you list in describedChangeOrders.',
     '',
-    'Write: one whatsNew sentence covering what is new (photos, videos, plans, change orders, progress). A status value (keep the style of the current row, update it only if the stage has moved). A caption for every new photo and rendering id. A videos entry for every new video id (design walkthroughs are design concepts). A plansSentence only if there are new plans or renderings. An evolvedParagraph only if there are new change orders.',
+    WHATS_NEW_RULES,
+    '',
+    'Write: one whatsNew sentence covering what is new (photos, videos, plans, the work in the change orders you describe, progress). A status value (keep the style of the current row, update it only if the stage has moved). A caption for every new photo and rendering id. A videos entry for every new video id (design walkthroughs are design concepts). A plansSentence only if there are new plans or renderings. An evolvedParagraph only if there are new change orders.',
   ].join('\n');
 
   const raw: any = await callForJson({ system: VOICE, user, toolName: 'save_update', toolDescription: 'Save the update pieces.', schema: updateSchema, maxTokens: 8000 });
@@ -241,19 +295,13 @@ export async function writeUpdate(current: ProfileContent, src, newChangeOrders,
   if (!u.evolvedParagraph || !u.evolvedParagraph.trim()) described.length = 0;
   // Counts in the prose must match what is actually included.
   const counts = updateCounts(assets, described);
-  if (!described.length && /change orders?/i.test(u.whatsNew || '')) {
-    // No change order qualified, so the line must not mention any.
-    const re: any = await callForJson({
-      system: VOICE,
-      user: 'Rewrite this What\'s new sentence so it does not mention change orders at all, keeping everything else: "' + u.whatsNew + '"',
-      toolName: 'save_line',
-      toolDescription: 'Save the rewritten sentence.',
-      schema: { type: 'object', properties: { whatsNew: { type: 'string' } }, required: ['whatsNew'] },
-      maxTokens: 500,
-    });
-    if (re?.whatsNew && !/change orders?/i.test(re.whatsNew)) u.whatsNew = re.whatsNew;
-  }
-  u.whatsNew = fixCounts(u.whatsNew, counts);
+  u.whatsNew = await fixWhatsNew(
+    fixCounts(u.whatsNew, counts),
+    [
+      countsLine(counts).replace(/^\d+ new approved change orders?, /, ''),
+      described.length ? 'Work from the change orders described: ' + (u.evolvedParagraph || '') : 'No change order work to mention.',
+    ].join('\n')
+  );
   u.evolvedParagraph = fixCounts(u.evolvedParagraph || '', counts);
   u.plansSentence = fixCounts(u.plansSentence || '', counts);
   const caption = (id: string) => (u.captions.find((c) => c.id === id) || {}).caption || '';

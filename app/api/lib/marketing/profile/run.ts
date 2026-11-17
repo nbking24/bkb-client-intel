@@ -285,8 +285,10 @@ async function runProfileCore(opts: { jobId: string; mode: 'preview' | 'publish'
   }
 
   // ---- publish
-  if (nothingNew && content.profile_last_built) {
-    return { ...summary, published: false, reason: 'Nothing new, the profile on the FTP is already current.' };
+  // Never republish a profile that has nothing new, even the first time:
+  // the rebuilt format reaches Mike with the next real update.
+  if (nothingNew) {
+    return { ...summary, published: false, reason: 'Nothing new, so the profile on the FTP was left as it is.' };
   }
   if (existingName) {
     const old = existingBytes || (await downloadFile(sel.folder_name + '/' + existingName));

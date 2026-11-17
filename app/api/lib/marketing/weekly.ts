@@ -49,6 +49,21 @@ export async function setWeeklyEnabled(enabled: boolean, by: string | null) {
   await cacheSet(CONFIG_KEY, { enabled, changedBy: by, changedAt: new Date().toISOString() });
 }
 
+/** The three switches and checks behind live mode, for the Hub panel. */
+export async function liveChecks() {
+  const { data } = await getSupabase().from('marketing_photo_settings').select('live_mode, recipient').eq('id', 1).maybeSingle();
+  return {
+    hubLive: data?.live_mode === true,
+    vercelLive: process.env.MARKETING_PHOTO_ENGINE_LIVE === 'true',
+    cronSecretSet: !!process.env.CRON_SECRET,
+    recipient: data?.recipient || null,
+  };
+}
+
+export async function setHubLive(on: boolean) {
+  await getSupabase().from('marketing_photo_settings').update({ live_mode: on, updated_at: new Date().toISOString() }).eq('id', 1);
+}
+
 export async function isLive(): Promise<boolean> {
   const { data } = await getSupabase().from('marketing_photo_settings').select('live_mode').eq('id', 1).maybeSingle();
   return data?.live_mode === true && process.env.MARKETING_PHOTO_ENGINE_LIVE === 'true';
