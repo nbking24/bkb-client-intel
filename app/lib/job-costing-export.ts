@@ -248,12 +248,22 @@ export async function fixOutlines(xlsx: Buffer): Promise<Buffer> {
     for (let i = rows.length - 1; i >= 0; i--) {
       const next = info[i + 1];
       if (next && next.level > info[i].level && next.hidden) {
-        const tag = info[i].tag.replace(/>$/, ' collapsed="1">');
+        const tag = info[i].tag.replace(/(\/?)>$/, ' collapsed="1"$1>');
         const at = rows[i].index;
         xml = xml.slice(0, at) + tag + xml.slice(at + info[i].tag.length);
       }
     }
     xml = xml.replace(/(<sheetFormatPr\b[^>]*?) outlineLevelRow="\d+"/, '$1 outlineLevelRow="' + maxLevel + '"');
+    // Excel requires sheetPr's children in schema order: tabColor, outlinePr,
+    // pageSetUpPr. exceljs writes pageSetUpPr before outlinePr when a sheet
+    // has both fit to page and outline settings, and Excel then rejects the
+    // whole sheet ("Load error. Line 2, column 0") and shows it blank.
+    xml = xml.replace(/<sheetPr\b([^>]*)>([\s\S]*?)<\/sheetPr>/, (whole, attrs, inner) => {
+      const pick = (tag) => (inner.match(new RegExp('<' + tag + '\\b[^>]*?(?:/>|>[\\s\\S]*?</' + tag + '>)')) || [''])[0];
+      const known = ['tabColor', 'outlinePr', 'pageSetUpPr'].map(pick);
+      const rest = known.reduce((r, el) => (el ? r.replace(el, '') : r), inner).trim();
+      return '<sheetPr' + attrs + '>' + known.join('') + rest + '</sheetPr>';
+    });
     // exceljs writes x14ac:dyDescent="55"; Excel itself writes 0.25.
     xml = xml.replace(/(<sheetFormatPr\b[^>]*?) x14ac:dyDescent="[^"]*"/, '$1 x14ac:dyDescent="0.25"');
     zip.file(name, xml);
