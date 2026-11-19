@@ -214,6 +214,50 @@ export async function buildJobCostingWorkbook(detail: any): Promise<{ buffer: Bu
     wl.addRow(['Hours by employee need fresher data: click Refresh on the job, then export again.']).font = { italic: true, color: { argb: 'FF8A6100' } };
   }
 
-  const buffer = Buffer.from(await wb.xlsx.writeBuffer());
+  const buffer = await fixOutlines(Buffer.from(await wb.xlsx.writeBuffer()));
   return { buffer, fileName: safeName(title) + ' Job Costing ' + asOf.toISOString().slice(0, 10) + '.xlsx' };
 }
+
+/**
+ * Make the row outline Excel valid. exceljs writes outlineLevelRow="0" on the
+ * sheet even when rows go two levels deep, and marks every outlined row
+ * collapsed="1" (its collapsed getter compares against that 0). Excel treats
+ * that as damaged content and empties the sheet on repair; LibreOffice and
+ * other readers ignore it, which is why it slipped through.
+ *
+ * Here, per sheet: outlineLevelRow is set to the deepest row level, every
+ * collapsed flag is removed, and collapsed="1" is put back only on a row whose
+ * following rows are deeper and hidden (the summary row of a collapsed group,
+ * since summaries sit above their details).
+ */
+export async function fixOutlines(xlsx: Buffer): Promise<Buffer> {
+  const JSZip = require('jszip');
+  const zip = await JSZip.loadAsync(xlsx);
+  for (const name of Object.keys(zip.files)) {
+    if (!/^xl\/worksheets\/sheet\d+\.xml$/.test(name)) continue;
+    let xml: string = await zip.file(name).async('string');
+    xml = xml.replace(/ collapsed="1"/g, '');
+    const rows = Array.from(xml.matchAll(/<row\b[^>]*>/g));
+    const info = rows.map((m) => ({
+      tag: m[0],
+      level: Number((m[0].match(/ outlineLevel="(\d+)"/) || [])[1] || 0),
+      hidden: / hidden="1"/.test(m[0]),
+    }));
+    const maxLevel = info.reduce((mx, r) => Math.max(mx, r.level), 0);
+    // Replace row tags from the end so earlier offsets stay valid.
+    for (let i = rows.length - 1; i >= 0; i--) {
+      const next = info[i + 1];
+      if (next && next.level > info[i].level && next.hidden) {
+        const tag = info[i].tag.replace(/>$/, ' collapsed="1">');
+        const at = rows[i].index;
+        xml = xml.slice(0, at) + tag + xml.slice(at + info[i].tag.length);
+      }
+    }
+    xml = xml.replace(/(<sheetFormatPr\b[^>]*?) outlineLevelRow="\d+"/, '$1 outlineLevelRow="' + maxLevel + '"');
+    // exceljs writes x14ac:dyDescent="55"; Excel itself writes 0.25.
+    xml = xml.replace(/(<sheetFormatPr\b[^>]*?) x14ac:dyDescent="[^"]*"/, '$1 x14ac:dyDescent="0.25"');
+    zip.file(name, xml);
+  }
+  return Buffer.from(await zip.generateAsync({ type: 'nodebuffer', compression: 'DEFLATE' }));
+}
+

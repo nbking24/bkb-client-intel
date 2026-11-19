@@ -22,6 +22,12 @@ import { getSupabase } from '@/app/api/lib/supabase';
 // only `?refresh=1` will bypass the cache and recompute.
 const CACHE_TTL_MS = Number.POSITIVE_INFINITY;
 
+// Bumped when the payload gains fields the page needs. A saved snapshot
+// from an older version is recomputed once on the next open, instead of
+// showing blanks until someone clicks Refresh.
+//   2 (2026-11-19): byType per group (category budgets) and line cost types.
+const PAYLOAD_VERSION = 2;
+
 /**
  * Category of a budget line or cost line: Labor, Materials, Subs or Other,
  * from its cost type, else its name ("0803 - Materials", "0201 - Labor").
@@ -141,7 +147,7 @@ export async function POST(req: Request) {
           .select('payload, computed_at, compute_ms')
           .eq('job_id', jobId)
           .maybeSingle();
-        if (cached?.payload && cached?.computed_at) {
+        if (cached?.payload && cached?.computed_at && cached.payload.payloadVersion === PAYLOAD_VERSION) {
           const ageMs = Date.now() - new Date(cached.computed_at).getTime();
           if (ageMs < CACHE_TTL_MS) {
             const adjusted = await applyCostCodeCompletion(sb, jobId, cached.payload);
@@ -1160,6 +1166,7 @@ export async function POST(req: Request) {
     const computeMs = Date.now() - computeStartedAt;
 
     const payload = {
+      payloadVersion: PAYLOAD_VERSION,
       job: {
         id: job?.id || jobId,
         name: job?.name || '',
