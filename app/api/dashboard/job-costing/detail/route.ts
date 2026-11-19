@@ -383,6 +383,10 @@ export async function POST(req: Request) {
       cost: number;
       date?: string | null;
       kind: 'bill' | 'po' | 'labor';
+      // Cost type of the bill or PO line ("Subcontractor", "Materials", ...),
+      // used by the spreadsheet export to split each group into Subs and
+      // Materials.
+      costType?: string | null;
       // For labor: total hours this worker logged against this cost code.
       // The labor section of the drawer is rolled up per-employee, so each
       // labor line represents many time entries collapsed into one row.
@@ -429,6 +433,7 @@ export async function POST(req: Request) {
           cost,
           date: docMeta.issueDate || null,
           kind: docType === 'vendorOrder' ? 'po' : 'bill',
+          costType: dci.costType?.name || null,
         };
 
         if (docStatus === 'approved') {
@@ -469,6 +474,8 @@ export async function POST(req: Request) {
     // (cost code, employee) with totals — bills/POs are still listed
     // individually since each one represents a discrete vendor commitment.
     const laborByKey: Record<string, Record<string, { name: string; hours: number; cost: number }>> = {};
+    // Work hours (no travel or break) per cost code and employee.
+    const workByEmployee: Record<string, Record<string, { name: string; hours: number }>> = {};
 
     // Per-cost-code WORK hours (excludes travel + break). Pairs with the
     // budgetedLaborHoursByCode map above to build the "Labor Hours by
@@ -533,6 +540,10 @@ export async function POST(req: Request) {
           workHoursByCode[workKey] = { ccNum, ccName, hours: 0 };
         }
         workHoursByCode[workKey].hours += hours;
+        // Same work hours per employee, for the Labor tab of the export.
+        if (!workByEmployee[workKey]) workByEmployee[workKey] = {};
+        if (!workByEmployee[workKey][userId]) workByEmployee[workKey][userId] = { name: userName, hours: 0 };
+        workByEmployee[workKey][userId].hours += hours;
       }
 
       // Aggregate labor cost & hours per (cost code, employee) — the actual
@@ -641,9 +652,13 @@ export async function POST(req: Request) {
       }
       laborHoursByCategoryMap[key].actualHours += w.hours;
     }
-    const laborHoursByCategory = Object.values(laborHoursByCategoryMap)
-      .map((r) => ({
+    const laborHoursByCategory = Object.entries(laborHoursByCategoryMap)
+      .map(([key, r]) => ({
         ...r,
+        employees: Object.values(workByEmployee[key] || {})
+          .map((e) => ({ name: e.name, hours: Math.round(e.hours * 10) / 10 }))
+          .filter((e) => e.hours > 0)
+          .sort((a, b) => b.hours - a.hours),
         budgetedHours: Math.round(r.budgetedHours * 10) / 10,
         actualHours: Math.round(r.actualHours * 10) / 10,
         remainingHours: Math.round((r.budgetedHours - r.actualHours) * 10) / 10,
@@ -702,6 +717,7 @@ export async function POST(req: Request) {
               cost: Math.round(l.cost * 100) / 100,
               date: l.date || null,
               kind: l.kind,
+              costType: l.costType || null,
               hours: l.hours != null ? Math.round(l.hours * 100) / 100 : null,
             }));
 

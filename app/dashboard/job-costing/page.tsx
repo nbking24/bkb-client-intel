@@ -24,6 +24,8 @@ import {
   Sparkles,
   Briefcase,
 } from 'lucide-react';
+import { Download } from 'lucide-react';
+import { exportJobCostingXlsx } from './exportJobCosting';
 
 // ============================================================
 // Types
@@ -320,6 +322,7 @@ export default function JobCostingDashboard() {
   const [selectedJobId, setSelectedJobId] = useState<string | null>(null);
   const [detailLoading, setDetailLoading] = useState(false);
   const [detail, setDetail] = useState<JobDetail | null>(null);
+  const [exporting, setExporting] = useState(false);
   const [expandedCodes, setExpandedCodes] = useState<Set<string>>(new Set());
   // Per-cost-code "show all budget items" toggle. Keys match the row's
   // cost code key (number+name). When a key is in this set, the budget
@@ -731,14 +734,21 @@ export default function JobCostingDashboard() {
                 const ageMs = Date.now() - new Date(detail.cachedAt).getTime();
                 const ageMin = Math.floor(ageMs / 60000);
                 const ageSec = Math.floor(ageMs / 1000);
-                const ageLabel = ageMin >= 1
+                const ageHr = Math.floor(ageMin / 60);
+                const ageDay = Math.floor(ageHr / 24);
+                // Days and hours for old snapshots, so stale data is obvious.
+                const ageLabel = ageDay >= 1
+                  ? `${ageDay} day${ageDay === 1 ? '' : 's'} ago (${new Date(detail.cachedAt).toLocaleDateString()})`
+                  : ageHr >= 1
+                    ? `${ageHr} hr${ageHr === 1 ? '' : 's'} ago`
+                  : ageMin >= 1
                   ? `${ageMin} min${ageMin === 1 ? '' : 's'} ago`
                   : ageSec >= 5
                     ? `${ageSec} sec ago`
                     : 'just now';
                 return (
                   <div className="ml-auto flex items-center gap-2 text-xs" style={{ color: '#8a8078' }}>
-                    <span>
+                    <span style={ageDay >= 1 ? { color: '#a14b00', fontWeight: 600 } : undefined}>
                       Data as of {ageLabel}
                       {detail.cacheHit ? '' : ` · loaded in ${((detail.cacheComputeMs || 0) / 1000).toFixed(1)}s`}
                     </span>
@@ -757,6 +767,31 @@ export default function JobCostingDashboard() {
                     >
                       <RefreshCw size={11} className={detailLoading ? 'animate-spin' : ''} />
                       Refresh
+                    </button>
+                    <button
+                      type="button"
+                      onClick={async () => {
+                        setExporting(true);
+                        try {
+                          await exportJobCostingXlsx(detail);
+                        } catch (err: any) {
+                          alert('Export failed: ' + (err?.message || err));
+                        } finally {
+                          setExporting(false);
+                        }
+                      }}
+                      disabled={detailLoading || exporting}
+                      className="flex items-center gap-1 px-2 py-1 rounded text-xs hover:opacity-80"
+                      style={{
+                        background: '#ffffff',
+                        border: '1px solid rgba(200,140,0,0.20)',
+                        color: '#c88c00',
+                        cursor: detailLoading || exporting ? 'not-allowed' : 'pointer',
+                      }}
+                      title="Download this job's costs by group and labor hours as an Excel spreadsheet, using the data shown here"
+                    >
+                      <Download size={11} className={exporting ? 'animate-pulse' : ''} />
+                      {exporting ? 'Exporting...' : 'Export to Excel'}
                     </button>
                   </div>
                 );
