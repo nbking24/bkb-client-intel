@@ -143,6 +143,21 @@ const SUB_TYPE_TO_COST_TYPE: Record<string, string> = {
  * understand (01/02/03) — that narrows straight to the right bucket —
  * otherwise we fall back to the 2-digit division so the list isn't empty.
  */
+/**
+ * Billable line a bill most likely belongs on, from its line name
+ * ("...:0803 - Materials" is 2303, "...:0202 - Sub" is 2302). Mirrors
+ * guessBillableKind in app/lib/bill-billable.ts; the server never guesses,
+ * it uses the kind the button sends.
+ */
+function guessBillableKind(row: { line_name?: string | null; line_cost_code_number?: string | null }): 'subs' | 'materials' {
+  const name = String(row.line_name || '');
+  const code = (name.match(/\b\d{2}(0[1-3])\b/) || [])[1] || String(row.line_cost_code_number || '').slice(2, 4);
+  if (code === '03' || /\bmaterials?\b/i.test(name)) return 'materials';
+  return 'subs';
+}
+
+const BILLABLE_LABEL = { subs: 'Billable Subs (2302)', materials: 'Billable Materials (2303)' } as const;
+
 function defaultCodeForRow(row: { line_cost_code_number?: string | null; suggested_cost_code_number?: string | null }): string {
   const raw = String(row.line_cost_code_number || row.suggested_cost_code_number || '').trim();
   const digits = raw.replace(/\D/g, '');
@@ -263,6 +278,12 @@ export default function BillReviewPage() {
   // "Flag for Nathan": which row's note box is open, and the note text.
   const [flagRowId, setFlagRowId] = useState<string | null>(null);
   const [flagNote, setFlagNote] = useState<Record<string, string>>({});
+  // Billable: per row override of the auto-picked line, the note box, and
+  // the last result message (for example a newly created Billable Items group).
+  const [billableKind, setBillableKind] = useState<Record<string, 'subs' | 'materials'>>({});
+  const [billableNoteOpen, setBillableNoteOpen] = useState<string | null>(null);
+  const [billableNote, setBillableNote] = useState<Record<string, string>>({});
+  const [billableDone, setBillableDone] = useState<string | null>(null);
 
   // "Billables to bill": jobs carrying cost code 23 costs that haven't been
   // turned into a change order yet. Read from the cached invoicing report —
@@ -454,6 +475,37 @@ export default function BillReviewPage() {
       await load();
     } finally {
       setRunning(false);
+    }
+  }
+
+  // Tag the bill line billable: link it to the job's Billable Items line
+  // (2302 Subs or 2303 Materials). One click; the note is optional.
+  async function markBillable(row: ReviewRow) {
+    const kind = billableKind[row.id] || guessBillableKind(row);
+    setActingId(row.id);
+    setRowError((m) => { const next = { ...m }; delete next[row.id]; return next; });
+    try {
+      const res = await fetch(`/api/dashboard/bill-review/${row.id}/billable`, {
+        method: 'POST',
+        headers: { ...headers, 'Content-Type': 'application/json' },
+        body: JSON.stringify({ kind, note: (billableNote[row.id] || '').trim() }),
+      });
+      const json = await res.json().catch(() => ({} as any));
+      if (!res.ok) {
+        setRowError((m) => ({ ...m, [row.id]: json?.error || `Billable failed (HTTP ${res.status})` }));
+      } else {
+        setRows(prev => prev.filter(r => r.id !== row.id));
+        setBillableNoteOpen(null);
+        setBillableDone(
+          `${row.vendor_name || 'Bill'} on ${row.job_name || 'the job'} tagged ${BILLABLE_LABEL[kind]}.` +
+          (json.created === 'group' ? ' The job had no Billable Items group, so it was added to the budget in JobTread.' : '') +
+          (json.created === 'line' ? ` The ${BILLABLE_LABEL[kind]} line was added to the job's Billable Items group.` : '')
+        );
+      }
+    } catch (err: any) {
+      setRowError((m) => ({ ...m, [row.id]: `Network error: ${err?.message || 'unknown'}. Check your connection and try again.` }));
+    } finally {
+      setActingId(null);
     }
   }
 
@@ -708,6 +760,13 @@ export default function BillReviewPage() {
       {lastError && (
         <div className="mb-3 p-3 rounded-lg text-sm" style={{ background: '#fee2e2', color: '#b91c1c' }}>
           {lastError}
+        </div>
+      )}
+
+      {billableDone && (
+        <div className="mb-4 px-4 py-2.5 rounded-lg flex items-start justify-between gap-3 text-sm" style={{ background: '#f4faf5', border: '1px solid #9cc5a1', color: '#1e6b2e' }}>
+          <span className="flex items-start gap-2"><DollarSign size={14} className="mt-0.5" /> {billableDone}</span>
+          <button onClick={() => setBillableDone(null)} className="text-xs underline" style={{ color: '#1e6b2e' }}>Dismiss</button>
         </div>
       )}
 
@@ -1498,6 +1557,78 @@ export default function BillReviewPage() {
                           </button>
                         );
                       })()}
+
+                      {/* Billable: one click links the bill to the job's
+                          Billable Items line (2302 Subs or 2303 Materials,
+                          picked from the bill line), for invoicing later. */}
+                      {(() => {
+                        const kind = billableKind[row.id] || guessBillableKind(row);
+                        const other = kind === 'subs' ? 'materials' : 'subs';
+                        return (
+                          <span className="flex items-center gap-1">
+                            <button
+                              onClick={() => markBillable(row)}
+                              disabled={isActing}
+                              title="Link this bill to the job's Billable Items line so it can be invoiced later"
+                              className="flex items-center gap-1 px-3 py-1.5 rounded text-xs font-medium"
+                              style={{ background: '#ffffff', border: '1px solid #9cc5a1', color: '#1e6b2e', opacity: isActing ? 0.5 : 1 }}
+                            >
+                              {isActing ? <Loader2 size={12} className="animate-spin" /> : <DollarSign size={12} />}
+                              Billable: {BILLABLE_LABEL[kind]}
+                            </button>
+                            <button
+                              onClick={() => setBillableKind(prev => ({ ...prev, [row.id]: other }))}
+                              disabled={isActing}
+                              title={'Use ' + BILLABLE_LABEL[other] + ' instead'}
+                              className="px-1.5 py-1.5 text-[11px] underline"
+                              style={{ color: '#5a5550', background: 'transparent' }}
+                            >
+                              switch to {other === 'subs' ? 'Subs' : 'Materials'}
+                            </button>
+                            <button
+                              onClick={() => setBillableNoteOpen(billableNoteOpen === row.id ? null : row.id)}
+                              disabled={isActing}
+                              className="px-1.5 py-1.5 text-[11px] underline"
+                              style={{ color: '#5a5550', background: 'transparent' }}
+                            >
+                              {(billableNote[row.id] || '').trim() ? 'edit note' : 'add note'}
+                            </button>
+                          </span>
+                        );
+                      })()}
+
+                      {billableNoteOpen === row.id && (
+                        <div className="basis-full mt-2 p-2 rounded" style={{ background: '#f4faf5', border: '1px solid #9cc5a1' }}>
+                          <label className="block text-[11px] font-semibold mb-1" style={{ color: '#1e6b2e' }}>
+                            Optional: what is the client being billed for? (saved on the bill line in JobTread)
+                          </label>
+                          <div className="flex items-center gap-2">
+                            <input
+                              type="text"
+                              autoFocus
+                              maxLength={500}
+                              value={billableNote[row.id] || ''}
+                              onChange={(e) => setBillableNote(prev => ({ ...prev, [row.id]: e.target.value }))}
+                              onKeyDown={(e) => {
+                                if (e.key === 'Enter') { e.preventDefault(); void markBillable(row); }
+                                if (e.key === 'Escape') setBillableNoteOpen(null);
+                              }}
+                              placeholder="e.g. extra power washing the client asked for"
+                              className="flex-1 px-2 py-1.5 rounded text-xs"
+                              style={{ background: '#ffffff', border: '1px solid #e8e5e0', color: '#1a1a1a' }}
+                            />
+                            <button
+                              onClick={() => markBillable(row)}
+                              disabled={isActing}
+                              className="flex items-center gap-1 px-3 py-1.5 rounded text-xs font-medium"
+                              style={{ background: '#1e6b2e', color: '#ffffff', border: '1px solid #1e6b2e', opacity: isActing ? 0.5 : 1 }}
+                            >
+                              {isActing ? <Loader2 size={12} className="animate-spin" /> : <DollarSign size={12} />}
+                              Tag billable
+                            </button>
+                          </div>
+                        </div>
+                      )}
 
                       {/* Flag for Nathan — available on every row, not just
                           the dead ends, so Heather can escalate anything she
