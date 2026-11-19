@@ -233,8 +233,10 @@ export async function POST(req: Request) {
       // Skip unselected options (see comment on isUnselectedItem above).
       if (isUnselectedItem(dci)) continue;
 
-      // Cost code lookup mirrors the actuals loop (line cost code first,
-      // then linked budget item's cost code, then "00 / Uncoded").
+      // Budget side: the change order line's own cost code first (it is
+      // the budget line itself), then its linked budget item's code, then
+      // "00 / Uncoded". The actuals loop below prefers the linked budget
+      // item instead, because a bill line's own code can be stale.
       const ccName = dci.costCode?.name || dci.jobCostItem?.costCode?.name || 'Uncoded';
       const ccNum = dci.costCode?.number || dci.jobCostItem?.costCode?.number || '00';
       const key = ccNum + '-' + ccName;
@@ -410,8 +412,13 @@ export async function POST(req: Request) {
         if (docType !== 'vendorBill' && docType !== 'vendorOrder') continue;
 
         const cost = Number(dci.cost) || 0;
-        const ccName = dci.costCode?.name || dci.jobCostItem?.costCode?.name || 'Uncoded';
-        const ccNum = dci.costCode?.number || dci.jobCostItem?.costCode?.number || '00';
+        // A bill or PO line belongs to the group of the budget item it is
+        // tagged to. The line's own cost code is only a fallback for lines
+        // with no budget item: when a bill is relinked to another budget
+        // item in JobTread, its line code can keep the old value, which
+        // used to leave the cost in the wrong group (Henschel, 2026-11-19).
+        const ccName = dci.jobCostItem?.costCode?.name || dci.costCode?.name || 'Uncoded';
+        const ccNum = dci.jobCostItem?.costCode?.number || dci.costCode?.number || '00';
         const key = ccNum + '-' + ccName;
 
         const docMeta: any = dci.document || {};
