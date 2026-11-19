@@ -1,14 +1,16 @@
 // @ts-nocheck
 /**
  * Job Costing export: one job's costs and labor as an Excel workbook, built
- * in the browser from the detail data already on screen (so it matches the
- * page exactly, including the "Data as of" time).
+ * on the server (GET /api/dashboard/job-costing/export) from the same saved
+ * detail data the page shows, so it matches the page exactly, including the
+ * "Data as of" time.
  *
  * Tab 1 "Costs by Group": one row per cost code group with Budget, Actual
  *   (approved bills plus BKB labor), Pending (pending bills and open POs),
- *   Remaining and % Used. Under each group: a Subs subtotal and a Materials
- *   subtotal (and Other, when a line is neither) with every bill or PO under
- *   it, then a BKB labor row. Groups are collapsible: Excel's 1 / 2 / 3
+ *   Remaining and % Used. Under each group: Subs, Materials, Labor (and
+ *   Other, when a line is none of those) subtotals with their own budget,
+ *   actual, pending and remaining, every bill or PO under Subs and
+ *   Materials, and each worker's hours under Labor. Groups are collapsible: Excel's 1 / 2 / 3
  *   buttons at the left show groups only, groups with subtotals, or every
  *   bill. It opens at level 2.
  * Tab 2 "Labor Hours": per group, budgeted, actual and remaining work hours
@@ -45,8 +47,11 @@ function safeName(s: string) {
   return String(s || 'Job').replace(/[\\/:*?"<>|]+/g, ' ').replace(/\s+/g, ' ').trim();
 }
 
-export async function exportJobCostingXlsx(detail: any) {
-  const ExcelJS = (await import('exceljs')).default;
+const CAT_LABEL: Record<string, string> = { subs: 'Subs', materials: 'Materials', labor: 'BKB Labor', other: 'Other' };
+
+/** Build the workbook and return it as an .xlsx buffer, with a file name. */
+export async function buildJobCostingWorkbook(detail: any): Promise<{ buffer: Buffer; fileName: string }> {
+  const ExcelJS = require('exceljs');
   const wb = new ExcelJS.Workbook();
   wb.creator = 'BKB Hub';
   wb.created = new Date();
@@ -75,7 +80,7 @@ export async function exportJobCostingXlsx(detail: any) {
   ];
   ws.addRow([title]).font = { bold: true, size: 14, color: { argb: NAVY } };
   ws.addRow([(job.clientName ? job.clientName + '   ' : '') + asOfText]).font = { italic: true, color: { argb: 'FF555555' } };
-  ws.addRow(['Actual = approved bills plus BKB labor. Pending = pending bills and open purchase orders. Remaining = Budget minus Actual minus Pending.']).font = { size: 9, color: { argb: 'FF777777' } };
+  ws.addRow(['Actual = approved bills plus BKB labor. Pending = pending bills and open purchase orders. Remaining = Budget minus Actual minus Pending. Click 3 at the top left to show every bill.']).font = { size: 9, color: { argb: 'FF777777' } };
   ws.addRow([]);
   const head = ws.addRow(['Group / Item', 'Vendor', 'Bill #', 'Date', 'Budget', 'Actual', 'Pending', 'Remaining', '% Used']);
   head.font = { bold: true, color: { argb: 'FFFFFFFF' } };
@@ -105,45 +110,53 @@ export async function exportJobCostingXlsx(detail: any) {
     money(gr, ['budget', 'actual', 'pending', 'remaining']);
     gr.getCell('pct').numFmt = PCT;
 
-    // Bills and POs by Subs / Materials / Other, then BKB labor.
+    // Subs, Materials, Labor and Other: each a subtotal row with its own
+    // budget, actual, pending and remaining, then its lines.
     const lines = [
-      ...(g.actualLines || []).filter((l) => l.kind !== 'labor').map((l) => ({ ...l, status: 'actual' })),
-      ...(g.pendingLines || []).filter((l) => l.kind !== 'labor').map((l) => ({ ...l, status: 'pending' })),
+      ...(g.actualLines || []).map((l) => ({ ...l, status: 'actual' })),
+      ...(g.pendingLines || []).map((l) => ({ ...l, status: 'pending' })),
     ];
-    for (const kind of ['Subs', 'Materials', 'Other'] as Kind[]) {
-      const mine = lines.filter((l) => lineKind(l) === kind).sort((a, b) => String(a.date || '').localeCompare(String(b.date || '')));
-      if (!mine.length) continue;
-      const a = mine.filter((l) => l.status === 'actual').reduce((s, l) => s + (Number(l.cost) || 0), 0);
-      const p = mine.filter((l) => l.status === 'pending').reduce((s, l) => s + (Number(l.cost) || 0), 0);
-      const sr = ws.addRow({ name: '   ' + kind + ' (' + mine.length + ')', actual: a || null, pending: p || null });
+    const catOf = (l) => (l.kind === 'labor' ? 'labor' : lineKind(l).toLowerCase());
+    const byType = Array.isArray(g.byType) ? g.byType : null;
+    for (const cat of ['subs', 'materials', 'labor', 'other']) {
+      const mine = lines.filter((l) => catOf(l) === cat).sort((a, b) => String(a.date || '').localeCompare(String(b.date || '')));
+      const t = byType ? byType.find((x) => x.category === cat) : null;
+      const a = mine.filter((l) => l.status === 'actual').reduce((s2, l) => s2 + (Number(l.cost) || 0), 0);
+      const p = mine.filter((l) => l.status === 'pending').reduce((s2, l) => s2 + (Number(l.cost) || 0), 0);
+      const b = t ? Number(t.budget) || 0 : null;
+      if (!mine.length && !b) continue;
+      const hoursNote = cat === 'labor' && t && (t.budgetedHours || t.actualHours)
+        ? ' (' + (t.actualHours || 0) + ' of ' + (t.budgetedHours || 0) + ' budgeted hrs)'
+        : '';
+      const sr = ws.addRow({
+        name: '   ' + CAT_LABEL[cat] + hoursNote,
+        budget: b,
+        actual: a || null,
+        pending: p || null,
+        remaining: b != null ? b - a - p : null,
+        pct: b ? a / b : null,
+      });
       sr.outlineLevel = 1;
       sr.font = { bold: true, color: { argb: 'FF333333' } };
       sr.eachCell({ includeEmpty: true }, (c) => (c.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: SUB_FILL } }));
-      money(sr, ['actual', 'pending']);
+      money(sr, ['budget', 'actual', 'pending', 'remaining']);
+      sr.getCell('pct').numFmt = PCT;
       for (const l of mine) {
+        const isLabor = l.kind === 'labor';
         const br = ws.addRow({
-          name: '        ' + (l.itemName || '') + (l.kind === 'po' ? ' (PO)' : '') + (l.status === 'pending' && l.kind !== 'po' ? ' (pending)' : ''),
-          vendor: l.label || '',
-          doc: l.docNumber || '',
-          date: l.date ? new Date(l.date) : null,
+          name: '        ' + (isLabor ? (l.label || 'Labor') + (l.hours != null ? ', ' + l.hours + ' hrs' : '') : (l.itemName || '')) +
+            (l.kind === 'po' ? ' (PO)' : '') + (l.status === 'pending' && l.kind === 'bill' ? ' (pending)' : ''),
+          vendor: isLabor ? '' : l.label || '',
+          doc: isLabor ? '' : l.docNumber || '',
+          date: !isLabor && l.date ? new Date(l.date) : null,
           actual: l.status === 'actual' ? Number(l.cost) || 0 : null,
           pending: l.status === 'pending' ? Number(l.cost) || 0 : null,
         });
         br.outlineLevel = 2;
-        br.hidden = true; // opens at level 2; the 3 button shows every bill
+        br.hidden = true; // opens at level 2; the 3 button shows every line
         br.getCell('date').numFmt = 'mm/dd/yyyy';
         money(br, ['actual', 'pending']);
       }
-    }
-    const labor = (g.actualLines || []).filter((l) => l.kind === 'labor');
-    const laborCost = labor.reduce((s, l) => s + (Number(l.cost) || 0), 0);
-    const laborHours = labor.reduce((s, l) => s + (Number(l.hours) || 0), 0);
-    if (laborCost || laborHours) {
-      const lr = ws.addRow({ name: '   BKB labor (' + Math.round(laborHours * 10) / 10 + ' hrs, see Labor Hours tab)', actual: laborCost || null });
-      lr.outlineLevel = 1;
-      lr.font = { bold: true, color: { argb: 'FF333333' } };
-      lr.eachCell({ includeEmpty: true }, (c) => (c.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: SUB_FILL } }));
-      money(lr, ['actual']);
     }
   }
   ws.addRow([]);
@@ -201,14 +214,6 @@ export async function exportJobCostingXlsx(detail: any) {
     wl.addRow(['Hours by employee need fresher data: click Refresh on the job, then export again.']).font = { italic: true, color: { argb: 'FF8A6100' } };
   }
 
-  // ---------------------------------------------------------------- download
-  const buf = await wb.xlsx.writeBuffer();
-  const blob = new Blob([buf], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' });
-  const a = document.createElement('a');
-  a.href = URL.createObjectURL(blob);
-  a.download = safeName(title) + ' Job Costing ' + asOf.toISOString().slice(0, 10) + '.xlsx';
-  document.body.appendChild(a);
-  a.click();
-  a.remove();
-  setTimeout(() => URL.revokeObjectURL(a.href), 5000);
+  const buffer = Buffer.from(await wb.xlsx.writeBuffer());
+  return { buffer, fileName: safeName(title) + ' Job Costing ' + asOf.toISOString().slice(0, 10) + '.xlsx' };
 }

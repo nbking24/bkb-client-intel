@@ -25,7 +25,53 @@ import {
   Briefcase,
 } from 'lucide-react';
 import { Download } from 'lucide-react';
-import { exportJobCostingXlsx } from './exportJobCosting';
+
+type CostCategory = 'labor' | 'materials' | 'subs' | 'other';
+const CATEGORY_ORDER: CostCategory[] = ['labor', 'materials', 'subs', 'other'];
+const CATEGORY_LABEL: Record<CostCategory, string> = { labor: 'Labor', materials: 'Materials', subs: 'Subs', other: 'Other' };
+
+/** Same rule as categoryOf in the detail route: cost type, else the line name's 01 / 02 / 03. */
+function categoryOfLine(l: { kind?: string; costType?: string | null; itemName?: string | null }): CostCategory {
+  if (l.kind === 'labor') return 'labor';
+  const t = String(l.costType || '').toLowerCase();
+  if (t.includes('labor') || t.includes('time')) return 'labor';
+  if (t.includes('sub')) return 'subs';
+  if (t.includes('material')) return 'materials';
+  const n = String(l.itemName || '');
+  if (/\b\d{2}01\b|\s-\s*labor\b/i.test(n)) return 'labor';
+  if (/\b\d{2}02\b|\s-\s*sub\b/i.test(n)) return 'subs';
+  if (/\b\d{2}03\b|\s-\s*materials?\b/i.test(n)) return 'materials';
+  return 'other';
+}
+
+/**
+ * Download the job's Job Costing workbook. The server builds it from the
+ * same saved data this page shows (see /api/dashboard/job-costing/export).
+ */
+async function downloadJobCostingXlsx(jobId: string) {
+  const token = typeof window !== 'undefined' ? localStorage.getItem('bkb-token') || '' : '';
+  const res = await fetch('/api/dashboard/job-costing/export', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+    body: JSON.stringify({ jobId }),
+  });
+  const type = res.headers.get('content-type') || '';
+  if (!res.ok || !type.includes('spreadsheetml')) {
+    const j = await res.json().catch(() => ({} as any));
+    throw new Error(j?.error || `HTTP ${res.status}`);
+  }
+  const blob = await res.blob();
+  if (blob.size < 2000) throw new Error('The file came back empty (' + blob.size + ' bytes).');
+  const name = (res.headers.get('content-disposition') || '').match(/filename="([^"]+)"/)?.[1] || 'Job Costing.xlsx';
+  const href = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = href;
+  a.download = name;
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+  setTimeout(() => URL.revokeObjectURL(href), 10000);
+}
 
 // ============================================================
 // Types
@@ -119,6 +165,17 @@ interface CostCodeRow {
   // Per-line breakdowns surfaced when a row is expanded.
   actualLines?: CostLine[];
   pendingLines?: CostLine[];
+  // Where each category stands in this group (from the server; absent on
+  // older saved snapshots, in which case budgets show as a dash).
+  byType?: {
+    category: 'labor' | 'materials' | 'subs' | 'other';
+    budget: number;
+    actual: number;
+    pending: number;
+    remaining: number;
+    budgetedHours?: number;
+    actualHours?: number;
+  }[];
 }
 
 interface CostLine {
@@ -128,6 +185,9 @@ interface CostLine {
   cost: number;
   date: string | null;
   kind: 'bill' | 'po' | 'labor';
+  // Cost type of a bill or PO line ("Subcontractor", "Materials", ...);
+  // missing on older saved snapshots.
+  costType?: string | null;
   // For labor: total hours rolled up across all of this worker's time entries
   // for this cost code. Null for bills/POs.
   hours: number | null;
@@ -773,7 +833,7 @@ export default function JobCostingDashboard() {
                       onClick={async () => {
                         setExporting(true);
                         try {
-                          await exportJobCostingXlsx(detail);
+                          await downloadJobCostingXlsx(detail.job.id);
                         } catch (err: any) {
                           alert('Export failed: ' + (err?.message || err));
                         } finally {
@@ -1950,101 +2010,115 @@ export default function JobCostingDashboard() {
                       {/* Expanded drawer: budget line items + actual + pending breakdowns */}
                       {isExpanded && (
                         <div className="px-4 pb-3 pt-1 ml-8 space-y-3">
-                          {/* Actual costs — what's been spent so far.
-                              Labor lines are rolled up per-employee
-                              server-side, so a single Labor row can
-                              represent dozens of time entries. */}
-                          {cc.actualLines && cc.actualLines.length > 0 && (
-                            <div>
-                              <div className="text-xs font-semibold mb-1.5 flex items-center gap-2" style={{ color: '#1a1a1a' }}>
-                                <span>Actual Costs</span>
-                                <span style={{ color: '#8a8078', fontWeight: 400 }}>
-                                  ({cc.actualLines.filter(l => l.kind !== 'labor').length} bill{cc.actualLines.filter(l => l.kind !== 'labor').length === 1 ? '' : 's'}
-                                  {cc.actualLines.some(l => l.kind === 'labor') && (
-                                    <> · {cc.actualLines.filter(l => l.kind === 'labor').length} worker{cc.actualLines.filter(l => l.kind === 'labor').length === 1 ? '' : 's'}</>
-                                  )}
-                                  {' · '}${fmt(cc.actualCost)})
-                                </span>
-                              </div>
-                              {cc.actualLines.map((line, i) => (
-                                <div
-                                  key={'a' + i}
-                                  className="flex items-center gap-3 py-1 text-xs"
-                                  style={{ color: '#8a8078' }}
-                                >
-                                  <span
-                                    className="text-[10px] uppercase tracking-wide font-mono shrink-0 px-1.5 py-0.5 rounded"
-                                    style={{
-                                      background: line.kind === 'labor' ? 'rgba(59,130,246,0.12)' : line.kind === 'po' ? 'rgba(168,85,247,0.12)' : 'rgba(34,197,94,0.12)',
-                                      color: line.kind === 'labor' ? '#3b82f6' : line.kind === 'po' ? '#a855f7' : '#22c55e',
-                                    }}
-                                  >
-                                    {line.kind === 'labor' ? 'Labor' : line.kind === 'po' ? 'PO' : 'Bill'}
-                                  </span>
-                                  <span className="flex-1 truncate" style={{ color: '#1a1a1a' }}>
-                                    {line.label}
-                                    {line.kind !== 'labor' && line.docNumber ? <span style={{ color: '#8a8078' }}> · #{line.docNumber}</span> : null}
-                                    {line.kind !== 'labor' && line.itemName ? <span style={{ color: '#8a8078' }}> — {line.itemName}</span> : null}
-                                  </span>
-                                  {/* Labor rows show total hours instead of a date (the rollup spans many days). */}
-                                  {line.kind === 'labor' && line.hours != null ? (
-                                    <span className="shrink-0 text-[11px]" style={{ color: '#8a8078' }}>
-                                      {line.hours} {line.hours === 1 ? 'hr' : 'hrs'}
-                                    </span>
-                                  ) : line.date ? (
-                                    <span className="shrink-0 text-[11px]" style={{ color: '#8a8078' }}>
-                                      {new Date(line.date).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}
-                                    </span>
-                                  ) : null}
-                                  <span className="shrink-0 w-24 text-right" style={{ color: '#1a1a1a' }}>
-                                    ${fmt(line.cost)}
-                                  </span>
-                                </div>
-                              ))}
-                            </div>
-                          )}
+                          {/* Costs by category: a summary of where Labor,
+                              Materials and Subs stand in this group, then
+                              every bill, PO and worker listed under its
+                              category with that category's total. Pending
+                              lines sit with their category, marked Pending. */}
+                          {(() => {
+                            const all = [
+                              ...(cc.actualLines || []).map((l) => ({ ...l, pending: false })),
+                              ...(cc.pendingLines || []).map((l) => ({ ...l, pending: true })),
+                            ];
+                            if (all.length === 0 && !(cc.byType || []).length) return null;
+                            const cats = CATEGORY_ORDER.map((cat) => {
+                              const lines = all.filter((l) => categoryOfLine(l) === cat);
+                              const t = (cc.byType || []).find((x) => x.category === cat);
+                              const actual = t ? t.actual : lines.filter((l) => !l.pending).reduce((x, l) => x + (Number(l.cost) || 0), 0);
+                              const pending = t ? t.pending : lines.filter((l) => l.pending).reduce((x, l) => x + (Number(l.cost) || 0), 0);
+                              const budget = t ? t.budget : null;
+                              return {
+                                cat, lines, actual, pending, budget,
+                                remaining: budget != null ? budget - actual - pending : null,
+                                budgetedHours: t?.budgetedHours, actualHours: t?.actualHours,
+                              };
+                            }).filter((c) => c.lines.length > 0 || (c.budget || 0) > 0 || (c.actualHours || 0) > 0);
+                            const money = (n: number | null | undefined) => (n == null ? '-' : '$' + fmt(n));
+                            return (
+                              <div className="space-y-3">
+                                <table className="w-full text-xs">
+                                  <thead>
+                                    <tr style={{ color: '#8a8078' }}>
+                                      <th className="text-left font-medium py-1">By category</th>
+                                      {!cp && <th className="text-right font-medium py-1">Budget</th>}
+                                      <th className="text-right font-medium py-1">Actual</th>
+                                      <th className="text-right font-medium py-1">Pending</th>
+                                      {!cp && <th className="text-right font-medium py-1">Remaining</th>}
+                                    </tr>
+                                  </thead>
+                                  <tbody>
+                                    {cats.map((c) => (
+                                      <tr key={c.cat} style={{ borderTop: '1px solid rgba(0,0,0,0.06)' }}>
+                                        <td className="py-1 font-semibold" style={{ color: '#1a1a1a' }}>
+                                          {CATEGORY_LABEL[c.cat]}
+                                          {c.cat === 'labor' && (c.budgetedHours || c.actualHours) ? (
+                                            <span className="font-normal" style={{ color: '#8a8078' }}>
+                                              {' '}({c.actualHours || 0} of {c.budgetedHours || 0} hrs)
+                                            </span>
+                                          ) : null}
+                                        </td>
+                                        {!cp && <td className="py-1 text-right" style={{ color: '#1a1a1a' }}>{money(c.budget)}</td>}
+                                        <td className="py-1 text-right" style={{ color: '#1a1a1a' }}>{money(c.actual)}</td>
+                                        <td className="py-1 text-right" style={{ color: c.pending ? '#f59e0b' : '#8a8078' }}>{money(c.pending)}</td>
+                                        {!cp && (
+                                          <td className="py-1 text-right font-semibold" style={{ color: c.remaining != null && c.remaining < 0 ? '#dc2626' : '#16a34a' }}>
+                                            {money(c.remaining)}
+                                          </td>
+                                        )}
+                                      </tr>
+                                    ))}
+                                  </tbody>
+                                </table>
+                                {!cc.byType && (
+                                  <div className="text-[11px] italic" style={{ color: '#a14b00' }}>
+                                    Category budgets need fresher data: click Refresh.
+                                  </div>
+                                )}
 
-                          {/* Pending costs — committed but not yet final */}
-                          {cc.pendingLines && cc.pendingLines.length > 0 && (
-                            <div>
-                              <div className="text-xs font-semibold mb-1.5 flex items-center gap-2" style={{ color: '#f59e0b' }}>
-                                <span>Pending Costs</span>
-                                <span style={{ color: '#8a8078', fontWeight: 400 }}>
-                                  ({cc.pendingLines.length} {cc.pendingLines.length === 1 ? 'entry' : 'entries'} · ${fmt(cc.pendingCost)})
-                                </span>
+                                {cats.filter((c) => c.lines.length > 0).map((c) => (
+                                  <div key={'lines-' + c.cat}>
+                                    <div className="text-xs font-semibold mb-1 flex items-center gap-2" style={{ color: '#1a1a1a' }}>
+                                      <span>{CATEGORY_LABEL[c.cat]}</span>
+                                      <span style={{ color: '#8a8078', fontWeight: 400 }}>
+                                        ({c.lines.length} {c.cat === 'labor' ? (c.lines.length === 1 ? 'worker' : 'workers') : (c.lines.length === 1 ? 'line' : 'lines')}
+                                        {' · '}${fmt(c.actual)} actual{c.pending ? <> · ${fmt(c.pending)} pending</> : null})
+                                      </span>
+                                    </div>
+                                    {c.lines.map((line, i) => (
+                                      <div key={c.cat + i} className="flex items-center gap-3 py-1 text-xs" style={{ color: '#8a8078' }}>
+                                        <span
+                                          className="text-[10px] uppercase tracking-wide font-mono shrink-0 px-1.5 py-0.5 rounded"
+                                          style={{
+                                            background: line.pending ? 'rgba(245,158,11,0.12)' : line.kind === 'labor' ? 'rgba(59,130,246,0.12)' : line.kind === 'po' ? 'rgba(168,85,247,0.12)' : 'rgba(34,197,94,0.12)',
+                                            color: line.pending ? '#f59e0b' : line.kind === 'labor' ? '#3b82f6' : line.kind === 'po' ? '#a855f7' : '#22c55e',
+                                          }}
+                                        >
+                                          {line.kind === 'labor' ? 'Labor' : line.kind === 'po' ? 'PO' : line.pending ? 'Pending' : 'Bill'}
+                                        </span>
+                                        <span className="flex-1 truncate" style={{ color: '#1a1a1a' }}>
+                                          {line.label}
+                                          {line.kind !== 'labor' && line.docNumber ? <span style={{ color: '#8a8078' }}> · #{line.docNumber}</span> : null}
+                                          {line.kind !== 'labor' && line.itemName ? <span style={{ color: '#8a8078' }}> · {line.itemName}</span> : null}
+                                        </span>
+                                        {line.kind === 'labor' && line.hours != null ? (
+                                          <span className="shrink-0 text-[11px]" style={{ color: '#8a8078' }}>
+                                            {line.hours} {line.hours === 1 ? 'hr' : 'hrs'}
+                                          </span>
+                                        ) : line.date ? (
+                                          <span className="shrink-0 text-[11px]" style={{ color: '#8a8078' }}>
+                                            {new Date(line.date).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}
+                                          </span>
+                                        ) : null}
+                                        <span className="shrink-0 w-24 text-right" style={{ color: line.pending ? '#f59e0b' : '#1a1a1a' }}>
+                                          ${fmt(line.cost)}
+                                        </span>
+                                      </div>
+                                    ))}
+                                  </div>
+                                ))}
                               </div>
-                              {cc.pendingLines.map((line, i) => (
-                                <div
-                                  key={'p' + i}
-                                  className="flex items-center gap-3 py-1 text-xs"
-                                  style={{ color: '#8a8078' }}
-                                >
-                                  <span
-                                    className="text-[10px] uppercase tracking-wide font-mono shrink-0 px-1.5 py-0.5 rounded"
-                                    style={{
-                                      background: line.kind === 'po' ? 'rgba(168,85,247,0.12)' : 'rgba(245,158,11,0.12)',
-                                      color: line.kind === 'po' ? '#a855f7' : '#f59e0b',
-                                    }}
-                                  >
-                                    {line.kind === 'po' ? 'PO' : 'Bill'}
-                                  </span>
-                                  <span className="flex-1 truncate" style={{ color: '#1a1a1a' }}>
-                                    {line.label}
-                                    {line.docNumber ? <span style={{ color: '#8a8078' }}> · #{line.docNumber}</span> : null}
-                                    {line.itemName ? <span style={{ color: '#8a8078' }}> — {line.itemName}</span> : null}
-                                  </span>
-                                  {line.date && (
-                                    <span className="shrink-0 text-[11px]" style={{ color: '#8a8078' }}>
-                                      {new Date(line.date).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}
-                                    </span>
-                                  )}
-                                  <span className="shrink-0 w-24 text-right" style={{ color: '#f59e0b' }}>
-                                    ${fmt(line.cost)}
-                                  </span>
-                                </div>
-                              ))}
-                            </div>
-                          )}
+                            );
+                          })()}
 
                           {/* Budget line items — original estimate breakdown.
                               Renders the top 5 by default; the "Show all"

@@ -22,6 +22,23 @@ import { getSupabase } from '@/app/api/lib/supabase';
 // only `?refresh=1` will bypass the cache and recompute.
 const CACHE_TTL_MS = Number.POSITIVE_INFINITY;
 
+/**
+ * Category of a budget line or cost line: Labor, Materials, Subs or Other,
+ * from its cost type, else its name ("0803 - Materials", "0201 - Labor").
+ */
+function categoryOf(costTypeName: any, name: any, kind?: string): 'labor' | 'materials' | 'subs' | 'other' {
+  if (kind === 'labor') return 'labor';
+  const t = String(costTypeName || '').toLowerCase();
+  if (t.includes('labor') || t.includes('time')) return 'labor';
+  if (t.includes('sub')) return 'subs';
+  if (t.includes('material')) return 'materials';
+  const n = String(name || '');
+  if (/\b\d{2}01\b|\s-\s*labor\b/i.test(n)) return 'labor';
+  if (/\b\d{2}02\b|\s-\s*sub\b/i.test(n)) return 'subs';
+  if (/\b\d{2}03\b|\s-\s*materials?\b/i.test(n)) return 'materials';
+  return 'other';
+}
+
 function computeHours(startedAt: string, endedAt: string): number {
   if (!startedAt || !endedAt) return 0;
   const ms = new Date(endedAt).getTime() - new Date(startedAt).getTime();
@@ -192,6 +209,15 @@ export async function POST(req: Request) {
       items: { name: string; cost: number; price: number; quantity: number }[];
     }> = {};
 
+    // Budget split by category (Labor, Materials, Subs, Other) per cost
+    // code group, so an expanded group can show where each category stands.
+    type CatKey = 'labor' | 'materials' | 'subs' | 'other';
+    const budgetByType: Record<string, Record<CatKey, number>> = {};
+    const addBudgetByType = (key: string, costTypeName: any, itemName: any, cost: number) => {
+      if (!budgetByType[key]) budgetByType[key] = { labor: 0, materials: 0, subs: 0, other: 0 };
+      budgetByType[key][categoryOf(costTypeName, itemName)] += cost;
+    };
+
     let budgetBreakdownTotal = 0;
     let estimatedLaborHours = 0;
     let budgetSourceUsed: 'approved_co_lines' | 'job_budget_items_fallback' = 'approved_co_lines';
@@ -267,6 +293,8 @@ export async function POST(req: Request) {
       budgetBreakdownTotal += cost;
 
       const costType = dci.costType?.name?.toLowerCase() || '';
+
+      addBudgetByType(key, dci.costType?.name, dci.name, cost);
       if (costType.includes('labor') || costType.includes('time')) {
         const qty = Number(dci.quantity) || 0;
         estimatedLaborHours += qty;
@@ -324,6 +352,8 @@ export async function POST(req: Request) {
       });
       budgetBreakdownTotal += cost;
       const costType = ci.costType?.name?.toLowerCase() || '';
+
+      addBudgetByType(key, ci.costType?.name, ci.name, cost);
       if (costType.includes('labor') || costType.includes('time')) {
         const qty = Number(ci.quantity) || 0;
         estimatedLaborHours += qty;
@@ -360,6 +390,8 @@ export async function POST(req: Request) {
         });
         budgetBreakdownTotal += cost;
         const costType = ci.costType?.name?.toLowerCase() || '';
+
+        addBudgetByType(key, ci.costType?.name, ci.name, cost);
         if (costType.includes('labor') || costType.includes('time')) {
           const qty = Number(ci.quantity) || 0;
           estimatedLaborHours += qty;
@@ -742,6 +774,31 @@ export async function POST(req: Request) {
           topItems: budget.items.sort((a, b) => b.cost - a.cost),
           actualLines: sortLines(actualBucket.lines),
           pendingLines: sortLines(pendingBucket.lines),
+          // Where each category stands in this group: Labor, Materials, Subs
+          // (and Other when a line is none of those). Labor also carries
+          // budgeted and actual work hours.
+          byType: (['labor', 'materials', 'subs', 'other'] as const)
+            .map((cat) => {
+              const r2 = (n: number) => Math.round(n * 100) / 100;
+              const sumOf = (lines: CostLine[]) =>
+                lines.filter((l) => categoryOf(l.costType, l.itemName, l.kind) === cat).reduce((t, l) => t + (Number(l.cost) || 0), 0);
+              const budgetC = budgetByType[key]?.[cat] || 0;
+              const actualC = sumOf(actualBucket.lines);
+              const pendingC = sumOf(pendingBucket.lines);
+              const row: any = {
+                category: cat,
+                budget: r2(budgetC),
+                actual: r2(actualC),
+                pending: r2(pendingC),
+                remaining: r2(budgetC - actualC - pendingC),
+              };
+              if (cat === 'labor') {
+                row.budgetedHours = Math.round((budgetedLaborHoursByCode[key]?.hours || 0) * 10) / 10;
+                row.actualHours = Math.round((workHoursByCode[key]?.hours || 0) * 10) / 10;
+              }
+              return row;
+            })
+            .filter((r: any) => r.budget || r.actual || r.pending || r.budgetedHours || r.actualHours),
         };
       })
       .sort((a, b) => a.costCodeNumber.localeCompare(b.costCodeNumber));
