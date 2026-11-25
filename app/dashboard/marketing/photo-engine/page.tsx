@@ -6,7 +6,7 @@ import {
   Loader2, Images, RefreshCw, AlertTriangle, Folder, Camera, Film,
   FileText, Play, CheckCircle2, Clock, XCircle, Plus, X, Search,
   FolderOpen, ArrowLeft, ChevronRight, Upload, ExternalLink, File as FileIcon, Trash2,
-  RotateCw,
+  RotateCw, ChevronDown, Wrench,
 } from 'lucide-react';
 import FtpReorgPlan from './FtpReorgPlan';
 import CopyStepPanel from './CopyStepPanel';
@@ -45,6 +45,53 @@ function EmailBadge({ status }: { status: string | null }) {
   };
   const s = status ? (map[status] || { label: String(status), cls: 'bg-gray-100 text-gray-600' }) : map.draft;
   return <span className={`inline-block px-2 py-0.5 rounded-full text-xs font-medium ${s.cls}`}>{s.label}</span>;
+}
+
+/**
+ * A group on this page that opens and closes from its title bar. Each group
+ * remembers whether it was open in this browser.
+ */
+function Section({ id, title, icon, hint, defaultOpen = true, actions, children }: {
+  id: string;
+  title: string;
+  icon?: React.ReactNode;
+  hint?: string;
+  defaultOpen?: boolean;
+  actions?: React.ReactNode;
+  children: React.ReactNode;
+}) {
+  const storageKey = 'bkb-photo-engine-open:' + id;
+  const [open, setOpen] = useState(defaultOpen);
+  useEffect(() => {
+    try {
+      const v = localStorage.getItem(storageKey);
+      if (v === '1' || v === '0') setOpen(v === '1');
+    } catch {}
+  }, [storageKey]);
+  function toggle() {
+    const next = !open;
+    setOpen(next);
+    try { localStorage.setItem(storageKey, next ? '1' : '0'); } catch {}
+  }
+  return (
+    <div className="border border-gray-200 rounded-lg bg-white">
+      <div className="flex items-center justify-between gap-3 px-4 py-2.5">
+        <button
+          type="button"
+          onClick={toggle}
+          aria-expanded={open}
+          className="flex items-center gap-2 min-w-0 text-left text-sm font-semibold text-gray-700 hover:text-gray-900"
+        >
+          {open ? <ChevronDown className="w-4 h-4 text-gray-400 flex-shrink-0" /> : <ChevronRight className="w-4 h-4 text-gray-400 flex-shrink-0" />}
+          {icon}
+          <span>{title}</span>
+          {hint && <span className="text-xs font-normal text-gray-400 truncate">{hint}</span>}
+        </button>
+        {open && actions && <div className="flex items-center gap-2 flex-shrink-0">{actions}</div>}
+      </div>
+      {open && <div className="px-4 pb-4">{children}</div>}
+    </div>
+  );
 }
 
 export default function PhotoEnginePage() {
@@ -340,9 +387,9 @@ export default function PhotoEnginePage() {
             Photo Engine
           </h2>
           <p className="text-sm text-gray-500 mt-1">
-            Choose the jobs you want the engine to work. For each selected job, the Cowork task
-            curates photos and videos, builds the project profile, and stages a folder for the web
-            designer. The heavy media work runs outside the Hub.
+            Every job under Jobs being monitored is checked each morning for new photos, videos and
+            plans. On Friday the new files go to Mike's FTP, each job's existing marketing profile is
+            updated, and Mike gets one email. Nothing needs to be clicked week to week.
           </p>
         </div>
         <button
@@ -371,23 +418,96 @@ export default function PhotoEnginePage() {
         <div className="rounded-md bg-red-50 p-4 text-red-700 text-sm">Failed: {error}</div>
       )}
 
-      {/* Marketing pipeline Step 1: read only reorg plan */}
-      <FtpReorgPlan />
-
-      {/* Marketing pipeline Step 3: copy new files to Mike */}
-      <CopyStepPanel />
+      {/* Jobs being monitored (selected jobs) */}
+      <Section
+        id="selected"
+        title="Jobs being monitored"
+        icon={<Folder className="w-4 h-4 text-blue-700" />}
+        hint={selectedJobs.length + (selectedJobs.length === 1 ? ' job' : ' jobs') + ', checked every morning, new files sent on Fridays'}
+        actions={
+          <button
+            onClick={() => { setSearch(''); setShowAdd(true); }}
+            className="inline-flex items-center gap-1.5 px-3 py-1.5 text-sm font-medium rounded-md bg-blue-700 text-white hover:bg-blue-800"
+          >
+            <Plus className="w-4 h-4" />
+            Add a job
+          </button>
+        }
+      >
+        {selectedJobs.length === 0 ? (
+          <div className="bg-white border border-dashed border-gray-300 rounded-lg p-8 text-center">
+            <Folder className="w-10 h-10 text-gray-300 mx-auto mb-3" />
+            <p className="text-sm text-gray-600">
+              No jobs selected yet. Add a job to start building its marketing
+              folder and profile.
+            </p>
+          </div>
+        ) : (
+          <div className="space-y-2">
+            {selectedJobs.map((j) => {
+              const last = j.lastRun;
+              const running = last?.status === 'queued' || last?.status === 'processing';
+              return (
+                <div key={j.id} className="bg-white border border-gray-200 rounded-lg p-4">
+                  <div className="flex items-start justify-between gap-4">
+                    <div className="min-w-0">
+                      <div className="font-medium text-gray-900 flex items-center gap-2">{j.name || 'Unnamed job'}{!j.active && (<span className="text-[10px] font-medium px-1.5 py-0.5 rounded bg-gray-100 text-gray-500">Completed</span>)}</div>
+                      <div className="mt-1 flex flex-wrap items-center gap-x-4 gap-y-1 text-xs text-gray-500">
+                        {j.number && <span>#{j.number}</span>}
+                        <span className="inline-flex items-center gap-1.5">
+                          <Folder className="w-3.5 h-3.5 text-gray-400" />
+                          <code className="bg-gray-100 rounded px-1.5 py-0.5">{j.folderName}</code>
+                        </span>
+                      </div>
+                    </div>
+                    <div className="flex items-center gap-2 flex-shrink-0">
+                      <button
+                        onClick={() => queueJob(j.id)}
+                        disabled={busyJob === j.id || running}
+                        className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium rounded-md bg-blue-700 text-white hover:bg-blue-800 disabled:opacity-50 disabled:cursor-not-allowed"
+                      >
+                        {busyJob === j.id ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Play className="w-3.5 h-3.5" />}
+                        Queue for processing
+                      </button>
+                      <button
+                        onClick={() => setIncluded(j.id, false)}
+                        disabled={busyJob === j.id}
+                        className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium rounded-md border border-gray-300 text-gray-600 hover:bg-gray-50 disabled:opacity-50 disabled:cursor-not-allowed"
+                      >
+                        <X className="w-3.5 h-3.5" />
+                        Remove
+                      </button>
+                    </div>
+                  </div>
+                  <div className="mt-3 flex flex-wrap items-center gap-4 text-sm text-gray-600">
+                    <StatusBadge status={last?.status || null} />
+                    <span className="inline-flex items-center gap-1"><Camera className="w-3.5 h-3.5 text-gray-400" />{last?.photosAdded ?? 0} photos</span>
+                    <span className="inline-flex items-center gap-1"><Film className="w-3.5 h-3.5 text-gray-400" />{last?.videosAdded ?? 0} videos</span>
+                    {last?.profileUpdated ? (
+                      <span className="inline-flex items-center gap-1 text-green-700"><FileText className="w-3.5 h-3.5" />Profile updated</span>
+                    ) : (
+                      <span className="inline-flex items-center gap-1 text-gray-400"><FileText className="w-3.5 h-3.5" />Profile not built yet</span>
+                    )}
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        )}
+      </Section>
 
       {/* Marketing pipeline Step 5: the Friday run */}
       <WeeklyRunPanel />
 
       {/* Project folders (designer FTP browser) */}
-      <div>
-        <div className="flex items-center justify-between mb-2">
-          <h3 className="text-sm font-semibold text-gray-700 flex items-center gap-2">
-            <FolderOpen className="w-4 h-4 text-blue-700" />
-            Project folders
-          </h3>
-          <div className="flex items-center gap-2">
+      <Section
+        id="folders"
+        title="Project folders"
+        icon={<FolderOpen className="w-4 h-4 text-blue-700" />}
+        hint="Browse Mike's FTP"
+        defaultOpen={false}
+        actions={
+          <>
             {ftpConfigured && (
               <>
                 {topLevelFolder && (
@@ -419,9 +539,9 @@ export default function PhotoEnginePage() {
                 </button>
               </>
             )}
-          </div>
-        </div>
-
+          </>
+        }
+      >
         <input
           ref={fileInputRef}
           type="file"
@@ -567,11 +687,16 @@ export default function PhotoEnginePage() {
             )}
           </div>
         )}
-      </div>
+      </Section>
 
       {/* Recent activity */}
-      <div>
-        <h3 className="text-sm font-semibold text-gray-700 mb-2">Recent activity</h3>
+      <Section
+        id="activity"
+        title="Recent activity"
+        icon={<Clock className="w-4 h-4 text-blue-700" />}
+        hint={runs.length ? runs.length + (runs.length === 1 ? ' entry' : ' entries') : undefined}
+        defaultOpen={false}
+      >
         {runs.length === 0 ? (
           <div className="bg-white border border-dashed border-gray-300 rounded-lg p-6 text-center text-sm text-gray-500">
             No runs yet. Queue a selected job above to get started.
@@ -606,81 +731,24 @@ export default function PhotoEnginePage() {
             ))}
           </div>
         )}
-      </div>
+      </Section>
 
-      {/* Selected jobs */}
-      <div>
-        <div className="flex items-center justify-between mb-2">
-          <h3 className="text-sm font-semibold text-gray-700">Selected jobs</h3>
-          <button
-            onClick={() => { setSearch(''); setShowAdd(true); }}
-            className="inline-flex items-center gap-1.5 px-3 py-1.5 text-sm font-medium rounded-md bg-blue-700 text-white hover:bg-blue-800"
-          >
-            <Plus className="w-4 h-4" />
-            Add a job
-          </button>
+      {/* One-off setup tools. Not part of the weekly run. */}
+      <Section
+        id="tools"
+        title="Manual tools"
+        icon={<Wrench className="w-4 h-4 text-blue-700" />}
+        hint="One-off setup and fixes. Not needed for the weekly run."
+        defaultOpen={false}
+      >
+        <div className="space-y-6">
+          {/* Marketing pipeline Step 1: read only reorg plan */}
+          <FtpReorgPlan />
+
+          {/* Marketing pipeline Step 3: copy new files to Mike */}
+          <CopyStepPanel />
         </div>
-        {selectedJobs.length === 0 ? (
-          <div className="bg-white border border-dashed border-gray-300 rounded-lg p-8 text-center">
-            <Folder className="w-10 h-10 text-gray-300 mx-auto mb-3" />
-            <p className="text-sm text-gray-600">
-              No jobs selected yet. Add a job from the list below to start building its marketing
-              folder and profile.
-            </p>
-          </div>
-        ) : (
-          <div className="space-y-2">
-            {selectedJobs.map((j) => {
-              const last = j.lastRun;
-              const running = last?.status === 'queued' || last?.status === 'processing';
-              return (
-                <div key={j.id} className="bg-white border border-gray-200 rounded-lg p-4">
-                  <div className="flex items-start justify-between gap-4">
-                    <div className="min-w-0">
-                      <div className="font-medium text-gray-900 flex items-center gap-2">{j.name || 'Unnamed job'}{!j.active && (<span className="text-[10px] font-medium px-1.5 py-0.5 rounded bg-gray-100 text-gray-500">Completed</span>)}</div>
-                      <div className="mt-1 flex flex-wrap items-center gap-x-4 gap-y-1 text-xs text-gray-500">
-                        {j.number && <span>#{j.number}</span>}
-                        <span className="inline-flex items-center gap-1.5">
-                          <Folder className="w-3.5 h-3.5 text-gray-400" />
-                          <code className="bg-gray-100 rounded px-1.5 py-0.5">{j.folderName}</code>
-                        </span>
-                      </div>
-                    </div>
-                    <div className="flex items-center gap-2 flex-shrink-0">
-                      <button
-                        onClick={() => queueJob(j.id)}
-                        disabled={busyJob === j.id || running}
-                        className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium rounded-md bg-blue-700 text-white hover:bg-blue-800 disabled:opacity-50 disabled:cursor-not-allowed"
-                      >
-                        {busyJob === j.id ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Play className="w-3.5 h-3.5" />}
-                        Queue for processing
-                      </button>
-                      <button
-                        onClick={() => setIncluded(j.id, false)}
-                        disabled={busyJob === j.id}
-                        className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium rounded-md border border-gray-300 text-gray-600 hover:bg-gray-50 disabled:opacity-50 disabled:cursor-not-allowed"
-                      >
-                        <X className="w-3.5 h-3.5" />
-                        Remove
-                      </button>
-                    </div>
-                  </div>
-                  <div className="mt-3 flex flex-wrap items-center gap-4 text-sm text-gray-600">
-                    <StatusBadge status={last?.status || null} />
-                    <span className="inline-flex items-center gap-1"><Camera className="w-3.5 h-3.5 text-gray-400" />{last?.photosAdded ?? 0} photos</span>
-                    <span className="inline-flex items-center gap-1"><Film className="w-3.5 h-3.5 text-gray-400" />{last?.videosAdded ?? 0} videos</span>
-                    {last?.profileUpdated ? (
-                      <span className="inline-flex items-center gap-1 text-green-700"><FileText className="w-3.5 h-3.5" />Profile updated</span>
-                    ) : (
-                      <span className="inline-flex items-center gap-1 text-gray-400"><FileText className="w-3.5 h-3.5" />Profile not built yet</span>
-                    )}
-                  </div>
-                </div>
-              );
-            })}
-          </div>
-        )}
-      </div>
+      </Section>
 
       {showAdd && (
         <div
