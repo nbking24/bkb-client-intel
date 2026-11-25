@@ -4,7 +4,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import {
   Loader2, Images, RefreshCw, AlertTriangle, Folder, Camera, Film,
-  FileText, Play, CheckCircle2, Clock, XCircle, Plus, X, Search,
+  FileText, CheckCircle2, Clock, XCircle, Plus, X, Search,
   FolderOpen, ArrowLeft, ChevronRight, Upload, ExternalLink, File as FileIcon, Trash2,
   RotateCw, ChevronDown, Wrench,
 } from 'lucide-react';
@@ -154,27 +154,6 @@ export default function PhotoEnginePage() {
         method: 'POST',
         headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
         body: JSON.stringify({ jobId, included }),
-      });
-      const data = await r.json();
-      if (data.error) setError(data.error);
-      await loadAll();
-    } catch (err: any) {
-      setError(err.message);
-    } finally {
-      setBusyJob(null);
-    }
-  }
-
-  async function queueJob(jobId: string) {
-    const token = getToken();
-    if (!token) return;
-    setBusyJob(jobId);
-    setError(null);
-    try {
-      const r = await fetch('/api/marketing/photo-engine/queue', {
-        method: 'POST',
-        headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
-        body: JSON.stringify({ jobId }),
       });
       const data = await r.json();
       if (data.error) setError(data.error);
@@ -446,7 +425,6 @@ export default function PhotoEnginePage() {
           <div className="space-y-2">
             {selectedJobs.map((j) => {
               const last = j.lastRun;
-              const running = last?.status === 'queued' || last?.status === 'processing';
               return (
                 <div key={j.id} className="bg-white border border-gray-200 rounded-lg p-4">
                   <div className="flex items-start justify-between gap-4">
@@ -461,14 +439,6 @@ export default function PhotoEnginePage() {
                       </div>
                     </div>
                     <div className="flex items-center gap-2 flex-shrink-0">
-                      <button
-                        onClick={() => queueJob(j.id)}
-                        disabled={busyJob === j.id || running}
-                        className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium rounded-md bg-blue-700 text-white hover:bg-blue-800 disabled:opacity-50 disabled:cursor-not-allowed"
-                      >
-                        {busyJob === j.id ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Play className="w-3.5 h-3.5" />}
-                        Queue for processing
-                      </button>
                       <button
                         onClick={() => setIncluded(j.id, false)}
                         disabled={busyJob === j.id}
@@ -699,7 +669,7 @@ export default function PhotoEnginePage() {
       >
         {runs.length === 0 ? (
           <div className="bg-white border border-dashed border-gray-300 rounded-lg p-6 text-center text-sm text-gray-500">
-            No runs yet. Queue a selected job above to get started.
+            No runs yet. The first Friday run will show here.
           </div>
         ) : (
           <div className="bg-white border border-gray-200 rounded-lg divide-y divide-gray-100">
