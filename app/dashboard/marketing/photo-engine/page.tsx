@@ -368,7 +368,8 @@ export default function PhotoEnginePage() {
           <p className="text-sm text-gray-500 mt-1">
             Every job under Jobs being monitored is checked each morning for new photos, videos and
             plans. On Friday the new files go to Mike's FTP, each job's existing marketing profile is
-            updated, and Mike gets one email. Nothing needs to be clicked week to week.
+            updated, and Mike gets one email. Nothing needs to be clicked week to week; Run now
+            does the same thing on demand, and the next run only sends what was added after it.
           </p>
         </div>
         <button

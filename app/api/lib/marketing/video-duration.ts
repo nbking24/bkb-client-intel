@@ -39,7 +39,9 @@ export function durationFromBuffer(buf: Buffer): number | null {
 
 /** Fetch a byte range, reading at most `limit` bytes even if the server ignores Range. */
 async function fetchRange(url: string, range: string, limit: number): Promise<Buffer | null> {
-  const res = await fetch(url, { headers: { Range: range }, cache: 'no-store' });
+  // A stalled download must not hold up the whole run: give up after 20
+  // seconds and treat the length as unknown (the video is kept).
+  const res = await fetch(url, { headers: { Range: range }, cache: 'no-store', signal: AbortSignal.timeout(20000) });
   if (!res.ok || !res.body) return null;
   const reader = res.body.getReader();
   const chunks: Buffer[] = [];
